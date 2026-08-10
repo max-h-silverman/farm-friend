@@ -357,3 +357,96 @@ describe("two voices — confirmed stock and typical offerings (F-045)", () => {
     expect(body).not.toMatch(/^Confirmed /im);
   });
 });
+
+// B-049. Observed against the real model and the production corpus: "anyone got mangoes?"
+// answered `Confirmed mangoes:` over a stand publishing eggs, blueberries and basil, and "my
+// kid has a dairy allergy" answered `Confirmed dairy:` over a creamery.
+//
+// The heading names the CUSTOMER'S words, while the stand lines name what the stand actually
+// publishes. When code could not match the two, the heading asserted a confirmation no
+// retrieved row supports — a fabricated factual claim rendered entirely by code, which is
+// exactly what the grounded-answer rule exists to prevent.
+//
+// The item fallback itself is correct and stays: a category request ("leafy greens" reaching
+// "butter lettuce") is a relationship only the model can see, so listing every item is right.
+// What must change is the CLAIM above it, which may only name what the rows can support.
+describe("the heading may not claim an item the rows do not carry (B-049)", () => {
+  const unmatched: PageableFact = {
+    factId: "confirmed-x",
+    locationName: "Aeggy's Farm",
+    farmName: "Aeggy's Farm",
+    publicAddress: "13609 SW 220th St",
+    // The fallback case: none of these is a mango.
+    matchedItems: [{ itemName: "Eggs" }, { itemName: "blueberries" }, { itemName: "basil" }],
+    asOf: hoursAgo(2),
+    basis: "confirmed",
+  };
+
+  const matched: PageableFact = {
+    ...unmatched,
+    factId: "confirmed-y",
+    matchedItems: [{ itemName: "mangoes" }],
+  };
+
+  it("does not assert the requested item when no listed item names it", () => {
+    const body = renderResultPage({
+      itemsRequested: ["mangoes"],
+      facts: [unmatched],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+    // The exact production defect: a confirmation claim about mangoes over a stand with none.
+    expect(body).not.toMatch(/Confirmed mangoes/i);
+    // The stand is still a real answer the model selected — it must not vanish.
+    expect(body).toContain("Aeggy's Farm");
+    expect(body).toContain("Eggs, blueberries, basil");
+  });
+
+  it("still names the item when a listed item does carry it", () => {
+    const body = renderResultPage({
+      itemsRequested: ["mangoes"],
+      facts: [matched],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+    expect(body).toMatch(/Confirmed mangoes/i);
+  });
+
+  it("names the item for the subset of stands that carry it", () => {
+    // A mixed page must not be dragged down to the weakest claim: the heading is one claim
+    // over the whole page, so it may name the item as soon as ANY row supports it.
+    const body = renderResultPage({
+      itemsRequested: ["mangoes"],
+      facts: [matched, unmatched],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+    expect(body).toMatch(/Confirmed mangoes/i);
+  });
+
+  it("applies the same rule to the offerings voice", () => {
+    const body = renderResultPage({
+      itemsRequested: ["dairy"],
+      facts: [{ ...unmatched, basis: "offering" }],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+    expect(body).not.toMatch(/usually have dairy/i);
+    expect(body).toContain("Aeggy's Farm");
+  });
+
+  it("keeps a case-insensitive match a match", () => {
+    const body = renderResultPage({
+      itemsRequested: ["Kale"],
+      facts: [{ ...unmatched, matchedItems: [{ itemName: "kale" }] }],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+    expect(body).toMatch(/Confirmed Kale/i);
+  });
+});

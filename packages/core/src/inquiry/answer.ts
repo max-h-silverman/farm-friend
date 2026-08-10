@@ -259,6 +259,23 @@ export function renderClarificationRequest(): string {
 }
 
 /**
+ * The reply when Farm Friend could not reach its interpreter at all (B-049).
+ *
+ * A separate sentence from `renderClarificationRequest` because it reports a DIFFERENT fact.
+ * Telling a customer whose question was never seen that we "did not catch which item" blames
+ * their wording for our outage and asks them to retype something that was already fine.
+ *
+ * It claims nothing about any stand — an unanswered question is not evidence of absence — and
+ * it points at the map, which does not depend on the interpreter being up.
+ */
+export function renderInterpreterUnavailable(): string {
+  return (
+    "Sorry, I could not look that up just now. Please try again in a minute. " +
+    `The map at ${PUBLIC_MAP_URL} is always up to date.`
+  );
+}
+
+/**
  * The code-rendered response to a request outside what launch answers — recipes, cooking
  * or preservation instructions, and food-safety guidance (F-018).
  *

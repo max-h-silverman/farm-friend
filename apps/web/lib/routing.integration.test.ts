@@ -19,6 +19,7 @@ import {
   REGISTERED_OPT_IN_AUTO_RESPONSE,
 } from "@farm-friend/core";
 import { authorizeDispatch, createDb, type Db, type Sql } from "@farm-friend/db";
+import { offeringFactId } from "./inquiry";
 import { runInboundPass } from "./workers";
 
 // F-023 — inbound SMS routed END TO END, from a validly signed webhook POST to the durable
@@ -1299,7 +1300,7 @@ describe("inbound routing end to end (integration)", () => {
           insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
           values (${standId}, 'eggs', true, 0)
         `;
-        pagedStands.push(`offering-${standId}`);
+        pagedStands.push(offeringFactId(standId));
       }
       await client()`
         insert into pending_result_lists (

@@ -138,14 +138,23 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "calculate, substitute, or invent dates. A future closure that conflicts with " +
     "currentClosure requires clarification.",
   "inquiry-interpretation":
-    "items are the product words the customer asks about, as plain nouns. ranking MUST be " +
+    "items are the product words the customer asks about, as plain nouns. Correct obvious " +
+    'misspellings ("tomatos" -> "tomatoes", "kayle" -> "kale"). A message that is only a ' +
+    'product word is a request for it ("garlic?" -> items ["garlic"]), and so is one that ' +
+    "asks about price, cost, or availability of a product - answer the product half and let " +
+    "code state what it cannot answer. ranking MUST be " +
     'exactly "freshest", "coverage", or "any": "coverage" when they want places carrying ' +
     'the most of their items, "freshest" when recency matters most, "any" otherwise. ' +
-    "farmScope only when they name a specific farm. outOfScopeRequest is true when they " +
+    "farmScope only when they name a specific farm; when they name a farm and no product, " +
+    'set farmScope and use the broad item ["produce"] so the whole stand can answer. ' +
+    "When they ask broadly what is available, with no product and no farm, also use " +
+    '["produce"]. outOfScopeRequest is true when they ' +
     "also ask for a recipe, preparation, or food-safety guidance. originDependent is true " +
-    "ONLY when answering requires knowing where the customer is (nearest, closest, distance, " +
-    "directions). If the message is not an interpretable product request, return the " +
-    "ambiguous shape with no other fields.",
+    "whenever answering depends on where the customer is (nearest, closest, distance, " +
+    'directions), INCLUDING when they name no product - "what is closest to me?" is ' +
+    'originDependent with items ["produce"], never ambiguous. Return the ambiguous shape ' +
+    "ONLY for a message that asks for no product, names no farm, and makes no availability " +
+    'request at all - a greeting, a thank-you, or chat ("hi", "thanks", "are you a robot").',
   "grounded-fact-selection":
     "factIds MUST be values from facts, ordered best match first; select only facts that " +
     "answer the request. Code no longer pre-filters by item name, so facts includes stands " +
