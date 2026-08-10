@@ -41,8 +41,10 @@ multi-stand farm, a removed farm, and "off the map with the farm" chips are unse
 styling. A `::before` computed transform also reads as identity on a zero-size element — the
 rendered caret, not the computed value, is the truth there.
 
-No test file covers `farm-list.tsx` or `stand-list.tsx`, so the "Stands" → "1 stand" / "N stands"
-heading change broke nothing; that absence is itself worth knowing.
+`apps/web/lib/admin-ui.test.tsx` does render both `FarmList` and `StandDetails`, but it never
+asserts on the "Stands" heading — so the rename to "1 stand" / "N stands" passed for want of an
+assertion rather than because the change was proven safe. The suite is blind to this change class;
+the Chrome measurements are the evidence here, not the green check.
 
 A scratch `.probe/inquiry-probe.ts` in the repo root belongs to an active parallel session probing
 SMS inquiry responses — left untouched, uncommitted, and deliberately not gitignored.
