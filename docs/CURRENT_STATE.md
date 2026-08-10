@@ -8,19 +8,28 @@
 ## Release state
 
 Farm Friend is **pre-go-live**. **Production and `main` are in sync** as of 2026-08-10. Production
-Postgres `neondb` has **37 migrations** (`0000`–`0036`); Cloud Run web is `farm-friend-web-00056-kqm`
-and worker is `farm-friend-worker-00051-7cl`, both on digest
-`sha256:869abb4edd4fbf58c15fd54d884b46c02d758cfeedbc130dfcc50272bcad31dd`.
+Postgres `neondb` has **38 migrations** (`0000`–`0037`); Cloud Run web is `farm-friend-web-00057-bpc`
+and worker is `farm-friend-worker-00052-j9s`, both on digest
+`sha256:9d38d9e958e701b258c4de0002399e42c28318a2dce58dae30f8e008e9cadb15`.
 
-**Deployed runtime is `4308414`** (2026-08-10). This tranche shipped F-100's admin console
-restructure, F-102's farm-card hierarchy, and B-049's SMS inquiry fixes. Migration `0036` (farm
-retirement + the `address_unresolved` flag reason) is applied and **verified by schema effect**:
-37 rows in the ledger, both `farms.retired_at` / `retired_by_administrator_id` present and
-nullable, the `farms_coherent_retirement` CHECK in `pg_constraint`, `address_unresolved` in the
-enum, and exactly the 2 mislabelled flags re-filed. No farm was retired by it (0 rows).
+**Deployed runtime is `6d138ed`** (2026-08-10). This tranche shipped F-100's admin console
+restructure, F-102's farm-card hierarchy, B-049's SMS inquiry fixes, and farmer-owned VIGA Bucks
+acceptance. Two migrations applied, both **verified by schema effect**:
 
-Backup taken immediately before the migration:
-`~/farm-friend-backups/neondb-PRE-0036-20260810-110458.dump`.
+- `0036` (farm retirement + the `address_unresolved` flag reason): both `farms.retired_at` /
+  `retired_by_administrator_id` present and nullable, the `farms_coherent_retirement` CHECK in
+  `pg_constraint`, `address_unresolved` in the enum, and exactly the 2 mislabelled flags re-filed.
+  No farm was retired by it (0 rows).
+- `0037` (farmer owns VIGA Bucks acceptance): the
+  `sales_locations_farm_bucks_acceptance_requires_eligibility` CHECK is absent, both
+  `farm_bucks_*` columns survive, and the data is unchanged — 20 accepted, 23 eligible.
+
+Backups taken immediately before each: `~/farm-friend-backups/neondb-PRE-0036-20260810-110458.dump`
+and `neondb-PRE-0037-20260810-120343.dump`.
+
+**The VIGA Bucks toggle is proven present in what production serves**, not merely in source: the
+deployed chunk contains "Accepts VIGA Bucks" and no longer contains `farmBucksEligible`, so the
+eligibility gate is genuinely gone from the served bundle.
 
 **Every local branch is accounted for in `main`.** Four branches still held commits main lacked;
 all are now merged. Two carried no change (`f-064-weekly-timeline-keys`, superseded — its
@@ -59,7 +68,7 @@ fixed administrator or farm-email roster; email ingest must reuse the deployed `
 
 ## Verification
 
-**Current main:** **1786 unit**, **877 integration**, typecheck, lint, the web production build,
+**Current main:** **1788 unit**, **878 integration**, typecheck, lint, the web production build,
 and **evals 44/44** (11 critical, 4 advisory, 29 adversarial). Also verified earlier on this main:
 a complete seed dry run against the real exports (35 stands, 212 reviewed usual items, 0 unknown, 0
 unresolved) and production cleanup dry-running at 25/25 descriptions clean.
@@ -70,7 +79,9 @@ retirement. The setup link is proven to render on the card that minted it. B-044
 regression and atomic offering restore checks still fail when their guarantees are broken.
 B-049's three proofs also hold: the heading fix fails when the requested item is asserted
 unconditionally, the opaque fact identifier fails when the `offering-` prefix returns, and the
-response ceiling fails against the 1024 value that truncated real answers.
+response ceiling fails against the 1024 value that truncated real answers. VIGA Bucks likewise:
+restoring the eligibility gate fails three onboarding tests, and rehardcoding the insert's
+`farm_bucks_accepted` fails the writer test.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.

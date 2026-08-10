@@ -11,6 +11,58 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-10 — Measuring the SMS agent found two false claims; then the whole tranche shipped
+
+Max asked for live testing of the SMS inquiry path. The suites were green and stayed green
+throughout — every defect below was found by *measuring*, driving the real production model
+through the real code against a faithful clone of the production corpus.
+
+**Two defects put a false claim in a customer's hand.** The page heading was rendered from the
+customer's own words rather than from the retrieved rows, so "anyone got mangoes?" answered
+`Confirmed mangoes:` over a stand selling eggs and basil, and a dairy-allergy question answered
+`Confirmed dairy:` over a creamery. Reproduced with the model removed entirely, which is what
+made it plainly a code defect. The item fallback it rides on is *correct* and stays — a category
+request ("leafy greens" answered by "butter lettuce") is a relationship only the model can see —
+so the fix constrains the CLAIM, not the list beneath it.
+
+Separately, offering facts were identified as `offering-<locationId>`, asking the model to
+reproduce a structured string exactly. It dropped the prefix and returned the bare uuid: 11 of 11
+invalid identifiers in one run were this single mistake, against a corpus where 33 of 48
+candidates are offering-only stands. Validation refused every one correctly — nothing false was
+ever rendered — but the customer lost a real answer each time. **The barrier working is not the
+same as the system working**, and only measurement showed the difference.
+
+**The budget pair taught the sharper lesson.** Raising the response ceiling to stop a looping
+model, I sized it from characters ÷ 3.2 and got ~750 tokens for 60 uuids. Hex tokenizes far more
+finely — nearer 18 tokens each, so ~1100 — and the 1024 ceiling I shipped TRUNCATED real answers
+mid-identifier, turning good answers into rejections. It reached production. Verifying the deploy
+*by effect* rather than by assertions is the only reason it was caught within the hour. A ceiling
+below the widest honest output does not fail safely.
+
+**Then max asked to ship everything undeployed.** Four branches held commits main lacked. Two
+contributed nothing (superseded; their content had landed by other routes) and one,
+`deploy-contact-only-hotfix`, would have REVERTED the stricter visitability rule — merged `-s ours`
+so it is provably accounted for rather than silently dropped or silently applied. Where a merge
+conflicted, main's side won every time and the reason is recorded in the merge commit.
+
+**VIGA Bucks, at the end.** Max noticed the option missing from onboarding. It was gated on a VIGA
+eligibility flag stored on a stand row that does not exist until onboarding saves — so the control
+could never render for the farmer the form exists for. Max's call: acceptance is the farmer's own
+claim. Four enforcement points had to move together (CHECK, code guard, result status, and a
+hardcoded `false` in the INSERT that would have silently dropped the answer even with the gate
+removed).
+
+Removing the CHECK exposed a test that had been **passing for the wrong reason for months**:
+`schema.integration.test.ts` transposed `name` and `timezone`, so its `.rejects.toThrow()` was
+satisfied by an invalid-enum error rather than the projection rule under test. The farm-bucks
+CHECK was the other accidental error source. Both fixed; the rule is now genuinely tested.
+
+**Open, filed as B-050:** the very broadest inquiries ("what's available today?") still fail,
+because at ~48 identifiers the model corrupts individual uuids. That is the selection call's SHAPE,
+not a budget — asking for a full ranking of every candidate when only three are ever shown. The
+fix is a short list plus a continuation, and it was filed rather than rushed at the end of a long
+session.
+
 ## 2026-08-10 — The admin farm card gets a hierarchy
 
 Max asked for a design pass on the farm/stand listing, naming one symptom: the nested stand was
