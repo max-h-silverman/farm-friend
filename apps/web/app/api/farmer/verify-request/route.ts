@@ -2,7 +2,6 @@ import { createPublicActionThrottle, createEmailSender } from "@farm-friend/core
 import {
   findVerifiableFarmByEmail,
   issueVerificationCode,
-  readFarmName,
 } from "@farm-friend/db";
 import { publicReadContext, sharedClock } from "../../../../lib/public-context";
 import { resolveEmailDelivery } from "../../../../lib/email-delivery";
@@ -61,15 +60,14 @@ export async function POST(request: Request): Promise<Response> {
       emailSalt: config.emailSalt,
       codeSalt: config.codeSalt,
       clientSignalSalt: config.emailSalt,
-      replyToAddress: delivery.config.fromAddress,
       findVerifiableFarm: findVerifiableFarmByEmail,
       issueCode: issueVerificationCode,
-      readFarmName,
       sendCode: async (input) =>
         send({
           toEmail: input.email,
           subject: input.subject,
           text: input.text,
+          html: input.html,
           idempotencyKey: input.idempotencyKey,
         }),
       /*

@@ -74,7 +74,32 @@ function message(request: Parameters<EmailTransport>[0]): string {
   const from = request.fromName === undefined
     ? fromAddress
     : `${header(request.fromName)} <${fromAddress}>`;
-  const body = Buffer.from(request.text, "utf8").toString("base64");
+  const textBody = Buffer.from(request.text, "utf8").toString("base64");
+  const htmlBody = request.html === undefined ? undefined : Buffer.from(request.html, "utf8").toString("base64");
+  const boundary = "farm-friend-alternative";
+
+  const content = htmlBody === undefined
+    ? [
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      textBody,
+    ]
+    : [
+      `Content-Type: multipart/alternative; boundary="${boundary}"`,
+      "",
+      `--${boundary}`,
+      "Content-Type: text/plain; charset=UTF-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      textBody,
+      `--${boundary}`,
+      "Content-Type: text/html; charset=UTF-8",
+      "Content-Transfer-Encoding: base64",
+      "",
+      htmlBody,
+      `--${boundary}--`,
+    ];
 
   return [
     `From: ${from}`,
@@ -83,10 +108,7 @@ function message(request: Parameters<EmailTransport>[0]): string {
     `Subject: ${header(request.subject)}`,
     `X-Farm-Friend-Idempotency-Key: ${request.idempotencyKey}`,
     "MIME-Version: 1.0",
-    "Content-Type: text/plain; charset=UTF-8",
-    "Content-Transfer-Encoding: base64",
-    "",
-    body,
+    ...content,
   ].join("\r\n");
 }
 

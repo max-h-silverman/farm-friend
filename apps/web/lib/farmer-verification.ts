@@ -89,14 +89,6 @@ export interface VerificationRequestDeps {
   codeSalt: string;
   /** Coarse rate bucket only. Never identity. */
   clientSignalSalt: string;
-  /**
-   * The monitored mailbox a confused farmer replies to, rendered into the message.
-   *
-   * CONFIGURATION, never hard-coded: it is the same value that authenticates to the relay and
-   * receives replies, and F-078 records that moving to a dedicated address must stay an apply
-   * rather than a code change.
-   */
-  replyToAddress: string;
   findVerifiableFarm: (
     db: Db,
     query: { farmId: string; email: string; salt: string },
@@ -111,12 +103,12 @@ export interface VerificationRequestDeps {
       now: Date;
     },
   ) => Promise<IssueVerificationResult>;
-  readFarmName: (db: Db, farmId: string) => Promise<string | null>;
   sendCode: (input: {
     farmId: string;
     email: string;
     subject: string;
     text: string;
+    html: string;
     idempotencyKey: string;
   }) => Promise<{ outcome: string; errorCode?: string }>;
   /**
@@ -207,16 +199,11 @@ export async function handleVerificationRequestPost(
   });
   if (issued.status !== "issued") return Response.json(SENT);
 
-  const farmName = await deps.readFarmName(deps.db, farmId);
-  if (farmName === null) return Response.json(SENT);
-
   const sent = await deps.sendCode({
     farmId,
     email,
     ...renderVerificationEmail({
       code: issued.code,
-      farmName,
-      replyToAddress: deps.replyToAddress,
     }),
     idempotencyKey: issued.id,
   });

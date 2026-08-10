@@ -11,6 +11,16 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-10 — Verification email copy and code emphasis
+
+Verification emails now use Farm Friend's requested subject and concise copy. The same message is
+present as a plain-text fallback, while Gmail delivers a `multipart/alternative` email whose HTML
+version renders the six-digit code at 32px, bold, and spaced for easy reading. The verification
+request no longer performs a farm-name lookup solely for email copy.
+
+Verified with 1782 unit tests, 871 local integration tests, typecheck, lint, and the web production
+build. The default integration command correctly refuses to run without a disposable database URL.
+
 ## 2026-08-10 — F-100, the admin console reorganized around subjects
 
 Max asked for four specific admin changes and a UX audit behind them. The audit — run as a
