@@ -196,7 +196,6 @@ export interface SaveOnboardingListingInput {
 export type SaveOnboardingListingResult =
   | { status: "saved"; salesLocationId: string }
   | { status: "unknown_farm" }
-  | { status: "farm_bucks_not_eligible" }
   | { status: "invalid_name" }
   /** The visitability branch is contradicted: see `coherentVisitability`. */
   | { status: "incomplete_location" }
@@ -314,19 +313,21 @@ export async function saveOnboardingListing(
     if (farms.length === 0) return { status: "unknown_farm" as const };
 
     const existing = await tx`
-      select id, farm_bucks_eligible from sales_locations
+      select id from sales_locations
       where owner_farm_id = ${input.farmId}
       order by created_at asc
       limit 1
     `;
     const existingId = existing[0]?.id as string | undefined;
 
-    // Acceptance is the farmer's own operational fact. Eligibility remains a VIGA decision,
-    // enforced before the write instead of relying on the database constraint to reject a form
-    // submission with an opaque error.
-    if (listing.farmBucksAccepted === true && existing[0]?.farm_bucks_eligible !== true) {
-      return { status: "farm_bucks_not_eligible" as const };
-    }
+    // Acceptance is the farmer's own operational fact and publishes on their word (max,
+    // 2026-08-10). It used to require VIGA's `farm_bucks_eligible` first, which made the
+    // onboarding toggle unreachable for exactly the farmer the form exists for: eligibility
+    // is recorded on a stand row that does not exist until this save. The matching CHECK went
+    // in `0037`, so there is no constraint left for this guard to pre-empt either.
+    //
+    // `farm_bucks_eligible` still records VIGA's separate decision for the admin surfaces; it
+    // simply no longer decides what the farmer may state about their own stand.
 
     const salesLocationId =
       existingId === undefined
@@ -513,7 +514,13 @@ async function insertStand(
       ${available.openHoursKind}, ${available.openFromMinutes},
       ${available.openUntilMinutes}, ${available.openDays as number[] | null},
       ${available.stockingCadence}, ${available.stockingDays as number[] | null},
-      true, false, false,
+      -- is_public, then the two VIGA Bucks facts, which are NOT the same fact.
+      --
+      -- Acceptance is the farmer's, taken from the form (max, 2026-08-10); it was hardcoded
+      -- false here, so a farmer creating their stand had their tick silently dropped even
+      -- after the eligibility gate came off. Eligibility stays false: it is VIGA's own
+      -- decision and this door is the farmer's, so nothing here may grant it.
+      true, ${input.listing.farmBucksAccepted === true}, false,
       ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()}
     )
     returning id

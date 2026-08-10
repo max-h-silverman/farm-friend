@@ -260,6 +260,13 @@
       "when": 1788064003000,
       "tag": "0036_farm_retirement_and_address_flag",
       "breakpoints": true
+    },
+    {
+      "idx": 37,
+      "version": "7",
+      "when": 1788150403000,
+      "tag": "0037_farmer_owns_farm_bucks_acceptance",
+      "breakpoints": true
     }
   ]
 }

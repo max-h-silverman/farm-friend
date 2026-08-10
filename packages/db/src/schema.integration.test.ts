@@ -383,6 +383,10 @@ describe("clean launch database foundation (integration)", () => {
   });
 
   it("keeps contextual farm projections separate from actionable sales locations", async () => {
+    // `name` then `timezone`, matching the column list. Those two were transposed here, so
+    // this insert failed on an invalid timezone enum value rather than on the rule under
+    // test, and the assertion passed for the wrong reason. Found 2026-08-10, when dropping
+    // the farm-bucks CHECK removed the other accidental source of an error in this block.
     await expect(
       db()`
         insert into sales_locations (
@@ -390,9 +394,9 @@ describe("clean launch database foundation (integration)", () => {
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
-          ${storedId("Exact Projection Farm")}, 'farm_stand', 'America/Los_Angeles',
-          'Conflicting Public Location', 'visitable', 'produce', '0 Stand Way',
-          47.45, -122.46, false, false
+          ${storedId("Exact Projection Farm")}, 'farm_stand',
+          'Conflicting Public Location', 'America/Los_Angeles', 'visitable', 'produce',
+          '0 Stand Way', 47.45, -122.46, false, false
         )
       `,
     ).rejects.toThrow();
@@ -430,18 +434,27 @@ describe("clean launch database foundation (integration)", () => {
         )
       `,
     ).rejects.toThrow();
-    await expect(
-      db()`
-        insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-          public_longitude, farm_bucks_accepted, farm_bucks_eligible
-        )
-        values (
-          ${storedId("farm")}, 'farm_stand', 'Bad Farm Bucks Fact', 'America/Los_Angeles', 'visitable', 'produce', '4 Stand Way',
-          47.4, -122.4, true, false
-        )
+    // Acceptance without eligibility is now ALLOWED (max, 2026-08-10). The CHECK
+    // `sales_locations_farm_bucks_acceptance_requires_eligibility` was dropped in `0037`:
+    // eligibility is VIGA's own record, and gating the farmer's claim on it made the
+    // onboarding toggle unreachable for every new farm, since eligibility lives on a stand
+    // row that does not exist until onboarding saves.
+    await db()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+        public_longitude, farm_bucks_accepted, farm_bucks_eligible
+      )
+      values (
+        ${storedId("farm")}, 'farm_stand', 'Accepted Not Yet Eligible', 'America/Los_Angeles', 'visitable', 'produce', '4 Stand Way',
+        47.4, -122.4, true, false
+      )
+    `;
+    expect(
+      await db()`
+        select farm_bucks_accepted, farm_bucks_eligible from sales_locations
+        where name = 'Accepted Not Yet Eligible'
       `,
-    ).rejects.toThrow();
+    ).toEqual([{ farm_bucks_accepted: true, farm_bucks_eligible: false }]);
 
     await db()`
       insert into sales_location_payment_methods (sales_location_id, method)

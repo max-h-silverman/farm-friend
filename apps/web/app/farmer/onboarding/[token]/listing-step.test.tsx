@@ -744,11 +744,23 @@ describe("onboarding listing step", () => {
       }
     });
 
-    it("does not offer VIGA Farm Bucks to an ineligible farmer", async () => {
+    // Inverted deliberately (max, 2026-08-10). This asserted the OLD rule — VIGA Bucks hidden
+    // until VIGA marked the farm eligible — which is exactly the behaviour max reported as the
+    // option being missing from onboarding. Eligibility lives on a stand row that does not
+    // exist during onboarding, so "ineligible" described every farmer using this form.
+    //
+    // Acceptance is now the farmer's own claim and publishes on their word; VIGA's eligibility
+    // flag survives as its own separate record for the admin surfaces.
+    it("offers VIGA Farm Bucks to every farmer, eligibility being VIGA's separate record", async () => {
+      const user = userEvent.setup();
       render(<ListingStep credential={{ kind: "invitation", token: TOKEN }} farmName="Test Farm" />);
 
-      expect(screen.queryByText(/farm bucks/i)).not.toBeInTheDocument();
-      expect(screen.queryByText(/VIGA bucks/i)).not.toBeInTheDocument();
+      // The toggle lives on the payment step, so walk there exactly as the sibling tests do.
+      await revealField(user, "Cash");
+
+      expect(
+        screen.getByRole("checkbox", { name: "Accepts VIGA Bucks" }),
+      ).toBeInTheDocument();
     });
 
     it("sends the checked methods, canonically spelled", async () => {
@@ -2600,6 +2612,40 @@ describe("onboarding listing step", () => {
       await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
 
       expect(posted(fetchMock).farmBucksAccepted).toBe(true);
+    });
+
+    it("offers VIGA Bucks to a farm VIGA has NOT marked eligible", async () => {
+      // max, 2026-08-10 — max reported the option missing from onboarding, and this is why:
+      // the control was gated on `defaults.farmBucksEligible`, a VIGA flag stored on the stand
+      // row. A farmer onboarding a new farm has no stand row yet, so the flag could never be
+      // true and the option could never appear for the farmer the form exists for.
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+          defaults={{ ...DEFAULTS, farmBucksEligible: false }}
+        />,
+      );
+
+      expect(
+        screen.getByRole("checkbox", { name: "Accepts VIGA Bucks" }),
+      ).toBeInTheDocument();
+    });
+
+    it("offers VIGA Bucks on a brand-new listing with no defaults at all", async () => {
+      // The true onboarding case: no stand, no defaults, nothing for eligibility to live on.
+      const user = userEvent.setup();
+      render(
+        <ListingStep
+          credential={{ kind: "stand_link", token: TOKEN }}
+          farmName="Test Farm"
+        />,
+      );
+
+      const vigaBucks = screen.getByRole("checkbox", { name: "Accepts VIGA Bucks" });
+      expect(vigaBucks).not.toBeChecked();
+      await user.click(vigaBucks);
+      expect(vigaBucks).toBeChecked();
     });
 
     it("arrives PUBLISHABLE, so an edit is not a forced re-lookup", async () => {

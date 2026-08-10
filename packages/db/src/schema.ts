@@ -1336,10 +1336,18 @@ export const salesLocations = pgTable(
         )
       `,
     ),
-    acceptanceRequiresEligibility: check(
-      "sales_locations_farm_bucks_acceptance_requires_eligibility",
-      sql`not ${table.farmBucksAccepted} or ${table.farmBucksEligible}`,
-    ),
+    /*
+     * There is deliberately NO constraint tying acceptance to eligibility (max, 2026-08-10).
+     *
+     * `sales_locations_farm_bucks_acceptance_requires_eligibility` was dropped in `0037`.
+     * Gating acceptance on VIGA's eligibility flag meant the onboarding form's toggle could
+     * only render for a farm VIGA had already marked — which is never true of the new farm the
+     * form exists to onboard, because eligibility lives on a stand row that does not exist yet.
+     *
+     * Acceptance is now the farmer's own claim about their own stand, which is what Golden
+     * Rule #1 says published state is. `farmBucksEligible` below still records VIGA's separate
+     * decision and is read by the admin surfaces; it simply no longer constrains the farmer.
+     */
 
     /**
      * F-071 — the two retirement columns move together or not at all.

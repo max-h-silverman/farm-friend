@@ -7,25 +7,31 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Migration `0036` (farm retirement + the `address_unresolved` flag
-reason) is **written and verified locally but NOT applied to production** — it is the only
-unapplied migration. Production Postgres `neondb` has **36 migrations** (`0000`–`0035`);
-Cloud Run web is `farm-friend-web-00054-wfk` and worker is `farm-friend-worker-00049-w4v`, both on
-digest `sha256:247393a9f769e76bd13e91195eb332dbda0d8e815b8ea4b84dfc82d213b36840`.
+Farm Friend is **pre-go-live**. **Production and `main` are in sync** as of 2026-08-10. Production
+Postgres `neondb` has **37 migrations** (`0000`–`0036`); Cloud Run web is `farm-friend-web-00056-kqm`
+and worker is `farm-friend-worker-00051-7cl`, both on digest
+`sha256:869abb4edd4fbf58c15fd54d884b46c02d758cfeedbc130dfcc50272bcad31dd`.
 
-**Deployed runtime is `af2cc0d`** (2026-08-09): F-076, F-097, F-098, B-044, B-045, B-046 and B-047
-are live. Migrations `0034` and `0035` are applied and verified by schema effect.
+**Deployed runtime is `4308414`** (2026-08-10). This tranche shipped F-100's admin console
+restructure, F-102's farm-card hierarchy, and B-049's SMS inquiry fixes. Migration `0036` (farm
+retirement + the `address_unresolved` flag reason) is applied and **verified by schema effect**:
+37 rows in the ledger, both `farms.retired_at` / `retired_by_administrator_id` present and
+nullable, the `farms_coherent_retirement` CHECK in `pg_constraint`, `address_unresolved` in the
+enum, and exactly the 2 mislabelled flags re-filed. No farm was retired by it (0 rows).
 
-**`main` is ahead of production and a deploy is owed.** F-100's admin console restructure is merged
-(`1ead9a3`) and undeployed, and `0036` is its unapplied migration. Max deliberately held this deploy
-(2026-08-10) to land a parallel session's work first and ship them together, after his phone-width
-pass. **The next deploy therefore carries more than F-100** — read `git log ae7ffbc..main` before
-building, rather than assuming this tranche is the whole of it. The admin farm-card hierarchy pass
-(2026-08-10) is part of that held tranche.
+Backup taken immediately before the migration:
+`~/farm-friend-backups/neondb-PRE-0036-20260810-110458.dump`.
 
-**Max walks farmer surfaces at phone width before a UI tranche ships.** F-100 rewrote the admin
-surfaces and has had no phone-width pass; a session that opens a UI deploy without one has skipped
-the gate.
+**Every local branch is accounted for in `main`.** Four branches still held commits main lacked;
+all are now merged. Two carried no change (`f-064-weekly-timeline-keys`, superseded — its
+participants, GL-015 backfill, host publishing and migration 0029 had all landed by other routes)
+and one was merged `-s ours` (`deploy-contact-only-hotfix`, whose older copy would have REVERTED
+the stricter visitability rule that forbids inventing an address, F-038/B-024). Pre-merge state is
+tagged `backup-premerge-*`.
+
+**Max walks farmer surfaces at phone width before a UI tranche ships.** F-100's admin surfaces
+shipped in this tranche **without that pass** — max asked for the deploy explicitly, so the gate
+was waived rather than met. It is still owed by eye.
 
 **Production data and schema are current.** Neon has all structured-price and pending-stock columns,
 no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
@@ -53,7 +59,7 @@ fixed administrator or farm-email roster; email ingest must reuse the deployed `
 
 ## Verification
 
-**Current main:** **1782 unit**, **871 integration**, typecheck, lint, the web production build,
+**Current main:** **1786 unit**, **877 integration**, typecheck, lint, the web production build,
 and **evals 44/44** (11 critical, 4 advisory, 29 adversarial). Also verified earlier on this main:
 a complete seed dry run against the real exports (35 stands, 212 reviewed usual items, 0 unknown, 0
 unresolved) and production cleanup dry-running at 25/25 descriptions clean.
@@ -62,13 +68,23 @@ unresolved) and production cleanup dry-running at 25/25 descriptions clean.
 `retired_at` is caught, and `farms_coherent_retirement` genuinely refuses a half-cleared
 retirement. The setup link is proven to render on the card that minted it. B-044's parser
 regression and atomic offering restore checks still fail when their guarantees are broken.
+B-049's three proofs also hold: the heading fix fails when the requested item is asserted
+unconditionally, the opaque fact identifier fails when the `offering-` prefix returns, and the
+response ceiling fails against the 1024 value that truncated real answers.
 
 **B-020:** full integration can fail on varying files under cross-suite contention; it passed in
 this wrap. Treat any named recurrence as real and attribute it against a clean tree.
 
-**Last `evals:live`: 2026-08-06, 25/25** against `mistralai/Mistral-Small-24B-Instruct-2501`
+**Last `evals:live`: 2026-08-10, 25/25** against `mistralai/Mistral-Small-24B-Instruct-2501`
 (containment 4/4, closure 7/7, quality 9/9, recall 5/5). Owed again on any change to a seam's
 projection, schema, or output contract.
+
+**The SMS inquiry path was measured against the real model and a clone of the production corpus**
+(2026-08-10), which is how B-049 was found — the suites were green throughout. Plain single-item
+customer questions went from **11/20 answered to 19/20** locally. Containment held on every probe:
+no injection, no raw phone, no prompt leak, no test farm, no invented stand. Re-measured against a
+clone of POST-deploy production: 8/10, with the two failures being the broadest questions (see the
+open item below).
 
 Integration runs from an empty local Postgres schema, never Neon. Each file builds its own database,
 so green tests prove nothing about the local dev database; verify migrations by schema effect.
@@ -147,8 +163,10 @@ link** — a conditional with a test behind it rather than an unbypassable const
 - **F-044:** verify public-map and authenticated-admin embeds on VIGA's actual Squarespace pages.
   Includes whether `?hidden=true` needs to survive the embed — max's call.
 - Physical-handset vCard and paged-SMS checks remain owed.
-- Exercise the administrator, settings, customer inquiry, and farmer SMS journeys against production
-  by database effect. Consent is proven against Postgres but not a handset.
+- Exercise the administrator, settings, and farmer SMS journeys against production by database
+  effect. Consent is proven against Postgres but not a handset. **The customer inquiry journey is
+  done** (2026-08-10): driven through the real path against the real model and a clone of the
+  production corpus, before and after this deploy.
 
 **Open build items**
 
@@ -161,6 +179,16 @@ link** — a conditional with a test behind it rather than an unbypassable const
   captured — a watch item, not diagnosed. Distinct from **B-020** (see Verification above).
 - **B-008:** replace the incomplete deployed-build lint gate. Next does not recognize
   `outputFileTracingRoot`, and the Next ESLint plugin is not installed.
+- **B-050 — the broadest inquiries still fail, and the cause is the selection call's SHAPE.**
+  Measured live against post-deploy production: "what's available today?" and "what's the closest
+  farm stand to me" are rejected. At roughly 48 identifiers the model corrupts individual uuids —
+  it dropped a character, producing `3f657a1-…` (7 hex digits, not 8) — so validation correctly
+  refuses the selection and the customer gets nothing. **Not a budget problem**: the response
+  ceiling and timeout were both already raised to clear the widest honest answer, and the response
+  now completes. Asking for a full ranking of every candidate is the flaw, when only `PAGE_SIZE`
+  (3) are ever rendered and the rest exist only to feed `MORE`. Returning an ordered short list
+  plus a continuation, or having code order the tail, removes the failure mode rather than
+  widening a bound. Everything narrower than "show me everything" works.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
 - **B-036:** the "North ferry" label is clipped at the island map's top edge (cosmetic).
 - **F-101 / B-048 — the admin UX audit's lower-ranked findings.** F-101 is copy and state:

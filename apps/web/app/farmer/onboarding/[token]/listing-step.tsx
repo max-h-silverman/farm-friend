@@ -2150,16 +2150,24 @@ export function ListingStep({
         ))}
       </fieldset>
 
-      {defaults?.farmBucksEligible === true ? (
-        <label className="farmer-listing-choice">
-          <input
-            type="checkbox"
-            checked={farmBucksAccepted}
-            onChange={(event) => setFarmBucksAccepted(event.target.checked)}
-          />
-          <span>Accepts VIGA Bucks</span>
-        </label>
-      ) : null}
+      {/*
+        Shown to EVERY farmer (max, 2026-08-10). It used to render only when
+        `defaults.farmBucksEligible` was true, which meant it never rendered for the farmer this
+        form exists for: eligibility is a VIGA flag on a stand row that does not exist until
+        this form is saved, so a new farm could not see the option at all.
+
+        Acceptance is the farmer's own claim about their own stand and publishes on their word,
+        the same as every other fact on this form. VIGA's eligibility flag still exists and is
+        still VIGA's, but it no longer decides what the farmer may say.
+      */}
+      <label className="farmer-listing-choice">
+        <input
+          type="checkbox"
+          checked={farmBucksAccepted}
+          onChange={(event) => setFarmBucksAccepted(event.target.checked)}
+        />
+        <span>Accepts VIGA Bucks</span>
+      </label>
 
       <label htmlFor="other-payment">Anything else you accept as payment?</label>
       <input

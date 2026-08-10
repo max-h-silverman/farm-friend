@@ -1051,19 +1051,62 @@ describe("F-067 onboarding listing (integration)", () => {
     });
   });
 
-  it("refuses a VIGA Bucks acceptance claim from an ineligible farm", async () => {
+  // max, 2026-08-10 — acceptance is the FARMER'S fact and publishes on their word alone.
+  //
+  // It used to require VIGA's `farm_bucks_eligible` first, enforced by a code guard and the
+  // `sales_locations_farm_bucks_acceptance_requires_eligibility` CHECK. That made the
+  // onboarding toggle unreachable for the farm the form exists to onboard: eligibility lives
+  // on a stand row that does not exist until this very save, so a new farmer could never state
+  // it. Both the guard and the CHECK are gone (`0037`).
+  it("lets a farmer state VIGA Bucks acceptance on a brand-new stand", async () => {
+    // The exact case that could not happen before: no stand yet, so no eligibility anywhere.
     const result = await saveOnboardingListing(database(), {
       farmId,
-      standName: "Ineligible Stand",
+      standName: "Brand New Stand",
       listing: { ...visitableListing, farmBucksAccepted: true },
       occurredAt: new Date("2026-08-09T20:00:00Z"),
     });
 
-    expect(result).toEqual({ status: "farm_bucks_not_eligible" });
+    expect(result.status).toBe("saved");
     const rows = await client()`
-      select id from sales_locations where owner_farm_id = ${farmId}
+      select id, farm_bucks_accepted, farm_bucks_eligible from sales_locations
+      where owner_farm_id = ${farmId}
     `;
-    expect(rows).toHaveLength(0);
+    expect(rows).toHaveLength(1);
+    // The farmer's claim is published...
+    expect(rows[0]!.farm_bucks_accepted).toBe(true);
+    // ...and VIGA's separate decision is untouched by it, still its own unset fact.
+    expect(rows[0]!.farm_bucks_eligible).toBe(false);
+  });
+
+  it("still records acceptance on a stand VIGA has NOT marked eligible", async () => {
+    // The same rule against an EXISTING stand, which is where the dropped CHECK used to bite:
+    // the database itself refused the row, so removing only the code guard would have turned a
+    // farmer's tick into an opaque constraint violation.
+    const seeded = await client()`
+      insert into sales_locations (
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude,
+        farm_bucks_accepted, farm_bucks_eligible
+      ) values (
+        ${farmId}, 'farm_stand', 'Unmarked Stand', 'America/Los_Angeles',
+        'visitable', 'produce', '1 Old Way', 47.40, -122.40, false, false
+      ) returning id
+    `;
+    const salesLocationId = seeded[0]!.id as string;
+
+    const saved = await saveOnboardingListing(database(), {
+      farmId,
+      standName: "Unmarked Stand",
+      listing: { ...visitableListing, farmBucksAccepted: true },
+      occurredAt: new Date("2026-08-09T20:00:00Z"),
+    });
+
+    expect(saved.status).toBe("saved");
+    expect(await readStandListing(database(), { salesLocationId })).toMatchObject({
+      farmBucksEligible: false,
+      farmBucksAccepted: true,
+    });
   });
 
   it("keeps a farm's own stand separate from another farm's", async () => {
