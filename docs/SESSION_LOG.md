@@ -57,6 +57,28 @@ Removing the CHECK exposed a test that had been **passing for the wrong reason f
 satisfied by an invalid-enum error rather than the projection rule under test. The farm-bucks
 CHECK was the other accidental error source. Both fixed; the rule is now genuinely tested.
 
+**Release detail, for whoever needs to reconstruct this deploy.** Production went from web
+`00054-wfk` / worker `00049-w4v` to `00057-bpc` / `00052-j9s` across two builds (the second being
+the token-ceiling correction), ending on digest `sha256:9d38d9e9…`. Both migrations were verified
+by schema effect rather than by the migrator's "migrations applied" line:
+
+- `0036` — `farms.retired_at` and `retired_by_administrator_id` present and nullable, the
+  `farms_coherent_retirement` CHECK in `pg_constraint`, `address_unresolved` in the enum, exactly
+  2 mislabelled flags re-filed, and 0 farms retired by it.
+- `0037` — the `sales_locations_farm_bucks_acceptance_requires_eligibility` CHECK absent, both
+  `farm_bucks_*` columns surviving, data unchanged at 20 accepted / 23 eligible.
+
+Backups immediately before each: `~/farm-friend-backups/neondb-PRE-0036-20260810-110458.dump` and
+`neondb-PRE-0037-20260810-120343.dump`. The VIGA Bucks fix was proven against the *served* bundle —
+the deployed chunk contains "Accepts VIGA Bucks" and no longer contains `farmBucksEligible` — because
+source reading it correctly is exactly what the earlier truncation bug also looked like.
+
+Branch cleanup: four branches held commits `main` lacked. `fix-map-mobile-view` merged normally;
+`f-064-weekly-timeline-keys` contributed nothing (participants, the GL-015 backfill, host publishing
+and migration 0029 had all landed by other routes); `deploy-contact-only-hotfix` was merged `-s ours`
+because its older copy would have reverted the stricter visitability rule (F-038/B-024). Pre-merge
+state is tagged `backup-premerge-*`.
+
 **Open, filed as B-050:** the very broadest inquiries ("what's available today?") still fail,
 because at ~48 identifiers the model corrupts individual uuids. That is the selection call's SHAPE,
 not a budget — asking for a full ranking of every candidate when only three are ever shown. The

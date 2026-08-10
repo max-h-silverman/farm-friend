@@ -12,35 +12,16 @@ Postgres `neondb` has **38 migrations** (`0000`–`0037`); Cloud Run web is `far
 and worker is `farm-friend-worker-00052-j9s`, both on digest
 `sha256:9d38d9e958e701b258c4de0002399e42c28318a2dce58dae30f8e008e9cadb15`.
 
-**Deployed runtime is `6d138ed`** (2026-08-10). This tranche shipped F-100's admin console
-restructure, F-102's farm-card hierarchy, B-049's SMS inquiry fixes, and farmer-owned VIGA Bucks
-acceptance. Two migrations applied, both **verified by schema effect**:
+**Deployed runtime is `6d138ed`** (2026-08-10): F-100, F-102, B-049 and farmer-owned VIGA Bucks
+acceptance are live. Migrations `0036` and `0037` are applied and verified by schema effect; the
+VIGA Bucks toggle is verified present in the served bundle, not just in source. Reasoning and the
+verification detail: [SESSION_LOG.md](SESSION_LOG.md).
 
-- `0036` (farm retirement + the `address_unresolved` flag reason): both `farms.retired_at` /
-  `retired_by_administrator_id` present and nullable, the `farms_coherent_retirement` CHECK in
-  `pg_constraint`, `address_unresolved` in the enum, and exactly the 2 mislabelled flags re-filed.
-  No farm was retired by it (0 rows).
-- `0037` (farmer owns VIGA Bucks acceptance): the
-  `sales_locations_farm_bucks_acceptance_requires_eligibility` CHECK is absent, both
-  `farm_bucks_*` columns survive, and the data is unchanged — 20 accepted, 23 eligible.
-
-Backups taken immediately before each: `~/farm-friend-backups/neondb-PRE-0036-20260810-110458.dump`
-and `neondb-PRE-0037-20260810-120343.dump`.
-
-**The VIGA Bucks toggle is proven present in what production serves**, not merely in source: the
-deployed chunk contains "Accepts VIGA Bucks" and no longer contains `farmBucksEligible`, so the
-eligibility gate is genuinely gone from the served bundle.
-
-**Every local branch is accounted for in `main`.** Four branches still held commits main lacked;
-all are now merged. Two carried no change (`f-064-weekly-timeline-keys`, superseded — its
-participants, GL-015 backfill, host publishing and migration 0029 had all landed by other routes)
-and one was merged `-s ours` (`deploy-contact-only-hotfix`, whose older copy would have REVERTED
-the stricter visitability rule that forbids inventing an address, F-038/B-024). Pre-merge state is
+**Every local branch is accounted for in `main`** — nothing is left unmerged. Pre-merge state is
 tagged `backup-premerge-*`.
 
 **Max walks farmer surfaces at phone width before a UI tranche ships.** F-100's admin surfaces
-shipped in this tranche **without that pass** — max asked for the deploy explicitly, so the gate
-was waived rather than met. It is still owed by eye.
+shipped **without that pass** (max asked for the deploy explicitly). Still owed by eye.
 
 **Production data and schema are current.** Neon has all structured-price and pending-stock columns,
 no legacy `price_text`, and the final price/location constraints. Verified corpus counts:
@@ -90,12 +71,11 @@ this wrap. Treat any named recurrence as real and attribute it against a clean t
 (containment 4/4, closure 7/7, quality 9/9, recall 5/5). Owed again on any change to a seam's
 projection, schema, or output contract.
 
-**The SMS inquiry path was measured against the real model and a clone of the production corpus**
-(2026-08-10), which is how B-049 was found — the suites were green throughout. Plain single-item
-customer questions went from **11/20 answered to 19/20** locally. Containment held on every probe:
-no injection, no raw phone, no prompt leak, no test farm, no invented stand. Re-measured against a
-clone of POST-deploy production: 8/10, with the two failures being the broadest questions (see the
-open item below).
+**Measuring the SMS inquiry path against the real model and a clone of production is what found
+B-049 — the suites were green throughout.** Do it again after any change to that path; source that
+reads correctly is not evidence. Last run 2026-08-10: 19/20 plain questions answered locally
+(from 11/20), containment clean on every probe, 8/10 against post-deploy production with the two
+misses being the broadest questions (B-050).
 
 Integration runs from an empty local Postgres schema, never Neon. Each file builds its own database,
 so green tests prove nothing about the local dev database; verify migrations by schema effect.
@@ -190,16 +170,13 @@ link** — a conditional with a test behind it rather than an unbypassable const
   captured — a watch item, not diagnosed. Distinct from **B-020** (see Verification above).
 - **B-008:** replace the incomplete deployed-build lint gate. Next does not recognize
   `outputFileTracingRoot`, and the Next ESLint plugin is not installed.
-- **B-050 — the broadest inquiries still fail, and the cause is the selection call's SHAPE.**
-  Measured live against post-deploy production: "what's available today?" and "what's the closest
-  farm stand to me" are rejected. At roughly 48 identifiers the model corrupts individual uuids —
-  it dropped a character, producing `3f657a1-…` (7 hex digits, not 8) — so validation correctly
-  refuses the selection and the customer gets nothing. **Not a budget problem**: the response
-  ceiling and timeout were both already raised to clear the widest honest answer, and the response
-  now completes. Asking for a full ranking of every candidate is the flaw, when only `PAGE_SIZE`
-  (3) are ever rendered and the rest exist only to feed `MORE`. Returning an ordered short list
-  plus a continuation, or having code order the tail, removes the failure mode rather than
-  widening a bound. Everything narrower than "show me everything" works.
+- **B-050 — the broadest inquiries still fail** ("what's available today?", "what's the closest
+  farm stand to me"), measured live against post-deploy production. At ~48 identifiers the model
+  corrupts individual uuids, so validation correctly refuses the selection. **Not a budget
+  problem** — the ceiling and timeout already clear the widest honest answer. The flaw is the
+  selection call's SHAPE: it asks for a full ranking of every candidate when only `PAGE_SIZE` (3)
+  are rendered and the rest exist only to feed `MORE`. Everything narrower than "show me
+  everything" works.
 - **B-034:** upgrade affected production dependencies and assess advisory reachability.
 - **B-036:** the "North ferry" label is clipped at the island map's top edge (cosmetic).
 - **F-101 / B-048 — the admin UX audit's lower-ranked findings.** F-101 is copy and state:

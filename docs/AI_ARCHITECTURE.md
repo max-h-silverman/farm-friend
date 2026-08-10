@@ -206,6 +206,18 @@ clarify or flag:
 - **grounded fact selection** — select and order identifiers from the **retrieved facts only**.
   Code validates membership and renders the authoritative, recency-labeled answer; empty retrieval
   → a code-rendered honest "no current listing."
+  A **fact identifier is an opaque token the model copies back verbatim, and must carry no
+  structure worth reconstructing** (B-049). Offering facts were once `offering-<locationId>`; the
+  live model stripped the prefix and returned the bare uuid on every attempt, and since most
+  candidates are offering-only stands, most questions lost a real answer to a correct refusal.
+  What the two bases *are* travels as the typed `basis` field, which is what made the prefix
+  redundant as well as fragile.
+  **Code renders no claim the retrieved rows do not support.** The answer heading names the
+  requested item only where a selected row actually carries it: the item list falls back to a
+  stand's full contents when nothing matches by name — right, because only the model can see a
+  category relationship — and asserting the customer's word above that fallback produced
+  `Confirmed mangoes:` over a stand selling eggs, and `Confirmed dairy:` in reply to a
+  dairy-allergy question. Code fabricating a fact is the same failure as a model doing it.
 
 **Neither inquiry seam may return prose.** The ambiguity and clarification outcomes are **bare
 signals carrying no other field** — validation refuses any — and code renders the question. They

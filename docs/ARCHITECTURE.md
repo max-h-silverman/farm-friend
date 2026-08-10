@@ -153,8 +153,10 @@ permanent map package, gleaning artifacts, or tenancy machinery.
   farmer can check it before publishing. Editing the address **clears** the coordinate, which is
   what stops one address publishing under another. It also collects
   **structured season, hours, weekday and restocking facts** into F-035's filterable columns, and
-  payment methods as a **closed set** plus a free-text tail — VIGA Farm Bucks excluded, since
-  acceptance depends on an eligibility only VIGA grants. It publishes on submit (max, 2026-08-05)
+  payment methods as a **closed set** plus a free-text tail. **VIGA Farm Bucks sits outside that
+  set but is offered to every farmer** (max, 2026-08-10): acceptance is the farmer's own claim and
+  publishes on their word, while VIGA's separate eligibility flag no longer gates it — it used to,
+  which made the toggle unreachable for any farm without a stand row yet. It publishes on submit (max, 2026-08-05)
   rather than waiting for the JOIN text, and it writes standing item state only — never a dated
   confirmation.
 - **The migration door** (F-079): `/farmer/start/<secret>` — how a farmer already using VIGA's

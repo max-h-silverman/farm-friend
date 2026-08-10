@@ -196,9 +196,14 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   dropped what it did not recognize would lose a real fact. This is a *spelling* table and must stay
   one: unlike produce, payment methods are a small VIGA-known set, which is why folding them is
   correct here and folding food vocabulary is forbidden. **VIGA Farm Bucks remains separate from
-  payment methods:** VIGA alone sets eligibility; an eligible farmer may state acceptance through
-  the listing form. The writer rejects an ineligible acceptance claim before the database
-  constraint can be reached.
+  payment methods**, and the two columns record two different people's facts:
+  `farm_bucks_accepted` is the **farmer's** claim about their own stand, stated on the listing form
+  and published on their word; `farm_bucks_eligible` is **VIGA's** own decision, set in admin and
+  read by the admin surfaces. **Neither constrains the other** (max, 2026-08-10). The
+  acceptance-requires-eligibility CHECK was dropped in `0037` along with the writer guard that
+  pre-empted it: eligibility lives on a stand row that does not exist until onboarding saves, so
+  gating the farmer's claim on it made the toggle unreachable for every new farm — which is every
+  farm the onboarding form exists for.
 - **structured availability** (F-035) — season, days of week, time of day, and restocking cadence as
   **queryable columns rather than prose**, so "what is open right now" is a filter and not a text
   scan. Kinds that are not clock times (`dawn_to_dusk`, `daylight_hours`) and cadences that are not
