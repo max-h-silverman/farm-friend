@@ -850,16 +850,113 @@ fx("live-recall", "declines to invent a match when nothing in the set answers", 
   // The other half of recall: a model that selects a stand for an item nobody carries has
   // not been helpful, it has been wrong. Selecting nothing is the correct answer here, and
   // code renders the honest no-listing reply.
+  //
+  // B-061 — this used to accept `clarification` too, which is how the defect below stayed
+  // invisible. An EMPTY SELECTION is the right shape: the request was understood perfectly,
+  // and the honest reply is that nobody stocks it.
   const result = await inquiry.select({
     items: ["durian"],
     ranking: "any",
     facts: RECALL_FACTS,
   });
   const observed = JSON.stringify(result);
-  const ok =
-    result.kind === "clarification" ||
-    (result.kind === "selection" && result.factIds.length === 0);
+  const ok = result.kind === "selection" && result.factIds.length === 0;
   return { ok, observed };
+});
+
+/*
+  B-061 — "no stand sells this" and "I could not read your message" are DIFFERENT answers, and
+  the seam was returning the second for the first.
+
+  FOUND LIVE 2026-08-11 against the production corpus: "where can I buy shrimp" and "anyone
+  selling soap" — neither exists anywhere on the island — both answered "Sorry, I did not catch
+  which item or farm you meant." The customer is told they mistyped when their message was
+  perfectly clear and the real answer is simply that nobody carries it.
+
+  Code already renders the honest no-listing reply from an empty selection; nothing told the
+  model to use it. These are ordinary customer questions, not edge cases: an island of 35 farm
+  stands does not sell shrimp, soap, or avocados, and people will ask.
+*/
+fx("live-quality", "says nobody carries an item rather than blaming the customer", async () => {
+  const absent = ["shrimp", "soap", "avocados"];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const item of absent) {
+    const result = await inquiry.select({
+      items: [item],
+      ranking: "any",
+      facts: RECALL_FACTS,
+    });
+    // An empty selection renders "no current listing". A `clarification` renders "I did not
+    // catch which item you meant", which is the false apology this fixture exists to catch.
+    const ok = result.kind === "selection" && result.factIds.length === 0;
+    if (ok) correct += 1;
+    else observations.push(`"${item}" -> ${JSON.stringify(result)}`);
+  }
+
+  return {
+    ok: correct === absent.length,
+    observed: observations.length === 0 ? `${correct}/${absent.length}` : observations.join("; "),
+  };
+});
+
+/*
+  B-061 — "what do you have" is the most ordinary question a customer can send, and it was
+  answered with "Sorry, I did not catch which item or farm you meant."
+
+  FOUND LIVE 2026-08-11: "what's available right now?" interpreted correctly as a broad lookup,
+  while "what do you have" came back `ambiguous` — deterministically, 5 runs out of 5.
+
+  Measuring the family rather than the one phrase found the real shape: the trigger was the
+  WORD "available" (or "in season"), not the meaning. "what is available", "what's in season"
+  and "anything good today?" all passed; "what do you have", "what's for sale", "what can I
+  buy", "who has anything today" and "show me what's out there" all returned `ambiguous`. The
+  model was matching the instruction's vocabulary instead of the concept.
+
+  So this fixture holds the phrasings that FAILED, not the ones that already worked — a fixture
+  built from passing examples is what let the defect through. `ambiguous` is for a message that
+  asks for nothing at all; asking what there is to buy is the product's central question.
+
+  **THIS FIXTURE IS EXPECTED TO FAIL TODAY (B-061, still open).** Three successive instruction
+  edits each moved which phrasings passed without fixing the family, and measurement showed they
+  made things WORSE: with the widest edit in place "anything good today?" failed consistently
+  and "what's available right now?" became non-deterministic (ambiguous in 2 of 3 runs) — both
+  had passed before. The instruction was therefore reverted to its original wording, and this
+  fixture kept red as the standing record of the gap.
+
+  It sits in `live-quality`, which is observational rather than gating, so a red result here
+  reports the defect without blocking a release for it. Do not "fix" this by trimming the cases
+  back to the ones that pass; the failing phrasings ARE the finding. The next attempt should
+  measure whether this is reachable by instruction at all before editing more prose.
+*/
+fx("live-quality", "reads a broad availability question however it is worded", async () => {
+  const cases = [
+    "what do you have",
+    "what's for sale",
+    "what can I buy",
+    "who has anything today",
+    "show me what's out there",
+    // Two that already worked, so a regression here cannot hide behind the new ones.
+    "what's available right now?",
+    "anything good today?",
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const text of cases) {
+    const raw = await inquiry.interpret({ taskText: text });
+    const validated = validateInterpretedIntent(raw);
+    const ok =
+      validated.ok && validated.value.kind === "lookup" && validated.value.broad === true;
+    if (ok) correct += 1;
+    else observations.push(`"${text}" -> ${JSON.stringify(raw)}`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed: observations.length === 0 ? `${correct}/${cases.length}` : observations.join("; "),
+  };
 });
 
 fx("live-recall", "prefers a confirmed listing over a typical offering for the same item", async () => {

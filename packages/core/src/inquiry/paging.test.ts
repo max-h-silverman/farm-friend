@@ -414,12 +414,40 @@ describe("the heading may not claim an item the rows do not carry (B-049)", () =
     expect(body).toMatch(/Confirmed mangoes/i);
   });
 
-  it("names the item for the subset of stands that carry it", () => {
-    // A mixed page must not be dragged down to the weakest claim: the heading is one claim
-    // over the whole page, so it may name the item as soon as ANY row supports it.
+  // B-061 supersedes what this case used to assert. The old rule was "any single row is
+  // enough, because the heading covers the whole section" — which inverts the logic: a heading
+  // covering the whole section must be true of the whole section, and one matching row cannot
+  // vouch for the rest.
+  //
+  // Found live 2026-08-11 against the production corpus: "who has eggs today?" rendered
+  // `Confirmed eggs:` over Aeggy's Farm (eggs), Useful Bear Farm (jam, flowers, blueberries,
+  // raspberries, veggies) and Forest Garden Farm. Aeggy's alone licensed the claim for two
+  // stands that sell no eggs at all — a customer reading the heading drives to the wrong stand.
+  it("does not claim the item over a mixed page where some stands lack it", () => {
     const body = renderResultPage({
       itemsRequested: ["mangoes"],
       facts: [matched, unmatched],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+    // Generic heading; both stands still appear, each naming what it actually publishes.
+    expect(body).not.toMatch(/Confirmed mangoes/i);
+    expect(body).toMatch(/^Confirmed stock/im);
+    expect(body).toContain("mangoes");
+    expect(body).toContain("Eggs, blueberries, basil");
+  });
+
+  it("names the item when every stand on the page carries it", () => {
+    const alsoMatched: PageableFact = {
+      ...matched,
+      factId: "confirmed-z",
+      locationName: "Beta Stand",
+      matchedItems: [{ itemName: "Mangoes" }],
+    };
+    const body = renderResultPage({
+      itemsRequested: ["mangoes"],
+      facts: [matched, alsoMatched],
       offset: 0,
       total: 2,
       clock,

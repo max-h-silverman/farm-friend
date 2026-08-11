@@ -82,9 +82,23 @@ export type FactSelection =
   | { kind: "selection"; factIds: string[] }
   | { kind: "clarification" };
 
+/**
+ * Why a selection was refused, as a typed value rather than prose (B-061).
+ *
+ * `duplicate_id` is the one failure that reveals NOTHING about facts the model was not shown:
+ * the identifier is real and retrieved, the model merely repeated it. Callers may recover from
+ * it using their own ranking. Every other failure — an invented identifier, a smuggled factual
+ * string, a malformed shape — is a claim about data the model never received, and callers must
+ * keep refusing so an attack stays observable.
+ *
+ * The kind exists so callers branch on a VALUE. Matching the human-readable `reason` string
+ * would couple recovery to wording that is free to change.
+ */
+export type SelectionFailureKind = "duplicate_id" | "ungrounded";
+
 export type SelectionValidation =
   | { ok: true; value: FactSelection }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; failure: SelectionFailureKind };
 
 /**
  * Validate untrusted selection output. Structural validity is NOT grounding: every selected
@@ -96,7 +110,7 @@ export function validateFactSelection(
   retrieved: RetrievedFact[],
 ): SelectionValidation {
   if (typeof candidate !== "object" || candidate === null) {
-    return { ok: false, reason: "selection must be an object" };
+    return { ok: false, reason: "selection must be an object", failure: "ungrounded" };
   }
   const record = candidate as Record<string, unknown>;
   const keys = Object.keys(record);
@@ -104,35 +118,39 @@ export function validateFactSelection(
   if (record.kind === "clarification") {
     // Exactly `kind`. No permitted field means no prose channel to smuggle through.
     if (keys.length !== 1) {
-      return { ok: false, reason: "clarification is a signal and carries no other field" };
+      return { ok: false, reason: "clarification is a signal and carries no other field", failure: "ungrounded" };
     }
     return { ok: true, value: { kind: "clarification" } };
   }
 
   if (record.kind !== "selection") {
-    return { ok: false, reason: "unsupported selection kind" };
+    return { ok: false, reason: "unsupported selection kind", failure: "ungrounded" };
   }
   // A field like `answerText`, `distance`, or `recency` would be the model supplying
   // authoritative content. The answer is code's; the model returns identifiers only.
   if (keys.length !== 2 || !("factIds" in record)) {
-    return { ok: false, reason: "selection carries only ordered fact identifiers" };
+    return { ok: false, reason: "selection carries only ordered fact identifiers", failure: "ungrounded" };
   }
   if (!Array.isArray(record.factIds)) {
-    return { ok: false, reason: "factIds must be an array" };
+    return { ok: false, reason: "factIds must be an array", failure: "ungrounded" };
   }
 
   const known = new Set(retrieved.map((fact) => fact.factId));
   const seen = new Set<string>();
   for (const factId of record.factIds) {
     if (typeof factId !== "string") {
-      return { ok: false, reason: "a fact identifier must be a string" };
+      return { ok: false, reason: "a fact identifier must be a string", failure: "ungrounded" };
     }
     if (!known.has(factId)) {
       // The model invented or hallucinated an identifier: reject the whole selection.
-      return { ok: false, reason: `fact ${factId} is not part of the retrieved set` };
+      return { ok: false, reason: `fact ${factId} is not part of the retrieved set`, failure: "ungrounded" };
     }
     if (seen.has(factId)) {
-      return { ok: false, reason: `fact ${factId} is selected more than once` };
+      return {
+        ok: false,
+        reason: `fact ${factId} is selected more than once`,
+        failure: "duplicate_id",
+      };
     }
     seen.add(factId);
   }

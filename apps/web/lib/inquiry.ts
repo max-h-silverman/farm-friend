@@ -528,7 +528,52 @@ export async function answerInquiry(
 
   const selection = validateFactSelection(rawSelection, selectionCandidates);
   if (!selection.ok) {
-    return { outcome: "rejected", reason: selection.reason };
+    // B-061 — a MALFORMED selection must not throw away a retrieval that already succeeded.
+    //
+    // Found live: "got any peppers" and "eggz" both had their selection refused, and both
+    // customers were told "Sorry, I did not catch which item or farm you meant" — false, since
+    // code had already retrieved the peppers and the eggs. The wording blames the customer for
+    // the model's bad reply.
+    //
+    // The distinction is what the failure REVEALS, and it is narrow on purpose. A duplicate id
+    // is a model that repeated itself: it names nothing it was not shown, so there is nothing
+    // to report and code's own ranking already holds a correct answer. Every other failure —
+    // an invented identifier, a smuggled `answerText`, a malformed shape — is a claim about
+    // facts the model was never given, and stays `rejected` so an attack remains observable.
+    //
+    // Not a retry: a second model call would spend the customer's latency on a path where code
+    // already knows the answer. Grounding is untouched, because the model's selection is
+    // discarded ENTIRELY rather than repaired — every fact below comes from `displayOrdered`,
+    // which code built and ranked.
+    if (selection.failure !== "duplicate_id") {
+      return { outcome: "rejected", reason: selection.reason };
+    }
+
+    const fallback = displayOrdered.slice(0, PAGE_SIZE);
+    const fallbackPage = renderResultPage({
+      itemsRequested,
+      facts: fallback,
+      offset: 0,
+      total: displayOrdered.length,
+      clock: deps.clock,
+    });
+
+    if (fallbackPage.hasMore) {
+      await savePendingResultList(deps.db, {
+        senderHash: input.senderHash,
+        factIds: displayOrdered.map((fact) => fact.factId),
+        itemsRequested,
+        shown: PAGE_SIZE,
+        occurredAt: input.occurredAt,
+        ttlMinutes: PENDING_LIST_TTL_MINUTES,
+      });
+    }
+
+    return {
+      outcome: "answered",
+      body: withScope(fallbackPage.body),
+      selectedFactIds: displayOrdered.map((fact) => fact.factId),
+    };
   }
   if (selection.value.kind === "clarification") {
     return { outcome: "clarification", question: renderClarificationRequest() };

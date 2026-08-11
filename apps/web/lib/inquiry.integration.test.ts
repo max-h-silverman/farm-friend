@@ -521,6 +521,52 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.outcome).toBe("rejected");
   });
 
+  /*
+    B-061 — a malformed selection must not throw away a good retrieval.
+
+    Found live 2026-08-11 against the production corpus: "got any peppers" returned a fact id
+    outside the retrieved set and "eggz" returned the same id twice. Both were correctly
+    refused by `validateFactSelection` — and the customer was then told "Sorry, I did not catch
+    which item or farm you meant", which is false: code had already retrieved the peppers and
+    the eggs. The wording blames the customer for the model's malformed reply.
+
+    Code holds the ranked retrieved set, so it can answer from its OWN deterministic ordering.
+    Grounding is untouched: every fact rendered still comes from the retrieved set, and the
+    model's selection is discarded entirely rather than partially trusted.
+
+    This is deliberately NOT a retry. A second model call would cost the customer latency on a
+    path where code already knows a correct answer.
+  */
+  it("answers from code's own ranking when the model duplicates a retrieved id", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Kale"],
+        ranking: "any",
+      }),
+      // A real retrieved id, returned twice. Malformed, not hostile: nothing is invented.
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [ids.alphaLocation, ids.alphaLocation],
+      }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "kale?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    // The stand code retrieved is named, and the reply never blames the customer's wording.
+    expect(result.body).toContain("Alpha Farm Stand");
+    expect(result.body).not.toMatch(/did not catch/i);
+  });
+
   // ------------------------------------------------------------------ hostile inquiry
 
   it("rejects a selection naming a location that was never retrieved", async () => {

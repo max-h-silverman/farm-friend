@@ -183,8 +183,11 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     'listing "beets"), and a request for a specific item selects stands listing it under any ' +
     'wording ("lamb" selects "frozen lamb"). basis is "confirmed" when a farmer confirmed the ' +
     'stock and "offering" when the stand merely lists it as typical; select BOTH kinds when ' +
-    "both answer the request, ordering confirmed facts first. If none fit, return the " +
-    "clarification shape with no other fields.",
+    "both answer the request, ordering confirmed facts first. If the request is clear but " +
+    "nothing here sells it, return the selection shape with an EMPTY factIds array - that is " +
+    "how you say nobody carries it. Reserve the clarification shape for a request you cannot " +
+    "interpret at all; returning it for an item nobody stocks tells the customer they mistyped " +
+    "when they did not.",
   "stock-out-parse":
     "If the text names an item matching one of listedItems, return listed with that " +
     "entryId. If it names an item that is not in listedItems, return unlisted with the " +

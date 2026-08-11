@@ -91,13 +91,22 @@ export function renderResultPage(input: {
   // factual claim no retrieved row supports.
   //
   // So the item is named only where a row bears it out, per voice: the two headings make
-  // separate claims about separate stands and one must not borrow the other's evidence. Any
-  // single row is enough, because the heading covers the whole section rather than each line.
+  // separate claims about separate stands and one must not borrow the other's evidence.
+  //
+  // B-061 — and EVERY row in the section must bear it out, not just one. The heading covers
+  // the whole section, so it is a claim about every stand printed beneath it; one matching row
+  // cannot vouch for the others. Found live: "who has eggs today?" rendered `Confirmed eggs:`
+  // over Aeggy's Farm, Useful Bear Farm and Forest Garden Farm because Aeggy's alone carried
+  // eggs — sending a customer to two stands that had none. That is the same fabricated claim
+  // B-049 fixed, surviving at group granularity.
+  //
+  // Falling back to the generic subject costs the customer nothing: they know what they asked,
+  // and every stand line still names exactly what that stand publishes.
   const wanted = new Set(
     input.itemsRequested.map((item) => item.trim().toLowerCase()),
   );
   const namesRequestedItem = (group: PageableFact[]): boolean =>
-    group.some((fact) =>
+    group.every((fact) =>
       fact.matchedItems.some((item) => wanted.has(item.itemName.trim().toLowerCase())),
     );
 
