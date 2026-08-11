@@ -87,32 +87,7 @@ login and seeded farms were never exercised. A multi-stand farm, a removed farm,
 
 ## Traps worth not rediscovering
 
-- **Production Neon IS reachable from a dev machine** — `gcloud secrets versions access latest
-  --secret=farm-friend-database-url`. `apps/web/.env.local` points at local `farmfriend_dev`, so
-  checking only the working tree makes production look inaccessible. Measure the real data before
-  arguing about it.
-- **A regex backslash inside a JS template literal never reaches Postgres.** `'\s+'` in a tagged
-  template arrives as `s+` and silently strips the letter "s"; it must be written `'\\s+'`. It read
-  as a matching bug, and was found only by probing Postgres directly.
-- **Production stand names carry typographic punctuation** — "Bart’s Cart" uses a curly apostrophe
-  (U+2019) no phone keyboard produces. Test data written with a straight apostrophe misses it.
-- Reassemble `VIGA Map Stands.csv` records from a `POINT` in column one; ordinary CSV parsing creates
-  phantom farms.
-- `drizzle-kit generate` omits CHECKs and partial indexes; inspect SQL and prove constraints by effect.
-- **`drizzle-kit generate` stamps the new journal entry with the WALL CLOCK, and this repo's entries
-  are future-dated** — so a freshly generated migration lands *earlier* than its predecessor and the
-  migrator skips it while printing "migrations applied". Hit on `0039`. Fix the `when` to follow the
-  previous entry, then confirm the column/constraint exists rather than trusting the message.
-- **It also emits a composite FK before the unique constraint the FK requires.** `0039` referenced
-  `stand_items (id, sales_location_id)` above the `ADD CONSTRAINT … UNIQUE` that makes it
-  referenceable; the generated order fails on a clean database. Read the generated SQL top to bottom.
-- Verify migrations by schema effect. The migration ledger is `drizzle.__drizzle_migrations`, not `public`.
-- Use `printf %s`, never `echo`, for Secret Manager salts; Next expands `$NAME` in `.env` values.
-- **A deploy does not pick up a rotated secret.** Cloud Run resolves `version = "latest"` at container
-  START, so only a revision that started *after* the secret version serves it — a release deployed
-  minutes later can still run the old value. `deploy_assertions.py` is the only check that catches it.
-- **`infra/terraform.tfvars` is gitignored**, so `rotation_applied_at` lives on one machine. A plan
-  from any other checkout moves it backward and silently rolls containers onto the pre-rotation
-  secret while reporting success.
-- **Run `infra/plan-assertions.py` before trusting it.** It was a SyntaxError under Python 3.10 from
-  `2b3312a` to `640791a`; a safety gate that fails to start looks identical to one nobody invoked.
+These are now stated where the work happens — **RUNBOOK.md** owns them: the migration-generator traps
+(§Migrations), the deploy and secret-rotation traps (§Deploy, §Credential rotation), the corpus and
+seeding traps (§Seeding), and production Neon's reachability from a dev machine (§Failure triage).
+Codebase-level gotchas live in **DEVELOPMENT.md** §gotchas.
