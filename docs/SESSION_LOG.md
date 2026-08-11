@@ -11,6 +11,74 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-11 — F-104 closed on a real handset; F-106 built without the model it specified
+
+**F-104 is closed, end to end, in production.** Two earlier attempts had failed for different
+reasons; this one worked because the report came from a handset owning no stand while Max's own
+handset owned Pinecone Gardens — so one message exercised both sides. Verified by effect in Neon:
+one `stock_out_reports` row against Pinecone Gardens carrying the inbound provider event id as
+`report_key`, one `stock_out_alert` with `delivery_status = delivered` addressed to the Pinecone
+farmer, and the reporter's hash absent from the recipient. Golden Rule #1 on the live path.
+
+**F-106 shipped as two code tiers, and the confirmation token was deliberately not built.** The
+item specified a model tier — code retrieves live stands, the model selects an ID, a customer-side
+confirmation token gates the alert — and the token was named as the bulk of the work. Measuring the
+corpus first replaced that design.
+
+*Tier 1, punctuation and case folding.* Both sides fold to letters, digits and single spaces.
+Measured against all 36 live stands before trusting it: none folds to empty, and no folded name
+contains another, so folding adds no ambiguity. **It also found the actual defect for the stand
+in the item's own example — production spells it "Bart’s Cart" with a CURLY apostrophe (U+2019),
+which no phone keyboard produces.** That name was unmatchable by anyone typing normally; the bug
+was data, not merely loose matching. The test carries the real character.
+
+*Tier 2, distinctive-word scoring.* Each stand is scored by how many of its own non-generic words
+the customer typed; the single best score wins and a tie asks. Measured 13/13 against the live
+corpus — every realistic partial message resolved correctly, and the two genuinely ambiguous ones
+("vashon" is both Vashon Garlic and Vashon Island Farmers Market) tied and asked. The generic-word
+stop-list is derived from the corpus, not invented: "farm" appears in more than half the live names
+and identifies nobody.
+
+**Why no model and therefore no token.** A model here would have added a seam, a projection, a
+validation path and an eval to reproduce what a set intersection already gets right, and would have
+put a model between a stranger's words and a farmer's handset for no measured gain. The token
+existed *only* to make a model's guess safe — with no model on the path there is nothing for it to
+gate, so no new table and no migration. Misspellings ("pinecome") still ask, which is the accepted
+stopping point (max): fuzzy matching is the one part needing a model, and asking costs a round-trip
+and risks nothing. **The lesson is the ordering** — the design was written before the corpus was
+measured, and measurement deleted most of it.
+
+**Two escaping and coverage traps, both now pinned by tests that fail without them.** `'\\s+'` must
+be doubled inside a JS template literal or Postgres receives `s+` and strips the letter "s" from
+every stand name, folding "Bart's Cart" to "bart   cart" — it matched nothing and read as a
+matching bug rather than an escaping one, and was found by probing Postgres directly rather than
+by rereading the file. Separately, removing the customer-side fold left every folding test green,
+because "barts cart" has no punctuation and folding the stand name alone sufficed; the mirror case
+now exists.
+
+**Copy and grammar.** The stock-out reply is now "Thanks, we'll let the farmer know." (max) — it
+names the consequence. The earlier wording deliberately said nothing because the sentence is not
+literally true when the farmer lacks active consent or the stand is between farmers, and stating it
+reveals one bit about a farmer's reachability; that reasoning is preserved in the code comment
+rather than deleted, and the copy describes intent, never delivery. Separately, production sent
+"someone reported that eggs is sold out" — `stand_items` holds plurals, mass nouns and singulars
+side by side, so no agreement rule could serve all three. The item moved out of subject position:
+"Pinecone Gardens is sold out of eggs".
+
+**B-057 filed, from reading Max's own alert.** It said "sold out of something" although Pinecone
+Gardens does carry eggs — the report matches only the CURRENT published inventory, and that stand's
+`eggs` row lives in `stand_items` with `usually_carried = false`. Both halves behave as designed and
+the result is still wrong: the alert is least informative exactly where it matters most, since "not
+currently published" is the likeliest state for a real stock-out. The fix needs no relaxation of
+Golden Rule #6 — `stand_items.display_name` is farmer-authored and code-owned, the same standing as
+the inventory name the alert already speaks.
+
+**The map's search box now finds a stand by name** (max), farm and stand both, since the two are
+separate facts and often differ. `alsoSellingHere` stays out of the haystack, now with a test
+saying so: widening search to names must not widen it to every name on the card.
+
+---
+
 ## 2026-08-10 — Four defects found by texting and looking, none by a suite
 
 Every bug this session came from exercising the product — a screenshot of a stand card, and two

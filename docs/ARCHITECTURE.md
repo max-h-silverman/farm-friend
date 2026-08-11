@@ -351,11 +351,23 @@ order:
 9. **Active conversation state** routes the message to its in-flight flow.
 10. **Authority and consent gates** determine what the sender may do.
 11. **Whose stand was named decides the branch before authority does** (B-053). Code resolves any
-    stand named in the message by unique exact-substring match and checks ownership against
-    `farmer_authorizations`. A sender naming a stand that is *not theirs* — authorized farmer or
-    not — is reporting a stock-out, not updating a listing. Naming no stand, or naming their own,
-    leaves the branches below unchanged. This can only move a message AWAY from publishing
-    inventory, never toward publishing someone else's.
+    stand named in the message and checks ownership against `farmer_authorizations`. A sender
+    naming a stand that is *not theirs* — authorized farmer or not — is reporting a stock-out, not
+    updating a listing. Naming no stand, or naming their own, leaves the branches below unchanged.
+    This can only move a message AWAY from publishing inventory, never toward publishing someone
+    else's.
+
+    **Resolution is a two-tier ladder, entirely in code** (F-106). First a unique substring match
+    of a stand's whole name, with both sides folded to lowercase letters, digits and single spaces
+    so punctuation cannot defeat it — production carries names like "Bart’s Cart" with a curly
+    apostrophe no phone keyboard types. Failing that, each stand is scored by how many of its own
+    *distinctive* words (excluding corpus-generic ones like "farm") appear in the message, and the
+    single highest scorer wins. **Zero matches, or any tie at the top score, asks "Which stand are
+    you at?" rather than guessing** — the strictness B-053 depends on is preserved at both tiers.
+    No model participates: measured against the live corpus, scoring resolved every realistic
+    partial name and tied on the genuinely ambiguous ones. A *misspelled* name therefore asks;
+    fuzzy matching is the only part that would need a model, and a model's guess would need a
+    confirmation gate before it could reach a farmer's handset.
 12. For authorized farmer free text about their own stands, the **farmer-message intent seam**
     returns only `inventory_update`, `farm_stand_question`, or `unclear`. It runs before stand
     targeting so a general question does not create a target menu.

@@ -204,8 +204,9 @@ clarify or flag:
 - **stock-out item parsing** — free text → which item (a listed entry or normalized text for an
   unlisted one), on both the web/QR surface and the SMS reporting path. Code supplies the
   sales-location identifier and it is never a model output: the web surface binds it from the
-  scanned route, and SMS resolves it by unique exact-substring match of stand names against real
-  rows, asking "Which stand are you at?" on zero or several matches rather than guessing. An
+  scanned route, and SMS resolves it in code against real rows — a punctuation-folded unique
+  substring match, then distinctive-word scoring for a partial name — asking "Which stand are you
+  at?" on no match or a tie rather than guessing (F-106, ARCHITECTURE.md §routing). An
   authorized farmer naming ANOTHER farm's stand is routed here too, with ownership resolved in code
   from `farmer_authorizations` (B-053). Model-derived item text for an *unlisted* report is stored
   but never spoken: the farmer's alert names the stand and, for a listed entry, the stand's own

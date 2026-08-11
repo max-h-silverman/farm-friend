@@ -5,27 +5,18 @@
 
 ## Release state
 
-- Farm Friend is **pre-go-live**. Production serves F-104 SMS stock-out reporting on top of B-050
-  broad-inquiry paging and F-105 stand details. The `0038` schema change shipped with F-104,
-  applied before that image was promoted.
-- **B-054, B-055 and B-056 shipped 2026-08-10**: the stand card no longer claims "In stock" over a
-  confirmation past four weeks; code drops an inventory removal whose item the farmer's message
-  never named; a stock-out report naming an unlisted item parses instead of returning `unclear`;
-  and VIGA Farm Bucks is no longer stored as a payment method. No schema change — `0038` remains
-  the newest migration.
+- Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
+  and stand details.
 - **F-104 is closed, verified by effect in production 2026-08-11.** A handset owning no stand
   reported a stock-out at Pinecone Gardens: one `stock_out_reports` row against that stand with its
   provider event id as `report_key`, one `stock_out_alert` delivered to the stand's farmer, and the
   reporter is not the recipient. Golden Rule #1 holds end to end on the live path.
-- **Built locally 2026-08-11, not yet deployed** (branch `f-106-customer-stand-confirmation`):
-  F-106's two-tier stand matching, the map search box finding stands by farm/stand name, the
-  stock-out reply naming its consequence, and the alert's item-number grammar fix. No schema
-  change — `0038` remains the newest migration.
-- Cloud Run web `farm-friend-web-00064-cpz` and worker `farm-friend-worker-00059-zwq` serve immutable
-  digest `sha256:1dcb981cb4a7eea025a67f9ca86440cbbcdd96c3fafe595ecd179c4bceb9aba1`, built from `main`
-  `c73d022` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
-  Verified by effect on the live `/api/public/stands`: 35 stands, **zero** payloads containing
-  "No recent update", and **zero** payment lists naming Bucks.
+- **Shipped 2026-08-11**: F-106's two-tier stand matching (punctuation/case folding, then
+  distinctive-word scoring — a misspelled name still asks); the map search box finds stands by farm
+  and stand name; the stock-out reply names its consequence; the alert no longer agrees a verb with
+  the item's grammatical number. No schema change — `0038` remains the newest migration.
+- Cloud Run web `PENDING_WEB_REV` and worker `PENDING_WORKER_REV` serve digest `PENDING_DIGEST`,
+  built from `main` `PENDING_SHA` and deployed 2026-08-11.
 - Neon `neondb` has **39 applied migrations (`0000`–`0038`)**. `0038` was applied 2026-08-11 and
   verified by schema effect — `report_key` is `text`, nullable (the NULL matters: NULLs stay distinct
   under the unique index), with `stock_out_reports_report_key_unique` present. Farm and contact counts
@@ -33,8 +24,8 @@
 
 ## Verification
 
-- `main`: 1,820 unit tests, 895 local integration tests, typecheck, and lint pass. The web
-  production build retains the tracked Next configuration/lint warnings (B-008).
+- `main`: 1,824 unit tests, 902 local integration tests, typecheck, and lint pass (2026-08-11). The
+  web production build retains the tracked Next configuration/lint warnings (B-008).
 - Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model passes
   **33/33** — 28 prior fixtures plus five added 2026-08-10: two proving code strips an unauthorized
   removal (B-056) and three covering the stock-out item parser, which had none.
@@ -95,6 +86,11 @@ login and seeded farms were never exercised. A multi-stand farm, a removed farm,
   --secret=farm-friend-database-url`. `apps/web/.env.local` points at local `farmfriend_dev`, so
   checking only the working tree makes production look inaccessible. Measure the real data before
   arguing about it.
+- **A regex backslash inside a JS template literal never reaches Postgres.** `'\s+'` in a tagged
+  template arrives as `s+` and silently strips the letter "s"; it must be written `'\\s+'`. It read
+  as a matching bug, and was found only by probing Postgres directly.
+- **Production stand names carry typographic punctuation** — "Bart’s Cart" uses a curly apostrophe
+  (U+2019) no phone keyboard produces. Test data written with a straight apostrophe misses it.
 - Reassemble `VIGA Map Stands.csv` records from a `POINT` in column one; ordinary CSV parsing creates
   phantom farms.
 - `drizzle-kit generate` omits CHECKs and partial indexes; inspect SQL and prove constraints by effect.

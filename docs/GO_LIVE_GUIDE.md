@@ -112,9 +112,11 @@ wanted — `POST /api/public/stock-out` and its throttle remain in place as its 
 
 What shipped instead: a customer texts that something is sold out, a new `customer-message-intent`
 seam classifies report-vs-question, and code resolves which stand from the customer's own words.
-The stand match is exact-substring against real rows and must be UNIQUE — zero or several matches
-both produce "Which stand are you at?" rather than a guess, because a customer has no farm
-affiliation to disambiguate against and a wrong guess texts an unrelated farmer.
+The stand match is against real rows and must be UNAMBIGUOUS — no match, or two stands matching
+equally, both produce "Which stand are you at?" rather than a guess, because a customer has no farm
+affiliation to disambiguate against and a wrong guess texts an unrelated farmer. F-106 later
+widened *how* a name is matched (punctuation folding, then distinctive-word scoring for a partial
+name) without loosening that rule; ARCHITECTURE.md §routing owns the current ladder.
 
 The classifier is a sibling of the farmer one rather than a new field on `inquiry-interpretation`:
 every working customer answer flows through that seam, and its fallback here is
