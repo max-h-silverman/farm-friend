@@ -133,13 +133,22 @@ and broader listing changes.
 
 ### Customer stock-out report
 
-A customer privately reports from a web/QR surface whose sales location is bound by code. The
-report **does not affect the map, answers, or ranking**. Code resolves the authorized farmer from
-that location and may ask them to send current inventory. The reply follows the ordinary structured
-inventory proposal and `YES`/`NO` confirmation flow; there is no separate `OUT`/`IGNORE` stock-out
-action. Only the farmer's confirmed inventory revision can change published inventory. A free-text
-SMS may direct the customer to the reporting surface but cannot select a location or queue a farmer
-alert.
+A customer privately reports **by SMS** — the launch surface (max, 2026-08-10), because a customer
+already texts Farm Friend while a QR code must first be printed and placed. The web/QR surface
+remains specified and its endpoint exists, but nothing links to it yet.
+
+**The sales location is always bound by code, on every surface.** The web surface takes it from the
+scanned route; SMS resolves it by unique exact-substring match of stand names against real rows, and
+asks *"Which stand are you at?"* when zero or several match. A model never names a stand, so a
+stranger's report cannot be routed at a farmer they did not identify. A sender naming a stand that
+is not theirs is reporting — including an authorized farmer who spots a neighbour's empty bin.
+
+The report **does not affect the map, answers, or ranking**. Code resolves the authorized farmer
+from that location and asks them to send current inventory; the alert names the stand and, for a
+listed item, the stand's own item name — never the reporter's words or a model's. The reply follows
+the ordinary structured inventory proposal and `YES`/`NO` confirmation flow; there is no separate
+`OUT`/`IGNORE` stock-out action. Only the farmer's confirmed inventory revision can change published
+inventory.
 
 ### Recipe requests
 

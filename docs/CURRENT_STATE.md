@@ -25,24 +25,8 @@
 - Deployment assertions confirm both revisions are newer than every mounted secret; the served contact card
   has the expected E.164 suffix, 153 bytes, CRLF-only lines, and all seven required properties.
 
-### `DEEPINFRA_API_KEY` rotated to VIGA's own account — 2026-08-11
-
-- Secret Manager `farm-friend-deepinfra-api-key` **v3** (32 chars, no trailing newline). Both services
-  were redeployed on the unchanged image so their containers restart onto it: Cloud Run resolves
-  `version = "latest"` at container START, so adding a version changes nothing already running — the
-  revisions Codex deployed at 03:07 predated v3 and were still serving the old key.
-- **Proven by effect in production**: a real SMS "who has eggs?" returned a grounded, code-rendered
-  answer — 12 stands ranked, first 3 paged, "nobody has confirmed eggs recently" distinguishing
-  confirmed stock from typical offerings. A dead key degrades to a clarification with no stands, so
-  this is the deployed model-backed path, not a local proof.
-- The OLD key on Max's personal account was revoked and **proven dead**: a real completions request
-  carrying v2 returns **401**. Rotation is closed on both ends.
-- **`infra/terraform.tfvars` is gitignored**, so `rotation_applied_at = "2026-08-11T03-04"` exists only
-  on Max's machine. A deploy planned from any other checkout reverts the marker and silently rolls the
-  containers back onto whatever they had — this is a real trap, not a note.
-- `infra/plan-assertions.py` was a **SyntaxError under Python 3.10** (an f-string reusing its outer
-  quote, needing 3.12+) from commit `2b3312a` until `640791a` repaired it. The gate could not have run
-  for any deploy in that window, including the 2026-08-10 B-050/F-105 release. Quoting only; 60/60 pass.
+- `DEEPINFRA_API_KEY` runs on **VIGA's own account** (Secret Manager v3, 2026-08-11). Proven by
+  effect in production; the old personal-account key is revoked and returns 401.
 
 ## Standing facts a cold start needs
 
@@ -66,23 +50,10 @@
 - F-065: attribute every listing change to its actor; F-084: decide participant attribution during onboarding.
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - VIGA must decide whether the Vashon Island Farmers Market belongs in the farmer roster.
-- **Customer stock-out reporting works end to end over SMS** (F-104, 2026-08-11). A customer texts
-  that something sold out; a new `customer-message-intent` seam routes report-vs-question; code
-  resolves the stand from the customer's own words by unique exact-substring match, or asks "Which
-  stand are you at?"; the report and the farmer's `stock_out_alert` commit in one transaction.
-  **GL-007 is done and GL-008 is superseded** (SMS instead of a QR/web form — max, 2026-08-10).
-  Migration **`0038`** adds `stock_out_reports.report_key` (unique, nullable) for reporting-event
-  idempotency; applied to Neon and deployed 2026-08-11.
-  - **B-053** (found live, fixed 2026-08-11): a farmer naming ANOTHER farm's stand is reporting a
-    stock-out, not updating their own listing. Routing branched on `hasLiveFarmerAuthorization`
-    alone, so F-104's customer path was unreachable from any farmer handset. Ownership is now
-    resolved in code from `farmer_authorizations`; naming no stand, or their own, is unchanged.
-  - The farmer stand menu no longer states its 12-hour deadline; the expiry reply says "the
-    response window expired". Behavior unchanged (`FARMER_TARGET_MENU_TTL_MS`).
-  - **Live evals ran green** against production's own model,
-    `mistralai/Mistral-Small-24B-Instruct-2501`. Two fixtures are new — one containment (a classification cannot carry a stand of
-    its own; the seam's `.strict()` schema is the barrier) and one quality (six real phrasings,
-    all six split report from question correctly, sabotage-checked by inverting one expectation).
+- **F-104's report path has not yet run end to end in production.** Deployed and proven locally,
+  but no real SMS has produced a `stock_out_reports` row or a `stock_out_alert`. The first live
+  exercise is owed. (B-053, the bug that made this unreachable from a farmer handset, was found
+  exactly this way — by texting, not by a suite.)
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
@@ -107,3 +78,11 @@ a farm at all — it is the market itself, not a stand with a farmer to onboard.
 - `drizzle-kit generate` omits CHECKs and partial indexes; inspect SQL and prove constraints by effect.
 - Verify migrations by schema effect. The migration ledger is `drizzle.__drizzle_migrations`, not `public`.
 - Use `printf %s`, never `echo`, for Secret Manager salts; Next expands `$NAME` in `.env` values.
+- **A deploy does not pick up a rotated secret.** Cloud Run resolves `version = "latest"` at container
+  START, so only a revision that started *after* the secret version serves it — a release deployed
+  minutes later can still run the old value. `deploy_assertions.py` is the only check that catches it.
+- **`infra/terraform.tfvars` is gitignored**, so `rotation_applied_at` lives on one machine. A plan
+  from any other checkout moves it backward and silently rolls containers onto the pre-rotation
+  secret while reporting success.
+- **Run `infra/plan-assertions.py` before trusting it.** It was a SyntaxError under Python 3.10 from
+  `2b3312a` to `640791a`; a safety gate that fails to start looks identical to one nobody invoked.

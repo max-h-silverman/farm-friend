@@ -194,10 +194,22 @@ clarify or flag:
   `inventory_update`, `farm_stand_question`, or `unclear`. Code owns authority, exact stand
   resolution, inquiry grounding, confirmation, and the clarification text. A classifier error or
   invalid output becomes `unclear`; it never becomes an inventory write.
-- **stock-out item parsing** — on the web/QR reporting surface, free text → which item (a listed
-  entry or normalized text for an unlisted one). The surface supplies the sales-location identifier
-  in code; it is never a model output. A free-text SMS may receive a link to the reporting surface
-  but cannot select a location or queue a farmer alert.
+- **customer-message intent** (F-104) — customer free text → one of two route signals:
+  `stock_out_report` or `farm_stand_question`. The sibling of farmer-message intent on the other
+  branch, and deliberately NOT a field on inquiry interpretation: every working customer answer
+  flows through that seam, so a new job there risks the whole question path. There is no third
+  `unclear` arm — `farm_stand_question` is both the other answer and the fallback, so a refused or
+  unreachable model leaves the question path exactly as it was. The projection carries the
+  customer's message alone: no stand list, no farm names, no sender hash.
+- **stock-out item parsing** — free text → which item (a listed entry or normalized text for an
+  unlisted one), on both the web/QR surface and the SMS reporting path. Code supplies the
+  sales-location identifier and it is never a model output: the web surface binds it from the
+  scanned route, and SMS resolves it by unique exact-substring match of stand names against real
+  rows, asking "Which stand are you at?" on zero or several matches rather than guessing. An
+  authorized farmer naming ANOTHER farm's stand is routed here too, with ownership resolved in code
+  from `farmer_authorizations` (B-053). Model-derived item text for an *unlisted* report is stored
+  but never spoken: the farmer's alert names the stand and, for a listed entry, the stand's own
+  item name — a code-rendered message from typed facts, never a reporter's or a model's prose.
 - **inquiry interpretation** — question → open intent: item(s), optional farm scope, a
   **proposed selection/ranking interpretation**, an `outOfScopeRequest` **boolean**, an
   `originDependent` **boolean**, or a bare "ambiguous → ask" signal. **Never privileges one

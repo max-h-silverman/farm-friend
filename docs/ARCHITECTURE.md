@@ -350,12 +350,21 @@ order:
    code-rendered refusal, never free text.
 9. **Active conversation state** routes the message to its in-flight flow.
 10. **Authority and consent gates** determine what the sender may do.
-11. For authorized farmer free text, the **farmer-message intent seam** returns only
-    `inventory_update`, `farm_stand_question`, or `unclear`. It runs before stand targeting so a
-    general question does not create a target menu.
-12. `inventory_update` continues through exact stand targeting and the existing proposal flow;
+11. **Whose stand was named decides the branch before authority does** (B-053). Code resolves any
+    stand named in the message by unique exact-substring match and checks ownership against
+    `farmer_authorizations`. A sender naming a stand that is *not theirs* — authorized farmer or
+    not — is reporting a stock-out, not updating a listing. Naming no stand, or naming their own,
+    leaves the branches below unchanged. This can only move a message AWAY from publishing
+    inventory, never toward publishing someone else's.
+12. For authorized farmer free text about their own stands, the **farmer-message intent seam**
+    returns only `inventory_update`, `farm_stand_question`, or `unclear`. It runs before stand
+    targeting so a general question does not create a target menu.
+13. `inventory_update` continues through exact stand targeting and the existing proposal flow;
     `farm_stand_question` uses grounded inquiry; `unclear` gets a code-rendered clarification.
     No classification outcome publishes inventory.
+14. For everyone else, the **customer-message intent seam** returns `stock_out_report` or
+    `farm_stand_question` (also its fallback). A report records a private signal and prompts the
+    stand's own farmer; it never mutates published state — Golden Rule #1.
 
 Farmer update text resolves the sender's durable exact target in code after intent classification.
 One live target is selected automatically; several with no selection issue the same numbered menu.
