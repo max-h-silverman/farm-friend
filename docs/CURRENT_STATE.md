@@ -28,6 +28,10 @@
 
 - `main`: 1,824 unit tests, 902 local integration tests, typecheck, and lint pass (2026-08-11). The
   web production build retains the tracked Next configuration/lint warnings (B-008).
+- Branch `b-057-name-usual-offerings`: 1,824 unit, **908** local integration (six new), typecheck,
+  lint, and stub evals pass. Four deliberate sabotages — an unbound `stand_items` query, the removed
+  precedence dedup, a stand-item rendered as `unlisted`, and the queue reader's coalesce — were each
+  caught by the intended test. B-057's new live fixture passed 7/7 runs.
 - Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model passes
   **33/33** — 28 prior fixtures plus five added 2026-08-10: two proving code strips an unauthorized
   removal (B-056) and three covering the stock-out item parser, which had none.
@@ -64,10 +68,12 @@
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the
   roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
-- B-057 (planned): a stock-out alert says "sold out of something" for an item the stand genuinely
-  lists. The report matches only the CURRENT published inventory, so Pinecone Gardens' `eggs` — a
-  `stand_items` row, `usually_carried = false` — fell through to `unlisted`, whose text the renderer
-  refuses to speak. Matching the stand's own usual offerings would keep every word code-owned.
+- B-057 is **built and locally verified, not deployed** (`5ce3630`, branch
+  `b-057-name-usual-offerings`). Migration `0039` is applied **locally only** — production is still
+  at 39 migrations and still sends "sold out of something".
+- B-058 (planned): the live fixture "the same message with the stand named removes nothing either"
+  fails in ~2 of 7 runs on unmodified `main`. Real verdicts, not the labelled provider-error case,
+  so a single live run cannot tell a regression from this noise.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
@@ -96,6 +102,13 @@ login and seeded farms were never exercised. A multi-stand farm, a removed farm,
 - Reassemble `VIGA Map Stands.csv` records from a `POINT` in column one; ordinary CSV parsing creates
   phantom farms.
 - `drizzle-kit generate` omits CHECKs and partial indexes; inspect SQL and prove constraints by effect.
+- **`drizzle-kit generate` stamps the new journal entry with the WALL CLOCK, and this repo's entries
+  are future-dated** — so a freshly generated migration lands *earlier* than its predecessor and the
+  migrator skips it while printing "migrations applied". Hit on `0039`. Fix the `when` to follow the
+  previous entry, then confirm the column/constraint exists rather than trusting the message.
+- **It also emits a composite FK before the unique constraint the FK requires.** `0039` referenced
+  `stand_items (id, sales_location_id)` above the `ADD CONSTRAINT … UNIQUE` that makes it
+  referenceable; the generated order fails on a clean database. Read the generated SQL top to bottom.
 - Verify migrations by schema effect. The migration ledger is `drizzle.__drizzle_migrations`, not `public`.
 - Use `printf %s`, never `echo`, for Secret Manager salts; Next expands `$NAME` in `.env` values.
 - **A deploy does not pick up a rotated secret.** Cloud Run resolves `version = "latest"` at container
