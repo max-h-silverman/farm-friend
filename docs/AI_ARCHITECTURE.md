@@ -275,6 +275,13 @@ the hidden farm anyway and is refused. A prompt instruction to "not mention test
 the same guarantee written where a jailbreak can reach it — this is Golden Rule #6's shape applied
 to visibility.
 
+**Broad availability requests select only their first result page.** Interpretation marks a
+request for the complete available set with a boolean; code uses its validated ranking to order
+the full retrieved set, gives selection only the displayable first page, and persists the
+already-ranked remainder for `MORE`. A named item or category never takes this path: selection
+still sees every candidate because only the model can decide semantic relevance. This reduces
+opaque identifiers the model must reproduce without turning product vocabulary into code policy.
+
 **"Retrieval-first" means retrieval before grounded *fact selection* and factual rendering — not
 before *semantic interpretation*.** The distinction is settled and load-bearing in both directions.
 Interpreting the request must come first, because retrieval needs to know what to look for; letting

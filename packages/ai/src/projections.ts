@@ -84,7 +84,7 @@ export const SEAM_OUTPUT_SHAPES = {
     '{"kind":"clarification","question":"Could you list what your stand has right now?"}',
   ],
   "inquiry-interpretation": [
-    '{"kind":"lookup","items":["bok choy","green beans"],"farmScope":"Provo Farms","ranking":"freshest","outOfScopeRequest":false,"originDependent":false}',
+    '{"kind":"lookup","items":["bok choy","green beans"],"farmScope":"Provo Farms","ranking":"freshest","broad":false,"outOfScopeRequest":false,"originDependent":false}',
     '{"kind":"ambiguous"}',
   ],
   "grounded-fact-selection": [
@@ -147,8 +147,10 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     'the most of their items, "freshest" when recency matters most, "any" otherwise. ' +
     "farmScope only when they name a specific farm; when they name a farm and no product, " +
     'set farmScope and use the broad item ["produce"] so the whole stand can answer. ' +
-    "When they ask broadly what is available, with no product and no farm, also use " +
-    '["produce"]. outOfScopeRequest is true when they ' +
+    "Set broad true whenever they ask what is generally available with no named product, " +
+    'whether or not they name a farm; use ["produce"] for that request. broad is false for ' +
+    "a named product or category, even when many stands may carry it. outOfScopeRequest is " +
+    "true when they " +
     "also ask for a recipe, preparation, or food-safety guidance. originDependent is true " +
     "whenever answering depends on where the customer is (nearest, closest, distance, " +
     'directions), INCLUDING when they name no product - "what is closest to me?" is ' +
