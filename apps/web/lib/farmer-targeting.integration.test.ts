@@ -495,8 +495,8 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(queued[0]?.body).toContain("Plum Forest Stand");
     expect(queued[0]?.body).not.toContain("tomatoes");
 
-    // The reporter is thanked without being told whether anyone was reachable.
-    expect(result.replies[0]?.body).toBe("Thanks for letting us know.");
+    // The reporter is told the farmer will be told — intent, never a delivery receipt.
+    expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
     // The seam that binds the item never received a location to choose from.
     expect(JSON.stringify(parseItem.mock.calls[0]?.[0])).not.toContain(locationId);
   });
@@ -605,7 +605,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(queued[0]?.recipient_hash).not.toBe(senderHash);
 
     // No stand menu, no proposal: this was never about the sender's own stands.
-    expect(result.replies[0]?.body).toBe("Thanks for letting us know.");
+    expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
     expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
   });
 

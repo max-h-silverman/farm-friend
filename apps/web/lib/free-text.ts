@@ -67,15 +67,22 @@ export const STOCK_OUT_UNCLEAR_ITEM =
   "Thanks for letting us know. What was sold out?";
 
 /**
- * The reply to a recorded report — deliberately opaque about what happened next.
+ * The reply to a recorded report — it names the consequence (max, 2026-08-11).
  *
- * It does NOT say the farmer was told. Two reasons, and the second is the stronger one:
- * saying so would reveal whether a farmer is reachable and has consented (Golden Rule #5),
- * and it would often be FALSE — an alert to a farmer without active consent is suppressed at
- * dispatch, and a stand between farmers has nobody to alert at all. A stranger gets thanks,
- * which is honest in every case.
+ * The earlier copy thanked the reporter and said nothing about what would happen, to avoid
+ * two things: the sentence is not literally true when the farmer has no active consent (the
+ * alert is suppressed at dispatch) or when the stand is between farmers and there is nobody
+ * to alert, and stating it tells a stranger something about that farmer's reachability.
+ *
+ * Max chose this wording anyway, and the tradeoff is narrow: the leak is one bit about a
+ * business's contactability, inferable only by a reporter who already knows the alert should
+ * have produced a restock. What it buys is a reporter who knows their message went somewhere
+ * — the thing that makes reporting feel worth doing at all.
+ *
+ * It describes INTENT, not delivery. Nothing downstream may read it as a promise that a text
+ * was sent: dispatch consent remains the only authority on that (Golden Rule #5).
  */
-export const STOCK_OUT_THANKS = "Thanks for letting us know.";
+export const STOCK_OUT_THANKS = "Thanks, we'll let the farmer know.";
 
 export const FARMER_INTENT_CLARIFICATION =
   "Are you updating your inventory or asking what a farm stand has? Reply UPDATE or QUESTION.";
