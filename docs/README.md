@@ -8,18 +8,28 @@ Start at [../CLAUDE.md](../CLAUDE.md) — product framing, Golden Rules, task wo
 [CURRENT_STATE.md](CURRENT_STATE.md) for what is live, and [DEVELOPMENT.md](DEVELOPMENT.md) for the
 pre-ship checklist covering the area you're touching.
 
-## The contract docs
+## The contract docs — read to orient
 
 1. **[PRODUCT_BRIEF.md](PRODUCT_BRIEF.md)** — the *product*. North star, canonical launch journeys,
    actors, honor-system reality, privacy posture, launch scope and non-goals.
 2. **[ARCHITECTURE.md](ARCHITECTURE.md)** — the *system*. Design stance, package layout and dependency
-   direction, composition root, runtime surfaces, deterministic routing, workflow and transaction
-   ownership, provider seams, invariants.
-3. **[DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md)** — the *data*. Durable records, the constraints the
+   direction, composition root, deterministic routing, workflow and transaction ownership, provider
+   seams, invariants.
+3. **[DATA_ARCHITECTURE.md](DATA_ARCHITECTURE.md)** — the *data*. Scope discipline, the constraints the
    database enforces, privacy and retention, the model-run MAY-store list.
 4. **[AI_ARCHITECTURE.md](AI_ARCHITECTURE.md)** — the *AI*. Trust contract, semantic architecture, seam
    catalog, model-vs-code line, safety boundary + verification, evals.
 5. **[SMS_COMPLIANCE.md](SMS_COMPLIANCE.md)** — keywords, consent, required behavior, the FLAG rail.
+
+## The reference docs — look one thing up
+
+Not cold-start reading. Each is the catalogue its contract doc points into.
+
+- **[SURFACES.md](SURFACES.md)** — every runtime surface and the bounds it enforces (← ARCHITECTURE).
+- **[DATA_RECORDS.md](DATA_RECORDS.md)** — every durable record, what it is for, its rules
+  (← DATA_ARCHITECTURE).
+- **[EXTENDING.md](EXTENDING.md)** — recipes: add a program, an admin surface, a farmer-link surface, a
+  model seam; swap a provider (← RUNBOOK).
 
 ## Status, discipline, and operations
 
@@ -31,7 +41,7 @@ pre-ship checklist covering the area you're touching.
 - **[GO_LIVE_GUIDE.md](GO_LIVE_GUIDE.md)** — the prioritized work order to launch (`GL-###` items,
   priority bands, verification ladder). Controls order, not contract.
 - **[RUNBOOK.md](RUNBOOK.md)** — local dev, env, migrations, seeding, evals, deploy, Telnyx webhook
-  requirements, credential rotation, and **how to extend**.
+  requirements, credential rotation.
 - **[ADMIN_OPERATIONS.md](ADMIN_OPERATIONS.md)** — the VIGA operator guide.
 - **[VIGA_10DLC_WEBSITE_COPY.md](VIGA_10DLC_WEBSITE_COPY.md)** — source copy for the public opt-in page,
   privacy policy, SMS terms, and campaign submission.
