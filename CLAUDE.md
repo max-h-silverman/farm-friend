@@ -103,15 +103,21 @@ confirm it can fail.
 | Doc | Owns |
 |---|---|
 | [PRODUCT_BRIEF](docs/PRODUCT_BRIEF.md) | the *product* — north star, launch journeys, actors, honor-system reality, privacy posture, scope and non-goals |
-| [ARCHITECTURE](docs/ARCHITECTURE.md) | the *system* — package layout + dependency direction, composition root, runtime surfaces, deterministic routing, workflow/transaction ownership, provider seams |
-| [DATA_ARCHITECTURE](docs/DATA_ARCHITECTURE.md) | the *data* — durable records, the constraints the database enforces, privacy/retention, the model-run MAY-store list |
+| [ARCHITECTURE](docs/ARCHITECTURE.md) | the *system* — package layout + dependency direction, composition root, deterministic routing, workflow/transaction ownership, provider seams |
+| [DATA_ARCHITECTURE](docs/DATA_ARCHITECTURE.md) | the *data* — scope discipline, the constraints the database enforces, privacy/retention, the model-run MAY-store list |
 | [AI_ARCHITECTURE](docs/AI_ARCHITECTURE.md) | the *AI* — trust contract, semantic architecture, seam catalog, model-vs-code line, safety boundary + verification, evals |
 | [SMS_COMPLIANCE](docs/SMS_COMPLIANCE.md) | keywords, consent, required behavior, the FLAG safety rail |
 | [DEVELOPMENT](docs/DEVELOPMENT.md) | *how code gets written* — the zen desk, the suites, per-area pre-ship checklists, the do-not list |
 | [CURRENT_STATE](docs/CURRENT_STATE.md) | **build status** — what's verified, deployed, and open. The only place it lives |
 | [GO_LIVE_GUIDE](docs/GO_LIVE_GUIDE.md) | **work order to launch** — `GL-###` items, priority bands, the verification ladder. Controls order, not contract; its findings are leads to reconfirm, not a spec. Open unless it carries a `**Completed:**` line |
-| [RUNBOOK](docs/RUNBOOK.md) | operate/extend — local dev, env, migrations, seeding, evals, deploy, Telnyx webhook requirements, credential rotation, **how to extend** |
+| [RUNBOOK](docs/RUNBOOK.md) | operate — local dev, env, migrations, seeding, evals, deploy, Telnyx webhook requirements, credential rotation |
 | [ADMIN_OPERATIONS](docs/ADMIN_OPERATIONS.md) | the VIGA operator guide |
+
+**Three reference catalogues** sit under the docs above. They are **look-up, never cold-start
+reading**: [SURFACES](docs/SURFACES.md) (every runtime surface and its bounds, under ARCHITECTURE),
+[DATA_RECORDS](docs/DATA_RECORDS.md) (every durable record, under DATA_ARCHITECTURE), and
+[EXTENDING](docs/EXTENDING.md) (recipes for adding a program, surface, seam, or provider, under
+RUNBOOK).
 
 **Historical records — do NOT load these to orient.** Dated, frozen, not authority:
 everything in [docs/archive/](docs/archive/) (the July 2026 clean-room reset and its adversarial

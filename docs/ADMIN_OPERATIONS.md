@@ -4,9 +4,8 @@ The VIGA operator guide: administrator authority, admin surfaces, and operator r
 is a **first-class requirement** — non-technical VIGA staff run oversight through a guided web
 admin.
 
-> This is the **VIGA operator guide** — administrator identity and the surfaces that serve it. It
-> carries no build status: what is actually built and open lives in
-> [CURRENT_STATE.md](CURRENT_STATE.md).
+> The **VIGA operator guide** — administrator identity and the surfaces that serve it. No build
+> status: that lives in [CURRENT_STATE.md](CURRENT_STATE.md).
 
 ## Administrator authority
 
@@ -57,16 +56,9 @@ daily data entry, the product has failed its north star.
 | Messages | `/admin/messages` | Everything a person sent us: customer `FLAG` messages with the thread viewer (phones masked), stock-out reports, and questions about VIGA's own records |
 | Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm; prepare an invitation; decide access requests that arrived by text with no farm attached |
 
-**Three tabs: Farms, Messages, Users** — a farm, a message, a person. The console used to have
-one screen per queue, which is why a farm appeared six ways and no screen owned it, and why
-"Customer reports" and "Stock reports" sat side by side when a stock-out *is* a customer report.
-
-**There is no Home tab** (max, 2026-08-10). It held nothing but counts pointing at the other
-tabs, so every task cost two clicks and the landing screen had no work on it. Those counts now
-sit on the tab that owns the work, above the rows they describe. `/admin` still resolves — it
-redirects to Farms — so an existing bookmark keeps working.
-
-Each surface ships **incrementally with its workflow**, never as a final phase.
+**Three tabs: Farms, Messages, Users** — a farm, a message, a person. One screen owns each entity.
+**There is no Home tab** (max, 2026-08-10): counts sit on the tab that owns the work, above the rows
+they describe. `/admin` redirects to Farms, so an existing bookmark keeps working.
 
 Each page resolves the administrator before querying its queue. The browser posts decisions to a
 guarded mutation route; the acting administrator always comes from the **session**, never the
