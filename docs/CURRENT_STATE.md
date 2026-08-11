@@ -6,10 +6,10 @@
 ## Release state
 
 - Farm Friend is **pre-go-live**. Production serves F-104 SMS stock-out reporting on top of B-050
-  broad-inquiry paging and F-105 stand details, built from `main` `104b235`. This release DOES carry
-  a schema change (`0038`), applied before the image was promoted.
-- Cloud Run web `farm-friend-web-00062-pq9` and worker `farm-friend-worker-00057-knt` serve immutable
-  digest `sha256:a3acf708098f620f39386d6cbf3b74b8db6bd03196952ba9a786e2e4e51b1255`.
+  broad-inquiry paging and F-105 stand details, built from `main` `96ce18e` (F-104 plus its B-053
+  follow-up). The `0038` schema change shipped with F-104, applied before that image was promoted.
+- Cloud Run web `farm-friend-web-00063-lbw` and worker `farm-friend-worker-00058-znw` serve immutable
+  digest `sha256:dd365d88e93df8251adadbc2d421f8dea9d0a37288f8e71613ea9cf5882a1dce`.
 - Neon `neondb` has **39 applied migrations (`0000`–`0038`)**. `0038` was applied 2026-08-11 and
   verified by schema effect — `report_key` is `text`, nullable (the NULL matters: NULLs stay distinct
   under the unique index), with `stock_out_reports_report_key_unique` present. Farm and contact counts
@@ -73,6 +73,12 @@
   **GL-007 is done and GL-008 is superseded** (SMS instead of a QR/web form — max, 2026-08-10).
   Migration **`0038`** adds `stock_out_reports.report_key` (unique, nullable) for reporting-event
   idempotency; applied to Neon and deployed 2026-08-11.
+  - **B-053** (found live, fixed 2026-08-11): a farmer naming ANOTHER farm's stand is reporting a
+    stock-out, not updating their own listing. Routing branched on `hasLiveFarmerAuthorization`
+    alone, so F-104's customer path was unreachable from any farmer handset. Ownership is now
+    resolved in code from `farmer_authorizations`; naming no stand, or their own, is unchanged.
+  - The farmer stand menu no longer states its 12-hour deadline; the expiry reply says "the
+    response window expired". Behavior unchanged (`FARMER_TARGET_MENU_TTL_MS`).
   - **Live evals ran green** against production's own model,
     `mistralai/Mistral-Small-24B-Instruct-2501`. Two fixtures are new — one containment (a classification cannot carry a stand of
     its own; the seam's `.strict()` schema is the barrier) and one quality (six real phrasings,
