@@ -29,6 +29,7 @@ import {
   createDeepInfraProvider,
   createInquiryModel,
   createInventoryInterpreter,
+  createStockOutModel,
   extractOfferings,
   liveEvalFailureReason,
   type LiveEvalGroup,
@@ -69,6 +70,7 @@ const provider = createDeepInfraProvider({
 const interpreter = createInventoryInterpreter(provider);
 const inquiry = createInquiryModel(provider);
 const customerIntent = createCustomerMessageIntentModel(provider);
+const stockOut = createStockOutModel(provider);
 const CURRENT_LOCAL_DATE = "2026-08-06";
 
 /** The published state injections will try to move. Mirrors hostile.ts's BASE. */
@@ -286,6 +288,101 @@ fx("live-containment", "a customer classification cannot carry a stand of its ow
     (raw.kind === "stock_out_report" || raw.kind === "farm_stand_question") &&
     Object.keys(raw).length === 1;
   return { ok: contained, observed };
+});
+
+/*
+  FOUND LIVE (max, 2026-08-10). A customer texted "no eggs left at Pinecone Gardens" and got
+  "Thanks for letting us know. What was sold out?" — the item was named plainly and the parser
+  returned `unclear`, so no report was recorded and no farmer was alerted.
+
+  The routing fixture below already covers this exact sentence, and it routes CORRECTLY. What
+  nothing covered was the step after it: reading the item out of the message once the stand is
+  bound. That seam had no live fixture at all, which is how a whole model call went unmeasured.
+
+  Eggs are deliberately NOT in `listedItems` here — that is the live shape. The correct answer
+  is `unlisted` with the item text, which records a report VIGA and the farmer can act on
+  ("someone came for eggs and you had none"). `unclear` is the failure: it drops the report.
+*/
+fx("live-quality", "reads the item out of a stock-out report naming an unlisted item", async () => {
+  const cases = [
+    "no eggs left at Pinecone Gardens",
+    "no eggs left",
+    "the eggs were gone when I stopped by",
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const text of cases) {
+    const raw = await stockOut.parseItem({
+      taskText: text,
+      // The stand lists tomatoes and kale. Eggs are absent, exactly as in the live report.
+      listedItems: [
+        { entryId: "e1", itemName: "tomatoes" },
+        { entryId: "e2", itemName: "kale" },
+      ],
+    });
+    // `unlisted` naming the eggs is the right answer. A `listed` verdict would be worse than
+    // `unclear`: it would file the report against tomatoes or kale, which is B-056's failure
+    // wearing different clothes.
+    const ok = raw.kind === "unlisted" && /egg/i.test(raw.itemText);
+    if (ok) correct += 1;
+    else observations.push(`"${text}" -> ${JSON.stringify(raw)}`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed: observations.length === 0 ? `${correct}/${cases.length}` : observations.join("; "),
+  };
+});
+
+fx("live-quality", "matches a stock-out report against the item the stand does list", async () => {
+  // The mirror, so the fixture above cannot pass by making `listed` unreachable. This is the
+  // common case — a customer reports something the stand actually publishes.
+  const raw = await stockOut.parseItem({
+    taskText: "the kale is all gone at Pinecone Gardens",
+    listedItems: [
+      { entryId: "e1", itemName: "tomatoes" },
+      { entryId: "e2", itemName: "kale" },
+    ],
+  });
+  const observed = JSON.stringify(raw);
+  return { ok: raw.kind === "listed" && raw.entryId === "e2", observed };
+});
+
+fx("live-quality", "reads a misspelled item in a stock-out report", async () => {
+  // max's case: "no eggz left". A customer texting from a parking lot misspells things, and a
+  // dropped report is a farmer who never hears their eggs ran out.
+  //
+  // "kayle" must resolve to the LISTED kale rather than becoming an unlisted item of its own:
+  // filing a near-miss spelling as unlisted would leave the farmer's actual kale entry
+  // untouched while VIGA's queue fills with phantom products.
+  const cases: { text: string; want: "listed" | "unlisted" }[] = [
+    { text: "no eggz left at Pinecone Gardens", want: "unlisted" },
+    { text: "the kayle is all gone", want: "listed" },
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const { text, want } of cases) {
+    const raw = await stockOut.parseItem({
+      taskText: text,
+      listedItems: [
+        { entryId: "e1", itemName: "tomatoes" },
+        { entryId: "e2", itemName: "kale" },
+      ],
+    });
+    const ok =
+      want === "listed"
+        ? raw.kind === "listed" && raw.entryId === "e2"
+        : raw.kind === "unlisted" && /egg/i.test(raw.itemText);
+    if (ok) correct += 1;
+    else observations.push(`"${text}" -> ${JSON.stringify(raw)}`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed: observations.length === 0 ? `${correct}/${cases.length}` : observations.join("; "),
+  };
 });
 
 /*
