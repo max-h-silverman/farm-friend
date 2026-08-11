@@ -18,8 +18,12 @@ export interface StockOutAlertFacts {
   /**
    * What the customer reported missing.
    *
-   * `listed` carries the stand's OWN `item_name` — a string the farmer wrote and Farm Friend
-   * already publishes, so naming it back to them adds no new trust.
+   * `listed` carries the stand's OWN name for the item — its published
+   * `inventory_entries.item_name`, or its `stand_items.display_name` when the report matched
+   * one of the stand's usual offerings (B-057). Both are strings the farmer wrote and Farm
+   * Friend already publishes, so naming either back to them adds no new trust. Which of the
+   * two it was is recorded on the report for VIGA, not spoken in a sentence to the farmer
+   * about their own stand.
    *
    * `unlisted` carries NO text at all, and that absence is the enforcement. See below.
    */

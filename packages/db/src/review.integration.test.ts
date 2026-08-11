@@ -770,6 +770,30 @@ describe("operator review queues (integration)", () => {
       expect(reports.map((r) => r.reportId)).toContain(reportId);
       expect(reports.find((r) => r.reportId === reportId)?.itemText).toBe("bok choy");
     });
+
+    /*
+      B-057 — a report may reference one of the stand's USUAL offerings instead. VIGA's queue
+      has to resolve that name too: an operator reading a blank item learns nothing, and this
+      is now the most common kind of report on the production corpus.
+    */
+    it("resolves the item name of a report against a usual offering", async () => {
+      const items = await client()`
+        insert into stand_items (sales_location_id, display_name, usually_carried)
+        values (${id("location")}, 'Duck eggs', false)
+        returning id
+      `;
+      const reports = await client()`
+        insert into stock_out_reports (
+          sales_location_id, referenced_stand_item_id, status, reported_at
+        )
+        values (${id("location")}, ${items[0]?.id as string}, 'open', ${T0})
+        returning id
+      `;
+      const reportId = reports[0]?.id as string;
+
+      const listed = await listStockOutReports(database(), { status: "open" });
+      expect(listed.find((r) => r.reportId === reportId)?.itemText).toBe("Duck eggs");
+    });
   });
 
   describe("triageStockOutReport", () => {

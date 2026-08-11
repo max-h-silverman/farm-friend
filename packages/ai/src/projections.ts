@@ -493,7 +493,14 @@ export function projectFactSelection(input: {
   } as ModelSafeContext<FactSelectionFields>;
 }
 
-/** A listed item the stock-out surface may offer as a match. */
+/**
+ * A listed item the stock-out surface may offer as a match.
+ *
+ * Deliberately carries no source: code assembles these from the stand's published inventory
+ * AND its usual offerings (B-057), and the model is not told which is which. It has no use for
+ * the distinction — it selects an opaque identifier — and telling it would invite it to reason
+ * about which kind of reference to prefer, a decision code owns.
+ */
 export interface ListedItemRef {
   entryId: string;
   itemName: string;
@@ -503,13 +510,20 @@ export interface ListedItemRef {
 export interface StockOutParseFields {
   /** The reporter's own free text describing what was missing. */
   readonly taskText: string;
-  /** Public listed items for the CODE-BOUND location, for matching only. */
+  /**
+   * Public listed items for the CODE-BOUND location, for matching only — what the stand
+   * currently publishes plus what it usually carries, as one flat list (B-057).
+   */
   readonly listedItems: readonly ListedItemRef[];
 }
 
 /**
  * Project the stock-out item-parsing seam: the reporter's text plus the public listed items
  * of the location the *surface* bound in code.
+ *
+ * Every name here is farmer-authored and already published to customers, which is why widening
+ * the list to the stand's usual offerings changes nothing about the seam's trust: the model
+ * still receives only Farm Friend-held facts, and still returns only an identifier from them.
  *
  * The sales-location identifier is deliberately absent from both input and output. Code binds
  * the location from the QR/web surface and resolves the farmer recipient from it; a model that

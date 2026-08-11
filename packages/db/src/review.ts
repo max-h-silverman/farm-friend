@@ -413,8 +413,10 @@ export interface StockOutReportRow {
  * nowhere that could acquire a phone. What an operator needs is which farm, which stand, and
  * what item; who said so is not part of the job (Golden Rule #5).
  *
- * `itemText` resolves the referenced entry's name when the report pointed at published
- * inventory, because an operator reading a bare entry UUID learns nothing actionable.
+ * `itemText` resolves the referenced row's name — a published entry, or one of the stand's
+ * usual offerings (B-057) — because an operator reading a bare UUID learns nothing actionable.
+ * The three sources are mutually exclusive at the database, so the coalesce has exactly one
+ * non-null input per row; its order is presentational, not a precedence rule.
  */
 export async function listStockOutReports(
   db: Db,
@@ -424,7 +426,7 @@ export async function listStockOutReports(
   const rows = await driver(db)`
     select
       report.id, report.status, report.reported_at, report.reviewed_at,
-      coalesce(entry.item_name, report.unlisted_item_text) as item_text,
+      coalesce(entry.item_name, item.display_name, report.unlisted_item_text) as item_text,
       location.id as sales_location_id, location.name as sales_location_name,
       farm.id as farm_id, farm.name as farm_name,
       administrator.email as reviewed_by_email
@@ -433,6 +435,8 @@ export async function listStockOutReports(
     join farms as farm on farm.id = location.owner_farm_id
     left join inventory_entries as entry
       on entry.id = report.referenced_inventory_entry_id
+    left join stand_items as item
+      on item.id = report.referenced_stand_item_id
     left join administrators as administrator
       on administrator.id = report.reviewed_by_administrator_id
     where ${openOnly ? driver(db)`report.status = 'open'` : driver(db)`true`}

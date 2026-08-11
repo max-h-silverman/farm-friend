@@ -349,6 +349,53 @@ fx("live-quality", "matches a stock-out report against the item the stand does l
   return { ok: raw.kind === "listed" && raw.entryId === "e2", observed };
 });
 
+/*
+  B-057 — the list this seam receives is now the stand's published inventory AND its usual
+  offerings, flattened. The model is not told which is which, and must not need to be.
+
+  This is the real Pinecone Gardens shape: kale/bok choy/potatoes published, eggs carried as a
+  usual offering. It is also the corpus shape — measured 2026-08-11, 33 of 37 stands carry a
+  usual offering their published inventory does not, and 18 publish nothing at all, so the
+  mixed list is the ORDINARY input to this seam rather than an edge case.
+
+  A stub cannot measure this: it reads neither the instructions nor the list, so it cannot tell
+  us whether a longer, heterogeneous list makes the model likelier to grab a near-neighbour
+  ("kale" for "eggs") than it was against two items.
+*/
+fx("live-quality", "picks the usual offering out of a mixed stock-out candidate list", async () => {
+  const cases: { text: string; want: string }[] = [
+    { text: "no eggs left at Pinecone Gardens", want: "s1" },
+    { text: "the bok choy is gone", want: "e2" },
+    // A category row, verbatim from the corpus. The farmer wrote it, so it is a legal answer.
+    { text: "they're out of plant starts", want: "s2" },
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const { text, want } of cases) {
+    const raw = await stockOut.parseItem({
+      taskText: text,
+      // One flat list, exactly as `listedItems` builds it: published entries first, then the
+      // usual offerings the current revision does not already carry.
+      listedItems: [
+        { entryId: "e1", itemName: "kale" },
+        { entryId: "e2", itemName: "bok choy" },
+        { entryId: "e3", itemName: "potatoes" },
+        { entryId: "s1", itemName: "eggs" },
+        { entryId: "s2", itemName: "plant starts" },
+      ],
+    });
+    const ok = raw.kind === "listed" && raw.entryId === want;
+    if (ok) correct += 1;
+    else observations.push(`"${text}" -> ${JSON.stringify(raw)} (want ${want})`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed: observations.length === 0 ? `${correct}/${cases.length}` : observations.join("; "),
+  };
+});
+
 fx("live-quality", "reads a misspelled item in a stock-out report", async () => {
   // max's case: "no eggz left". A customer texting from a parking lot misspells things, and a
   // dropped report is a farmer who never hears their eggs ran out.

@@ -1125,6 +1125,142 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(rows[0]?.unlisted_item_text).toBe("rhubarb");
   });
 
+  /*
+    B-057 — the stand's USUAL offerings are matchable too, and the farmer hears their name.
+
+    Measured against production 2026-08-11: 33 of 37 stands carry at least one usual offering
+    absent from their current published inventory, and 18 stands have no published inventory
+    at all. Matching only the current revision therefore made "sold out of something" the
+    NORMAL alert rather than the rare one — least informative exactly where a stock-out report
+    is most likely to be real.
+
+    `stand_items.display_name` is the farmer's own word, held by Farm Friend and already shown
+    to customers. Speaking it back to its author adds no new trust, which is why this needs no
+    relaxation of Golden Rule #6: the model still only selects an identifier, and code still
+    renders every word.
+  */
+  async function seedStandItem(
+    salesLocationId: string,
+    displayName: string,
+    usuallyCarried = false,
+  ): Promise<string> {
+    const rows = await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried)
+      values (${salesLocationId}, ${displayName}, ${usuallyCarried})
+      returning id
+    `;
+    return rows[0]?.id as string;
+  }
+
+  it("names a usual offering the current inventory does not carry", async () => {
+    // Pinecone Gardens in miniature: kale is published, eggs is a `stand_items` row only.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+    const eggsId = await seedStandItem(ids.alphaLocation!, "Eggs");
+
+    const { deps } = stockOutDeps(
+      JSON.stringify({ kind: "listed", entryId: eggsId }),
+    );
+    const result = await recordStockOutReport(deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "no eggs left",
+    });
+
+    expect(result.outcome).toBe("recorded");
+
+    // The farmer is told WHICH item, in their own spelling from the bound row.
+    const queued = await client()`
+      select body from outbox_work where message_category = 'stock_out_alert'
+    `;
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.body as string).toContain("sold out of Eggs");
+    expect(queued[0]?.body as string).not.toContain("sold out of something");
+
+    // Recorded as the usual-offering reference — not as an inventory entry, and not as
+    // unlisted text. VIGA's queue can tell the three apart.
+    const rows = await client()`
+      select referenced_inventory_entry_id, referenced_stand_item_id, unlisted_item_text
+      from stock_out_reports
+    `;
+    expect(rows[0]?.referenced_stand_item_id).toBe(eggsId);
+    expect(rows[0]?.referenced_inventory_entry_id).toBeNull();
+    expect(rows[0]?.unlisted_item_text).toBeNull();
+  });
+
+  it("offers usual offerings to the model even when nothing is published", async () => {
+    // 18 of 37 production stands look exactly like this: usual offerings, no current
+    // revision. Before B-057 the seam received an EMPTY list for these, so every report
+    // against half the roster could only ever come back unlisted.
+    const eggsId = await seedStandItem(ids.alphaLocation!, "Duck eggs");
+
+    const { provider, deps } = stockOutDeps(
+      JSON.stringify({ kind: "listed", entryId: eggsId }),
+    );
+    const result = await recordStockOutReport(deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "duck eggs are out",
+    });
+
+    expect(result.outcome).toBe("recorded");
+    const context = provider.contextFor("stock-out-parse");
+    const fields = context?.fields as { listedItems: { entryId: string }[] };
+    expect(fields.listedItems.map((item) => item.entryId)).toContain(eggsId);
+  });
+
+  it("prefers the confirmed inventory entry when both kinds carry the item", async () => {
+    // The sequence B-057 requires: current inventory entry BEFORE usual offering. A stand
+    // that published "Kale" today and also lists it as usual must record the entry, because
+    // that is the reference carrying a confirmation time for VIGA's queue.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+    const entries = await client()`select id from inventory_entries`;
+    const entryId = entries[0]?.id as string;
+    const standItemId = await seedStandItem(ids.alphaLocation!, "Kale", true);
+
+    const { provider, deps } = stockOutDeps(
+      JSON.stringify({ kind: "listed", entryId }),
+    );
+    const result = await recordStockOutReport(deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "kale gone",
+    });
+
+    expect(result.outcome).toBe("recorded");
+    const rows = await client()`
+      select referenced_inventory_entry_id, referenced_stand_item_id
+      from stock_out_reports
+    `;
+    expect(rows[0]?.referenced_inventory_entry_id).toBe(entryId);
+    expect(rows[0]?.referenced_stand_item_id).toBeNull();
+
+    // The duplicate name is offered ONCE, under the entry's id. A model shown "Kale" twice
+    // has been handed a coin flip between two references for one fact.
+    const fields = provider.contextFor("stock-out-parse")?.fields as {
+      listedItems: { entryId: string; itemName: string }[];
+    };
+    const kale = fields.listedItems.filter((item) => item.itemName === "Kale");
+    expect(kale).toHaveLength(1);
+    expect(kale[0]?.entryId).toBe(entryId);
+    expect(fields.listedItems.map((item) => item.entryId)).not.toContain(standItemId);
+  });
+
+  it("refuses a stand item belonging to a different farm's stand", async () => {
+    // The membership check has to cover the new reference too, or the widening reopens
+    // exactly the cross-stand hole the entry check closes.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+    const betaItemId = await seedStandItem(ids.betaLocation!, "Beets");
+
+    const { deps } = stockOutDeps(
+      JSON.stringify({ kind: "listed", entryId: betaItemId }),
+    );
+    const result = await recordStockOutReport(deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "the beets were gone",
+    });
+
+    expect(result.outcome).toBe("rejected");
+    const rows = await client()`select count(*)::integer as count from stock_out_reports`;
+    expect(rows[0]?.count).toBe(0);
+  });
+
   it("records nothing when the report does not identify an item", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
 

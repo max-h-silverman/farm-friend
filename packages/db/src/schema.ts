@@ -1821,6 +1821,16 @@ export const standItems = pgTable(
       foreignColumns: [salesLocations.id],
     }).onDelete("cascade"),
     /**
+     * The target of `stock_out_reports`' composite reference (B-057), matching the shape
+     * `inventory_entries_id_location_unique` already provides. Referencing `(id,
+     * sales_location_id)` together is what makes "this item belongs to the stand the surface
+     * bound" a database guarantee rather than a check some future caller might skip.
+     */
+    idAndLocationUnique: unique("stand_items_id_location_unique").on(
+      table.id,
+      table.salesLocationId,
+    ),
+    /**
      * `btrim(text)` with no second argument strips SPACES ONLY — not tabs, not newlines. A
      * test asserting "\t\n" is refused caught the default admitting it. Every normalization
      * of this column names the whitespace characters explicitly, and the unique index below
@@ -2889,6 +2899,20 @@ export const stockOutReports = pgTable(
       .notNull()
       .references(() => salesLocations.id, { onDelete: "restrict" }),
     referencedInventoryEntryId: uuid("referenced_inventory_entry_id"),
+    /**
+     * B-057 — the report matched one of the stand's USUAL offerings rather than its currently
+     * published inventory.
+     *
+     * A separate column rather than a widening of the entry reference, because the two are
+     * different facts and VIGA's queue must be able to tell them apart: an inventory entry
+     * carries a farmer's confirmation time, a stand item is a standing claim with none. Which
+     * one a report matched is exactly what an operator needs to judge it.
+     *
+     * Measured on the production corpus 2026-08-11: 33 of 37 stands carry at least one usual
+     * offering absent from their published inventory, and 18 stands publish no inventory at
+     * all — so this is the common case, not a fallback for stragglers.
+     */
+    referencedStandItemId: uuid("referenced_stand_item_id"),
     unlistedItemText: text("unlisted_item_text"),
     /**
      * The reporting EVENT this report came from, when the surface has a stable one — an
@@ -2922,6 +2946,16 @@ export const stockOutReports = pgTable(
       ],
     }).onDelete("restrict"),
     /**
+     * B-057 — the same composite guarantee for the usual-offering reference. A report can
+     * only name an item belonging to the stand the surface bound in code, so a model that
+     * selected another farm's item is refused by Postgres and not merely by the caller.
+     */
+    standItemLocationReference: foreignKey({
+      name: "stock_out_reports_stand_item_location_fk",
+      columns: [table.referencedStandItemId, table.salesLocationId],
+      foreignColumns: [standItems.id, standItems.salesLocationId],
+    }).onDelete("restrict"),
+    /**
      * One report per reporting event (F-104). This index is the ARBITER of a redelivery race,
      * not a preceding read: `select … for update` cannot serialize a row that does not exist
      * yet, so two concurrent deliveries of one inbound message would both find nothing and
@@ -2931,17 +2965,26 @@ export const stockOutReports = pgTable(
     reportKeyUnique: unique("stock_out_reports_report_key_unique").on(
       table.reportKey,
     ),
+    /**
+     * A report names its item exactly ONE way (B-057 makes it three ways, not two).
+     *
+     * Written as a count rather than as an enumeration of the legal combinations: three
+     * columns have eight states, and spelling out the three legal ones invites a fourth
+     * reference to add a branch and miss a case. The blank guard stays explicit because a
+     * CHECK passes on NULL — `unlisted_item_text` of "" would otherwise satisfy "one is not
+     * null" and render as an empty item.
+     */
     exactlyOneItemReference: check(
       "stock_out_reports_exactly_one_item_reference",
       sql`
         (
-          ${table.referencedInventoryEntryId} is not null
-          and ${table.unlistedItemText} is null
-        )
-        or (
-          ${table.referencedInventoryEntryId} is null
-          and ${table.unlistedItemText} is not null
-          and length(trim(${table.unlistedItemText})) > 0
+          (${table.referencedInventoryEntryId} is not null)::int
+          + (${table.referencedStandItemId} is not null)::int
+          + (${table.unlistedItemText} is not null)::int
+        ) = 1
+        and (
+          ${table.unlistedItemText} is null
+          or length(trim(${table.unlistedItemText})) > 0
         )
       `,
     ),

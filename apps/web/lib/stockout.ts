@@ -15,6 +15,10 @@ import { queueOutbox, type Db } from "@farm-friend/db";
 // The model's only job is reading free text into "which item" — and even then it returns an
 // opaque entry ID that must belong to the bound location, or normalized text for an unlisted
 // item. It never names a location, a person, or a phone.
+//
+// B-057: "which item" spans both of the stand's farmer-authored item lists — what it currently
+// publishes and what it usually carries. The model sees ONE flat list of opaque ids and does
+// not learn that two kinds exist; code built the list, so code alone knows which is which.
 
 export interface StockOutDeps {
   db: Db;
@@ -49,22 +53,83 @@ export type StockOutOutcome =
   | { outcome: "unclear" }
   | { outcome: "rejected"; reason: string };
 
-/** The bound location's currently published entries, for matching only. */
+/**
+ * An item the reporter's text may be matched against, and WHICH FARM-AUTHORED ROW it names.
+ *
+ * The kind never reaches the model — `entryId` is opaque to it either way. It exists because
+ * code, which built this list, is the only thing that knows which table an id came from, and
+ * must know in order to store the right reference and dereference the right name.
+ */
+type MatchCandidate = {
+  entryId: string;
+  itemName: string;
+  kind: "inventory-entry" | "stand-item";
+};
+
+/**
+ * The bound location's matchable items: what it currently publishes, then what it usually
+ * carries (B-057).
+ *
+ * **Both are farmer-authored names Farm Friend already holds and publishes**, which is what
+ * makes naming either one back to the farmer safe under Golden Rule #6. Neither is model
+ * prose. The model's job is unchanged — pick an identifier out of a list code built.
+ *
+ * Measured against the production corpus 2026-08-11: 33 of 37 stands carry at least one usual
+ * offering absent from their current published inventory, and 18 of 37 publish no inventory at
+ * all. Matching only the current revision made "sold out of something" the ordinary outcome.
+ *
+ * ORDER IS THE PRECEDENCE RULE. Published entries come first, and a name already published is
+ * not offered a second time under its stand-item id: a model shown "Kale" twice is being asked
+ * to flip a coin between two references to one fact, and the entry is the better reference
+ * because it carries a farmer's confirmation time for VIGA's queue.
+ *
+ * Deduplication folds case and surrounding whitespace ONLY — the same normalization
+ * `stand_items_one_per_location_name` uses. It must never fold singulars into plurals or
+ * synonyms into each other; that would be a produce taxonomy, which no business code here may
+ * encode.
+ */
 async function listedItems(
   db: Db,
   salesLocationId: string,
-): Promise<{ entryId: string; itemName: string }[]> {
-  const rows = await db.sql`
+): Promise<MatchCandidate[]> {
+  const entries = await db.sql`
     select e.id, e.item_name
     from inventory_entries e
     join inventory_revisions r on r.id = e.inventory_revision_id
     where r.sales_location_id = ${salesLocationId} and r.is_current
     order by e.sort_order asc
   `;
-  return rows.map((raw) => {
+  const offerings = await db.sql`
+    select id, display_name
+    from stand_items
+    where sales_location_id = ${salesLocationId}
+    order by sort_order asc, display_name asc
+  `;
+
+  const candidates: MatchCandidate[] = entries.map((raw) => {
     const row = raw as Record<string, unknown>;
-    return { entryId: row.id as string, itemName: row.item_name as string };
+    return {
+      entryId: row.id as string,
+      itemName: row.item_name as string,
+      kind: "inventory-entry" as const,
+    };
   });
+
+  const normalize = (name: string) => name.trim().toLowerCase();
+  const published = new Set(candidates.map((item) => normalize(item.itemName)));
+
+  for (const raw of offerings) {
+    const row = raw as Record<string, unknown>;
+    const itemName = row.display_name as string;
+    if (published.has(normalize(itemName))) continue;
+    candidates.push({
+      entryId: row.id as string,
+      itemName,
+      kind: "stand-item" as const,
+    });
+  }
+
+  return candidates;
 }
 
 /**
@@ -138,19 +203,23 @@ export async function recordStockOutReport(
   }
 
   let referencedEntryId: string | null = null;
+  let referencedStandItemId: string | null = null;
   let unlistedText: string | null = null;
   /**
-   * What the farmer's alert may say about the missing item. A LISTED entry contributes the
-   * stand's own `item_name` from the bound row — never the model's echo of it. An UNLISTED
-   * one contributes no text: its only description is model output derived from an anonymous
-   * stranger's message, which the renderer refuses to speak in Farm Friend's voice. The
-   * stored report keeps the detail for VIGA's queue.
+   * What the farmer's alert may say about the missing item. A LISTED match contributes the
+   * stand's own name from the bound row — never the model's echo of it — whether that row is
+   * a published entry or one of the stand's usual offerings. An UNLISTED one contributes no
+   * text: its only description is model output derived from an anonymous stranger's message,
+   * which the renderer refuses to speak in Farm Friend's voice. The stored report keeps the
+   * detail for VIGA's queue.
    */
   let alertItem: { kind: "listed"; itemName: string } | { kind: "unlisted" };
 
   if (parsed.kind === "listed") {
-    // Membership check: the entry must belong to the CODE-BOUND location. A model naming an
-    // entry from another farm's stand is refused rather than recorded against this one.
+    // Membership check: the id must belong to the CODE-BOUND location, because it is looked
+    // up in the list code built for THIS location. A model naming an item from another farm's
+    // stand finds no match here and is refused rather than recorded against this one. The
+    // composite foreign keys make the same guarantee at the database, for both kinds.
     const listed = items.find((item) => item.entryId === parsed.entryId);
     if (listed === undefined) {
       return {
@@ -158,7 +227,14 @@ export async function recordStockOutReport(
         reason: `entry ${parsed.entryId} is not listed at the bound location`,
       };
     }
-    referencedEntryId = parsed.entryId;
+    // Which column stores it is decided HERE, from the candidate code built — never from
+    // anything the model returned. The model cannot choose to be recorded as an inventory
+    // entry, because it never learns that the distinction exists.
+    if (listed.kind === "inventory-entry") {
+      referencedEntryId = parsed.entryId;
+    } else {
+      referencedStandItemId = parsed.entryId;
+    }
     alertItem = { kind: "listed", itemName: listed.itemName };
   } else {
     unlistedText = parsed.itemText.trim();
@@ -182,12 +258,12 @@ export async function recordStockOutReport(
     */
     const inserted = await tx`
       insert into stock_out_reports (
-        sales_location_id, referenced_inventory_entry_id, unlisted_item_text,
-        status, reported_at, report_key
+        sales_location_id, referenced_inventory_entry_id, referenced_stand_item_id,
+        unlisted_item_text, status, reported_at, report_key
       )
       values (
-        ${input.salesLocationId}, ${referencedEntryId}, ${unlistedText},
-        'open', ${now}, ${input.reportKey ?? null}
+        ${input.salesLocationId}, ${referencedEntryId}, ${referencedStandItemId},
+        ${unlistedText}, 'open', ${now}, ${input.reportKey ?? null}
       )
       on conflict (report_key) do nothing
       returning id

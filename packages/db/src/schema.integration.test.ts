@@ -847,6 +847,56 @@ describe("clean launch database foundation (integration)", () => {
     expect(mutationColumns).toHaveLength(0);
   });
 
+  /*
+    B-057 — a report may name the stand's USUAL offering, not only its published inventory.
+
+    The third reference is a column of its own rather than a widening of either existing one.
+    A `stand_items` row and an `inventory_entries` row are different facts: one is what the
+    stand usually carries, the other what the farmer last confirmed. Collapsing them would
+    make VIGA's queue unable to tell an operator which of the two a report matched, and would
+    silently drop the composite foreign key that proves the item belongs to the BOUND stand.
+  */
+  it("binds a stock-out report's usual-offering reference to the same stand", async () => {
+    const items = await db()`
+      insert into stand_items (sales_location_id, display_name, usually_carried)
+      values (${storedId("location")}, 'Duck eggs', false)
+      returning id
+    `;
+    const itemId = items[0]?.id as string;
+
+    await db()`
+      insert into stock_out_reports (sales_location_id, referenced_stand_item_id)
+      values (${storedId("location")}, ${itemId})
+    `;
+
+    // A hostile or buggy writer pointing at a stand item belonging to ANOTHER location is
+    // refused by the composite key, exactly as the inventory-entry reference already is.
+    await expect(
+      db()`
+        insert into stock_out_reports (sales_location_id, referenced_stand_item_id)
+        values (${storedId("farmers_market")}, ${itemId})
+      `,
+    ).rejects.toThrow();
+
+    // Exactly one of the three references, still. Two at once is not a report we can render.
+    await expect(
+      db()`
+        insert into stock_out_reports (
+          sales_location_id, referenced_stand_item_id, unlisted_item_text
+        )
+        values (${storedId("location")}, ${itemId}, 'duck eggs')
+      `,
+    ).rejects.toThrow();
+    await expect(
+      db()`
+        insert into stock_out_reports (
+          sales_location_id, referenced_stand_item_id, referenced_inventory_entry_id
+        )
+        values (${storedId("location")}, ${itemId}, ${storedId("entry1")})
+      `,
+    ).rejects.toThrow();
+  });
+
   it("bounds logical outbox work and dispatch attempts without carrier exactly-once claims", async () => {
     await expect(
       db()`
