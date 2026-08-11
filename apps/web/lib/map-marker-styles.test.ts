@@ -39,6 +39,15 @@ describe("mobile map and sheet layout", () => {
     expect(clearance![1]).toMatch(/\.sheet-open\s+\.list-column/);
   });
 
+  it("gives the detail sheet most of the phone viewport while keeping its action row compact", () => {
+    const phone = css.slice(css.indexOf("THE SELECTED STAND AS A BOTTOM SHEET"));
+
+    expect(phone).toMatch(/\.sheet\s*\{[^}]*max-height:\s*78vh/s);
+    expect(phone).toMatch(
+      /\.sheet\s+\.detail-action-region\s*\{[^}]*padding:\s*0[^}]*border:\s*0[^}]*background:\s*none/s,
+    );
+  });
+
   it("places an expanded map key below its phone trigger", () => {
     expect(css).toMatch(
       /\.marker-key\[open\]\s*>\s*\.marker-legend\s*\{[^}]*top:\s*calc\(0\.75rem\s*\+\s*44px\s*\+\s*0\.5rem\)/s,

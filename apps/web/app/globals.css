@@ -4771,16 +4771,16 @@ button.admin-action-danger,
     right: 0;
     bottom: 0;
     z-index: 20;
-    max-height: 62vh;
+    max-height: 78vh;
     overflow-y: auto;
-    padding: 0.75rem 1.15rem 1.5rem;
+    padding: 0.55rem 1rem 1.25rem;
     background: var(--card);
     border-top: 1px solid var(--line);
     border-radius: var(--radius) var(--radius) 0 0;
     /* Lifted off the page so it reads as ABOVE the map rather than as a section of it. */
     box-shadow: 0 -8px 28px rgb(0 0 0 / 22%);
     /* Clears the home indicator on a modern phone. */
-    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
     animation: sheet-rise 160ms ease-out;
   }
 
@@ -4791,7 +4791,43 @@ button.admin-action-danger,
    * unconditionally it left ~40% of a screen of empty directory panel below the last stand on
    * every visit that never tapped one — the page read as broken at the bottom. */
   .sheet-open .list-column {
-    padding-bottom: 40vh;
+    padding-bottom: 52vh;
+  }
+
+  .sheet .sheet-grip {
+    margin-bottom: 0.45rem;
+  }
+
+  .sheet .sheet-head {
+    margin-bottom: 0.35rem;
+  }
+
+  .sheet .stand-detail-body {
+    gap: 0.65rem;
+    margin-top: 0.55rem;
+  }
+
+  .sheet :is(
+    .detail-inventory,
+    .detail-usual-offerings,
+    .stand-participants,
+    .detail-schedule,
+    .detail-visit,
+    .detail-payment,
+    .stand-description
+  ) {
+    padding: 0.85rem;
+  }
+
+  .sheet .detail-section-heading {
+    margin-bottom: 0.55rem;
+  }
+
+  .sheet .detail-action-region {
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
   }
 }
 
