@@ -1057,6 +1057,42 @@ describe("applyStandFilters (F-043)", () => {
       expect(ask(all, { sells: "" }).map((s) => s.id)).toEqual(["a", "b"]);
       expect(ask(all, { sells: "   " }).map((s) => s.id)).toEqual(["a", "b"]);
     });
+
+    it("matches the stand's own name", () => {
+      // Someone who knows where they are going searches the name, not the produce. The map
+      // is the island's stand directory, so a name that is on the card has to be findable.
+      const all = [
+        stand("pinecone", { locationName: "Pinecone Gardens" }),
+        stand("bart", { locationName: "Bart's Cart" }),
+      ];
+
+      expect(ask(all, { sells: "pinecone" }).map((s) => s.id)).toEqual(["pinecone"]);
+      expect(ask(all, { sells: "bart" }).map((s) => s.id)).toEqual(["bart"]);
+    });
+
+    it("matches the farm name even when the stand is named differently", () => {
+      // A farm's name and its stand's name are separate facts and often differ. Both appear
+      // on the card, so searching either has to work.
+      const all = [
+        stand("a", { farmName: "Plum Forest Farm", locationName: "The Red Shed" }),
+        stand("b", { farmName: "Sylvan Garden", locationName: "Sylvan Stand" }),
+      ];
+
+      expect(ask(all, { sells: "plum forest" }).map((s) => s.id)).toEqual(["a"]);
+      expect(ask(all, { sells: "red shed" }).map((s) => s.id)).toEqual(["a"]);
+    });
+
+    it("still does not treat participant names as searchable", () => {
+      // The existing rule, restated against the widened haystack: a host stand carrying
+      // "Island Apiary" as a participant must not answer a search for it. Widening search to
+      // NAMES must not quietly widen it to every name on the card.
+      const all = [
+        stand("host", { alsoSellingHere: ["Island Apiary"] }),
+        stand("inventory", { items: [{ itemName: "Apiary honey" }] }),
+      ];
+
+      expect(ask(all, { sells: "apiary" }).map((s) => s.id)).toEqual(["inventory"]);
+    });
   });
 
   describe("payment and stand-type filters", () => {

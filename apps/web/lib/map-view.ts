@@ -603,7 +603,20 @@ export interface OpenStateFields {
 
 export type FilteredStand = PublicStandPayload & OpenStateFields;
 
-/** Does any of a stand's known produce vocabulary match what the customer typed? */
+/**
+ * Does a stand match what the customer typed — by what it sells, or by what it is called?
+ *
+ * Two questions share one box because they are the same question to the person asking: "is
+ * what I want here?" Someone browsing types produce; someone who already knows where they are
+ * going types the name. Splitting them into two inputs would make the customer classify their
+ * own query before the map would answer it.
+ *
+ * **The corpus is deliberately bounded** to the stand's own produce vocabulary and its own two
+ * names. Every other string on the card — participants, addresses, links, payment methods —
+ * stays out. `alsoSellingHere` is the one worth naming: a host stand listing "Island Apiary"
+ * has NOT claimed to sell honey, and matching it would answer a produce question with someone
+ * else's inventory. That rule predates name search and survives it.
+ */
 function sellsMatch(stand: PublicStandPayload, query: string): boolean {
   const needle = query.trim().toLowerCase();
   if (needle === "") return true;
@@ -620,6 +633,10 @@ function sellsMatch(stand: PublicStandPayload, query: string): boolean {
     // Names only. A customer searching "6" must not match every stand whose eggs cost $6 —
     // price is not something anyone searches produce by.
     ...(stand.usuallySells ?? []).map((offering) => offering.itemName),
+    // The stand's own two names. They are separate facts and often differ — "Plum Forest Farm"
+    // runs "The Red Shed" — and both are printed on the card, so both have to be findable.
+    stand.farmName,
+    stand.locationName,
   ];
   return haystack.some((entry) => entry.toLowerCase().includes(needle));
 }
