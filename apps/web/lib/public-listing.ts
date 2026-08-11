@@ -1,4 +1,5 @@
 import {
+  isConfirmationExpired,
   isStale,
   renderCardRecency,
   renderElapsed,
@@ -502,12 +503,33 @@ export async function listPublicStands(
 
     let stand = byLocation.get(locationId);
     if (!stand) {
-      // `published_at` is null exactly when the left join found no current revision. The
-      // three recency fields are then omitted TOGETHER — spreading them conditionally rather
-      // than assigning `undefined` keeps them absent from the object, so a downstream
-      // `"asOf" in stand` check and JSON serialization both agree that nothing was confirmed.
+      // `published_at` is null exactly when the left join found no current revision, and an
+      // aged-out confirmation is folded into that same case below. The three recency fields
+      // are then omitted TOGETHER — spreading them conditionally rather than assigning
+      // `undefined` keeps them absent from the object, so a downstream `"asOf" in stand` check
+      // and JSON serialization both agree that nothing was confirmed.
       const publishedAt = row.published_at as Date | null;
-      const asOf = publishedAt ?? undefined;
+      /*
+        AN AGED-OUT CONFIRMATION IS TREATED AS NO CONFIRMATION (max, 2026-08-10).
+
+        The card used to print "In stock" with an item list under it for a confirmation of any
+        age, conceding only that the caption read "(No recent update)" — asserting stock in the
+        same breath as admitting the claim could no longer be dated.
+
+        Withheld HERE, where the dates are, rather than branched on in the component: past the
+        threshold the three recency fields simply never become fields, so an expired stand
+        reaches the view shaped exactly like a never-confirmed one and every downstream reader
+        — the map card, the payload, `standListingLines` — needs no new case. That is the same
+        conditional spread the `publishedAt === null` path already relies on.
+
+        The stand itself stays listed. It keeps its specialties and reads "Nothing confirmed
+        recently."; only the STOCK CLAIM goes. Losing the claim is not the same as disappearing,
+        and the honor-system rule that stale listings stay visible is unaffected.
+      */
+      const asOf =
+        publishedAt !== null && !isConfirmationExpired(publishedAt, now)
+          ? publishedAt
+          : undefined;
 
       // F-038 — the place fields are spread conditionally, exactly like the recency fields
       // below, so a contact-only farm carries no address key at all rather than a null one.

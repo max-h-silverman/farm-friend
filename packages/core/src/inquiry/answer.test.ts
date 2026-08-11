@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  isConfirmationExpired,
   isStale,
   ORIGIN_LIMITATION_STATEMENT,
   PUBLIC_MAP_URL,
@@ -172,6 +173,39 @@ describe("recency rendering — code states how fresh a fact is", () => {
     expect(renderCardRecency(daysAgo(400), NOW)).toBe(NO_RECENT_UPDATE);
     // And it never renders the word "ago" once it has given up on the date.
     expect(renderCardRecency(daysAgo(60), NOW)).not.toContain("ago");
+  });
+
+  it("treats a confirmation past four weeks as EXPIRED, not merely undated", () => {
+    // The card used to print a bordered "In stock" heading with an item list under it for a
+    // confirmation of any age, conceding only that the parenthetical read "(No recent update)".
+    // "In stock (No recent update)" asserts stock while admitting it has no idea how old the
+    // claim is — the manufactured certainty the honor-system product refuses to fake.
+    //
+    // Shares ONE threshold with `renderCardRecency` rather than introducing a second tunable:
+    // the moment the card stops being willing to state a date is the moment it must stop
+    // claiming stock. Asserted on both sides of the boundary, like the render test above.
+    const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000);
+    expect(isConfirmationExpired(daysAgo(27), NOW)).toBe(false);
+    expect(isConfirmationExpired(daysAgo(28), NOW)).toBe(true);
+    expect(isConfirmationExpired(daysAgo(400), NOW)).toBe(true);
+  });
+
+  it("expires exactly when the card gives up on the date — one threshold, not two", () => {
+    // Anchored to AGREEMENT between the two functions rather than to the literal number 28, so
+    // moving the threshold cannot silently leave a window where the card claims stock under a
+    // "No recent update" caption. That window is the entire bug.
+    const daysAgo = (d: number) => new Date(NOW.getTime() - d * 86_400_000);
+    for (const days of [0, 1, 6, 7, 13, 27, 28, 29, 60, 400]) {
+      const asOf = daysAgo(days);
+      expect(isConfirmationExpired(asOf, NOW)).toBe(
+        renderCardRecency(asOf, NOW) === NO_RECENT_UPDATE,
+      );
+    }
+  });
+
+  it("does not expire a fresh confirmation on a skewed clock", () => {
+    // A future `asOf` must not read as "very old" through a sign error in the subtraction.
+    expect(isConfirmationExpired(new Date(NOW.getTime() + 86_400_000), NOW)).toBe(false);
   });
 
   it("never renders a negative or future age as a count", () => {

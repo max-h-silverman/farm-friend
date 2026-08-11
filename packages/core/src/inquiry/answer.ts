@@ -203,6 +203,30 @@ export function renderCardRecency(asOf: Date, now: Date): string {
   return weeks === 1 ? "Last updated 1 week ago" : `Last updated ${weeks} weeks ago`;
 }
 
+/**
+ * True when a confirmation is too old for the card to keep claiming stock from it.
+ *
+ * THE DISTINCTION THIS HOLDS (max, 2026-08-10). `isStale` (48 hours) says *show the listing
+ * with a warning* — a nine-day-old confirmation is real information on an island of unattended
+ * stands, and hiding it would be the dishonesty in the other direction. This says something
+ * stronger: the confirmation has stopped being evidence of anything, so the card must stop
+ * printing an "In stock" heading over it entirely rather than hedge with a caption.
+ *
+ * It shares `NO_RECENT_UPDATE_AFTER_DAYS` with `renderCardRecency` DELIBERATELY, and that is
+ * the whole design: the moment the card gives up on stating a date is the moment it may no
+ * longer assert stock. Two thresholds would open a window where the heading reads "In stock"
+ * above the caption "No recent update" — the exact contradiction this exists to close.
+ *
+ * A stand whose confirmation has expired is not blanked. It falls through to the same lines a
+ * never-confirmed stand renders: its specialties, and "Nothing confirmed recently."
+ */
+export function isConfirmationExpired(asOf: Date, now: Date): boolean {
+  const days = Math.floor(
+    Math.max(0, now.getTime() - asOf.getTime()) / 86_400_000,
+  );
+  return days >= NO_RECENT_UPDATE_AFTER_DAYS;
+}
+
 /** True when a fact is old enough that the answer must carry a staleness warning. */
 export function isStale(asOf: Date, now: Date): boolean {
   return now.getTime() - asOf.getTime() >= STALE_AFTER_HOURS * 3_600_000;
