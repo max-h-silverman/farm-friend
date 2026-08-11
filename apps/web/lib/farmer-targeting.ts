@@ -46,12 +46,12 @@ export function renderFarmerTargetMenu(options: FarmerTargetOption[]): string {
   const choices = options.map((option) => `${option.optionNumber}. ${option.locationName}`);
   // No opt-out footer (F-096): this answers a farmer keyword sent seconds ago. The instruction
   // that stays is the one the menu cannot work without — the reply is a bare number.
-  // The 12 hours is real (`FARMER_TARGET_MENU_TTL_MS`) and stays, in plain words: a farmer who
-  // replies the next morning gets told the choice is gone, and would rightly wonder why.
-  return [
-    "Which stand do you mean? Reply with the number in the next 12 hours:",
-    ...choices,
-  ].join("\n");
+  //
+  // The deadline is NOT stated (max, 2026-08-11). The 12 hours is real
+  // (`FARMER_TARGET_MENU_TTL_MS`) but naming it spends a line of an SMS on a rule that almost
+  // never binds — a farmer answering a menu answers it now. The farmer who does reply the next
+  // morning is told plainly that the window closed, which is where that fact actually helps.
+  return ["Which stand do you mean? Reply with the number:", ...choices].join("\n");
 }
 
 function menuReply(
@@ -145,8 +145,12 @@ export async function handleStandSelection(
   return {
     status: selected.status,
     replies: [{
+      // The menu no longer states its deadline, so this is where a farmer learns there was
+      // one. It keeps naming the recovery keywords: a refusal with no way forward is worse
+      // than the expiry itself. Covers `no_menu` too — a bare number with nothing pending
+      // reads the same to the farmer, and distinguishing them helps nobody.
       body:
-        "Sorry - that choice has expired. Text LINK to update your listing, " +
+        "Sorry - the response window expired. Text LINK to update your listing, " +
         "STAND to pick a different stand, or SETTINGS to change how often we text you.",
       category: "inquiry_reply",
       logicalKey: `farmer-target-choice-${input.providerEventId}`,

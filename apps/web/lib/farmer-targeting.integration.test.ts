@@ -543,6 +543,117 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     `).toHaveLength(0);
   });
 
+  /*
+    F-104 follow-up (max, 2026-08-11). An authorized farmer who names SOMEONE ELSE'S stand is
+    reporting a stock-out, not updating their own listing.
+
+    Found by a live test: Max texted "no eggs left at Pinecone Gardens" from a farmer handset
+    and got the farmer stand-menu, because `hasLiveFarmerAuthorization` routes on WHO sent the
+    message and nothing downstream reconsiders. The discriminator is WHOSE STAND was named —
+    resolvable in code, so no model decides it.
+  */
+  it("treats a farmer naming another farm's stand as a stock-out report", async () => {
+    const senderHash = "j".repeat(64);
+    // The sender owns these; the report names neither.
+    await authorize(senderHash, ["North Stand", "South Stand"]);
+    const otherId = await otherFarmersStand("Plum Forest Stand");
+    const parseItem = vi.fn(
+      async (_input: {
+        taskText: string;
+        listedItems: readonly { entryId: string; itemName: string }[];
+      }) => ({ kind: "unlisted" as const, itemText: "eggs" }),
+    );
+    const farmerClassify = vi.fn();
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: {
+          interpret: vi.fn(async () => {
+            throw new Error("a report must not open an inventory proposal");
+          }),
+        } as unknown as InventoryInterpreter,
+        inquiry: forbiddenInquiry(),
+        // The farmer intent seam must not even be consulted: the stand is not theirs, so
+        // "update or question" is the wrong question to ask.
+        farmerIntent: { classify: farmerClassify } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "no eggs left at Plum Forest Stand",
+        occurredAt: T0,
+        providerEventId: "farmer-reports-other-1",
+        inboxEventId: "88888888-8888-8888-8888-888888888888",
+      },
+    );
+
+    // The report landed on the OTHER farm's stand, and alerts ITS farmer.
+    const reports = await client()`select sales_location_id from stock_out_reports`;
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.sales_location_id).toBe(otherId);
+    const queued = await client()`
+      select recipient_hash from outbox_work where message_category = 'stock_out_alert'
+    `;
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.recipient_hash).toBe("f".repeat(64));
+    // Not the reporting farmer — they are the messenger, not the recipient.
+    expect(queued[0]?.recipient_hash).not.toBe(senderHash);
+
+    // No stand menu, no proposal: this was never about the sender's own stands.
+    expect(result.replies[0]?.body).toBe("Thanks for letting us know.");
+    expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
+  });
+
+  it("still routes a farmer's own-stand update to the inventory path", async () => {
+    const senderHash = "k".repeat(64);
+    await authorize(senderHash, ["North Stand"]);
+    // Naming their OWN stand must stay an update — this is the regression the change risks.
+    const interpret = vi.fn(async () => ({
+      kind: "edits" as const,
+      additions: [{ itemName: "Kale" }],
+      changes: [],
+      removals: [],
+    }));
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret },
+        inquiry: forbiddenInquiry(),
+        farmerIntent: farmerIntent("inventory_update"),
+        customerIntent: {
+          classify: async (): Promise<never> => {
+            throw new Error("a farmer's own-stand update must not reach the customer seam");
+          },
+        },
+        stockOut: {
+          parseItem: async (): Promise<never> => {
+            throw new Error("a farmer's own-stand update must not reach the stock-out seam");
+          },
+        },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "we have kale at North Stand",
+        occurredAt: T0,
+        providerEventId: "farmer-own-stand-1",
+        inboxEventId: "99999999-9999-9999-9999-999999999999",
+      },
+    );
+
+    expect(result.handled).toBe("farmer");
+    expect(await client()`select id from stock_out_reports`).toHaveLength(0);
+    expect(await client()`
+      select id from inventory_publication_proposals where state = 'open'
+    `).toHaveLength(1);
+  });
+
   it("keeps an ordinary customer question on the inquiry path", async () => {
     const senderHash = "e".repeat(64);
     const classifyCustomer = vi.fn(async () => ({ kind: "farm_stand_question" as const }));

@@ -169,6 +169,25 @@ async function handleCustomerInquiry(
  * Returns the single unambiguous match, or `null` when zero or several stands match. Both of
  * those mean the same thing to the caller: ask which stand they are at.
  */
+async function standBelongsToSender(
+  db: Db,
+  input: { senderHash: string; salesLocationId: string; occurredAt: Date },
+): Promise<boolean> {
+  const rows = await db.sql`
+    select 1
+    from sales_locations l
+    join farmer_authorizations a on a.farm_id = l.owner_farm_id
+    join contacts c on c.id = a.contact_id
+    where l.id = ${input.salesLocationId}
+      and c.phone_hash = ${input.senderHash}
+      and a.revoked_at is null
+      and a.phone_verified_at is not null
+      and a.authorized_at <= ${input.occurredAt}
+    limit 1
+  `;
+  return rows.length > 0;
+}
+
 async function resolveReportedStand(
   db: Db,
   taskText: string,
@@ -291,6 +310,33 @@ export async function handleFreeText(
     senderHash: input.senderHash,
     occurredAt: input.occurredAt,
   });
+
+  /*
+    A farmer naming SOMEONE ELSE'S stand is reporting a stock-out, not updating their listing
+    (max, 2026-08-11). Found live: "no eggs left at Pinecone Gardens" from a farmer handset
+    returned the farmer stand-menu, because authority alone decided the branch.
+
+    **The discriminator is whose stand was named, and it is resolved in CODE.** Ownership comes
+    from `farmer_authorizations`, and the stand from the same unique-substring match the
+    customer path uses — so no model decides whether a message is about the sender's own farm.
+    That keeps Golden Rule #1 intact: this can only ever move a farmer's message AWAY from
+    publishing their inventory, never toward publishing someone else's.
+
+    Deliberately narrow. Naming no stand, or naming their own, leaves the farmer path exactly
+    as it was — an ambiguous or unnamed message is still an update, which is the common case.
+  */
+  const namedStand = isFarmer ? await resolveReportedStand(deps.db, input.taskText) : null;
+  const namedSomeoneElsesStand =
+    namedStand !== null &&
+    !(await standBelongsToSender(deps.db, {
+      senderHash: input.senderHash,
+      salesLocationId: namedStand.id,
+      occurredAt: input.occurredAt,
+    }));
+
+  if (namedSomeoneElsesStand) {
+    return handleCustomerStockOut(deps, input);
+  }
 
   if (!isFarmer) {
     // F-104 — the customer branch now has a route signal of its own. `farm_stand_question`
