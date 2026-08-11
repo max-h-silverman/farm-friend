@@ -26,10 +26,13 @@ additional information. The phone surface is a bottom sheet; it now occupies up 
 uses tighter vertical spacing, and leaves actions out of an extra enclosing card. VIGA Bucks is rendered
 once as its own acceptance fact, never repeated in the other-payment list.
 
-PR #101 merged the combined release as `e2ca05f`. Verification before promotion: 1,795 unit tests, 847
-local integration tests, typecheck, lint, the production web build, stub evals (critical 11/11, advisory
-4/4, adversarial 29/29), and the real DeepInfra evaluation above. This entry will be updated with the
-production revision and deployment assertions after promotion.
+PR #101 merged the combined release as `e2ca05f`; `d6fc44c` recorded the release before Cloud Build.
+Cloud Build produced digest `sha256:059b4c12641c53bdde6d9943b86877b98dd3d88e5a32f2a0a0973c2be7be2411`,
+then promoted it to web `farm-friend-web-00060-8wn` and worker `farm-friend-worker-00055-h4b`.
+Verification before promotion: 1,795 unit tests, 847 local integration tests, typecheck, lint, the
+production web build, stub evals (critical 11/11, advisory 4/4, adversarial 29/29), and the real
+DeepInfra evaluation above. Deployment assertions proved both revisions newer than their secrets; the
+served contact card passed its exact-byte check (153 bytes, CRLF only, seven properties).
 
 ---
 

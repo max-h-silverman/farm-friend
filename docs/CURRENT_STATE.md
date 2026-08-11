@@ -5,8 +5,10 @@
 
 ## Release state
 
-- Farm Friend is **pre-go-live**. `main` release `e2ca05f` adds B-050 broad-inquiry paging and F-105
-  stand details; this wrap promotes that release. It has no schema change.
+- Farm Friend is **pre-go-live**. Production serves B-050 broad-inquiry paging and F-105 stand details,
+  built from `main` `d6fc44c` (application release `e2ca05f`); this release has no schema change.
+- Cloud Run web `farm-friend-web-00060-8wn` and worker `farm-friend-worker-00055-h4b` serve immutable
+  digest `sha256:059b4c12641c53bdde6d9943b86877b98dd3d88e5a32f2a0a0973c2be7be2411`.
 - Neon `neondb` has 38 applied migrations (`0000`–`0037`).
 
 ## Verification
@@ -15,6 +17,8 @@
   pass. The build retains the tracked Next configuration/lint warnings (B-008).
 - Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model passes
   containment 4/4, closure 7/7, quality 10/10, and recall 5/5, including broad first-page intent.
+- Deployment assertions confirm both revisions are newer than every mounted secret; the served contact card
+  has the expected E.164 suffix, 153 bytes, CRLF-only lines, and all seven required properties.
 
 ## Standing facts a cold start needs
 
@@ -32,8 +36,9 @@
 
 ## Open before go-live
 
-- Finish physical-handset checks: farmer onboarding, consent, vCard, paged SMS, and administrator/settings
-  journeys; verify VIGA’s Squarespace embeds and the `?hidden=true` behavior.
+- Finish physical-handset checks: farmer onboarding, consent, vCard, paged SMS, administrator/settings,
+  and F-105’s stand-detail sheet at phone width in both appearances; verify VIGA’s Squarespace embeds and
+  the `?hidden=true` behavior.
 - F-065: attribute every listing change to its actor; F-084: decide participant attribution during onboarding.
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - VIGA must decide whether the Vashon Island Farmers Market belongs in the farmer roster.
