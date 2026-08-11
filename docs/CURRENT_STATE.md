@@ -74,6 +74,11 @@
 - B-058 (planned): the live fixture "the same message with the stand named removes nothing either"
   fails in ~2 of 7 runs on unmodified `main`. Real verdicts, not the labelled provider-error case,
   so a single live run cannot tell a regression from this noise.
+- B-059, B-060 (planned): B-057's follow-ups. Its live fixture measures five clean candidates, not
+  the corpus's near-duplicates and multi-item strings; and `stand_items.display_name` now enters a
+  model seam and an outbound SMS body with no sabotage-proven test that hostile content stays inert.
+  Both are quality risks — a wrong pick names the wrong item and the farmer can see it, and nothing
+  published moves either way.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
