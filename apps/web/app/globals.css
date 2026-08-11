@@ -546,15 +546,6 @@ body {
   `standListingLines`, which never puts one on a usual line — this styling refuses to leave a
   visual slot where one would look at home.
 */
-/* The two voices are separated by the same hairline every other section on the card gets —
-   without it "Confirmed" and "Usually sells" run together as one block and the distinction the
-   whole design rests on has to be carried by type alone. */
-.listing + .listing {
-  margin-top: 1.25rem;
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
-}
-
 /*
   ONE WAY TO NAME A SECTION, everywhere on the card — small, uppercase, letterspaced, grey.
   The eye learns it once and then skips past it to the content underneath, which is the whole
@@ -4780,16 +4771,16 @@ button.admin-action-danger,
     right: 0;
     bottom: 0;
     z-index: 20;
-    max-height: 62vh;
+    max-height: 78vh;
     overflow-y: auto;
-    padding: 0.75rem 1.15rem 1.5rem;
+    padding: 0.55rem 1rem 1.25rem;
     background: var(--card);
     border-top: 1px solid var(--line);
     border-radius: var(--radius) var(--radius) 0 0;
     /* Lifted off the page so it reads as ABOVE the map rather than as a section of it. */
     box-shadow: 0 -8px 28px rgb(0 0 0 / 22%);
     /* Clears the home indicator on a modern phone. */
-    padding-bottom: max(1.5rem, env(safe-area-inset-bottom));
+    padding-bottom: max(1.25rem, env(safe-area-inset-bottom));
     animation: sheet-rise 160ms ease-out;
   }
 
@@ -4800,7 +4791,43 @@ button.admin-action-danger,
    * unconditionally it left ~40% of a screen of empty directory panel below the last stand on
    * every visit that never tapped one — the page read as broken at the bottom. */
   .sheet-open .list-column {
-    padding-bottom: 40vh;
+    padding-bottom: 52vh;
+  }
+
+  .sheet .sheet-grip {
+    margin-bottom: 0.45rem;
+  }
+
+  .sheet .sheet-head {
+    margin-bottom: 0.35rem;
+  }
+
+  .sheet .stand-detail-body {
+    gap: 0.65rem;
+    margin-top: 0.55rem;
+  }
+
+  .sheet :is(
+    .detail-inventory,
+    .detail-usual-offerings,
+    .stand-participants,
+    .detail-schedule,
+    .detail-visit,
+    .detail-payment,
+    .stand-description
+  ) {
+    padding: 0.85rem;
+  }
+
+  .sheet .detail-section-heading {
+    margin-bottom: 0.55rem;
+  }
+
+  .sheet .detail-action-region {
+    padding: 0;
+    border: 0;
+    background: none;
+    box-shadow: none;
   }
 }
 
@@ -4843,7 +4870,8 @@ button.admin-action-danger,
   align-items: center;
   gap: 0.5rem;
   margin: 0;
-  font-size: 1.2rem;
+  font-size: clamp(1.45rem, 6vw, 2rem);
+  font-weight: 800;
   letter-spacing: -0.01em;
 }
 
@@ -4855,6 +4883,21 @@ button.admin-action-danger,
   margin: 0.1rem 0 0;
   font-size: 0.9rem;
   color: var(--ink-faint);
+}
+
+.sheet-address {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  margin: 0.5rem 0 0;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.sheet-address .detail-icon {
+  flex: none;
+  color: var(--ink-soft);
 }
 
 .sheet-close {
@@ -4929,29 +4972,53 @@ button.admin-action-danger,
 */
 .stand-detail-body {
   display: grid;
-  gap: 1.25rem;
+  gap: 0.9rem;
   text-align: left;
 }
 
-/* The hairline sits ON the gap the grid already opened, so a section's rule and its spacing are
-   one measurement rather than two that have to be kept in agreement. */
-.stand-detail-body > * + * {
-  padding-top: 1.25rem;
-  border-top: 1px solid var(--line);
+/* The detail is a stack of quiet information cards: availability first, then the practical
+   visit facts and actions. The same structure serves the sheet and expanded directory row. */
+.detail-inventory,
+.detail-usual-offerings,
+.stand-participants,
+.detail-schedule,
+.detail-visit,
+.detail-action-region,
+.detail-payment,
+.stand-description {
+  margin: 0;
+  padding: 1.15rem;
+  border: 1px solid #d8d4c9;
+  border-radius: 1.1rem;
+  background: #fffefa;
+  box-shadow: 0 1px 1px rgb(35 45 38 / 3%);
 }
 
-
-.detail-status {
+.detail-section-heading {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.4rem;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.85rem;
+  color: var(--green);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+  line-height: 1.2;
+  text-transform: uppercase;
 }
 
-.detail-status:empty {
-  display: none;
+.detail-icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.85;
 }
 
-.detail-status .open-state,
+.schedule-heading .open-state,
 .payment-status {
   margin: 0;
   padding: 0.3rem 0.6rem;
@@ -4962,6 +5029,14 @@ button.admin-action-danger,
   line-height: 1.25;
 }
 
+.schedule-heading .open-state-closed,
+.schedule-heading .open-state-closed_today,
+.schedule-heading .open-state-out_of_season {
+  color: #a51f1a;
+  background: #fff4f1;
+  border: 1px solid #dc8179;
+}
+
 .payment-status {
   color: var(--green);
   background: var(--green-soft);
@@ -4970,18 +5045,53 @@ button.admin-action-danger,
 /* No box. The section separator and the card's own edge do the containing — see
    `.stand-detail-body`. */
 .detail-inventory {
-  padding: 0;
-  background: none;
-  border: none;
+  border-color: #a3c2aa;
+  background: linear-gradient(105deg, #f5faf4, #fffefa);
+}
+
+.detail-usual-offerings {
+  border-color: #e0d4c4;
+  background: #fffcf7;
+}
+
+.detail-usual-offerings .detail-section-heading,
+.stand-description .detail-section-heading {
+  color: #89591e;
+}
+
+.stand-participants .detail-section-heading,
+.detail-payment .detail-section-heading {
+  color: var(--green);
+}
+
+.detail-inventory-heading {
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+  font-size: clamp(1.05rem, 4vw, 1.35rem);
+}
+
+.listing-recency {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.listing-recency-aged {
+  color: var(--amber);
+}
+
+.schedule-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.8rem;
 }
 
 .detail-schedule h3 {
-  margin: 0 0 0.65rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--ink-faint);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  margin: 0;
 }
 
 .detail-schedule dl {
@@ -4996,8 +5106,8 @@ button.admin-action-danger,
 }
 
 .detail-schedule dt {
-  color: var(--ink-faint);
-  font-size: 0.8rem;
+  color: var(--ink);
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
@@ -5006,28 +5116,24 @@ button.admin-action-danger,
   color: var(--ink);
 }
 
-/* No rule of its own: `.stand-detail-body` draws every section separator. */
+.detail-schedule dl > div + div::before {
+  content: "";
+  grid-column: 1 / -1;
+  height: 1px;
+  background: #dfddd5;
+}
+
 .detail-visit {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: center;
-  gap: 0.25rem 0.9rem;
+  gap: 0.35rem;
 }
 
 /* The card's one section-label style, matching `.listing-label` exactly. */
 .detail-visit h3 {
-  grid-column: 1 / -1;
-  margin: 0 0 0.5rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--ink-faint);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  margin-bottom: 0.35rem;
 }
 
 .detail-visit .address {
-  grid-column: 1;
-  grid-row: 2;
   margin: 0;
   font-size: 0.98rem;
   color: var(--ink);
@@ -5038,18 +5144,6 @@ button.admin-action-danger,
   color: var(--brick);
   font-weight: 650;
   text-decoration: underline;
-}
-
-.detail-visit .directions {
-  grid-column: 2;
-  grid-row: 2;
-  min-height: 44px;
-  padding: 0 0.9rem;
-  color: #fff;
-  background: var(--olive);
-  border-radius: 999px;
-  text-decoration: none;
-  white-space: nowrap;
 }
 
 /*
@@ -5064,10 +5158,9 @@ button.admin-action-danger,
   be much less, and the two actions must drop to a second line rather than overflow the card.
 */
 .detail-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 0.75rem;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(8rem, 1fr));
+  gap: 0.65rem;
   margin: 0;
   padding: 0;
   list-style: none;
@@ -5079,17 +5172,6 @@ button.admin-action-danger,
   one — where stacking them spent three lines to say very little. `align-items: center` keeps
   the status pills on the pill button's optical centre rather than its box top.
 */
-.detail-aside {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.5rem 1rem;
-}
-
-.detail-aside:empty {
-  display: none;
-}
-
 /*
   The directions PILL, wherever it appears. This styling used to hang off `.detail-visit
   .directions`, so the expanded directory row — which renders its actions outside that
@@ -5097,25 +5179,50 @@ button.admin-action-danger,
   same act. One rule, both surfaces.
 */
 .detail-actions .directions {
-  min-height: 44px;
+  display: flex;
+  min-height: 48px;
+  align-items: center;
+  justify-content: center;
   padding: 0 0.9rem;
   color: #fff;
   background: var(--olive);
-  border-radius: 999px;
+  gap: 0.45rem;
+  border-radius: 0.8rem;
   text-decoration: none;
   white-space: nowrap;
 }
 
-/* The website is the SECONDARY action and reads as a link, not a second button — two filled
-   pills side by side would give a farm's homepage the same weight as the direction to drive
-   there. */
+/* The website is a visible secondary action: equal hit area, outlined surface. */
 .detail-actions .stand-website {
-  display: inline-flex;
+  display: flex;
   align-items: center;
-  min-height: 44px;
+  justify-content: center;
+  min-height: 48px;
+  padding: 0 0.9rem;
   color: var(--brick);
+  border: 1px solid currentColor;
+  gap: 0.45rem;
+  border-radius: 0.8rem;
   font-weight: 650;
-  text-decoration: underline;
+  text-decoration: none;
+}
+
+.detail-actions .detail-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.detail-payment {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.detail-payment .detail-section-heading {
+  margin-bottom: 0.35rem;
+}
+
+.detail-payment .payment-status {
+  width: fit-content;
 }
 
 .sheet .stand-detail-body {
@@ -5160,12 +5267,6 @@ button.admin-action-danger,
 
   .detail-visit h3 {
     grid-column: 1;
-  }
-
-  .detail-visit .directions {
-    grid-column: 1;
-    grid-row: auto;
-    width: fit-content;
   }
 
   .detail-visit .address,

@@ -218,17 +218,46 @@ function FilterOption({
   );
 }
 
+type DetailIconKind = "inventory" | "offerings" | "participants" | "schedule" | "payment" | "information" | "directions" | "website";
+
+function DetailIcon({ kind }: { kind: DetailIconKind }) {
+  const paths: Record<DetailIconKind, React.ReactNode> = {
+    inventory: <><path d="M4 9h16v10H4z" /><path d="M7 9V6h10v3M8 13h8M9 4l1.5 2M15 4l-1.5 2" /></>,
+    offerings: <><path d="M4 10h16l-2 10H6z" /><path d="M8 10V7a4 4 0 0 1 8 0v3M12 3v4M9 5l3 2 3-2" /></>,
+    participants: <><path d="M4 10h16v10H4z" /><path d="M6 10V7h12v3M7 14h10M8 20v-4M16 20v-4" /><path d="M8 5h8" /></>,
+    schedule: <><rect x="4" y="5" width="16" height="15" rx="2" /><path d="M8 3v4M16 3v4M4 10h16M8 14h3" /></>,
+    payment: <><rect x="3" y="5" width="18" height="14" rx="2" /><path d="M3 10h18M7 15h4" /></>,
+    information: <><circle cx="12" cy="12" r="8" /><path d="M12 11v5M12 8h.01" /></>,
+    directions: <><path d="M12 21s6-5.4 6-11a6 6 0 1 0-12 0c0 5.6 6 11 6 11Z" /><circle cx="12" cy="10" r="2" /></>,
+    website: <><circle cx="12" cy="12" r="8" /><path d="M4 12h16M12 4a12 12 0 0 1 0 16M12 4a12 12 0 0 0 0 16" /></>,
+  };
+
+  return <svg className="detail-icon" viewBox="0 0 24 24" aria-hidden="true">{paths[kind]}</svg>;
+}
+
+function DetailSectionHeading({
+  icon,
+  children,
+  className = "",
+}: {
+  icon: DetailIconKind;
+  children: React.ReactNode;
+  className?: string;
+}) {
+  return <h3 className={`detail-section-heading ${className}`}><DetailIcon kind={icon} />{children}</h3>;
+}
+
 function ParticipantNames({ names }: { names: readonly string[] }) {
   if (names.length === 0) return null;
   return (
-    <div className="stand-participants">
-      <p className="stand-participants-label">Also selling here</p>
+    <section className="stand-participants" aria-label="Also selling here">
+      <DetailSectionHeading icon="participants">Also selling here</DetailSectionHeading>
       <ul className="participant-names">
         {names.map((name) => (
           <li key={name}>{name}</li>
         ))}
       </ul>
-    </div>
+    </section>
   );
 }
 
@@ -297,40 +326,10 @@ function PublicDescription({
   if (cursor < description.length) parts.push(description.slice(cursor));
 
   return (
-    <div className="stand-description">
-      <p className="listing-label">{label}</p>
+    <section className="stand-description" aria-label={label}>
+      <DetailSectionHeading icon="information">{label}</DetailSectionHeading>
       <p className="description-text">{parts}</p>
-    </div>
-  );
-}
-
-/**
- * The farm's links, as a list of actions (F-061).
- *
- * REPLACES `splitWebsite`, which recovered a single website by matching a "Website: …" line
- * inside the description prose. That was a workaround for `farm_links` having no writer: it
- * found at most one link per stand and silently dropped every Instagram and Facebook a farm had
- * listed. Measured over the real corpus, the farms state 34 links across 24 stands, and that
- * regex could only ever surface the subset written as a labelled "Website:" line.
- *
- * The links now arrive structured and pre-labelled, so nothing is parsed at render time.
- */
-function StandLinks({ links }: { links: { label: string; url: string }[] }) {
-  if (links.length === 0) return null;
-  return (
-    <>
-      {links.map((link) => (
-        <a
-          key={link.url}
-          className="stand-website"
-          href={link.url}
-          target="_blank"
-          rel="noreferrer noopener"
-        >
-          {link.label}
-        </a>
-      ))}
-    </>
+    </section>
   );
 }
 
@@ -417,13 +416,29 @@ function PosterIndicators({
 */
 function StandListings({ stand }: { stand: FilteredStand }) {
   return (
-    <section className="detail-inventory" aria-label="Availability and inventory">
+    <>
       {standListingLines(stand).map((line) => (
-        <div className={`listing listing-${line.kind}`} key={line.kind}>
+        <section
+          className={line.kind === "usual" ? "detail-usual-offerings" : "detail-inventory"}
+          aria-label={line.kind === "usual" ? "Typical offerings" : "Availability and inventory"}
+          key={line.kind}
+        >
+        <div className={`listing listing-${line.kind}`}>
           {line.items === undefined ? (
-            <p className="listing-note">{line.label}</p>
+            <>
+              <DetailSectionHeading icon="inventory">Availability</DetailSectionHeading>
+              <p className="listing-note">{line.label}</p>
+            </>
           ) : line.kind === "confirmed" ? (
             <>
+              <DetailSectionHeading icon="inventory" className="detail-inventory-heading">
+                <span>In stock</span>
+                <span
+                  className={stand.stale === true ? "listing-recency listing-recency-aged" : "listing-recency"}
+                >
+                  ({stand.cardRecency ?? `Last updated ${line.detail}`})
+                </span>
+              </DetailSectionHeading>
               <ul className="items">
                 {stand.items.map((item, index) => (
                   <li key={`${stand.id}-${index}`}>
@@ -441,50 +456,31 @@ function StandListings({ stand }: { stand: FilteredStand }) {
                   </li>
                 ))}
               </ul>
-              {/*
-                THE DATE SITS UNDER THE LIST IT COVERS (max, 2026-08-08).
-
-                It used to head the chips as "Confirmed 4 hours ago:". What a customer came for
-                is WHAT IS THERE, so the items lead and the date qualifies them — the same shape
-                as a caption. Reading order is unchanged in substance: the timestamp still
-                belongs to exactly these items and to nothing else on the card.
-
-                "Last updated", not "Confirmed": the farmer's act is updating their listing, and
-                "confirmed" overstates it for a stand nobody has visited. Past four weeks the
-                sentence gives up on the arithmetic entirely — see `renderCardRecency`.
-
-                THE STYLING FOLLOWS STALENESS, and that is an honesty rule rather than a colour
-                preference. Rendered green on a stale stand it would say "trust this" in the
-                confirmed colour while stating an age that says otherwise. Green is reserved for
-                a confirmation still inside its window.
-
-                `cardRecency` rather than `detail`: `standListingLines` renders the SMS-shaped
-                phrase, and this surface needs the browsed-card one. The fallback keeps a card
-                whose payload predates this field from rendering a bare "Last updated".
-              */}
-              <p
-                className={
-                  stand.stale === true
-                    ? "listing-label listing-label-confirmed listing-label-aged"
-                    : "listing-label listing-label-confirmed"
-                }
-              >
-                {stand.cardRecency ?? `Last updated ${line.detail}`}
-              </p>
             </>
           ) : (
             <>
-              <p className="listing-label">Usually sells</p>
+              <DetailSectionHeading icon="offerings">Typical offerings</DetailSectionHeading>
               <p className="items-usual">{line.items.join(", ")}</p>
             </>
           )}
         </div>
+        </section>
       ))}
-    </section>
+    </>
   );
 }
 
-function StandSchedule({ availability }: { availability: PublicStandPayload["availability"] }) {
+function StandSchedule({
+  availability,
+  stateLabel,
+  openState,
+  upcomingLabel,
+}: {
+  availability: PublicStandPayload["availability"];
+  stateLabel: string | null;
+  openState: FilteredStand["openState"];
+  upcomingLabel?: string;
+}) {
   const details = [
     ["Season", seasonLabel(availability)],
     ["Hours", hoursLabel(availability)],
@@ -493,19 +489,29 @@ function StandSchedule({ availability }: { availability: PublicStandPayload["ava
     ["Restocking", restockingLabel(availability)],
   ].filter((detail): detail is [string, string] => detail[1] !== null && detail[1] !== "");
 
-  if (details.length === 0) return null;
+  if (details.length === 0 && stateLabel === null && upcomingLabel === undefined) return null;
 
   return (
     <section className="detail-schedule" aria-label="Stand schedule">
-      <h3>Stand schedule</h3>
-      <dl>
-        {details.map(([label, value]) => (
-          <div key={label}>
-            <dt>{label}</dt>
-            <dd>{value}</dd>
-          </div>
-        ))}
-      </dl>
+      <div className="schedule-heading">
+        <DetailSectionHeading icon="schedule">Visit / stand schedule</DetailSectionHeading>
+        {upcomingLabel !== undefined ? (
+          <p className="open-state open-state-upcoming">{upcomingLabel}</p>
+        ) : null}
+        {stateLabel !== null ? (
+          <p className={`open-state open-state-${openState}`}>{stateLabel}</p>
+        ) : null}
+      </div>
+      {details.length > 0 ? (
+        <dl>
+          {details.map(([label, value]) => (
+            <div key={label}>
+              <dt>{label}</dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      ) : null}
     </section>
   );
 }
@@ -564,14 +570,23 @@ function StandDetailBody({
         </>
       )}
 
-      {isMarket ? null : <StandSchedule availability={stand.availability} />}
+      {isMarket ? null : (
+        <StandSchedule
+          availability={stand.availability}
+          stateLabel={stateLabel}
+          openState={stand.openState}
+          upcomingLabel={stand.closure?.state === "upcoming" ? stand.closure.label : undefined}
+        />
+      )}
 
       {showDestination ? (
         <section
           className="detail-visit"
           aria-label={isMarket ? "Visit the market" : "Plan your visit"}
         >
-          <h3>{isMarket ? "Visit the market" : "Plan your visit"}</h3>
+          <DetailSectionHeading icon="directions">
+            {isMarket ? "Visit the market" : "Plan your visit"}
+          </DetailSectionHeading>
           {/*
             THREE states, not two (F-088). A missing address used to mean exactly one thing —
             there is nowhere to go — so it rendered "No stand to visit". A farmer can now hide
@@ -593,43 +608,14 @@ function StandDetailBody({
               <strong>No stand to visit</strong> — order by contacting this farm.
             </p>
           )}
-          <StandLinks links={links} />
-          {stand.routingLink !== null ? (
-            <a
-              className="directions"
-              href={stand.routingLink}
-              target="_blank"
-              rel="noreferrer noopener"
-            >
-              {isMarket ? "Directions to market" : "Get directions"}
-            </a>
-          ) : null}
         </section>
       ) : null}
 
-      {/*
-        THE ASIDE — "what you can do, and what is true right now": the actions and the status
-        badges, on one row.
-
-        It held a third child, the staleness line, until that line was removed (max,
-        2026-08-06) — the card's dated "Confirmed 6 days ago" says the same thing attached to
-        the items it is actually about, where this one sat beside "Get directions" and read as
-        a caveat about the route. Its original job was to close a gap the old two-column detail
-        grid opened between these children; the body is a single column now, so the grouping
-        survives on its own merit rather than as a layout fix.
-      */}
-      <div className="detail-aside">
-        {showDestination ? null : links.length > 0 || stand.routingLink !== null ? (
-          // The expanded DIRECTORY ROW. It suppresses the "Plan your visit" section above,
-          // because the row already shows the address — so this is where its website and
-          // directions live. The website used to sit in the collapsed summary, which put it on
-          // every row of a directory meant to be scanned; it belongs with the other actions a
-          // customer wants only once they have chosen a stand.
-          //
-          // The two links are separated in the MARKUP, not only by the gap in CSS. Rendered as
-          // bare adjacent inline anchors they concatenated to "WebsiteGet directions" — so an
-          // unstyled render (reader mode, a failed stylesheet) reproduces the very defect the
-          // CSS gap fixes. A list gives them structure that survives that.
+      {links.length > 0 || stand.routingLink !== null ? (
+        <section className="detail-action-region" aria-label="Visit actions">
+        {links.length > 0 || stand.routingLink !== null ? (
+          // Both the sheet and directory row use one semantic action list. The sheet still owns
+          // its visit-address copy above; the actions themselves must not diverge by surface.
           <ul className="detail-actions">
             {stand.routingLink !== null ? (
               <li>
@@ -639,6 +625,7 @@ function StandDetailBody({
                   target="_blank"
                   rel="noreferrer noopener"
                 >
+                  <DetailIcon kind="directions" />
                   {isMarket ? "Directions to market" : "Get directions"}
                 </a>
               </li>
@@ -651,20 +638,19 @@ function StandDetailBody({
                   target="_blank"
                   rel="noreferrer noopener"
                 >
+                  <DetailIcon kind="website" />
                   {link.label}
                 </a>
               </li>
             ))}
           </ul>
         ) : null}
+        </section>
+      ) : null}
 
-        <div className="detail-status" aria-label="Stand status">
-          {stand.closure?.state === "upcoming" ? (
-            <p className="open-state open-state-upcoming">{stand.closure.label}</p>
-          ) : null}
-          {stateLabel !== null ? (
-            <p className={`open-state open-state-${stand.openState}`}>{stateLabel}</p>
-          ) : null}
+      {stand.farmBucksAccepted === true || (stand.paymentMethods ?? []).length > 0 ? (
+        <section className="detail-payment" aria-label="Payment methods">
+          <DetailSectionHeading icon="payment">Payment</DetailSectionHeading>
           {stand.farmBucksAccepted === true ? (
             <p className="payment-status">Accepts VIGA Bucks</p>
           ) : null}
@@ -678,9 +664,8 @@ function StandDetailBody({
               Also accepts {(stand.paymentMethods ?? []).join(", ")}
             </p>
           ) : null}
-        </div>
-
-      </div>
+        </section>
+      ) : null}
 
       {isMarket ? (
         <PublicDescription
@@ -1358,6 +1343,13 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                 <p className="sheet-farm">{selectedStand.farmName}</p>
               ) : null}
               <PosterIndicators stand={selectedStand} />
+              <p className="sheet-address">
+                <DetailIcon kind="directions" />
+                {selectedStand.address ??
+                  (selectedStand.latitude !== undefined && selectedStand.longitude !== undefined
+                    ? "See the map pin — no street address listed"
+                    : "No stand to visit — order by contacting this farm")}
+              </p>
             </div>
             <button
               type="button"
@@ -1369,7 +1361,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
             </button>
           </div>
 
-          <StandDetailBody stand={selectedStand} />
+          <StandDetailBody stand={selectedStand} showDestination={false} />
         </div>
       ) : null}
 

@@ -17,7 +17,7 @@
 //   - live-quality     : recorded, non-fatal. What the brain is trusted for. Observed output
 //                        is printed so two models can be compared run against run.
 //
-// Cost: 18 short completions per run; four deterministic closure fixtures make no model call.
+// Cost: 19 short completions per run; four deterministic closure fixtures make no model call.
 // Run with:
 //   DEEPINFRA_MODEL=<model-id> npm run evals:live
 // (DEEPINFRA_API_KEY comes from .env via --env-file; a real environment value wins.)
@@ -418,6 +418,16 @@ fx("live-quality", "interprets an open-ended customer question into an executabl
     validated.ok &&
     raw.items.some((item) => item.toLowerCase().replace(/\s+/g, "").includes("bokchoy"));
   return { ok, observed: `${observed}; executable=${validated.ok}` };
+});
+
+fx("live-quality", "marks a broad availability question for first-page selection", async () => {
+  const raw = await inquiry.interpret({ taskText: "what's available today?" });
+  const observed = JSON.stringify(raw);
+  const validated = validateInterpretedIntent(raw);
+  return {
+    ok: raw.kind === "lookup" && validated.ok && raw.broad === true,
+    observed: `${observed}; executable=${validated.ok}`,
+  };
 });
 
 fx("live-quality", "orders a freshest-first selection with the fresh fact first", async () => {

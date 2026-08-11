@@ -31,6 +31,10 @@ export const intentSchema = z.discriminatedUnion("kind", [
       items: z.array(z.string().min(1)).min(1),
       farmScope: nullAsAbsent(z.string().min(1)),
       ranking: z.string().min(1),
+      // A boolean, never a product category. The model identifies a request for the whole
+      // available set; code can then page its already-ranked tail without asking the model
+      // to reproduce every opaque identifier (B-050).
+      broad: nullAsAbsent(z.boolean()),
       // A boolean, never a message. The model may recognize a recipe/food-safety request;
       // code renders the scope statement (F-018).
       outOfScopeRequest: nullAsAbsent(z.boolean()),

@@ -499,11 +499,10 @@ describe("farm-map poster treatment", () => {
     expect(within(card).queryByText("Plan your visit")).toBeNull();
     expect(card.querySelector(".detail-inventory")).toBeNull();
     expect(card.querySelector(".farm")).toBeNull();
-    // The actions lead the detail body — inside `.detail-aside`, which groups them with the
-    // status badges so the pair is placed as one block rather than as separate grid rows.
+    // Visit actions lead a market's detail body; inventory and farm-only status do not apply.
     const body = card.querySelector(".stand-detail-body");
-    expect(body?.firstElementChild).toHaveClass("detail-aside");
-    expect(body?.querySelector(".detail-aside")?.firstElementChild).toHaveClass(
+    expect(body?.firstElementChild).toHaveClass("detail-action-region");
+    expect(body?.querySelector(".detail-action-region")?.firstElementChild).toHaveClass(
       "detail-actions",
     );
   });
@@ -757,9 +756,7 @@ describe("farm-map poster treatment", () => {
     expect(sheet.querySelector(".stand-detail-body .detail-inventory")).toHaveTextContent(
       "6 bunches",
     );
-    expect(sheet.querySelector(".stand-detail-body .detail-visit")).toHaveTextContent(
-      "9 Orchard Way",
-    );
+    expect(sheet.querySelector(".sheet-address")).toHaveTextContent("9 Orchard Way");
   });
 
   /*
@@ -800,29 +797,30 @@ describe("farm-map poster treatment", () => {
 
     const body = container.querySelector(".stands .stand-detail-body")!;
 
-    // The confirmed line is a LIST of chips, dated by its own label.
+    // The confirmed line is a LIST of chips under an explicit current-stock heading.
     const confirmed = body.querySelector(".listing-confirmed")!;
-    expect(confirmed.querySelector(".listing-label")).toHaveTextContent(
+    const confirmedHeading = body.querySelector(".detail-inventory h3")!;
+    expect(confirmedHeading).toHaveTextContent("In stock");
+    expect(confirmedHeading).toHaveTextContent(
       "Last updated 2 hours ago",
     );
-    // F-097 — the date is a CAPTION under the items, not a heading over them. What a customer
-    // came for is what is there; the timestamp qualifies it. Asserted as document order rather
-    // than as a class, so moving the line back above the list fails here.
-    const confirmedParts = Array.from(confirmed.children);
-    expect(confirmedParts.indexOf(confirmed.querySelector(".items")!)).toBeLessThan(
-      confirmedParts.indexOf(confirmed.querySelector(".listing-label")!),
+    // The mockup puts the recency next to the stock heading, before the current items.
+    expect(confirmedHeading.compareDocumentPosition(confirmed.querySelector(".items")!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(confirmed.querySelectorAll(".items li")).toHaveLength(1);
 
     // The usual line is a SENTENCE. No list, no chips — nothing countable-looking, and no date.
     const usual = body.querySelector(".listing-usual")!;
+    expect(body.querySelector(".detail-usual-offerings h3")).toHaveTextContent(
+      "Typical offerings",
+    );
     expect(usual.querySelector("li")).toBeNull();
     expect(usual.querySelector(".items-usual")).toHaveTextContent("flowers, honey");
     expect(usual.textContent).not.toMatch(/ago/);
 
-    // Stock leads the card. Asserted on the phone SHEET, which is the surface that renders both
-    // sections: the expanded directory row suppresses "Plan your visit" because its address is
-    // already in the collapsed summary above.
+    // Stock leads the card. The address belongs directly beneath the phone-sheet title; the
+    // first practical destination after its facts is the action row.
     await user.click(screen.getByRole("button", { name: "Two Voices Stand" }));
     await user.click(
       screen.getByRole("button", { name: "1. Two Voices Stand, Two Voices Farm" }),
@@ -832,7 +830,7 @@ describe("farm-map poster treatment", () => {
       .querySelector(".stand-detail-body")!;
     const sections = Array.from(sheetBody.children);
     expect(sections.indexOf(sheetBody.querySelector(".detail-inventory")!)).toBeLessThan(
-      sections.indexOf(sheetBody.querySelector(".detail-visit")!),
+      sections.indexOf(sheetBody.querySelector(".detail-action-region")!),
     );
   });
 
@@ -877,9 +875,8 @@ describe("farm-map poster treatment", () => {
     const { container } = render(<StandMap stands={[stand]} />);
     await user.click(screen.getByRole("button", { name: "Wordy Stand" }));
 
-    // The dated caption under the items: the age stated in words, which is now the only
-    // non-colour signal a stale stand carries.
-    expect(container.querySelector(".listing-label-confirmed")).toHaveTextContent(
+    // The dated current-stock heading: the age is stated in words, not only colour.
+    expect(container.querySelector(".listing-recency")).toHaveTextContent(
       "Last updated 6 days ago",
     );
 
@@ -930,14 +927,14 @@ describe("farm-map poster treatment", () => {
     const fresh = render(<StandMap stands={[{ ...base, stale: false }]} />);
     await user.click(screen.getByRole("button", { name: "Aged Stand" }));
     expect(
-      fresh.container.querySelector(".listing-label-confirmed"),
-    ).not.toHaveClass("listing-label-aged");
+      fresh.container.querySelector(".listing-recency"),
+    ).not.toHaveClass("listing-recency-aged");
     fresh.unmount();
 
     const stale = render(<StandMap stands={[{ ...base, stale: true }]} />);
     await user.click(screen.getByRole("button", { name: "Aged Stand" }));
-    expect(stale.container.querySelector(".listing-label-confirmed")).toHaveClass(
-      "listing-label-aged",
+    expect(stale.container.querySelector(".listing-recency")).toHaveClass(
+      "listing-recency-aged",
     );
   });
 });
@@ -1264,15 +1261,13 @@ describe("expanded stand actions", () => {
 });
 
 /**
- * THE PHONE SHEET keeps its own visit section.
+ * THE PHONE SHEET shares the directory's action list.
  *
  * The stacked-bands work changed the DIRECTORY row's actions, and both surfaces render the
- * same component — so the risk is that the restructure leaked into the sheet, which places its
- * website and directions inside `.detail-visit` instead. That branch is selected by
- * `showDestination`, and this pins the split: the sheet gets the visit section and NOT the
- * directory's action list, with both destinations still reachable.
+ * same component — so the risk is that the sheet gets a second, divergent action structure.
+ * Both destinations are one equal-action row in either presentation.
  */
-describe("phone sheet visit section", () => {
+describe("phone sheet actions", () => {
   beforeEach(() => {
     Object.defineProperty(window, "matchMedia", {
       configurable: true,
@@ -1284,7 +1279,7 @@ describe("phone sheet visit section", () => {
     });
   });
 
-  it("renders the visit section, not the directory action list, on the sheet", async () => {
+  it("renders the same action list as the expanded directory row", async () => {
     const user = userEvent.setup();
     const stand: PublicStandPayload = {
       id: "sheet-stand",
@@ -1311,15 +1306,13 @@ describe("phone sheet visit section", () => {
     const sheet = container.querySelector(".sheet") as HTMLElement;
     expect(sheet).toBeTruthy();
 
-    // The sheet's own arrangement: a visit section, and none of the directory's action list.
-    expect(sheet.querySelector(".detail-visit")).toBeTruthy();
-    expect(sheet.querySelector(".detail-actions")).toBeNull();
+    const actions = sheet.querySelector(".detail-actions") as HTMLElement;
+    expect(actions).toBeTruthy();
 
     // Both destinations remain reachable from the sheet — the restructure must not have cost
     // the phone a way to get anywhere.
-    const visit = sheet.querySelector(".detail-visit") as HTMLElement;
-    expect(within(visit).getByRole("link", { name: "Website" })).toBeTruthy();
-    expect(within(visit).getByRole("link", { name: "Get directions" })).toBeTruthy();
+    expect(within(actions).getByRole("link", { name: "Website" })).toBeTruthy();
+    expect(within(actions).getByRole("link", { name: "Get directions" })).toBeTruthy();
   });
 });
 

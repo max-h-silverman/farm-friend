@@ -258,6 +258,53 @@ describe("SMS result paging end to end (integration)", () => {
     expect(rows[0]?.items_requested).toEqual(["eggs"]);
   });
 
+  it("selects only the first page for a broad inquiry, then pages the ranked remainder", async () => {
+    const seen: ModelSafeContext[] = [];
+    const provider: LLMProvider = {
+      async generateJson(ctx) {
+        seen.push(ctx);
+        if (ctx.seam === "inquiry-interpretation") {
+          return JSON.stringify({
+            kind: "lookup",
+            items: ["produce"],
+            ranking: "freshest",
+            broad: true,
+          });
+        }
+        const facts = (ctx.fields as { facts: { factId: string }[] }).facts;
+        return JSON.stringify({ kind: "selection", factIds: facts.map((fact) => fact.factId) });
+      },
+    };
+
+    const answer = await answerInquiry(
+      { db: db as Db, model: createInquiryModel(provider), clock: new FixedClock(T0) },
+      {
+        taskText: "what's available today?",
+        senderHash: customerHash,
+        occurredAt: T0,
+        scope: { includeTestFarms: false },
+      },
+    );
+
+    expect(answer.outcome).toBe("answered");
+    if (answer.outcome !== "answered") return;
+    expect(answer.body).toMatch(/1-3 of 9/);
+    expect(answer.body).toMatch(/reply MORE/i);
+
+    const selection = seen.find((ctx) => ctx.seam === "grounded-fact-selection");
+    expect((selection!.fields as { facts: unknown[] }).facts).toHaveLength(PAGE_SIZE);
+
+    const rows = await client()`
+      select fact_ids from pending_result_lists where sender_hash = ${customerHash}
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.fact_ids).toHaveLength(9);
+
+    const next = await more(customerHash, at(1));
+    expect(next.status).toBe("paged");
+    expect(next.body).toMatch(/4-6 of 9/);
+  });
+
   it("case 2 — an answer that fits saves nothing at all", async () => {
     // Paging machinery must not intrude on the common small case: no row, no MORE offer, no
     // count. A stored list nobody can page would also be a privacy cost with no benefit.
