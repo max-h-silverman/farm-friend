@@ -192,6 +192,125 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     ]);
   });
 
+  /*
+    THE LIVE FAILURE (max, 2026-08-10). "no eggs left at Pinecone Gardens" from the owning
+    farmer's handset produced a confirmation reading "Taking off: kale." — eggs were never on
+    the listing, and the model reached for a real entry it had no authority to delete.
+
+    Held here end-to-end rather than only in core's validator, because what the farmer actually
+    sees is the rendered confirmation: the guarantee that matters is that no unauthorized item
+    reaches the "Taking off:" line, whatever the model returned upstream.
+  */
+  it("never offers to remove an item the farmer's message did not name", async () => {
+    // Publish a listing first, so there is something a spurious removal could destroy.
+    await applyInterpretedInventory(
+      deps({
+        kind: "edits",
+        additions: [{ itemName: "kale" }, { itemName: "potatoes" }],
+        changes: [],
+        removals: [],
+      }),
+      {
+        senderHash: farmerHash,
+        salesLocationId: ids.location as string,
+        taskText: "kale and potatoes today",
+      },
+    );
+    const opened = await client()`
+      select payload from inventory_publication_proposals
+      where sender_hash = ${farmerHash} and state = 'open'
+    `;
+    const basePayload = opened[0]?.payload as {
+      entries: { entryId: string; itemName: string }[];
+    };
+    const kale = basePayload.entries.find((entry) => entry.itemName === "kale");
+    expect(kale).toBeDefined();
+
+    // The model returns the exact shape observed live: a real entry ID for an item the
+    // message never mentions.
+    const result = await applyInterpretedInventory(
+      deps({
+        kind: "edits",
+        additions: [],
+        changes: [],
+        removals: [{ entryId: kale!.entryId }],
+      }),
+      {
+        senderHash: farmerHash,
+        salesLocationId: ids.location as string,
+        taskText: "no eggs left at Pinecone Gardens",
+      },
+    );
+
+    if (result.outcome === "proposed") {
+      // Anchored to the REMOVAL LINE, not to the word "kale" anywhere in the message: kale is
+      // still a listed item and correctly appears under "Your stand will show". Asserting its
+      // bare absence would fail against a perfectly correct confirmation.
+      expect(result.confirmationText).not.toMatch(/Taking off/i);
+      // And the listing it must still show, so the check above cannot pass by rendering
+      // nothing at all.
+      expect(result.confirmationText).toMatch(/kale/i);
+      expect(result.confirmationText).toMatch(/potatoes/i);
+    }
+
+    // And the proposal still carries both items — nothing was dropped.
+    const after = await client()`
+      select payload from inventory_publication_proposals
+      where sender_hash = ${farmerHash} and state = 'open'
+    `;
+    const afterPayload = after[0]?.payload as {
+      entries: { entryId: string; itemName: string }[];
+    };
+    expect(afterPayload.entries.map((entry) => entry.itemName).sort()).toEqual([
+      "kale",
+      "potatoes",
+    ]);
+  });
+
+  it("still offers a removal the farmer's message DOES name", async () => {
+    // The mirror, so the guard cannot pass by making removal unreachable — the sold-out path
+    // is the one farmers use most.
+    await applyInterpretedInventory(
+      deps({
+        kind: "edits",
+        additions: [{ itemName: "kale" }, { itemName: "potatoes" }],
+        changes: [],
+        removals: [],
+      }),
+      {
+        senderHash: farmerHash,
+        salesLocationId: ids.location as string,
+        taskText: "kale and potatoes today",
+      },
+    );
+    const opened = await client()`
+      select payload from inventory_publication_proposals
+      where sender_hash = ${farmerHash} and state = 'open'
+    `;
+    const basePayload = opened[0]?.payload as {
+      entries: { entryId: string; itemName: string }[];
+    };
+    const kale = basePayload.entries.find((entry) => entry.itemName === "kale")!;
+
+    const result = await applyInterpretedInventory(
+      deps({
+        kind: "edits",
+        additions: [],
+        changes: [],
+        removals: [{ entryId: kale.entryId }],
+      }),
+      {
+        senderHash: farmerHash,
+        salesLocationId: ids.location as string,
+        taskText: "kale is all gone",
+      },
+    );
+
+    expect(result.outcome).toBe("proposed");
+    if (result.outcome !== "proposed") return;
+    expect(result.confirmationText).toMatch(/Taking off: kale/i);
+  });
+
   it("opens a first-publication proposal from typed additions", async () => {
     const result = await applyInterpretedInventory(
       deps({

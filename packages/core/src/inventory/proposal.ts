@@ -180,13 +180,48 @@ export type InterpretationValidation =
   | { ok: false; reason: string };
 
 /**
+ * Does the farmer's message actually name this item?
+ *
+ * Case-folded substring, matching the tolerance the public map's search already uses: the
+ * listing's words come from VIGA's form text and the message from a farmer's own SMS, and
+ * nothing normalizes casing between them. Substring rather than exact so "potatoes are gone"
+ * matches a listing of "Potatoes" and "bok choy is done" matches "Bok choy".
+ *
+ * Deliberately permissive about WHICH direction it is loose in. A false positive here leaves
+ * the farmer a removal they can see and reject on the confirmation; a false negative silently
+ * ignores a real "sold out". The confirmation step catches the first and nothing catches the
+ * second, so this errs toward letting a named removal through.
+ */
+function messageNamesEntry(taskText: string, itemName: string): boolean {
+  return taskText.toLowerCase().includes(itemName.trim().toLowerCase());
+}
+
+/**
  * Validate untrusted interpreter output before anything acts on it: the shape must be
  * one of the permitted outcomes, carry no extra consequential fields, and every selected
  * entry ID must belong to the base snapshot.
+ *
+ * A REMOVAL MUST ALSO NAME ITS ITEM IN `taskText` (max, 2026-08-10). Found live: "no eggs left
+ * at Pinecone Gardens" returned a removal of kale — a real entry ID for an item the farmer
+ * never mentioned. Membership validation cannot catch that, because the ID *is* in the
+ * snapshot; what is missing is any authority in the message to delete it.
+ *
+ * The seam note was given an explicit rule and still failed the live sentence against the real
+ * model, which is the argument for deciding it here: a removal destroys a farmer's published
+ * produce, and code holds both the snapshot and the text, so it can settle this with certainty
+ * and no model call. Golden Rule #6 — what must not fail is a deterministic guarantee, not a
+ * prompt instruction.
+ *
+ * Unauthorized removals are DROPPED, not rejected (max, 2026-08-10): the farmer confirms every
+ * proposal before it publishes, so the removal simply never reaches the "Taking off:" line
+ * while everything they genuinely said still goes through. `taskText` is optional because the
+ * structured direct editor has no message to check — a farmer clicking a delete control has
+ * already named the item by clicking it.
  */
 export function validateInterpretation(
   candidate: unknown,
   base: InventoryCompositionBase,
+  taskText?: string,
 ): InterpretationValidation {
   if (typeof candidate !== "object" || candidate === null) {
     return { ok: false, reason: "interpretation must be an object" };
@@ -248,6 +283,10 @@ export function validateInterpretation(
   }
 
   const known = new Set((base?.entries ?? []).map((entry) => entry.entryId));
+  // The names behind those IDs, for the removal-authorization check below.
+  const nameByEntryId = new Map(
+    (base?.entries ?? []).map((entry) => [entry.entryId, entry.itemName]),
+  );
   const closure =
     record.closure === undefined
       ? undefined
@@ -320,13 +359,27 @@ export function validateInterpretation(
     }
   }
 
+  // Every removal above is shape-valid and a real snapshot member. This last pass asks the
+  // separate question membership cannot: did the farmer's message actually name the item?
+  // An entry whose name is absent from the text is dropped — the farmer authorized no such
+  // deletion, and the confirmation they read must not offer one.
+  const authorizedRemovals =
+    taskText === undefined
+      ? (removals as ProposedRemoval[])
+      : (removals as ProposedRemoval[]).filter((removal) => {
+          const entry = nameByEntryId.get(removal.entryId);
+          // An entry in `known` always has a name; a missing one would mean the snapshot and
+          // the ID set disagreed, and dropping is the safe reading of that contradiction.
+          return entry !== undefined && messageNamesEntry(taskText, entry);
+        });
+
   return {
     ok: true,
     value: {
       kind: "edits",
       additions: additions as ProposedAddition[],
       changes: changes as ProposedChange[],
-      removals: removals as ProposedRemoval[],
+      removals: authorizedRemovals,
       ...(closure?.ok ? { closure: closure.value } : {}),
     },
   };

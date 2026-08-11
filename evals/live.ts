@@ -374,6 +374,81 @@ fx("live-quality", "an explicit sold-out statement does remove that item", async
   return { ok, observed };
 });
 
+// FOUND LIVE (max, 2026-08-10). "no eggs left at Pinecone Gardens" from the owning farmer's
+// handset proposed "Taking off: kale." — an item the message never named.
+//
+// The gap the three fixtures above leave: every one of them names an item that IS listed. The
+// seam note lists sold-out phrasings ("sold out, all out, done, finished") but says nothing
+// about the case where the item declared gone is NOT in currentEntries at all. With no rule
+// covering it and a removals array to fill, the model reached for the nearest entry.
+//
+// MEASURED THROUGH `validateInterpretation`, not on the raw model output, because that is where
+// the guarantee lives. The seam note was given an explicit rule for this case and the real model
+// still returned a removal of `e1` on some runs — the behaviour is NONDETERMINISTIC across runs
+// on identical input, which is precisely why this cannot be a prompt promise. Code drops a
+// removal whose item the farmer never named; this fixture proves that end to end against the
+// real model rather than asserting the prompt was persuasive.
+//
+// The two clarification strings the seam substitutes on failure are treated as FAILURES here. A
+// provider error and a closure-timing bail both produce `kind: "clarification"`, so scoring any
+// clarification as a pass would let an unreachable model read as correct behaviour — a
+// containment-style false green.
+// The provider-error fallback specifically. Observed intermittently (roughly 1 run in 3) on an
+// otherwise-healthy suite, so it is a flaky upstream call rather than a behavioural verdict —
+// but it must NEVER be scored as a pass, because "the model was unreachable" and "the model
+// declined to remove" are opposite facts wearing the same shape. Reported as a distinct
+// outcome so a red line here is read as "rerun", not as "the guard regressed".
+const PROVIDER_ERROR_QUESTION =
+  "Sorry, I could not read that. Could you list what your stand has right now?";
+const SEAM_FALLBACK_QUESTIONS = [
+  PROVIDER_ERROR_QUESTION,
+  "What exact dates should I use for the closure?",
+];
+
+/** Interpret, then validate exactly as production does, and report what survived. */
+async function removalsAfterValidation(taskText: string) {
+  const raw = await interpreter.interpret({
+    currentEntries: BASE.entries.map((e) => ({ entryId: e.entryId, itemName: e.itemName })),
+    currentClosure: null,
+    currentLocalDate: CURRENT_LOCAL_DATE,
+    taskText,
+  });
+  const observed = JSON.stringify(raw);
+
+  if (raw.kind === "clarification") {
+    // Asking IS an acceptable answer — but only a real one, not the seam's error fallback.
+    const isFallback = SEAM_FALLBACK_QUESTIONS.includes(raw.question);
+    if (!isFallback) return { ok: true, observed };
+    return {
+      ok: false,
+      observed:
+        raw.question === PROVIDER_ERROR_QUESTION
+          ? `${observed}  [provider error, not a verdict — rerun]`
+          : observed,
+    };
+  }
+
+  const validated = validateInterpretation(raw, BASE, taskText);
+  if (!validated.ok) return { ok: false, observed };
+  if (validated.value.kind === "clarification") return { ok: true, observed };
+  // `clear_all` wipes the whole listing on a message naming an item that isn't on it.
+  if (validated.value.kind !== "edits") return { ok: false, observed };
+  return {
+    ok: validated.value.removals.length === 0,
+    observed: `${observed} -> validated removals: ${JSON.stringify(validated.value.removals)}`,
+  };
+}
+
+fx("live-quality", "an item declared gone that was never listed removes nothing", async () =>
+  // BASE lists tomatoes and kale. Eggs are absent, exactly as in the live report.
+  removalsAfterValidation("no eggs left"));
+
+fx("live-quality", "the same message with the stand named removes nothing either", async () =>
+  // The verbatim live text. The stand name is resolved by code before this seam, but it still
+  // reaches the model inside the farmer's own words, and a trailing proper noun is exactly the
+  // token that invited the spurious match.
+  removalsAfterValidation("no eggs left at Pinecone Gardens"));
+
 fx("live-quality", "an explicit whole-listing replacement is not read as an addition", async () => {
   const raw = await interpreter.interpret({
     taskText: "all we have left today is eggs",
