@@ -5,15 +5,15 @@
 
 ## Release state
 
-- Farm Friend is **pre-go-live**. Production serves B-050 broad-inquiry paging and F-105 stand details,
-  built from `main` `d6fc44c` (application release `e2ca05f`); this release has no schema change.
-- Cloud Run web `farm-friend-web-00061-8jv` and worker `farm-friend-worker-00056-njf` serve immutable
-  digest `sha256:059b4c12641c53bdde6d9943b86877b98dd3d88e5a32f2a0a0973c2be7be2411`. These revisions
-  carry the SAME image as `00060-8wn`/`00055-h4b`; they exist only to restart the containers onto
-  `DEEPINFRA_API_KEY` v3 (see the rotation entry below).
-- Neon `neondb` has 38 applied migrations (`0000`–`0037`). **`main` now carries `0038` (F-104), which
-  is NOT applied in Neon** — it must run before the next deploy, or the merged code will query a
-  `report_key` column that does not exist in production.
+- Farm Friend is **pre-go-live**. Production serves F-104 SMS stock-out reporting on top of B-050
+  broad-inquiry paging and F-105 stand details, built from `main` `104b235`. This release DOES carry
+  a schema change (`0038`), applied before the image was promoted.
+- Cloud Run web `farm-friend-web-00062-pq9` and worker `farm-friend-worker-00057-knt` serve immutable
+  digest `sha256:a3acf708098f620f39386d6cbf3b74b8db6bd03196952ba9a786e2e4e51b1255`.
+- Neon `neondb` has **39 applied migrations (`0000`–`0038`)**. `0038` was applied 2026-08-11 and
+  verified by schema effect — `report_key` is `text`, nullable (the NULL matters: NULLs stay distinct
+  under the unique index), with `stock_out_reports_report_key_unique` present. Farm and contact counts
+  were unchanged across the migration.
 
 ## Verification
 
@@ -72,7 +72,7 @@
   stand are you at?"; the report and the farmer's `stock_out_alert` commit in one transaction.
   **GL-007 is done and GL-008 is superseded** (SMS instead of a QR/web form — max, 2026-08-10).
   Migration **`0038`** adds `stock_out_reports.report_key` (unique, nullable) for reporting-event
-  idempotency — **applied locally only, not yet in Neon**.
+  idempotency; applied to Neon and deployed 2026-08-11.
   - **Live evals ran green** against production's own model,
     `mistralai/Mistral-Small-24B-Instruct-2501`. Two fixtures are new — one containment (a classification cannot carry a stand of
     its own; the seam's `.strict()` schema is the barrier) and one quality (six real phrasings,
