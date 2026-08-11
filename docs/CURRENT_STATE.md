@@ -5,22 +5,16 @@
 
 ## Release state
 
-- Farm Friend is **pre-go-live**. Production serves application commit `2e1014d` (2026-08-10);
-  `main` head is `9587702`, which adds this release documentation only.
-- Cloud Run web `farm-friend-web-00059-c7j` and worker `farm-friend-worker-00054-xv6` serve the same
-  immutable digest: `sha256:60117339775a9a813fb7575552e1ff9e9a96e0694ab2abfda4a85268ad990da7`.
-- Neon `neondb` has 38 applied migrations (`0000`–`0037`); this release has no schema change.
-- The four outstanding VIGA-record questions were resolved with source-backed notes; no farmer listing
-  was changed. Peak Moon and Sweet Alyssum already have live map points.
+- Farm Friend is **pre-go-live**. `main` release `e2ca05f` adds B-050 broad-inquiry paging and F-105
+  stand details; this wrap promotes that release. It has no schema change.
+- Neon `neondb` has 38 applied migrations (`0000`–`0037`).
 
 ## Verification
 
-- `main`: 1,794 unit tests, 878 local integration tests, typecheck, lint, and the web production build
-  all pass. The build retains the tracked Next configuration/lint warnings (B-008).
-- Deployment assertions passed: both services run revisions newer than every mounted secret. The served
-  contact card has the expected telephone, CRLF formatting, and seven required properties.
-- Any model/projection, schema, or output-contract change requires the relevant live eval run; none changed
-  in this release.
+- `main`: 1,795 unit tests, 847 local integration tests, typecheck, lint, and the web production build
+  pass. The build retains the tracked Next configuration/lint warnings (B-008).
+- Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model passes
+  containment 4/4, closure 7/7, quality 10/10, and recall 5/5, including broad first-page intent.
 
 ## Standing facts a cold start needs
 
@@ -33,14 +27,15 @@
 - A dated stock claim has exactly one provenance: `sms`, `web`, or `viga`. Onboarding inventory waits for
   verified handset redemption before publication.
 - `visitability` controls the map invitation. A contact-only farm may be placed, but gets no directions link.
+- Broad availability inquiries expose only the first three selection candidates to the model; code keeps the
+  validated remainder in deterministic order for `MORE`.
 
 ## Open before go-live
 
 - Finish physical-handset checks: farmer onboarding, consent, vCard, paged SMS, and administrator/settings
   journeys; verify VIGA’s Squarespace embeds and the `?hidden=true` behavior.
 - F-065: attribute every listing change to its actor; F-084: decide participant attribution during onboarding.
-- B-050: broad customer inquiries fail because selection asks the model to rank every candidate instead of
-  selecting the first page; narrow inquiries work. B-008, B-034, B-036, F-101, and B-048 remain planned.
+- B-008, B-034, B-036, F-101, and B-048 remain planned.
 - VIGA must decide whether the Vashon Island Farmers Market belongs in the farmer roster.
 
 ## Traps worth not rediscovering

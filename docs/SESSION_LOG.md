@@ -11,6 +11,28 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-10 — Broad SMS inquiries page safely; customer stand details lead with current stock
+
+B-050 narrows the model's selection task only when a customer makes a broad availability request:
+the model sees the three facts that can appear on the first page, while code retains the complete,
+validated remainder in deterministic order for `MORE`. Named products and categories keep their full
+selection context. The real deployed DeepInfra configuration passed the complete live evaluation:
+containment 4/4, closure 7/7, quality 10/10, and recall 5/5; the new broad-intent fixture returned
+`broad: true`.
+
+F-105 gives both the desktop selected row and phone sheet the same inventory-first content hierarchy:
+current stock and dated recency, typical offerings, co-sellers, schedule, visit actions, payment, and
+additional information. The phone surface is a bottom sheet; it now occupies up to 78% of the viewport,
+uses tighter vertical spacing, and leaves actions out of an extra enclosing card. VIGA Bucks is rendered
+once as its own acceptance fact, never repeated in the other-payment list.
+
+PR #101 merged the combined release as `e2ca05f`. Verification before promotion: 1,795 unit tests, 847
+local integration tests, typecheck, lint, the production web build, stub evals (critical 11/11, advisory
+4/4, adversarial 29/29), and the real DeepInfra evaluation above. This entry will be updated with the
+production revision and deployment assertions after promotion.
+
+---
+
 ## 2026-08-10 — Farmer onboarding now confirms with VIGA, and accepts incomplete forms honestly
 
 Max walked the real farmer onboarding journey end to end. The carrier keyword is now **VIGA**:
