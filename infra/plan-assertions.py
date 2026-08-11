@@ -452,7 +452,10 @@ def main() -> int:
           "never a default compiled into the application")
     check("the worker is given no email configuration",
           not any(key.startswith(("SMTP_", "GMAIL_", "EMAIL_PROVIDER")) for key in worker_env),
-          f"worker carries {sorted(k for k in worker_env if k.startswith(("SMTP_", "GMAIL_", "EMAIL_PROVIDER")))} — the worker "
+          # Single-quoted inside the expression on purpose: reusing the OUTER quote character
+          # here needs Python 3.12+, and this file ran under 3.10 for a month as a SyntaxError
+          # that only surfaced when someone actually ran the assertions.
+          f"worker carries {sorted(k for k in worker_env if k.startswith(('SMTP_', 'GMAIL_', 'EMAIL_PROVIDER')))} — the worker "
           "sends no email and must not be configured as though it could")
 
     print("\nSecret rotation reaches containers")
