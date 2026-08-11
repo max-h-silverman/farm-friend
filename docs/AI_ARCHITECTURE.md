@@ -60,19 +60,22 @@ a constant baked into the architecture.
 
 ## The model-vs-code line (the model proposes; code commits)
 
-The model **may**: interpret language; infer search intent; propose inventory or closure changes;
-select and rank identifiers from relevant retrieved options; draft non-authoritative language where a
-seam permits it; suggest escalation. Model-authored prose may be returned only to the same actor whose
-current task text supplied its private context. Any cross-actor message is code-rendered from
-permitted typed facts; customer free text is not relayed to a farmer.
-
-**Deterministic code owns**: identity and authority; launch-program consent and universal STOP;
-recipient selection; commitments; transactions; durable writes; publication; idempotency; retention;
-provider operations; validation of selected identifiers against retrieved facts; and rendering of
-authoritative customer-facing factual text.
+| The model **may** | Deterministic code **owns** |
+|---|---|
+| interpret language; infer search intent | identity and authority |
+| propose inventory or closure changes | launch-program consent and universal STOP |
+| select and rank identifiers from retrieved options | recipient selection |
+| draft non-authoritative language where a seam permits | commitments, transactions, durable writes, publication |
+| suggest escalation | idempotency, retention, provider operations |
+| | validation of selected identifiers against retrieved facts |
+| | rendering of authoritative customer-facing factual text |
 
 The model **never** writes durable state, chooses recipients, decides consent, invents availability, or
 makes a compliance or commitment decision.
+
+Model-authored prose may return **only to the same actor whose current task text supplied its private
+context**. Any cross-actor message is code-rendered from permitted typed facts; customer free text is
+not relayed to a farmer.
 
 ## The model provider seam
 

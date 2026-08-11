@@ -45,16 +45,16 @@ send them. A `contact_only` farm may be fully placed; **whether a farm is a dest
 decision, not a storage one**, and the guarantee that nobody is routed to a farm with nothing to buy
 lives in `buildMapView` (no directions link for `contact_only`).
 
-**`address_public` governs the address TEXT, never the pin** (F-088). `NOT NULL DEFAULT true`. The
-address is always stored; this decides whether it renders. Admin reads it regardless — support work
-needs the address — and the SMS answer path suppresses it in SQL so a hidden address never leaves the
-database on that path.
+**Two display-only switches, same shape, opposite defaults.** Both govern whether a stored fact
+*renders*; neither deletes anything, and both withhold **in SQL** so a hidden value never leaves the
+database. Admin reads both regardless — support work needs them.
 
-**`prices_public` is the same shape for item prices, defaulting the other way** (F-092). `NOT NULL
-DEFAULT false`: an address is information a farmer already supplied for publication, but a price is
-something this system never asked for and no existing stand consented to showing, so opting in is the
-farmer's act. Prices stay stored when it is false — the switch is reversible, not destructive — and
-the public query withholds them in SQL.
+| Column | Default | Why that default |
+|---|---|---|
+| `address_public` (F-088) | `NOT NULL DEFAULT true` | every row predating it holds an address a farmer typed into a public listing form |
+| `prices_public` (F-092) | `NOT NULL DEFAULT false` | a price is something this system never asked for and no existing stand consented to showing, so opting in is the farmer's act |
+
+`address_public` governs the address **TEXT, never the pin**.
 
 **`retired_at` is VIGA taking a stand down, and it is the only "delete" there is** (F-071). A retired
 location leaves every public surface and refuses publication, but keeps every revision it published —
@@ -214,40 +214,50 @@ violation.
 ### stand items (F-066)
 
 The **one vocabulary a stand talks about its own goods in**. "Eggs" is one record per location, and
-the two things anyone can say about it are **independent states, not separate lists**: *does this stand
-usually carry it*, and *was it confirmed present on a date*. Either, both, or neither may hold. A
-stand's item is created by whichever surface first names it and outlives both states — removing eggs
-from the usual mix clears that state and leaves the record standing with its confirmation history
-intact, because an item that stopped being a standing claim did not stop having been confirmed in June.
+the two things anyone can say about it are **independent states, not separate lists**:
 
-**The states stay structurally apart even though the vocabulary is shared**, and this is load-bearing:
-a standing claim is a property of the farm, true in March and in September, dated by nothing; a
-confirmation is a statement about what is out *right now*, always dated and always attributed by
-`source`. The standing state carries no confirmation time, can never occupy the one-current-per-location
-slot that means "the freshest thing anyone has said about this stand", and must never be rendered as
-current availability. **Read by the public listing** (F-042) as a field of its own, never merged into
-the confirmed items, and rendered under a heading that takes no timestamp — the "no confirmation time"
-property has to survive all the way to the screen to mean anything.
+| State | Is it dated? | Written by | Meaning |
+|---|---|---|---|
+| **usually carried** (`usually_carried`) | never | the farmer's web form only | a property of the farm, true in March and September |
+| **confirmed present** | always, and attributed by `source` | SMS confirmations and the web form | what is out *right now* |
 
-**A standing item may carry an optional STRUCTURED price** (F-092) — four columns that render as one
-sentence: `price_amount` and `price_quantity` (`numeric(10,2)`, never floating point), `price_unit`
-(the farmer's own word, free text), and `price_basis` (`per` | `for`). "$6 / dozen" and "3 lb for $5"
-are the same four facts with a different joining word, and `per` is the bundle with an implied count of
-one — one mechanism, so a third kind of price is a third `basis` value rather than a fifth column.
-`renderStandItemPrice` in core is the **only** thing that turns parts into words; every surface calls
-it.
+Either, both, or neither may hold. An item is created by whichever surface first names it and outlives
+both states — removing eggs from the usual mix clears that state and leaves the record standing with
+its confirmation history intact, because an item that stopped being a standing claim did not stop
+having been confirmed in June.
 
-A price is stated or it is not — `stand_items_price_complete` refuses anything between, because half a
-price renders as garbage. NULL across all four is *not stated*; **an amount of `0` is FREE**, which is
-a claim rather than its absence. A price is a standing claim exactly like the item it belongs to and
-carries no date.
+**The states stay structurally apart even though the vocabulary is shared**, and this is load-bearing.
+The standing state:
 
-**The unit is the one part a stated price may omit, and only for `for`** (B-041). A bundle carries its
-own count, so "$5 for 3" is complete with the item itself as the unit. A unit price has no count to
-lean on: "$6 / " is not a sentence, so `per` must name what the amount is per.
-`stand_items_price_basis_unit` (migration `0033`) is that asymmetry at the database;
-`standItemPriceNeedsUnit` in core is the copy every other layer imports rather than restates. A
-unitless bundle of one reads **"$5 each"** (max, 2026-08-08).
+- carries **no confirmation time**;
+- can **never** occupy the one-current-per-location slot meaning "the freshest thing anyone has said
+  about this stand";
+- must **never** be rendered as current availability;
+- is **read by the public listing** (F-042) as a field of its own, never merged into the confirmed
+  items, under a heading that takes no timestamp — the "no confirmation time" property has to survive
+  all the way to the screen to mean anything.
+
+**A standing item may carry an optional STRUCTURED price** (F-092) — four columns rendering as one
+sentence, and `renderStandItemPrice` in core is the **only** thing that turns parts into words:
+
+| Column | Type | Note |
+|---|---|---|
+| `price_amount`, `price_quantity` | `numeric(10,2)` | never floating point |
+| `price_unit` | free text | the farmer's own word |
+| `price_basis` | `per` \| `for` | `per` is the bundle with an implied count of one |
+
+"$6 / dozen" and "3 lb for $5" are the same four facts with a different joining word — one mechanism,
+so a third kind of price is a third `basis` value rather than a fifth column.
+
+- **A price is stated or it is not.** `stand_items_price_complete` refuses anything between, because
+  half a price renders as garbage. NULL across all four is *not stated*; **an amount of `0` is FREE**,
+  a claim rather than its absence.
+- A price is a **standing claim** exactly like the item it belongs to, and carries no date.
+- **The unit may be omitted only for `for`** (B-041). A bundle carries its own count, so "$5 for 3" is
+  complete with the item as the unit; a unit price has no count to lean on, and "$6 / " is not a
+  sentence. `stand_items_price_basis_unit` (migration `0033`) is that asymmetry at the database, and
+  `standItemPriceNeedsUnit` in core is the copy every other layer imports rather than restates. A
+  unitless bundle of one reads **"$5 each"** (max, 2026-08-08).
 
 **`inventory_entries.price_text` is still free text** and is a different fact — a price on today's
 confirmed stock, dated, belonging to the statement rather than to the item. Onboarding writes it by
@@ -288,16 +298,17 @@ duplicate must show rather than be papered over.
   label. Revisions have no draft state. Every revision declares its **`source`** (F-063, F-090), and a
   database CHECK makes the three shapes mutually exclusive:
 
-  - **`sms`** requires the full handset chain — `proposal_id`, `published_by_authorization_id`,
-    `farm_approval_id`. The proposal carries the token the farmer texted back.
-  - **`web`** requires an authorization and an approval and **no proposal**. This is stock a farmer
-    stated on the onboarding form, published when their `START` proved the handset. As strong as `sms`
-    on who stands behind the claim; it lacks only the confirmation exchange, which genuinely never
-    happened. Recording it as `sms` would have required inventing a consumed token and a consumption
-    event naming a message nobody sent — the exact fabrication this constraint refuses.
-  - **`viga`** requires all three to be **NULL**, which is how VIGA's own records (the launch import,
-    the weekly stock form, a later admin edit) are recorded without fabricating an attestation about
-    an identifiable person.
+  | `source` | `proposal_id` | `published_by_authorization_id` | `farm_approval_id` | Is |
+  |---|---|---|---|---|
+  | `sms` | required | required | required | the full handset chain; the proposal carries the token the farmer texted back |
+  | `web` | **NULL** | required | required | stock a farmer stated on the onboarding form, published once `START` proved the handset |
+  | `viga` | **NULL** | **NULL** | **NULL** | VIGA's own records — the launch import, the weekly stock form, a later admin edit |
+
+  `web` is as strong as `sms` on who stands behind the claim; it lacks only the confirmation exchange,
+  which genuinely never happened. Recording it as `sms` would have required inventing a consumed token
+  and a consumption event naming a message nobody sent — the exact fabrication this constraint
+  refuses. `viga` records VIGA's own facts without fabricating an attestation about an identifiable
+  person.
 
   Written as one biconditional over all four columns rather than per-column rules, because a CHECK
   *passes* on NULL. **The enum is recreated rather than extended** when a value is added: PostgreSQL
@@ -489,27 +500,27 @@ participant names, onboarding requests, and prompt due-slots below.
 
 ## Privacy & retention
 
-**Phones:** normalized at ingress; the raw E.164 lives in **exactly one column**, read **only** by the
-outbound send path (SMS cannot be sent to a hash); the **hash is the only lookup/log key**. Raw numbers
-are **never logged**, **never enter model context**, and are masked in admin.
+**One mechanism, two kinds of personal data** — emails are an *instance* of the phone discipline, not
+a second mechanism. For both: normalized at ingress, the raw value lives in **exactly one column**, the
+**hash is the only lookup/log key**, and raw values are **never logged**, **never enter model context**,
+and are masked in admin.
 
-`administrator_phones` (F-074) does not weaken this: it deliberately has **no `phone_e164` column at
-all**, asserted against the real schema. `contacts` keeps the raw number *only* because the sender
+| | Phones | Emails (F-078/F-079) |
+|---|---|---|
+| Raw column | `contacts.phone_e164` | `farm_emails.email` |
+| Read only by | the outbound send path (SMS cannot be sent to a hash) | the send path and the verification lookup |
+| Canonical form | discard punctuation | **case and whitespace only**, class named explicitly (`E' \t\r\n'`) to match the unique index |
+| Admin masking | `maskPhoneSuffix` | `maskEmail` |
+
+`farm_email_verifications` holds the hash and never a second copy of the address. VIGA's roster is
+largely *personal* addresses, so they carry the same weight as phones.
+
+**`administrator_phones` (F-074) does not weaken this:** it deliberately has **no `phone_e164` column
+at all**, asserted against the real schema. `contacts` keeps a raw number *only* because the sender
 needs something to send to; nothing on the test-farm path ever sends, so a raw column there would be
-stored personal data with no reader. What it keeps beside the hash is the **last four digits**, the
-same lossy fragment the admin surface already shows (`right(phone_e164, 4)` → `maskPhoneSuffix`), so an
-operator can tell which row to remove. Four digits identify a row to a human being; they do not
-identify a subscriber.
-
-**Emails (F-078/F-079):** the same discipline as phones, applied to a second kind of personal data —
-**one instance of one mechanism, not a second mechanism**. VIGA's roster is largely *personal*
-addresses, so they carry the same weight. Normalized at ingress; the raw address lives in **exactly one
-column** (`farm_emails.email`), read **only** by the send path and the verification lookup; the **hash
-is the only lookup and log key**. Raw addresses are **never logged**, **never enter model context**,
-and are masked in admin (`maskEmail`). `farm_email_verifications` holds the hash and never a second
-copy of the address. Where the two differ, it is because the data differs: a phone has one canonical
-form derived by discarding punctuation, while an address is canonicalized by **case and whitespace
-only**, with the whitespace class named explicitly (`E' \t\r\n'`) to match the unique index.
+stored personal data with no reader. It keeps the **last four digits** beside the hash — the same lossy
+fragment admin already shows (`right(phone_e164, 4)`) — so an operator can tell which row to remove.
+Four digits identify a row to a human being; they do not identify a subscriber.
 
 **Verifying is not publishing.** Farms that declined to put contact email on the printed map are still
 stored and still authenticate. Nothing in `farm_emails` is a display column, and no public read path

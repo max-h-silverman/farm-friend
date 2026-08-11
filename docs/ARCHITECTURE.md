@@ -103,9 +103,13 @@ the transitive imports of both public entry points.
 ### Farmer stand form (F-040)
 
 `/stand/<token>` — a farmer's own listing form, reached by a **standing link with no password and no
-session**. The token is the whole credential, re-resolved server-side on every request so a
-revocation takes effect on the next load, and posted in the request **body** to
-`/api/farmer/stand`, never a query string.
+session**.
+
+- The token is the whole credential, **re-resolved server-side on every request** so a revocation
+  takes effect on the next load.
+- It is posted in the request **body** to `/api/farmer/stand`, never a query string.
+- A leaked link can at worst propose a wrong listing on **ONE** stand;
+  `apps/web/lib/farmer-stand.integration.test.ts` asserts and sabotages each bound.
 
 **The web path gets no bypass of the confirmation gate.** A submission opens or revises the farmer's
 one pending proposal; publication happens only through `confirmInventoryPublication`, which re-reads
@@ -115,20 +119,23 @@ confirmation resolves at the lock rather than by arrival order.
 
 **What the farmer presses is one button, and that is a screen rather than a gate** (F-097).
 `publishStructuredFromLink` composes the propose and confirm calls in one request, so every check
-above still runs; the preview was removed because on this surface the farmer is looking at the rows
-they typed rather than at code's reading of their prose. The one honest difference from SMS is
-activation — there is no carrier prompt to accept, so the window opens against a confirmation
-message written **`suppressed`**: it exists because `activation_coherent` requires a message the
-proposal activated from, and it is never sent. A leaked link can at worst propose a wrong listing on
-ONE stand; `apps/web/lib/farmer-stand.integration.test.ts` asserts and sabotages each bound.
+above still runs; the preview was removed because on this surface the farmer reads the rows they
+typed rather than code's reading of their prose. The one honest difference from SMS is activation:
+there is no carrier prompt to accept, so the window opens against a confirmation message written
+**`suppressed`** — it exists because `activation_coherent` requires a message the proposal activated
+from, and it is never sent.
 
-`/stand/<token>/settings` reuses that credential and revocation lifecycle. It exposes only the
-authorization's editable locations, stores one default SMS target, and lets the farmer change or
-pause the one inventory-reminder cadence per stand — which starts at `weekly` at setup (F-081). It
-also owns the structured one-name-per-line participant save for the selected stand: its own
-confirmation and audit event, routed through db + clock before full model composition, re-resolving
-the link, and unable to grant access or attach names to profiles. No second login, no consent
-control; pausing reminders never changes launch-program consent.
+`/stand/<token>/settings` reuses that credential and revocation lifecycle, and owns:
+
+- only the authorization's **editable locations**;
+- one default SMS target;
+- the one inventory-reminder cadence per stand, changed or paused by the farmer (starts at `weekly`
+  at setup, F-081);
+- the structured one-name-per-line participant save for the selected stand — its own confirmation and
+  audit event, routed through db + clock before full model composition, re-resolving the link, and
+  unable to grant access or attach names to profiles.
+
+**No second login and no consent control**; pausing reminders never changes launch-program consent.
 
 ### Farmer onboarding (F-067)
 
@@ -138,48 +145,44 @@ control; pausing reminders never changes launch-program consent.
 (`/api/farmer/onboarding`, `/api/farmer/listing`). **The token also names the farm**: a `farmId` in
 the request body is ignored, which stops one invitation writing another farm's listing.
 
-The listing step is the first farmer-facing writer of public listing facts. It asks every farm for an
-address and complete resolved location first; the later visitability answer decides whether customers
-are invited to drive there, not whether the farm may be placed (F-088). The writer mirrors
+The listing step is the **first farmer-facing writer of public listing facts**. It asks every farm for
+an address and complete resolved location first; the later visitability answer decides whether
+customers are invited to drive there, not whether the farm may be placed (F-088). The writer mirrors
 `sales_locations_coherent_visitability`: complete address + coordinate for either answer, or a wholly
-absent location only for `contact_only`. **The coordinate comes only from geocoding the typed
-address** (F-077, §provider seams); an address that will not resolve is **refused** rather than
-approximated. The drawn island is a **read-only display** of the resolved point so the farmer can
-check it. Editing the address **clears** the coordinate, which stops one address publishing under
-another.
+absent location only for `contact_only`.
 
-It collects **structured season, hours, weekday and restocking facts** into F-035's filterable
-columns, and payment methods as a **closed set** plus a free-text tail. **VIGA Farm Bucks sits
-outside that set but is offered to every farmer** (max, 2026-08-10): acceptance is the farmer's own
-claim and publishes on their word; VIGA's separate eligibility flag does not gate it. It publishes on
-submit (max, 2026-08-05) rather than waiting for the JOIN text, and writes standing item state only —
+- **The coordinate comes only from geocoding the typed address** (F-077, §provider seams); an address
+  that will not resolve is **refused** rather than approximated.
+- The drawn island is a **read-only display** of the resolved point, so the farmer can check it.
+- Editing the address **clears** the coordinate, which stops one address publishing under another.
+
+It also collects **structured season, hours, weekday and restocking facts** into F-035's filterable
+columns, and payment methods as a **closed set** plus a free-text tail. **VIGA Farm Bucks sits outside
+that set but is offered to every farmer** (max, 2026-08-10): acceptance is the farmer's own claim and
+publishes on their word; VIGA's separate eligibility flag does not gate it. It publishes on submit
+(max, 2026-08-05) rather than waiting for the JOIN text, and writes **standing item state only** —
 never a dated confirmation.
 
 ### The migration door (F-079)
 
-`/farmer/start/<secret>` — how a farmer already using VIGA's Google weekly-status form moves onto
-Farm Friend. Pick your farm, prove you control an address VIGA holds, fill in the same listing form.
-The bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
+`/farmer/start/<secret>` — how a farmer already on VIGA's Google weekly-status form moves onto Farm
+Friend: pick your farm, prove you control an address VIGA holds, fill in the same listing form. The
+bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
 
-**The secret is obscurity, not authentication**, and is documented as such (DATA_ARCHITECTURE
-§privacy): it travels in browser history, `Referer` headers and access logs, and is neither one-use
-nor revocable per farmer. Absent, blank, or under 32 characters means the door does not exist — and a
-wrong secret gets the **same 404** as an unconfigured deployment, so the response never reveals that
-the door is merely switched off.
-
-**The emailed code is what gates publishing.** `POST /api/farmer/verify-request` always answers the
-same `sent` — on file or not, already issued, budget spent, relay refused — or it becomes a service
-for asking which address VIGA holds for a farm. `POST /api/farmer/verify-submit` answers one
-identical body for every refusal and checks the attempt cap **first**, so a capped record is not an
-oracle for whether a guess was close.
-
-**Verification grants listing-publish rights only, never farmer authorization** — updating stock by
-text still needs an inbound message from a consented handset. The grant is an `HttpOnly` cookie whose
-hash is re-resolved from the database on every request and checked against **that** farm.
-
-Both routes build from `publicReadContext` plus a narrow config read, never the full composition root
-(F-073): `appContext()` validates SMS, model and map configuration, so binding an unauthenticated
-farmer page to it makes it 500 on an unrelated missing variable.
+- **The secret is obscurity, not authentication** (DATA_ARCHITECTURE §privacy): it travels in browser
+  history, `Referer` headers and access logs, and is neither one-use nor revocable per farmer.
+- Absent, blank, or under 32 characters means the door does not exist — and a wrong secret gets the
+  **same 404** as an unconfigured deployment, so the response never reveals it is merely switched off.
+- **The emailed code is what gates publishing.** `verify-request` always answers the same `sent` (on
+  file or not, already issued, budget spent, relay refused), or it becomes a service for asking which
+  address VIGA holds. `verify-submit` answers one identical body for every refusal and checks the
+  attempt cap **first**, so a capped record is not an oracle for whether a guess was close.
+- **Verification grants listing-publish rights only, never farmer authorization** — updating stock by
+  text still needs an inbound message from a consented handset. The grant is an `HttpOnly` cookie
+  whose hash is re-resolved per request and checked against **that** farm.
+- Both routes build from `publicReadContext` plus a narrow config read, **never the full composition
+  root** (F-073): `appContext()` validates SMS, model and map configuration, so binding an
+  unauthenticated farmer page to it makes it 500 on an unrelated missing variable.
 
 ### Other surfaces
 
@@ -197,91 +200,96 @@ farmer page to it makes it 500 on an unrelated missing variable.
 
 ## SMS ingress and sender ordering
 
-The webhook reads the exact raw request bytes and verifies the Telnyx signature **before parsing**.
-After verification it normalizes the sender, then commits a **minimized inbox projection** before
-acknowledging: provider event ID, provider message ID, event type, `occurred_at`, sender/contact
-reference, TTL-bound message body where needed, and processing state. The raw provider envelope and
-a second raw E.164 are not stored. The provider event ID is unique; duplicate delivery is a
-successful no-op.
+**Ingress order is fixed:** read the exact raw request bytes → verify the Telnyx signature **before
+parsing** → normalize the sender → commit a **minimized inbox projection** → acknowledge.
 
-Interpretation and delivery never happen inside ingress. After the inbox commit, the webhook
-**awaits creation of a durable Cloud Task** for that sender, then acknowledges. Task creation is
-bounded and never allowed to turn a successful ingress into a 5xx; if it fails, the scheduled pass
-recovers the committed event. The queue owns immediate work rather than the webhook process: a task
-survives the originating container and retries independently. This platform property is verified by
-effect in the deployed database, not inferred from a local promise completing.
+- The projection holds: provider event ID, provider message ID, event type, `occurred_at`,
+  sender/contact reference, TTL-bound body where needed, processing state.
+- The raw provider envelope and a second raw E.164 are **not stored**.
+- The provider event ID is unique; duplicate delivery is a successful no-op.
 
-Ordinary stateful work is serialized per sender in Postgres. A short transaction locks the sender row
-and claims at most one inbox event; it never spans a model or SMS call. That lock also prevents a
-task and concurrent scheduled pass from both claiming the event. An abandoned claim is recoverable;
-after external work, finalization re-locks the sender and applies a consequence only if the claim and
-relevant state are still current.
+**Interpretation and delivery never happen inside ingress.** After the inbox commit the webhook
+awaits creation of a durable Cloud Task for that sender, then acknowledges. Task creation is bounded
+and never allowed to turn a successful ingress into a 5xx; if it fails, the scheduled pass recovers
+the committed event. The queue owns immediate work rather than the webhook process: a task survives
+the originating container and retries independently — **verified by effect in the deployed database**,
+not inferred from a local promise completing.
 
-Stateful events are ordered by `(occurred_at, provider_event_id)`. An event older than the sender's
-accepted conversation watermark cannot mutate newer conversation, confirmation, or publication state;
-code may ask the sender to resend. Farm Friend deliberately does not reconstruct an arbitrarily
-reordered conversation.
+**Serialization.** Ordinary stateful work is serialized per sender in Postgres: a short transaction
+locks the sender row and claims at most one inbox event, and never spans a model or SMS call. That
+lock also prevents a task and a concurrent scheduled pass from both claiming the event. An abandoned
+claim is recoverable; after external work, finalization re-locks the sender and applies a consequence
+only if the claim and relevant state are still current.
 
-`STOP`, `START`, and `VIGA` use a **separate consent-transition watermark**. The chronologically
-later command wins, and `STOP` wins an exact timestamp tie, so intervening free text cannot make a
-consent command stale and an older delayed `START` cannot undo a newer `STOP`.
+**Two independent watermarks:**
+
+| Watermark | Orders | Rule |
+|---|---|---|
+| Conversation | free text, confirmation tokens | ordered by `(occurred_at, provider_event_id)`; an event older than the sender's accepted watermark cannot mutate newer conversation, confirmation, or publication state — code may ask the sender to resend |
+| Consent transition | `STOP`, `START`, `VIGA` | the chronologically later command wins; **`STOP` wins an exact tie** |
+
+Farm Friend deliberately does not reconstruct an arbitrarily reordered conversation. Because the two
+are independent, intervening free text cannot make a consent command stale and an older delayed
+`START` cannot undo a newer `STOP`.
 
 **Conversation staleness applies only to what mutates conversation state, and the router — not the
-worker — decides that** (GL-002). The two watermarks are independent, so the conversation one has no
-standing over a compliance keyword: `routeInboundMessage` parses compliance keywords **before** the
-staleness gate and applies the gate to free text and confirmation tokens only. A `STOP` delayed
-behind a newer processed message therefore still reaches `applyConsentTransition` and still
-suppresses later proactive dispatch. Finalizing such an event as `processed` cannot corrupt ordering:
+worker — decides that** (GL-002). `routeInboundMessage` parses compliance keywords **before** the
+staleness gate and applies that gate to free text and confirmation tokens only, so a `STOP` delayed
+behind a newer processed message still reaches `applyConsentTransition` and still suppresses later
+proactive dispatch. Finalizing such an event as `processed` cannot corrupt ordering:
 `claimNextInboundEvent` advances the conversation watermark only for a non-stale event.
 
 ## Launch SMS consent
 
-Launch VIGA Farm Friend is one registered operational SMS program. Each recipient has one current
-launch-program consent state with capture provenance. `START` and farmer-onboarding `VIGA` establish
-**or restore** it from any state; `JOIN` establishes it **only for a sender with no consent record**
-(B-011 in SMS_COMPLIANCE.md owns why: the carrier's own opt-out list is cleared by `START` alone). A
-bare `VIGA` from the **stated phone** demonstrates control of the number the web agreement was
-accepted for and redeems its pending invitation. `START` remains the fallback for farmers with older
-instructions. Neither path applies the first-time-only rule.
+One registered operational SMS program. Each recipient has one current consent state with capture
+provenance.
 
-Inventory prompts, publication confirmations, customer inquiry replies, and stock-out alerts are
-message categories inside that program, not separate enrollments. A customer-initiated inquiry
-permits its relevant direct response but creates no durable consent for later proactive
-notifications. Launch stores no follow-up interest and has no scoped `MUTE` command. Every proactive
-non-required dispatch requires active launch consent. Universal `STOP` applies across all Farm Friend
-messaging.
+| Keyword | Establishes | Restores after STOP | Notes |
+|---|---|---|---|
+| `START` | yes | yes | fallback for farmers with older instructions |
+| `VIGA` | yes | yes | from the **stated phone**, also redeems its pending invitation |
+| `JOIN` | **only with no consent record** | no | B-011 (SMS_COMPLIANCE.md) owns why: only `START` clears the carrier's own opt-out list |
 
-**One predicate, one place.** The consent meaning is one pure predicate, `isProactiveSendPermitted`
-in `packages/core/src/sms/consent.ts`, consulted by the dispatch claim in `authorizeDispatch` — so
-the rule takes no database or model. It requires **active** consent for a proactive send: an absent
-consent row means the recipient never opted in, and silence is not permission. `outbox_work` carries
-one bounded `message_category`, and `consentTransitionFor` maps `JOIN`/`START`/`VIGA` onto that one
-program, differing in recorded provenance and in whether an existing record blocks them. The
-first-time rule is enforced inside `applyConsentTransition` by an `insert … on conflict do nothing
-returning` against `sms_consents`' primary key — **not** by a read, and not by `for update`, which
-cannot lock a row that does not exist yet.
+- Inventory prompts, publication confirmations, inquiry replies, and stock-out alerts are **message
+  categories inside that program**, not separate enrollments.
+- A customer inquiry permits its direct response but creates **no durable consent**. No follow-up
+  interest is stored; there is no scoped `MUTE`.
+- Every proactive non-required dispatch requires **active** consent. Universal `STOP` applies across
+  all Farm Friend messaging.
 
-There is exactly **one** consent writer. `applyConsentTransition` is a `begin` wrapper over
-`applyConsentTransitionIn(tx, …)`, which web onboarding calls inside its own transaction so the
-invitation redemption and the consent write commit together. The first-time rule, the watermark
-ordering, and STOP's tie-break are therefore stated once and every caller gets all of them.
+**One predicate, one place.** `isProactiveSendPermitted` (`packages/core/src/sms/consent.ts`) is a
+pure predicate consulted by the dispatch claim in `authorizeDispatch` — no database, no model.
 
-**Deterministic code decides three things about every outbound message, and the model decides none:**
-who may receive it, whether launch-program consent permits it, and whether it exceeds the recipient's
-general message-frequency limit. The first two are enforced at the dispatch claim. The third is a
-**requirement not yet built**: launch has no general cross-category rate cap, and when one is set it
-belongs beside `isProactiveSendPermitted` at the same dispatch boundary — never in a prompt, never in
-model output, never as a second consent mechanism.
+- **Active** consent required: an absent row means the recipient never opted in, and silence is not
+  permission.
+- `consentTransitionFor` maps `JOIN`/`START`/`VIGA` onto the one program, differing only in recorded
+  provenance and in whether an existing record blocks them.
+- The first-time rule is enforced by `insert … on conflict do nothing returning` against
+  `sms_consents`' primary key — **not** by a read, and not by `for update`, which cannot lock a row
+  that does not exist yet.
 
-Scheduled inventory prompts have their narrower per-stand cadence. They are created at 10:00 AM in
-the stand's reviewed timezone and carry an exact durable subject. At dispatch, code rechecks consent,
-designated authority, VIGA approval, preference version and due slot, current inventory and closure
-bases, active closure, and newer farmer activity before claiming the SMS. Pausing is a scheduling
-decision, never a second consent mechanism or the unbuilt general rate cap.
+**One consent writer.** `applyConsentTransition` wraps `applyConsentTransitionIn(tx, …)`, which web
+onboarding calls inside its own transaction so invitation redemption and the consent write commit
+together. The first-time rule, watermark ordering, and STOP's tie-break are stated once, so every
+caller gets all of them.
 
-Future programs require their own disclosed enrollment when approved and built. Launch has no program
-discriminator, future-program enrollment row, `JOIN <program>` grammar, or general program-enrollment
-mechanism.
+**Code decides three things about every outbound message; the model decides none:**
+
+1. who may receive it — enforced at the dispatch claim;
+2. whether consent permits it — enforced at the dispatch claim;
+3. whether it exceeds the recipient's general message-frequency limit — **not yet built**. When a
+   cross-category rate cap is set it belongs beside `isProactiveSendPermitted` at the same boundary:
+   never in a prompt, never in model output, never as a second consent mechanism.
+
+**Scheduled inventory prompts** carry their narrower per-stand cadence and an exact durable subject,
+created at 10:00 AM in the stand's reviewed timezone. At dispatch, code rechecks consent, designated
+authority, VIGA approval, preference version and due slot, inventory and closure bases, active
+closure, and newer farmer activity before claiming the SMS. Pausing is a scheduling decision, never a
+second consent mechanism or the unbuilt rate cap.
+
+**Future programs** require their own disclosed enrollment when approved and built. Launch has no
+program discriminator, future-program enrollment row, `JOIN <program>` grammar, or general
+program-enrollment mechanism.
 
 ## Deterministic routing (code, before any model call)
 
@@ -375,29 +383,34 @@ The parser's keyword tables are derived from the registered 10DLC keyword lists,
 
 ## Confirmation
 
-Launch has one confirmation mechanism and one consumer: **farmer-update publication**. A database
-constraint permits at most one open proposal per sender. It records the proposal/version, expiry, and
-the outbox prompt that activates it. The deterministic parser owns the fixed `YES`/`NO` variants;
-proposals store no token vocabulary. New farmer inventory text revises that same pending proposal
-rather than creating a second one; the proposal-version change suspends token acceptance until Telnyx
-accepts the new prompt.
+Launch has **one confirmation mechanism and one consumer**: farmer-update publication.
 
-A proposal has explicit complete sections: inventory, owner-only closure/reopening, or both. The
-sections keep independent base revisions but share one confirmation transaction, so a mixed message
-publishes both or neither. Closure is append-only history separate from inventory: closing or
-reopening never refreshes or clears the inventory revision, and a bounded closure expires only in the
-shared read projection. No timer mutates history. Code renders closure status from kind and local
-Vashon dates; there is no farmer-authored public closure note. Before interpretation, code converts
-the injected clock to the current Vashon calendar date and projects that exact value to the model.
-Deterministic preflight resolves supported exact ranges, "this weekend," seasonal/reopen, and plain
-whole-stand closure before that call; ambiguous, contradictory, sub-operation, and multiple windows
-clarify without a model. The model receives typed timing evidence, and code rejects any proposed
-closure that does not match it, so model clock knowledge never commits calendar facts.
+- A database constraint permits **at most one open proposal per sender**, recording proposal/version,
+  expiry, and the outbox prompt that activates it.
+- The deterministic parser owns the fixed `YES`/`NO` variants; **proposals store no token vocabulary**.
+- New farmer inventory text **revises** that same proposal rather than creating a second one; the
+  version change suspends token acceptance until Telnyx accepts the new prompt.
+- The structured proposal is a distinct pending payload, **not** a draft inventory revision. `NO` or
+  expiry creates no revision. A successful `YES` creates the new revision and entries, makes it
+  current, and supersedes the prior one.
 
-The structured proposal is a distinct pending payload, not a draft inventory revision. Inventory
-revisions are immutable published history. `NO` or expiry creates no revision. A successful `YES`
-transaction creates the new revision and entries, makes it current, and supersedes the prior current
-revision.
+**Sections.** A proposal carries inventory, owner-only closure/reopening, or both. Sections keep
+independent base revisions but share one confirmation transaction, so a mixed message publishes both
+or neither.
+
+**Closure is append-only history, separate from inventory:**
+
+- Closing or reopening never refreshes or clears the inventory revision.
+- A bounded closure expires only in the shared read projection — **no timer mutates history**.
+- Code renders closure status from kind and local Vashon dates; there is no farmer-authored public
+  closure note.
+- Before interpretation, code converts the injected clock to the current Vashon calendar date and
+  projects that exact value to the model.
+- Deterministic preflight resolves exact ranges, "this weekend," seasonal/reopen, and plain
+  whole-stand closure **before** any model call; ambiguous, contradictory, sub-operation, and multiple
+  windows clarify without a model.
+- The model receives typed timing evidence and code rejects any proposed closure that does not match
+  it, so **model clock knowledge never commits calendar facts**.
 
 **Patch language in, complete snapshot out.** Farmers speak in edits — add this, drop that, it's all
 gone — so the interpreter returns typed edits against the sender's complete pending snapshot when one
@@ -420,21 +433,24 @@ meets the same composition and exact confirmation gate as SMS interpretation, an
 `clear_all`. Because it names entry IDs, the editor must draw the same base composition uses — the
 sender's open proposal when one exists, the published snapshot otherwise.
 
-The confirmation transaction uses one shared lock order: **sender → location → participant/access
-grant (when used) → proposal → authorizations → approvals**. A revocation locks the same
-authorization, access, or approval row that confirmation validates; because it needs only that
-decision row, it introduces no reverse lock edge. Whichever transaction locks that row first defines
-the honest result without a deadlock. Confirmation then verifies the prompt/version and expiry,
-rechecks current owner authority and VIGA approval under those locks, conditionally consumes the
-pending row once, and queues its response in the outbox. Proposal creation also verifies owner
-authority before persisting an owner-only closure.
+**One shared lock order:** sender → location → participant/access grant (when used) → proposal →
+authorizations → approvals. A revocation locks the same authorization, access, or approval row that
+confirmation validates; because it needs only that decision row, it introduces **no reverse lock
+edge**, so whichever transaction locks it first defines the honest result without a deadlock.
 
-Before `YES` consumes anything or inserts a revision, the shared publication boundary validates every
-free-form public inventory string — item name, unit, and price text — and refuses the whole proposal
-if it contains a phone number, email address, web link, or direct-contact instruction. SMS and farmer
-web render the same deterministic refusal naming what to remove; neither silently strips text. `YES`
-otherwise publishes; `NO` declines without publication. Revoked authority or approval produces no
-publication.
+The confirmation transaction then, in order:
+
+1. verifies the prompt/version and expiry;
+2. rechecks current owner authority and VIGA approval under those locks;
+3. runs the shared publication boundary over every free-form public string (item name, unit, price
+   text) — **refusing the whole proposal** on a phone number, email address, web link, or
+   direct-contact instruction. SMS and farmer web render the same deterministic refusal naming what to
+   remove; neither silently strips text;
+4. conditionally consumes the pending row **once**;
+5. queues its response in the outbox.
+
+Proposal creation separately verifies owner authority before persisting an owner-only closure. `NO`
+declines without publication; revoked authority or approval produces no publication.
 
 A stock-out alert is informational: it may ask the farmer to send current inventory. That reply enters
 the ordinary proposal and `YES`/`NO` flow. `OUT` and `IGNORE` are not commitment tokens and there is
