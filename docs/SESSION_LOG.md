@@ -77,6 +77,12 @@ the inventory name the alert already speaks.
 separate facts and often differ. `alsoSellingHere` stays out of the haystack, now with a test
 saying so: widening search to names must not widen it to every name on the card.
 
+**Released.** PR #103 squash-merged to `main` as `710afb7`; web `00065-wzj` and worker `00060-g4p`
+serve digest `sha256:1ab56e17…3476a9`. Plan assertions 60/60, deploy and served-card assertions
+pass, and the live `/api/public/stands` serves 35 stands. No migration — `0038` remains newest.
+Live evals were not run and were not required: no file under `packages/ai/` changed, so no seam
+projection, schema, or output contract was touched.
+
 ---
 
 ## 2026-08-10 — Four defects found by texting and looking, none by a suite

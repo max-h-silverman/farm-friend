@@ -15,8 +15,10 @@
   distinctive-word scoring — a misspelled name still asks); the map search box finds stands by farm
   and stand name; the stock-out reply names its consequence; the alert no longer agrees a verb with
   the item's grammatical number. No schema change — `0038` remains the newest migration.
-- Cloud Run web `PENDING_WEB_REV` and worker `PENDING_WORKER_REV` serve digest `PENDING_DIGEST`,
-  built from `main` `PENDING_SHA` and deployed 2026-08-11.
+- Cloud Run web `farm-friend-web-00065-wzj` and worker `farm-friend-worker-00060-g4p` serve immutable
+  digest `sha256:1ab56e17873533e0e51cac7ba62f7550181dc4c9a606c2ad859cb04e0b3476a9`, built from `main`
+  `710afb7` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
+  Verified by effect on the live `/api/public/stands`: 35 stands served.
 - Neon `neondb` has **39 applied migrations (`0000`–`0038`)**. `0038` was applied 2026-08-11 and
   verified by schema effect — `report_key` is `text`, nullable (the NULL matters: NULLs stay distinct
   under the unique index), with `stock_out_reports_report_key_unique` present. Farm and contact counts
