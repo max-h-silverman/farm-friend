@@ -11,7 +11,9 @@
   digest `sha256:059b4c12641c53bdde6d9943b86877b98dd3d88e5a32f2a0a0973c2be7be2411`. These revisions
   carry the SAME image as `00060-8wn`/`00055-h4b`; they exist only to restart the containers onto
   `DEEPINFRA_API_KEY` v3 (see the rotation entry below).
-- Neon `neondb` has 38 applied migrations (`0000`–`0037`).
+- Neon `neondb` has 38 applied migrations (`0000`–`0037`). **`main` now carries `0038` (F-104), which
+  is NOT applied in Neon** — it must run before the next deploy, or the merged code will query a
+  `report_key` column that does not exist in production.
 
 ## Verification
 
@@ -33,8 +35,8 @@
   answer — 12 stands ranked, first 3 paged, "nobody has confirmed eggs recently" distinguishing
   confirmed stock from typical offerings. A dead key degrades to a clarification with no stands, so
   this is the deployed model-backed path, not a local proof.
-- **Owed:** the OLD key on Max's personal DeepInfra account is still live and must be revoked, then
-  proven dead (a request with it returns 401). Until then that account can still be billed.
+- The OLD key on Max's personal account was revoked and **proven dead**: a real completions request
+  carrying v2 returns **401**. Rotation is closed on both ends.
 - **`infra/terraform.tfvars` is gitignored**, so `rotation_applied_at = "2026-08-11T03-04"` exists only
   on Max's machine. A deploy planned from any other checkout reverts the marker and silently rolls the
   containers back onto whatever they had — this is a real trap, not a note.
