@@ -218,6 +218,87 @@ function foldForMatching(value: string): string {
     .trim();
 }
 
+/**
+ * Words that appear in so many stand names they identify nobody (F-106).
+ *
+ * Scoring counts how much of a stand's name the customer actually typed, so a word almost
+ * every stand shares must not count — otherwise "the farm stand is out of eggs" scores a hit
+ * against most of the island and the highest score wins by accident.
+ *
+ * Derived from the live corpus, not invented: "farm"/"farms" appear in more than half the 36
+ * live stand names, and "garden(s)"/"stand" in several more. It is a stop-list for SCORING
+ * only — a stand named entirely from these words is still matchable by tier 1, which compares
+ * whole names.
+ */
+const GENERIC_NAME_WORDS: ReadonlySet<string> = new Set([
+  "farm",
+  "farms",
+  "farmstand",
+  "stand",
+  "garden",
+  "gardens",
+  "the",
+  "and",
+]);
+
+/**
+ * Resolve a stand from a PARTIAL name — "barts" for "Bart's Cart" (F-106).
+ *
+ * Scores each stand by how many of its own distinctive words the customer typed, and returns
+ * the single highest scorer. A tie is ambiguous and returns null, exactly as two whole-name
+ * matches do.
+ *
+ * **Why this is code and not a model call.** Measured against the 36 live stands on
+ * 2026-08-11: a single best score picked the right stand for every realistic partial message
+ * tried, and tied (so asked) for the two genuinely ambiguous ones. Adding a model here would
+ * mean a seam, a projection, a validation path and an eval to reproduce an answer a set
+ * intersection already gets right — and would put a model between a stranger's words and a
+ * farmer's handset for no measured gain. Golden Rule #4 permits a model to select from
+ * retrieved options; it does not require one where code decides.
+ *
+ * **What it deliberately cannot do:** spelling. "pinecome" scores zero against "pinecone" and
+ * falls through to the question. Fuzzy matching is the one part that needs a model, and a
+ * model's guess would need a confirmation step before it could reach a farmer (max,
+ * 2026-08-11: leave it here and ask when unclear).
+ */
+async function resolveStandByDistinctiveWords(
+  db: Db,
+  foldedText: string,
+): Promise<{ id: string } | null> {
+  const messageWords = new Set(foldedText.split(" ").filter((word) => word !== ""));
+  if (messageWords.size === 0) return null;
+
+  const stands = await db.sql`
+    select id, btrim(regexp_replace(
+             regexp_replace(lower(name), '[^a-z0-9 ]', '', 'g'),
+             '\\s+', ' ', 'g')) as folded_name
+    from sales_locations
+    where retired_at is null
+  `;
+
+  let best: { id: string; score: number } | null = null;
+  let bestIsTied = false;
+
+  for (const stand of stands) {
+    const distinctive = (stand.folded_name as string)
+      .split(" ")
+      .filter((word) => word !== "" && !GENERIC_NAME_WORDS.has(word));
+    const score = distinctive.filter((word) => messageWords.has(word)).length;
+    if (score === 0) continue;
+
+    if (best === null || score > best.score) {
+      best = { id: stand.id as string, score };
+      bestIsTied = false;
+    } else if (score === best.score) {
+      bestIsTied = true;
+    }
+  }
+
+  // A tie means two stands are equally named by these words. Picking either would be the
+  // silent guess against a farmer that this whole path exists to refuse.
+  return best !== null && !bestIsTied ? { id: best.id } : null;
+}
+
 async function resolveReportedStand(
   db: Db,
   taskText: string,
@@ -256,7 +337,12 @@ async function resolveReportedStand(
   `;
   // Exactly one, or we ask. Two stands whose names both appear is genuinely ambiguous, and
   // picking the first would be a silent guess against a farmer.
-  return rows.length === 1 ? { id: rows[0]?.id as string } : null;
+  if (rows.length === 1) return { id: rows[0]?.id as string };
+  // More than one whole name inside the message stays ambiguous. Scoring cannot improve on
+  // that: both names are fully present, so both would score their maximum.
+  if (rows.length > 1) return null;
+
+  return resolveStandByDistinctiveWords(db, folded);
 }
 
 /**
