@@ -196,7 +196,11 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   dropped what it did not recognize would lose a real fact. This is a *spelling* table and must stay
   one: unlike produce, payment methods are a small VIGA-known set, which is why folding them is
   correct here and folding food vocabulary is forbidden. **VIGA Farm Bucks remains separate from
-  payment methods**, and the two columns record two different people's facts:
+  payment methods** — `canonicalPaymentMethods` recognizes its spellings and then **drops** them
+  rather than storing a method row (B-054), so ingest, onboarding's free-text box and any backfill
+  are all closed at one seam. It never sets the boolean either: a farmer typing "farm bucks" into a
+  text box must not award themselves an acceptance VIGA never reviewed. The two columns record two
+  different people's facts:
   `farm_bucks_accepted` is the **farmer's** claim about their own stand, stated on the listing form
   and published on their word; `farm_bucks_eligible` is **VIGA's** own decision, set in admin and
   read by the admin surfaces. **Neither constrains the other** (max, 2026-08-10). The
