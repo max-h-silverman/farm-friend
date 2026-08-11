@@ -13,6 +13,14 @@
   never named; a stock-out report naming an unlisted item parses instead of returning `unclear`;
   and VIGA Farm Bucks is no longer stored as a payment method. No schema change — `0038` remains
   the newest migration.
+- **F-104 is closed, verified by effect in production 2026-08-11.** A handset owning no stand
+  reported a stock-out at Pinecone Gardens: one `stock_out_reports` row against that stand with its
+  provider event id as `report_key`, one `stock_out_alert` delivered to the stand's farmer, and the
+  reporter is not the recipient. Golden Rule #1 holds end to end on the live path.
+- **Built locally 2026-08-11, not yet deployed** (branch `f-106-customer-stand-confirmation`):
+  F-106's two-tier stand matching, the map search box finding stands by farm/stand name, the
+  stock-out reply naming its consequence, and the alert's item-number grammar fix. No schema
+  change — `0038` remains the newest migration.
 - Cloud Run web `farm-friend-web-00064-cpz` and worker `farm-friend-worker-00059-zwq` serve immutable
   digest `sha256:1dcb981cb4a7eea025a67f9ca86440cbbcdd96c3fafe595ecd179c4bceb9aba1`, built from `main`
   `c73d022` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
@@ -63,12 +71,10 @@
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the
   roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
-- **F-104's report path still has not run end to end in production.** Two attempts on 2026-08-10
-  fell short (an owning handset routes as a farmer update; a non-owner handset hit the parser bug
-  fixed this session). Owed, after the deploy: one text from a handset owning no stand, then check
-  Neon for a `stock_out_reports` row and an alert addressed to the stand's farmer, not the reporter.
-- F-106 (planned): a partial or misspelled *stand* name ("kale out at barts") does not resolve. The
-  item half is fixed; the stand half needs a customer-side confirmation token that does not exist.
+- B-057 (planned): a stock-out alert says "sold out of something" for an item the stand genuinely
+  lists. The report matches only the CURRENT published inventory, so Pinecone Gardens' `eggs` — a
+  `stand_items` row, `usually_carried = false` — fell through to `unlisted`, whose text the renderer
+  refuses to speak. Matching the stand's own usual offerings would keep every word code-owned.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
