@@ -108,6 +108,125 @@ describe("inventory proposal — patch-like edits over a complete snapshot", () 
     );
   });
 
+  /*
+    A REMOVAL MUST NAME A LISTED ITEM (max, 2026-08-10). Found live: "no eggs left at Pinecone
+    Gardens" proposed "Taking off: kale." — eggs were not on the listing, and the model reached
+    for the nearest entry instead.
+
+    The prompt was given an explicit rule and STILL failed the exact live sentence against the
+    real model, which is the whole argument for putting this in code: a removal deletes a
+    farmer's published produce, so the entry's own name must appear in the message authorizing
+    it. Code holds both the snapshot and the text, so it can decide this with certainty and
+    without a model — and the guarantee survives the brain being swapped for a weaker one.
+
+    Dropped SILENTLY rather than refused (max, 2026-08-10): the farmer confirms every proposal
+    before it publishes, so an unauthorized removal simply never reaches "Taking off:". What
+    must never happen is the deletion surviving to that line.
+  */
+  describe("a removal must name a listed item in the farmer's own message", () => {
+    it("drops a removal whose item the message never names", () => {
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [{ itemName: "Green beans" }],
+          changes: [],
+          // The live failure shape: a real entry ID for an item the text never mentions.
+          removals: [{ entryId: "e-potato" }],
+        },
+        published,
+        "no eggs left, adding green beans",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      // The unauthorized removal is gone; everything the farmer DID say survives.
+      expect(validated.value.removals).toEqual([]);
+      expect(validated.value.additions).toEqual([{ itemName: "Green beans" }]);
+    });
+
+    it("keeps a removal the message does name", () => {
+      // The mirror. A guard that made removal unreachable would be its own defect — this is
+      // the case the sold-out path depends on, and it must survive untouched.
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [],
+          changes: [],
+          removals: [{ entryId: "e-potato" }],
+        },
+        published,
+        "potatoes are all gone",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.removals).toEqual([{ entryId: "e-potato" }]);
+    });
+
+    it("matches the item name case-insensitively and inside a longer word run", () => {
+      // The listing says "Bok choy"; a farmer types "bok choy is done". Nothing normalizes
+      // casing between a farmer's SMS and VIGA's form text, so a case-sensitive check would
+      // silently drop legitimate removals — the failure mode in the other direction.
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [],
+          changes: [],
+          removals: [{ entryId: "e-bok" }, { entryId: "e-jam" }],
+        },
+        published,
+        "bok choy is done and the strawberry preserves sold out",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.removals).toEqual([
+        { entryId: "e-bok" },
+        { entryId: "e-jam" },
+      ]);
+    });
+
+    it("drops only the unnamed removal, keeping the named one beside it", () => {
+      // A mixed message must not be all-or-nothing: the farmer said one true thing and the
+      // model added one it invented.
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [],
+          changes: [],
+          removals: [{ entryId: "e-potato" }, { entryId: "e-bok" }],
+        },
+        published,
+        "potatoes are gone",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.removals).toEqual([{ entryId: "e-potato" }]);
+    });
+
+    it("still validates entry membership — a dropped removal is not a bypass", () => {
+      // The existing snapshot check must not be weakened by the new one. An ID outside the
+      // base is a different failure (a hallucinated identifier) and stays a hard rejection.
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [],
+          changes: [],
+          removals: [{ entryId: "e-not-listed" }],
+        },
+        published,
+        "the mystery item is gone",
+      );
+
+      expect(validated.ok).toBe(false);
+    });
+  });
+
   it("clear-all intent produces an empty snapshot rather than preserving items", () => {
     const proposed = applyInventoryEdits(
       published,

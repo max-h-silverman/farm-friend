@@ -29,6 +29,7 @@ import {
   createDeepInfraProvider,
   createInquiryModel,
   createInventoryInterpreter,
+  createStockOutModel,
   extractOfferings,
   liveEvalFailureReason,
   type LiveEvalGroup,
@@ -69,6 +70,7 @@ const provider = createDeepInfraProvider({
 const interpreter = createInventoryInterpreter(provider);
 const inquiry = createInquiryModel(provider);
 const customerIntent = createCustomerMessageIntentModel(provider);
+const stockOut = createStockOutModel(provider);
 const CURRENT_LOCAL_DATE = "2026-08-06";
 
 /** The published state injections will try to move. Mirrors hostile.ts's BASE. */
@@ -289,6 +291,101 @@ fx("live-containment", "a customer classification cannot carry a stand of its ow
 });
 
 /*
+  FOUND LIVE (max, 2026-08-10). A customer texted "no eggs left at Pinecone Gardens" and got
+  "Thanks for letting us know. What was sold out?" — the item was named plainly and the parser
+  returned `unclear`, so no report was recorded and no farmer was alerted.
+
+  The routing fixture below already covers this exact sentence, and it routes CORRECTLY. What
+  nothing covered was the step after it: reading the item out of the message once the stand is
+  bound. That seam had no live fixture at all, which is how a whole model call went unmeasured.
+
+  Eggs are deliberately NOT in `listedItems` here — that is the live shape. The correct answer
+  is `unlisted` with the item text, which records a report VIGA and the farmer can act on
+  ("someone came for eggs and you had none"). `unclear` is the failure: it drops the report.
+*/
+fx("live-quality", "reads the item out of a stock-out report naming an unlisted item", async () => {
+  const cases = [
+    "no eggs left at Pinecone Gardens",
+    "no eggs left",
+    "the eggs were gone when I stopped by",
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const text of cases) {
+    const raw = await stockOut.parseItem({
+      taskText: text,
+      // The stand lists tomatoes and kale. Eggs are absent, exactly as in the live report.
+      listedItems: [
+        { entryId: "e1", itemName: "tomatoes" },
+        { entryId: "e2", itemName: "kale" },
+      ],
+    });
+    // `unlisted` naming the eggs is the right answer. A `listed` verdict would be worse than
+    // `unclear`: it would file the report against tomatoes or kale, which is B-056's failure
+    // wearing different clothes.
+    const ok = raw.kind === "unlisted" && /egg/i.test(raw.itemText);
+    if (ok) correct += 1;
+    else observations.push(`"${text}" -> ${JSON.stringify(raw)}`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed: observations.length === 0 ? `${correct}/${cases.length}` : observations.join("; "),
+  };
+});
+
+fx("live-quality", "matches a stock-out report against the item the stand does list", async () => {
+  // The mirror, so the fixture above cannot pass by making `listed` unreachable. This is the
+  // common case — a customer reports something the stand actually publishes.
+  const raw = await stockOut.parseItem({
+    taskText: "the kale is all gone at Pinecone Gardens",
+    listedItems: [
+      { entryId: "e1", itemName: "tomatoes" },
+      { entryId: "e2", itemName: "kale" },
+    ],
+  });
+  const observed = JSON.stringify(raw);
+  return { ok: raw.kind === "listed" && raw.entryId === "e2", observed };
+});
+
+fx("live-quality", "reads a misspelled item in a stock-out report", async () => {
+  // max's case: "no eggz left". A customer texting from a parking lot misspells things, and a
+  // dropped report is a farmer who never hears their eggs ran out.
+  //
+  // "kayle" must resolve to the LISTED kale rather than becoming an unlisted item of its own:
+  // filing a near-miss spelling as unlisted would leave the farmer's actual kale entry
+  // untouched while VIGA's queue fills with phantom products.
+  const cases: { text: string; want: "listed" | "unlisted" }[] = [
+    { text: "no eggz left at Pinecone Gardens", want: "unlisted" },
+    { text: "the kayle is all gone", want: "listed" },
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const { text, want } of cases) {
+    const raw = await stockOut.parseItem({
+      taskText: text,
+      listedItems: [
+        { entryId: "e1", itemName: "tomatoes" },
+        { entryId: "e2", itemName: "kale" },
+      ],
+    });
+    const ok =
+      want === "listed"
+        ? raw.kind === "listed" && raw.entryId === "e2"
+        : raw.kind === "unlisted" && /egg/i.test(raw.itemText);
+    if (ok) correct += 1;
+    else observations.push(`"${text}" -> ${JSON.stringify(raw)}`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed: observations.length === 0 ? `${correct}/${cases.length}` : observations.join("; "),
+  };
+});
+
+/*
   QUALITY: does the split actually work on real phrasings? This is the thing a scripted stub
   structurally cannot tell us — it reads neither the instructions nor the schema, so it cannot
   detect a prompt that describes the wrong job. Recorded rather than fatal, per the group's
@@ -373,6 +470,81 @@ fx("live-quality", "an explicit sold-out statement does remove that item", async
     !raw.removals.some((r) => r.entryId === "e1");
   return { ok, observed };
 });
+
+// FOUND LIVE (max, 2026-08-10). "no eggs left at Pinecone Gardens" from the owning farmer's
+// handset proposed "Taking off: kale." — an item the message never named.
+//
+// The gap the three fixtures above leave: every one of them names an item that IS listed. The
+// seam note lists sold-out phrasings ("sold out, all out, done, finished") but says nothing
+// about the case where the item declared gone is NOT in currentEntries at all. With no rule
+// covering it and a removals array to fill, the model reached for the nearest entry.
+//
+// MEASURED THROUGH `validateInterpretation`, not on the raw model output, because that is where
+// the guarantee lives. The seam note was given an explicit rule for this case and the real model
+// still returned a removal of `e1` on some runs — the behaviour is NONDETERMINISTIC across runs
+// on identical input, which is precisely why this cannot be a prompt promise. Code drops a
+// removal whose item the farmer never named; this fixture proves that end to end against the
+// real model rather than asserting the prompt was persuasive.
+//
+// The two clarification strings the seam substitutes on failure are treated as FAILURES here. A
+// provider error and a closure-timing bail both produce `kind: "clarification"`, so scoring any
+// clarification as a pass would let an unreachable model read as correct behaviour — a
+// containment-style false green.
+// The provider-error fallback specifically. Observed intermittently (roughly 1 run in 3) on an
+// otherwise-healthy suite, so it is a flaky upstream call rather than a behavioural verdict —
+// but it must NEVER be scored as a pass, because "the model was unreachable" and "the model
+// declined to remove" are opposite facts wearing the same shape. Reported as a distinct
+// outcome so a red line here is read as "rerun", not as "the guard regressed".
+const PROVIDER_ERROR_QUESTION =
+  "Sorry, I could not read that. Could you list what your stand has right now?";
+const SEAM_FALLBACK_QUESTIONS = [
+  PROVIDER_ERROR_QUESTION,
+  "What exact dates should I use for the closure?",
+];
+
+/** Interpret, then validate exactly as production does, and report what survived. */
+async function removalsAfterValidation(taskText: string) {
+  const raw = await interpreter.interpret({
+    currentEntries: BASE.entries.map((e) => ({ entryId: e.entryId, itemName: e.itemName })),
+    currentClosure: null,
+    currentLocalDate: CURRENT_LOCAL_DATE,
+    taskText,
+  });
+  const observed = JSON.stringify(raw);
+
+  if (raw.kind === "clarification") {
+    // Asking IS an acceptable answer — but only a real one, not the seam's error fallback.
+    const isFallback = SEAM_FALLBACK_QUESTIONS.includes(raw.question);
+    if (!isFallback) return { ok: true, observed };
+    return {
+      ok: false,
+      observed:
+        raw.question === PROVIDER_ERROR_QUESTION
+          ? `${observed}  [provider error, not a verdict — rerun]`
+          : observed,
+    };
+  }
+
+  const validated = validateInterpretation(raw, BASE, taskText);
+  if (!validated.ok) return { ok: false, observed };
+  if (validated.value.kind === "clarification") return { ok: true, observed };
+  // `clear_all` wipes the whole listing on a message naming an item that isn't on it.
+  if (validated.value.kind !== "edits") return { ok: false, observed };
+  return {
+    ok: validated.value.removals.length === 0,
+    observed: `${observed} -> validated removals: ${JSON.stringify(validated.value.removals)}`,
+  };
+}
+
+fx("live-quality", "an item declared gone that was never listed removes nothing", async () =>
+  // BASE lists tomatoes and kale. Eggs are absent, exactly as in the live report.
+  removalsAfterValidation("no eggs left"));
+
+fx("live-quality", "the same message with the stand named removes nothing either", async () =>
+  // The verbatim live text. The stand name is resolved by code before this seam, but it still
+  // reaches the model inside the farmer's own words, and a trailing proper noun is exactly the
+  // token that invited the spurious match.
+  removalsAfterValidation("no eggs left at Pinecone Gardens"));
 
 fx("live-quality", "an explicit whole-listing replacement is not read as an addition", async () => {
   const raw = await interpreter.interpret({

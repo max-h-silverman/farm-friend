@@ -538,6 +538,82 @@ describe("standListingLines (F-042)", () => {
     });
   });
 
+  // ───────────────────────────────────────────────────────────────────────────────────────
+  // A confirmation that has aged out (max, 2026-08-10).
+  //
+  // `readPublicStands` withholds the recency fields once a confirmation passes the display
+  // threshold, so an expired stand arrives here shaped EXACTLY like a never-confirmed one.
+  // These tests pin the consequence at this layer: no "In stock" heading, no item list under
+  // it, and nothing for the stock-out flow to attach to.
+  //
+  // Asserted on line KINDS rather than on rendered prose, matching the rest of this block: a
+  // test searching the text for "In stock" would pass just as happily with the heading still
+  // present above an empty list.
+  describe("a confirmation has aged past the display threshold", () => {
+    // No `confirmedElapsed` and no `cardRecency` — what the reader now produces for an
+    // expired row. `items` is deliberately still populated: the stand items are real rows,
+    // and the rule under test is that nothing renders them as CURRENT STOCK without a date.
+    const expired: PublicStandPayload = {
+      ...base,
+      usuallySells: [{ itemName: "salad greens" }, { itemName: "flowers" }],
+      items: [{ itemName: "salad greens" }, { itemName: "tomatoes" }],
+    };
+
+    it("renders NO confirmed line — the bug: 'In stock' over a 90-day-old claim", () => {
+      const lines = standListingLines(expired);
+
+      expect(lineOfKind(lines, "confirmed")).toBeUndefined();
+      expect(lineOfKind(lines, "confirmed-empty")).toBeUndefined();
+    });
+
+    it("never prints an item list as current stock", () => {
+      // The sharp version. `items` is non-empty, so an implementation that kept rendering the
+      // list and merely dropped the caption would fail here rather than pass on the heading
+      // check above.
+      expect(
+        standListingLines(expired).some((line) => line.kind === "confirmed"),
+      ).toBe(false);
+      expect(
+        standListingLines(expired).flatMap((line) => line.items ?? []),
+      ).not.toContain("tomatoes");
+    });
+
+    it("falls through to the specialties and 'Nothing confirmed recently.'", () => {
+      // Not blanked. The stand keeps everything that is still honestly known about it — the
+      // honor-system rule that stale listings stay VISIBLE, just not asserted as stock.
+      const lines = standListingLines(expired);
+
+      const usual = lineOfKind(lines, "usual");
+      expect(usual).toBeDefined();
+      expect(usual!.label).toBe("Usually sells:");
+      expect(usual!.items).toEqual(["salad greens", "flowers"]);
+      expect(lineOfKind(lines, "nothing-confirmed")!.label).toBe(
+        "Nothing confirmed recently.",
+      );
+    });
+
+    it("offers nothing for the stock-out flow to attach to", () => {
+      // Rule 2, at the far end of the age range. Reporting "the tomatoes are out" against a
+      // claim nobody has confirmed in a month is noise for the farmer, not a signal.
+      expect(
+        standListingLines(expired).flatMap((line) => line.reportableItems ?? []),
+      ).toEqual([]);
+    });
+
+    it("does NOT fall back to 'No listing yet' when the stand has specialties", () => {
+      expect(lineOfKind(standListingLines(expired), "no-listing")).toBeUndefined();
+    });
+
+    it("says 'No listing yet' for an expired stand with no specialties either", () => {
+      // Nothing honestly known at all: the expired confirmation is not evidence, and there
+      // are no tags behind it. This is the same copy a genuinely untouched stand gets.
+      const bare = standListingLines({ ...expired, usuallySells: [] });
+
+      expect(lineOfKind(bare, "confirmed")).toBeUndefined();
+      expect(lineOfKind(bare, "no-listing")).toBeDefined();
+    });
+  });
+
   describe("a farmer has confirmed, and the stand also has tags", () => {
     const both: PublicStandPayload = {
       ...base,

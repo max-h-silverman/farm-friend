@@ -409,6 +409,90 @@ describe("public web surface boundary (integration)", () => {
     });
   });
 
+  describe("a confirmation nobody has refreshed in months (max, 2026-08-10)", () => {
+    // The defect: the stand card printed a bordered "In stock" heading with an item list under
+    // it for a confirmation of ANY age, conceding only that the caption beside it read "(No
+    // recent update)". "In stock (No recent update)" asserts stock in the same breath as
+    // admitting the claim is undateable — the manufactured certainty the honor-system product
+    // exists to refuse.
+    //
+    // The fix is made HERE rather than in the component, because this is where the dates live:
+    // past the display threshold the three recency fields are withheld, so an expired stand
+    // reaches the view shaped exactly like a never-confirmed one and the view needs no new
+    // branch. `standListingLines` then renders the specialties and "Nothing confirmed
+    // recently." — the stand stays VISIBLE, which is the other half of the honor-system rule.
+    const daysAgo = (d: number) => new Date(T0.getTime() - d * 86_400_000);
+
+    /**
+     * Replace the fixture's fresh revision with one published at a chosen age.
+     *
+     * `inventory_revisions_one_current_per_location` allows exactly one current revision per
+     * location, so the seeded one is cleared rather than added to.
+     */
+    async function republishAt(publishedAt: Date): Promise<void> {
+      await client()`truncate table inventory_entries, inventory_revisions restart identity cascade`;
+      await publish(["kale"], publishedAt);
+    }
+
+    it("withholds the recency fields once the confirmation ages out", async () => {
+      await republishAt(daysAgo(60));
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const stand = stands.find((s) => s.factId === ids.location)!;
+
+      // Withheld TOGETHER, exactly as they are for a stand nobody ever confirmed. `asOf` going
+      // with them is what makes the two cases indistinguishable downstream.
+      expect(stand.asOf).toBeUndefined();
+      expect(stand.recencyLabel).toBeUndefined();
+      expect(stand.confirmedElapsed).toBeUndefined();
+      expect(stand.cardRecency).toBeUndefined();
+      expect(stand.isStale).toBeUndefined();
+    });
+
+    it("keeps a confirmation the day BEFORE the threshold — asserted on both sides", async () => {
+      // The boundary. An off-by-one here would quietly blank three and a half weeks of
+      // perfectly good listings, which is the opposite failure and just as dishonest.
+      await republishAt(daysAgo(27));
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const stand = stands.find((s) => s.factId === ids.location)!;
+
+      expect(stand.asOf).toBeDefined();
+      expect(stand.cardRecency).toBe("Last updated 3 weeks ago");
+      expect(stand.isStale).toBe(true);
+    });
+
+    it("never serves 'No recent update' beside a stock claim, at any age", async () => {
+      // The invariant behind the whole change, stated where it cannot be satisfied by
+      // vocabulary sitting near the assertion: if the payload says "No recent update"
+      // ANYWHERE, then no confirmed item list may be published with it.
+      for (const days of [0, 1, 13, 27, 28, 29, 60, 400]) {
+        await republishAt(daysAgo(days));
+
+        const response = await handleStandsRequest({ db: db!, clock: new FixedClock(T0) });
+        const body = (await response.json()) as { stands: Record<string, unknown>[] };
+        const stand = body.stands.find((s) => s.id === ids.location)!;
+
+        if (stand.updated === undefined) {
+          // Expired: nothing in the payload may date or assert the claim.
+          expect(JSON.stringify(stand)).not.toMatch(/No recent update/i);
+        } else {
+          expect(stand.updated).not.toMatch(/No recent update/i);
+        }
+      }
+    });
+
+    it("still lists the stand, with its specialties, rather than hiding it", async () => {
+      // Stale information stays visible with a warning rather than disappearing (CLAUDE.md).
+      // An expired stand loses its stock CLAIM, never its place on the map.
+      await republishAt(daysAgo(60));
+
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+
+      expect(stands.map((s) => s.factId)).toContain(ids.location);
+    });
+  });
+
   describe("a farm you contact rather than visit (F-038)", () => {
     // Open Gate Lamb sells by order and states its address as "On island delivery for orders
     // over $50" — there is no place to go. max's decision (2026-07-29): list it, clearly marked

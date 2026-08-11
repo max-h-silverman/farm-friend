@@ -11,6 +11,97 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-10 — Four defects found by texting and looking, none by a suite
+
+Every bug this session came from exercising the product — a screenshot of a stand card, and two
+real SMS messages. All 1,804 unit and 887 integration tests were green throughout. That is the
+session's lesson, not an aside.
+
+**B-055 — "In stock" over a confirmation of any age.** `standListingLines` gated the confirmed
+block on `confirmedElapsed !== undefined` ("a confirmation exists at all"); age never entered.
+F-097 had already decided the card stops counting at four weeks, but that only changed the
+*caption*, so the heading kept asserting stock while the caption read "(No recent update)". The
+expiry is now judged in `listPublicStands` where the dates live: past
+`NO_RECENT_UPDATE_AFTER_DAYS` the three recency fields are withheld, so an expired stand reaches
+the view shaped exactly like a never-confirmed one and no downstream reader needs a new case.
+`isConfirmationExpired` shares that threshold with `renderCardRecency` deliberately — the moment
+the card stops being willing to state a date is the moment it may no longer assert stock, and two
+thresholds would reopen the contradiction. A test asserts the two functions agree across the
+range rather than asserting the literal 28.
+
+*A second bug fell out of the first:* `standListingLines` subtracted confirmed items from the
+specialty list unconditionally, so an expired confirmation deleted the farmer's own specialty from
+the only line still rendering. The subtraction now applies only when a confirmed heading actually
+renders. Found by a test expectation of mine that was wrong.
+
+**B-056 — a farmer's produce deletable by a message that never named it.** Max texted "no eggs
+left at Pinecone Gardens" from the handset that *owns* Pinecone Gardens, and got a confirmation
+reading `Taking off: kale.` Eggs were not on the listing, so there was no correct removal, and the
+model reached for the nearest real entry. Membership validation could not catch it: the entry ID
+*is* in the snapshot. What was missing was any authority in the *message* to delete it.
+`validateInterpretation` now takes the farmer's text and drops any removal whose item name does
+not appear in it — silently, because the farmer confirms every proposal, so the removal simply
+never reaches the "Taking off:" line while everything they genuinely said goes through.
+
+**Why that one is code and not a prompt — the finding worth keeping.** The seam note was given an
+explicit rule for exactly this case and the real model *still* returned the removal, and did so
+**nondeterministically**: identical input passed and failed across consecutive runs, which is what
+made the first prompt fix look successful. That prompt edit also destabilized two unrelated
+closure fixtures. It was reverted entirely; the code guard alone gives 33/33 live. Golden Rule #6
+demonstrated rather than argued.
+
+**How B-056 got through** (the pattern will recur): the eval suite had three removal fixtures, all
+naming an item that *was* listed — thorough-looking coverage blind to this class; the prompt was
+treated as the guarantee for a consequential action; membership validation *looked* like grounding
+and made the missing check less visible; and only cooperative fakes exercised the path, which
+return whatever removals the test authored and structurally cannot produce one nobody asked for.
+
+**The stock-out parser had no live fixture at all.** Max re-texted from a non-owner handset and got
+"Thanks for letting us know. What was sold out?" — the item was named plainly and the parser
+returned `unclear`. The routing eval covers that exact sentence and routes it *correctly*; nothing
+measured the step after it. Measurement narrowed the failure: "no eggs left at Pinecone Gardens"
+and "the eggs were gone when I stopped by" both parse fine — the **bare** "no eggs left" is what
+failed. Fixed in the prompt this time, deliberately: the failure direction is asking instead of
+acting, nothing durable is written without a resolved item, so a wrong answer costs a round-trip
+rather than a farmer's data. Three fixtures added, including max's misspelling case ("eggz" →
+unlisted eggs, "kayle" → the *listed* kale rather than a phantom unlisted product).
+
+**Eval scoring hardened.** The removal fixtures now measure through `validateInterpretation` rather
+than raw model output, and the seam's own fallback clarifications are scored as **failures**: a
+provider error and a genuine "I won't remove that" both arrive as `kind: "clarification"`, so
+accepting any clarification let an unreachable model read as correct behaviour. The provider-error
+case is labelled `[provider error, not a verdict — rerun]`; it appears intermittently (~1 run in 3)
+and is upstream flakiness, not a regression.
+
+**B-054 — VIGA Farm Bucks claimed twice on the card.** Its own badge, and again inside "Also
+accepts", because `canonicalPaymentMethods` folded four spellings into a stored method row while
+the fact already lived in `farm_bucks_accepted`. The renderer carried a comment asserting "one
+fact, one home"; nothing enforced it. Recognition stays — that is how the term is identified — but
+the result is now dropped rather than stored, at the one seam every writer passes through. It
+deliberately does **not** set the boolean: `farm_bucks_eligible` is VIGA's grant, and a farmer
+typing "farm bucks" into a text box must not award themselves an acceptance nobody reviewed.
+
+*Measured before changing anything*, which shrank it: exactly **one** production row (Tian Tian
+Farm), `accepted=true`/`eligible=true`, so max's "old map text takes precedence" rule had no
+conflict to resolve. Max deleted the row in Neon; verified by effect — zero `%buck%` rows remain,
+Tian Tian still reads accepted/eligible so the badge renders, and the other 71 payment rows are
+untouched.
+
+**Neon is reachable from a dev machine** via `gcloud secrets versions access latest
+--secret=farm-friend-database-url`. An earlier note in this session claimed production was
+inaccessible; that was wrong — it checked only the working tree.
+
+**F-104's report path is still unproven end to end.** Max's first text came from the handset that
+owns Pinecone Gardens, so B-053's guard correctly did *not* fire (a farmer naming their own stand
+is an update). The second, from a non-owner handset, routed correctly but hit the parser bug above.
+The path now needs one more real text to confirm a `stock_out_reports` row and an alert to the
+stand's farmer.
+
+**F-106 filed:** resolving a partial or misspelled *stand* name ("kale out at barts") — exact match,
+then a model selection from the code-retrieved live list, then confirm before alerting. The real
+scope is a customer-side confirmation token (context-bound, single-commit, expiring), which exists
+today only for farmers.
+
 ## 2026-08-11 — Customers can report a stock-out by SMS, and the DeepInfra key moved to VIGA
 
 F-104 closes the gap where a customer had no way to say something was sold out and a farmer was

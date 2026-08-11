@@ -24,7 +24,15 @@
  *
  * Deliberately NOT in `FARMER_SELECTABLE_PAYMENT_METHODS`: it is a separate boolean fact, not
  * an ordinary payment method. VIGA alone grants eligibility; an eligible farmer may state
- * acceptance through that eligibility-gated control. It remains canonicalized for legacy data.
+ * acceptance through that eligibility-gated control.
+ *
+ * B-054 — it is RECOGNIZED here but never STORED as a method. It used to be canonicalized into
+ * the list "for legacy data", which meant a stand carried the claim in two places and the card
+ * printed both ("Accepts VIGA Bucks" above "Also accepts Cash, Check, VIGA Farm Bucks, ...").
+ * The spellings below still identify the term; `canonicalPaymentMethods` then drops it.
+ *
+ * Exported because the card, the filter, and the cleanup script all need to NAME the term even
+ * though no row ever holds it.
  */
 export const VIGA_FARM_BUCKS = "VIGA Farm Bucks";
 
@@ -100,6 +108,21 @@ export function canonicalPaymentMethods(methods: string[]): string[] {
     if (key === "") continue;
 
     const canonical = CANONICAL_BY_SPELLING.get(key);
+    /*
+      B-054 — Farm Bucks is identified, then DROPPED. One fact, one home: it lives in
+      `farm_bucks_accepted`, gated by VIGA's eligibility grant, and the stand card renders it
+      from that column with its own badge and filter. Storing it here too is what put the
+      claim on the card twice.
+
+      Dropped at this single seam so every writer is covered at once — the CSV ingest that
+      created the duplicate, the onboarding form's free-text "other payment" box, and any
+      future backfill all pass through this function.
+
+      It deliberately does NOT set the boolean. That is VIGA's grant to make; a farmer typing
+      "farm bucks" into a text box must not be able to award themselves an acceptance nobody
+      reviewed. A farmer who says it and is eligible states it through the gated control.
+    */
+    if (canonical === VIGA_FARM_BUCKS) continue;
     // The tail keeps the farmer's own capitalization: this layer knows how "Venmo" is spelled
     // and has no basis for an opinion about "Trade for Eggs".
     const value = canonical ?? raw.trim();

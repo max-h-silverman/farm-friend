@@ -338,6 +338,16 @@ belong to the retrieved set, and code renders the factual response from the corr
 authoritative values. A durable write, a recipient choice, a factual answer value, or a consent
 decision **never** comes from model output.
 
+**Membership is not authorization** (B-056). Every inventory removal's `entryId` was already
+validated against the base snapshot, which looks like grounding but is not: the model cannot invent
+an identifier, yet it can select a *real* one it has no authority to touch. "no eggs left" against a
+listing of tomatoes and kale returned a removal of kale. `validateInterpretation` therefore also
+takes the farmer's own message and **drops any removal whose item name does not appear in it** —
+silently, because the farmer confirms every proposal, so an unauthorized removal never reaches the
+"Taking off:" line while everything they did say still goes through. This lives in code and not in
+the seam note because the seam note was given an explicit rule for the case and the real model still
+returned the removal, *nondeterministically* — the same input passing and failing across runs.
+
 Shape validation does not make a model-writable string safe for a public surface. The inventory
 publication transaction therefore runs one shared deterministic public-string validator over every
 free-form field it could publish and refuses the complete proposal on phone numbers, email
@@ -389,6 +399,16 @@ structured JSON and never stated the expected shape.
   so two candidate models can be compared run against run.
 
 A live-containment failure **stops and reports**; fixtures are never edited to go green.
+
+**A fallback is not a verdict** (2026-08-10). A seam that cannot reach the provider returns the same
+`clarification` shape it returns when the model legitimately declines, so a fixture accepting *any*
+clarification scores an unreachable model as correct behaviour — the containment-style false green
+in a new place. Live fixtures therefore name the seam's own fallback strings and score them as
+FAILURES, labelling the provider-error case `[provider error, not a verdict — rerun]`. Relatedly,
+**live results are nondeterministic**: identical input has passed and failed across consecutive
+runs, so a single green run is not evidence that a prompt change worked. Where the property must
+hold every time, it belongs in code and the fixture should measure the validated output rather than
+the raw model response.
 
 Two supporting mechanisms keep the seams honest between live runs. Every projection carries
 required output instructions, assembled from `SEAM_OUTPUT_SHAPES` and its seam-specific notes;

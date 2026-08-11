@@ -275,7 +275,10 @@ export async function applyInterpretedInventory(
 
   const validated = input.edit !== undefined
     ? validateStructuredInventoryEdit(raw, state.inventoryBase)
-    : validateInterpretation(raw, state.inventoryBase);
+    // The farmer's own words travel with the output so code can check that a removal names
+    // an item they actually mentioned. `input.taskText` is defined on this branch — the
+    // structured-edit branch above is the only one without one.
+    : validateInterpretation(raw, state.inventoryBase, input.taskText);
   if (!validated.ok) {
     return { outcome: "rejected", reason: validated.reason };
   }

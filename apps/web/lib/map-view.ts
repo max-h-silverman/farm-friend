@@ -336,7 +336,13 @@ export function standListingLines(
   // It does NOT case-fold as a safety net, deliberately. If these two lists ever stop being one
   // vocabulary, this must print the duplicate where someone can see it rather than paper over
   // a broken join — a fallback here would make that failure invisible for as long as it lasted.
-  const confirmedKeys = new Set(confirmedItems);
+  //
+  // GATED ON `hasConfirmation` (max, 2026-08-10). The subtraction exists solely to stop one item
+  // printing under TWO headings, so it must apply only when the second heading actually renders.
+  // An expired confirmation shows no heading, and subtracting against it deleted the farmer's
+  // specialty from the only line left — the stand lost "salad greens" from "Usually sells"
+  // because of a confirmation the card had already decided not to show.
+  const confirmedKeys = new Set(hasConfirmation ? confirmedItems : []);
   const remainingTags = (stand.usuallySells ?? []).filter(
     (tag) => !confirmedKeys.has(tag.itemName),
   );

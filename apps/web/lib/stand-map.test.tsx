@@ -760,6 +760,66 @@ describe("farm-map poster treatment", () => {
   });
 
   /*
+    AN AGED-OUT CONFIRMATION SHOWS NO STOCK SECTION (max, 2026-08-10).
+
+    The reported defect, pinned at the surface it was seen on. The card printed a bordered "In
+    stock" heading over an item list for a confirmation of any age, hedging only in the caption
+    beside it — so a customer read "In stock" for produce nobody had touched in months.
+
+    The expired stand arrives here with its recency fields already withheld by
+    `listPublicStands`, which is where the age is judged. This test holds the CONSEQUENCE at the
+    component: no stock heading, no item chips, and no orphan caption left behind. Asserted on
+    the elements rather than on the text, so a change that kept the section and merely blanked
+    its words still fails.
+  */
+  it("renders no 'In stock' section for a confirmation that has aged out", async () => {
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "aged",
+      farmName: "Aged Farm",
+      locationName: "Aged Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "9 Old Road",
+      latitude: 47.44,
+      longitude: -122.46,
+      // No `updated`, `confirmedElapsed`, `cardRecency` or `stale` — an expired confirmation is
+      // indistinguishable from one that never happened by the time it reaches the card.
+      availability: {},
+      usuallySells: [{ itemName: "flowers" }, { itemName: "honey" }],
+      alsoSellingHere: [],
+      links: [],
+      paymentMethods: [],
+      // Still populated: the stand items are real rows. The rule is that nothing renders them
+      // as CURRENT STOCK without a date to stand behind.
+      items: [{ itemName: "Tulips" }],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Aged Stand" }));
+
+    const body = container.querySelector(".stands .stand-detail-body")!;
+
+    // The STOCK CLAIM is gone. The availability section itself legitimately remains — it now
+    // carries "Nothing confirmed recently.", which is the honest line and the reason the stand
+    // is not simply blanked. What must not survive is the confirmed listing and its caption.
+    expect(body.querySelector(".listing-confirmed")).toBeNull();
+    expect(body.querySelector(".listing-recency")).toBeNull();
+    expect(body.querySelector(".detail-inventory .items")).toBeNull();
+    expect(body.querySelector(".detail-inventory")).toHaveTextContent(
+      "Nothing confirmed recently.",
+    );
+
+    // And the item itself is nowhere on the card as a confirmed chip.
+    expect(body.textContent).not.toMatch(/In stock/i);
+    expect(body.textContent).not.toMatch(/Tulips/);
+    expect(body.textContent).not.toMatch(/No recent update/i);
+
+    // The stand is NOT blanked: its specialties still render, in their own voice.
+    expect(body.querySelector(".items-usual")).toHaveTextContent("flowers, honey");
+  });
+
+  /*
     THE TWO VOICES, asserted as STRUCTURE rather than as styling (max, 2026-08-06).
 
     A confirmation and a specialty must not be able to read as the same kind of claim. The card

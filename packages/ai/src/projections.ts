@@ -182,8 +182,12 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "clarification shape with no other fields.",
   "stock-out-parse":
     "If the text names an item matching one of listedItems, return listed with that " +
-    "entryId. If it clearly names an item that is not listed, return unlisted with the " +
-    "item's name as itemText. Otherwise return unclear.",
+    "entryId. If it names an item that is not in listedItems, return unlisted with the " +
+    "item's name as itemText - an item being absent from listedItems is NOT a reason to " +
+    "return unclear, and a short message naming one product (\"no eggs left\") is a clear " +
+    "report about that product. Correct obvious misspellings against listedItems " +
+    "(\"kayle\" -> the listed \"kale\"). Return unclear ONLY when no product word is " +
+    "identifiable at all.",
   "offering-extraction":
     "items are short customer-facing product tags - at most four words each - for what the " +
     "text says the stand offers. Exclude farming practices, certifications, schedules, " +

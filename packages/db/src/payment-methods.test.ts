@@ -49,12 +49,41 @@ describe("canonicalPaymentMethods — the closed set", () => {
     expect(canonicalPaymentMethods(["zelle"])).toEqual(["Zelle"]);
   });
 
-  it("recognizes VIGA Farm Bucks by its several spellings", () => {
-    // VIGA's own map writes "VIGA Farm Bucks"; farmers shorten it constantly.
-    expect(canonicalPaymentMethods(["viga farm bucks"])).toEqual([VIGA_FARM_BUCKS]);
-    expect(canonicalPaymentMethods(["farm bucks"])).toEqual([VIGA_FARM_BUCKS]);
-    expect(canonicalPaymentMethods(["VIGA bucks"])).toEqual([VIGA_FARM_BUCKS]);
+  it("DROPS VIGA Farm Bucks in all its spellings — it is not a payment method here", () => {
+    /*
+      B-054. Farm Bucks is a separate boolean fact (`farm_bucks_accepted`, gated by
+      `farm_bucks_eligible`), and the stand card renders it as its own badge with its own
+      filter. This function used to canonicalize it INTO the method list "for legacy data",
+      so a stand carried the claim twice and the card printed both:
+
+        Accepts VIGA Bucks
+        Also accepts Cash, Check, VIGA Farm Bucks, Venmo, trade
+
+      One fact, one home. Recognizing the spellings is still the right behaviour — that is how
+      the term is IDENTIFIED — but the result is dropped from the list rather than stored in
+      it. Dropping here closes every write path at once: ingest, the onboarding free-text
+      "other payment" box, and any future backfill all pass through this one function.
+
+      It does NOT set the boolean. That column is gated by VIGA's eligibility grant, and a
+      farmer typing "farm bucks" into a text box must not be able to grant themselves an
+      acceptance VIGA never reviewed.
+    */
+    expect(canonicalPaymentMethods(["viga farm bucks"])).toEqual([]);
+    expect(canonicalPaymentMethods(["farm bucks"])).toEqual([]);
+    expect(canonicalPaymentMethods(["VIGA bucks"])).toEqual([]);
+    expect(canonicalPaymentMethods(["farmbucks"])).toEqual([]);
+    expect(canonicalPaymentMethods([VIGA_FARM_BUCKS])).toEqual([]);
+    // The canonical spelling is still exported: the card, the filter, and the cleanup script
+    // all need to name the term even though it is never stored as a method.
     expect(VIGA_FARM_BUCKS).toBe("VIGA Farm Bucks");
+  });
+
+  it("drops Farm Bucks WITHOUT disturbing the methods stated beside it", () => {
+    // The real ingest shape: "Accepts Cash, Check, Venmo, VIGA Farm Bucks". Everything else
+    // must survive, in order — a farmer's Venmo is not collateral damage.
+    expect(
+      canonicalPaymentMethods(["Cash", "Check", "VIGA Farm Bucks", "Venmo", "trade"]),
+    ).toEqual(["Cash", "Check", "Venmo", "trade"]);
   });
 
   it("keeps the farmer's stated ORDER for recognized methods", () => {
@@ -140,6 +169,7 @@ describe("FARMER_SELECTABLE_PAYMENT_METHODS", () => {
     for (const method of FARMER_SELECTABLE_PAYMENT_METHODS) {
       expect(canonicalPaymentMethods([method])).toEqual([method]);
     }
-    expect(canonicalPaymentMethods([VIGA_FARM_BUCKS])).toEqual([VIGA_FARM_BUCKS]);
+    // Farm Bucks is deliberately NOT among them, and is dropped rather than stored (B-054).
+    expect(canonicalPaymentMethods([VIGA_FARM_BUCKS])).toEqual([]);
   });
 });
