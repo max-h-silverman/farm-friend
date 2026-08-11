@@ -6,39 +6,32 @@
 ## Release state
 
 - Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
-  and stand details.
-- **F-104 is closed, verified by effect in production 2026-08-11.** A handset owning no stand
-  reported a stock-out at Pinecone Gardens: one `stock_out_reports` row against that stand with its
-  provider event id as `report_key`, one `stock_out_alert` delivered to the stand's farmer, and the
-  reporter is not the recipient. Golden Rule #1 holds end to end on the live path.
-- **Shipped 2026-08-11**: F-106's two-tier stand matching (punctuation/case folding, then
-  distinctive-word scoring — a misspelled name still asks); the map search box finds stands by farm
-  and stand name; the stock-out reply names its consequence; the alert no longer agrees a verb with
-  the item's grammatical number. No schema change — `0038` remains the newest migration.
-- Cloud Run web `farm-friend-web-00065-wzj` and worker `farm-friend-worker-00060-g4p` serve immutable
-  digest `sha256:1ab56e17873533e0e51cac7ba62f7550181dc4c9a606c2ad859cb04e0b3476a9`, built from `main`
-  `710afb7` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
+  and stand details. F-104's customer→farmer alert path is closed and proven on a real handset.
+- Cloud Run web `farm-friend-web-00066-kq4` and worker `farm-friend-worker-00061-zpd` serve immutable
+  digest `sha256:5a84dd8fbf95259abacdb2d69543913c7b8530448a786f47d9975a13bb8004b2`, built from `main`
+  `067b1c6` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
   Verified by effect on the live `/api/public/stands`: 35 stands served.
-- Neon `neondb` has **39 applied migrations (`0000`–`0038`)**. `0038` was applied 2026-08-11 and
-  verified by schema effect — `report_key` is `text`, nullable (the NULL matters: NULLs stay distinct
-  under the unique index), with `stock_out_reports_report_key_unique` present. Farm and contact counts
-  were unchanged across the migration.
+- Neon `neondb` has **40 applied migrations (`0000`–`0039`)**. `0039` was applied 2026-08-11 ahead of
+  the image that reads it and verified by schema effect: `referenced_stand_item_id` present and
+  nullable, both new constraints present, and farm/stand/item/report counts unchanged across it.
+- **B-057 is live but unproven on the live path.** A stock-out alert can now name one of the stand's
+  usual offerings, not only its published inventory. No production report has named one yet — that
+  needs a real inbound text, and it is what closes the item.
 
 ## Verification
 
-- `main`: 1,824 unit tests, 902 local integration tests, typecheck, and lint pass (2026-08-11). The
-  web production build retains the tracked Next configuration/lint warnings (B-008).
-- Branch `b-057-name-usual-offerings`: 1,824 unit, **908** local integration (six new), typecheck,
-  lint, and stub evals pass. Four deliberate sabotages — an unbound `stand_items` query, the removed
-  precedence dedup, a stand-item rendered as `unlisted`, and the queue reader's coalesce — were each
-  caught by the intended test. B-057's new live fixture passed 7/7 runs.
-- Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model passes
-  **33/33** — 28 prior fixtures plus five added 2026-08-10: two proving code strips an unauthorized
-  removal (B-056) and three covering the stock-out item parser, which had none.
-- **Live evals are nondeterministic** and one run in roughly three shows a provider error. That
-  case is labelled `[provider error, not a verdict — rerun]` and scored as a FAILURE on purpose:
-  the seam returns the same `clarification` shape for "unreachable model" and "model declined", so
-  accepting any clarification let an unreachable model read as correct behaviour.
+- `main`: 1,824 unit tests, **908** local integration tests, typecheck, and lint pass (2026-08-11).
+  The web production build retains the tracked Next configuration/lint warnings (B-008).
+- Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model scores
+  containment 5/5, closure 7/7, recall 5/5, quality 17/17 (2026-08-11). Note the per-category counts
+  exceed the fixture count — several fixtures score multiple cases. B-057 added one quality fixture,
+  proving the stock-out seam picks a usual offering out of a mixed candidate list; it passed 7/7 runs.
+- **Live evals are nondeterministic** in two distinct ways, and both must be held apart. Roughly one
+  run in three shows a provider error, labelled `[provider error, not a verdict — rerun]` and scored
+  as a FAILURE on purpose: the seam returns the same `clarification` shape for "unreachable model"
+  and "model declined", so accepting any clarification let an unreachable model read as correct.
+  Separately, one B-056 fixture returns real but wrong verdicts in ~2 of 7 runs (B-058) — so a
+  single live run cannot distinguish a regression from that noise.
 - Deployment assertions confirm both revisions are newer than every mounted secret; the served contact card
   has the expected E.164 suffix, 153 bytes, CRLF-only lines, and all seven required properties.
 
@@ -68,17 +61,16 @@
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the
   roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
-- B-057 is **built and locally verified, not deployed** (`5ce3630`, branch
-  `b-057-name-usual-offerings`). Migration `0039` is applied **locally only** — production is still
-  at 39 migrations and still sends "sold out of something".
-- B-058 (planned): the live fixture "the same message with the stand named removes nothing either"
-  fails in ~2 of 7 runs on unmodified `main`. Real verdicts, not the labelled provider-error case,
-  so a single live run cannot tell a regression from this noise.
-- B-059, B-060 (planned): B-057's follow-ups. Its live fixture measures five clean candidates, not
-  the corpus's near-duplicates and multi-item strings; and `stand_items.display_name` now enters a
-  model seam and an outbound SMS body with no sabotage-proven test that hostile content stays inert.
-  Both are quality risks — a wrong pick names the wrong item and the farmer can see it, and nothing
-  published moves either way.
+- **B-057 owes one live check:** text a stock-out for an item a stand carries as a usual offering
+  but does not currently publish (Pinecone Gardens' eggs is the original case), then confirm the
+  farmer's alert names it and the report stored `referenced_stand_item_id`. Until then the fix is
+  proven only by test.
+- B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
+  `correct/total`, but do not loosen it until it always passes.
+- B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists
+  (Tian Tian's "bok choy" vs "Baby bok choy"; Bart's Cart's overlapping plant items), and prove by
+  sabotage that a hostile `stand_items.display_name` stays inert in the farmer's alert. Both are
+  quality risks: a wrong pick names the wrong item, and nothing published moves either way.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,

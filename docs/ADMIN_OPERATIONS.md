@@ -174,8 +174,8 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   password-verifier secret version, deploys a new web revision, proves the new password, and revokes
   every old session. There is no second account or add-administrator path.
 - **Watch stock-out reports:** open `/admin/messages` and find **Stock-outs**. The queue shows customer reports per farm and
-  stand, with the item named — including when the report pointed at a published entry rather than
-  free text. Reports **never** change the map, answers, or ranking, and the surface offers no action
+  stand, with the item named — whether the report pointed at a published entry, at one of the
+  stand's usual offerings, or carried free text for an item the stand lists neither way. Reports **never** change the map, answers, or ranking, and the surface offers no action
   that could: the only two are **mark reviewed** and **dismiss**, both of which record that a human
   looked and change nothing a customer sees. Only the farmer's confirmed revision through the
   ordinary inventory flow changes publication. If reports pile up for one stand, chase the farmer;

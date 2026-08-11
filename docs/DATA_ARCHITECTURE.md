@@ -358,8 +358,13 @@ axis of its own. That is sufficient to render an honest "updated X ago".
   and time without deleting history. The public reader returns active names under **Also selling
   here**, separately from the single aggregate inventory list.
 - **customer stock-out reports** — private; each carries a required sales-location identifier bound
-  by the web/QR reporting surface, and may reference a listed entry or name an unlisted item. A
-  model does not supply the consequential location identifier.
+  by the web/QR reporting surface, and names its item in **exactly one** of three ways: a published
+  inventory entry, one of the stand's usual offerings, or free text for an item the stand lists
+  neither way. The two reference kinds are distinct columns, not one widened column — an entry
+  carries a farmer's confirmation time and a usual offering does not, and an operator judging the
+  report needs to know which. Each is bound to the report's own location by a composite key, so an
+  item belonging to another stand is refused by the database. A model does not supply the
+  consequential location identifier.
 - **minimized SMS inbox and message records** with limited retention — unique provider event/message
   identifiers, event type and `occurred_at`, sender/contact reference, TTL-bound body where needed,
   processing state, and per-sender conversation watermark/claim. The raw provider envelope is not a

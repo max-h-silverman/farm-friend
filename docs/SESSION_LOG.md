@@ -11,6 +11,76 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-11 — B-057: the corpus said "something" was the normal alert, not the rare one
+
+**Deployed.** Web `farm-friend-web-00066-kq4`, worker `farm-friend-worker-00061-zpd`, digest
+`sha256:5a84dd8f…`, from `main` `067b1c6`. Migration `0039` applied to Neon first and verified by
+schema effect; 40 migrations. Plan assertions 60/60, deploy and served-card assertions pass.
+
+**Measuring first deleted the framing, again.** B-057 read as one stand's missing `eggs` row. The
+production corpus said otherwise: **33 of 37 stands** carry at least one usual offering absent from
+their published inventory, and **18 of 37 publish no inventory at all** — for those the stock-out
+seam received an *empty* candidate list, so every report against half the roster could only ever
+come back `unlisted`. "Sold out of something" was the ordinary alert, not the edge case. This is
+the second consecutive session where measuring the corpus before designing changed what got built.
+
+**The shape: one list, not two lookups.** The item suggested a second lookup after the first fails.
+Instead `listedItems` returns both farmer-authored lists as ONE flat list of opaque ids, with a
+`kind` the model never sees. Code built the list, so code alone knows which table an id came from —
+which column to store, and which name to render. The seam's schema and output contract are
+unchanged, which is why this needed no new eval fixture *shape*, only new content.
+
+*Precedence is the list order.* Published entries first; a name already published is not offered a
+second time under its stand-item id. A model shown "Kale" twice is being asked to flip a coin
+between two references to one fact, and the entry is the better reference because it carries a
+farmer's confirmation time for VIGA's queue. Dedup folds case and surrounding whitespace only —
+the same normalization `stand_items_one_per_location_name` uses. Folding singulars into plurals
+would be a produce taxonomy, which no business code here may encode.
+
+**Golden Rule #6 needed no relaxation, and that was the whole design constraint.**
+`stand_items.display_name` is farmer-authored and already published on the public map — the same
+standing as the inventory name the alert already spoke. The model still only selects an identifier;
+code still renders every word.
+
+**Schema: a third reference, not a widened one.** `stock_out_reports.referenced_stand_item_id` with
+its own composite FK to `(stand_items.id, sales_location_id)`, so "the item belongs to the bound
+stand" stays a database guarantee rather than a caller's check. The exclusivity CHECK was rewritten
+as a **count** (`sum of not-nulls = 1`) rather than an enumeration of legal combinations — three
+columns have eight states, and listing the good ones is how a fourth reference later misses a case.
+
+**max's call:** a matched row may be spoken even when it is a broad category ("vegetables",
+"seasonal produce"). Suppressing those would mean code deciding which farmer-written words are too
+vague to repeat — a produce taxonomy in behavioral code. The farmer wrote the row.
+
+**Two `drizzle-kit generate` traps, both new to the record.** The generated journal entry is stamped
+with the *wall clock* while this repo's entries are future-dated, so `0039` landed **earlier** than
+`0038` and the migrator skipped it while printing "migrations applied" — caught only by checking for
+the column. It also emitted the composite FK **above** the unique constraint that makes the target
+referenceable; proven to fail on a scratch database rather than assumed. Both are in CURRENT_STATE.
+
+**Verification.** 1,824 unit, 908 local integration (six new), typecheck, lint, stub evals 11/4/29.
+Four deliberate sabotages — an unbound `stand_items` query, the removed precedence dedup, a
+stand-item rendered as `unlisted`, and the queue reader's coalesce — each caught by the intended
+test. The cross-stand test passed *before* the widening (vacuously, since an unknown id matches
+nothing), which is exactly why it was sabotaged rather than trusted.
+
+**A flaky live fixture cost seven baseline runs.** The first live run showed quality 16/17 and read
+as a regression from the projection change. It was not: "the same message with the stand named
+removes nothing either" (a B-056 fixture) fails in ~2 of 7 runs on unmodified `main` too. Filed as
+B-058. B-057's own new fixture passed 7/7. This is the concrete cost of an unlabelled intermittent —
+a single live run can no longer answer "did I break something".
+
+**A claim of mine was wrong and is corrected in B-060.** I told Max the farmer's listing form
+validates `stand_items` through a publication gate. It does not — `validatePublicStrings` runs on
+the participants and transactions paths only. `display_name` is guarded by a trim, the not-blank
+CHECK, and the projection's `assertNoRawPhone`. Probably adequate; not what was described.
+
+**Owed:** the fix is unproven on the live path. Schema, image and public read are verified by
+effect, but no production stock-out report has yet named a usual offering — that needs a real
+inbound text. B-057 stays `in review` until it fires.
+
+---
+
 ## 2026-08-11 — F-104 closed on a real handset; F-106 built without the model it specified
 
 **F-104 is closed, end to end, in production.** Two earlier attempts had failed for different

@@ -102,7 +102,7 @@ classifier that decides whether free text is an inventory update or a farm-stand
 |---|---|
 | farmer-message intent | the authorized farmer's current message, and nothing else |
 | inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), the current or pending canonical closure instruction for the farmer's own location, the exact current Vashon calendar date, and deterministic closure timing evidence derived by code before the call |
-| stock-out item parsing | the current item text plus public listed-item IDs/names for the code-bound location |
+| stock-out item parsing | the current item text plus public item IDs/names for the code-bound location — its published inventory and its usual offerings, as one flat list carrying no indication of which is which |
 | inquiry interpretation | the current customer SMS request |
 | grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
 | offering extraction | one stand's public "generally offers" description, alone |
@@ -201,8 +201,14 @@ clarify or flag:
   `unclear` arm — `farm_stand_question` is both the other answer and the fallback, so a refused or
   unreachable model leaves the question path exactly as it was. The projection carries the
   customer's message alone: no stand list, no farm names, no sender hash.
-- **stock-out item parsing** — free text → which item (a listed entry or normalized text for an
-  unlisted one), on both the web/QR surface and the SMS reporting path. Code supplies the
+- **stock-out item parsing** — free text → which item (an item the stand lists, or normalized text
+  for one it does not), on both the web/QR surface and the SMS reporting path. The candidate list
+  code supplies spans **both** farmer-authored item lists — the stand's published inventory and its
+  usual offerings — flattened into opaque identifiers the model cannot tell apart. Code built the
+  list, so code alone knows which kind each identifier is, which column stores it, and which name
+  the alert renders; the model has no use for the distinction and is not given it. Published entries
+  come first and a name already published is not offered twice, so a stand listing one item both
+  ways yields one candidate rather than a coin flip between two references to the same fact. Code supplies the
   sales-location identifier and it is never a model output: the web surface binds it from the
   scanned route, and SMS resolves it in code against real rows — a punctuation-folded unique
   substring match, then distinctive-word scoring for a partial name — asking "Which stand are you
