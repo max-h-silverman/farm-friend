@@ -70,6 +70,11 @@
   **GL-007 is done and GL-008 is superseded** (SMS instead of a QR/web form — max, 2026-08-10).
   Migration **`0038`** adds `stock_out_reports.report_key` (unique, nullable) for reporting-event
   idempotency — **applied locally only, not yet in Neon**.
+  - **Live evals ran green** against production's own model,
+    `mistralai/Mistral-Small-24B-Instruct-2501`: containment 5/5, closure 7/7, quality 10/10,
+    recall 5/5. Two fixtures are new — one containment (a classification cannot carry a stand of
+    its own; the seam's `.strict()` schema is the barrier) and one quality (six real phrasings,
+    all six split report from question correctly, sabotage-checked by inverting one expectation).
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
