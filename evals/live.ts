@@ -27,6 +27,7 @@ import {
   assertDeepInfraSelectionApproved,
   createCustomerMessageIntentModel,
   createDeepInfraProvider,
+  createFarmerMessageIntentModel,
   createInquiryModel,
   createInventoryInterpreter,
   createStockOutModel,
@@ -70,6 +71,7 @@ const provider = createDeepInfraProvider({
 const interpreter = createInventoryInterpreter(provider);
 const inquiry = createInquiryModel(provider);
 const customerIntent = createCustomerMessageIntentModel(provider);
+const farmerIntent = createFarmerMessageIntentModel(provider);
 const stockOut = createStockOutModel(provider);
 const CURRENT_LOCAL_DATE = "2026-08-06";
 
@@ -453,6 +455,59 @@ fx("live-quality", "separates a customer's stock-out report from a question", as
   let correct = 0;
   for (const { text, want } of cases) {
     const raw = await customerIntent.classify({ taskText: text });
+    if (raw.kind === want) correct += 1;
+    else observations.push(`"${text}" -> ${raw.kind} (wanted ${want})`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed:
+      observations.length === 0
+        ? `all ${cases.length} classified correctly`
+        : observations.join("; "),
+  };
+});
+
+/*
+  FOUND LIVE (max, 2026-08-11). A farmer handset texted "looking for nigella" and got the
+  UPDATE-or-QUESTION clarification: the seam returned `unclear`, so a plainly-a-question
+  message cost the sender a round trip.
+
+  This seam had no live fixture at all — the misfire is what a stub cannot see, because a stub
+  reads neither the instructions nor the schema. The sibling customer seam already carries the
+  tie-breaker ("a message that merely names a product is a question"); the farmer seam did not.
+
+  Anything seeking a product is a question — a farmer is also a customer of every other stand
+  on the island.
+
+  **This fixture deliberately has no `unclear` case (max, 2026-08-11).** `unclear` is the
+  seam's FALLBACK, not a target: `createFarmerMessageIntentModel` also returns it when the
+  provider's output fails validation. Measuring the model's ability to REACH it would push
+  toward an instruction that produces more clarification prompts, and a clarification prompt
+  is the worst outcome for a sender — a round trip that buys nothing. A message that is
+  neither an update nor a question falls to the inquiry path and gets an honest "no current
+  listing", which is a better answer than being asked to pick UPDATE or QUESTION.
+*/
+fx("live-quality", "separates a farmer's inventory update from a question", async () => {
+  const cases: {
+    text: string;
+    want: "inventory_update" | "farm_stand_question";
+  }[] = [
+    // The live misfire and its neighbours. All of these are people looking for a product.
+    { text: "looking for nigella", want: "farm_stand_question" },
+    { text: "anyone have plums", want: "farm_stand_question" },
+    { text: "who has eggs today?", want: "farm_stand_question" },
+    { text: "nigella?", want: "farm_stand_question" },
+    // The update arm, so the fixture cannot pass by classifying everything as a question.
+    { text: "we have kale and eggs today", want: "inventory_update" },
+    { text: "sold out of tomatoes", want: "inventory_update" },
+    { text: "adding a dozen eggs to the stand", want: "inventory_update" },
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const { text, want } of cases) {
+    const raw = await farmerIntent.classify({ taskText: text });
     if (raw.kind === want) correct += 1;
     else observations.push(`"${text}" -> ${raw.kind} (wanted ${want})`);
   }

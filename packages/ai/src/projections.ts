@@ -112,10 +112,15 @@ type SeamName = keyof typeof SEAM_OUTPUT_SHAPES;
 const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
   "farmer-message-intent":
     "Classify the authorized farmer's message as inventory_update when they are reporting " +
-    "what a stand has, sold out of, or will have; farm_stand_question when they are asking " +
-    "what a stand has or when a stand is available; and unclear when the message does not " +
-    "clearly choose one. Return only the classification signal. Do not interpret the " +
-    "inventory, choose a stand, or write a reply.",
+    "what a stand has, sold out of, or will have - a statement about THEIR OWN stock. " +
+    "Classify it as farm_stand_question when they are asking what a stand has, where a stand " +
+    "is, when it is open, or looking for a product to buy - a request for information. A " +
+    "message that merely names or asks after a product (\"looking for nigella\", \"anyone " +
+    "have plums\", \"nigella?\") is a question, not an update: a farmer also shops at other " +
+    "stands. When you cannot clearly tell, choose farm_stand_question - it answers from real " +
+    "listings and is safe for either sender. Use unclear only as a last resort, when the " +
+    "message says nothing about stock and asks nothing at all. Return only the classification " +
+    "signal. Do not interpret the inventory, choose a stand, or write a reply.",
   "customer-message-intent":
     "Classify the customer's message as stock_out_report when they are telling you an item " +
     "is gone, sold out, empty, or unavailable at a stand they visited - a statement about " +
