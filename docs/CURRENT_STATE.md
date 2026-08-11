@@ -6,15 +6,18 @@
 ## Release state
 
 - Farm Friend is **pre-go-live**. Production serves F-104 SMS stock-out reporting on top of B-050
-  broad-inquiry paging and F-105 stand details, built from `main` `96ce18e` (F-104 plus its B-053
-  follow-up). The `0038` schema change shipped with F-104, applied before that image was promoted.
+  broad-inquiry paging and F-105 stand details. The `0038` schema change shipped with F-104,
+  applied before that image was promoted.
 - **B-054, B-055 and B-056 shipped 2026-08-10**: the stand card no longer claims "In stock" over a
   confirmation past four weeks; code drops an inventory removal whose item the farmer's message
   never named; a stock-out report naming an unlisted item parses instead of returning `unclear`;
   and VIGA Farm Bucks is no longer stored as a payment method. No schema change — `0038` remains
   the newest migration.
-- Cloud Run web `farm-friend-web-00063-lbw` and worker `farm-friend-worker-00058-znw` serve immutable
-  digest `sha256:dd365d88e93df8251adadbc2d421f8dea9d0a37288f8e71613ea9cf5882a1dce`.
+- Cloud Run web `farm-friend-web-00064-cpz` and worker `farm-friend-worker-00059-zwq` serve immutable
+  digest `sha256:1dcb981cb4a7eea025a67f9ca86440cbbcdd96c3fafe595ecd179c4bceb9aba1`, built from `main`
+  `c73d022` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
+  Verified by effect on the live `/api/public/stands`: 35 stands, **zero** payloads containing
+  "No recent update", and **zero** payment lists naming Bucks.
 - Neon `neondb` has **39 applied migrations (`0000`–`0038`)**. `0038` was applied 2026-08-11 and
   verified by schema effect — `report_key` is `text`, nullable (the NULL matters: NULLs stay distinct
   under the unique index), with `stock_out_reports_report_key_unique` present. Farm and contact counts

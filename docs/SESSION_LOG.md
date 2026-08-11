@@ -97,10 +97,15 @@ is an update). The second, from a non-owner handset, routed correctly but hit th
 The path now needs one more real text to confirm a `stock_out_reports` row and an alert to the
 stand's farmer.
 
-**F-106 filed:** resolving a partial or misspelled *stand* name ("kale out at barts") — exact match,
-then a model selection from the code-retrieved live list, then confirm before alerting. The real
-scope is a customer-side confirmation token (context-bound, single-commit, expiring), which exists
-today only for farmers.
+**F-106 filed:** resolving a partial or misspelled *stand* name ("kale out at barts" — Bart's Cart
+is a real stand in production) — exact match, then a model selection from the code-retrieved live
+list, then confirm before alerting. The real scope is a customer-side confirmation token
+(context-bound, single-commit, expiring), which exists today only for farmers.
+
+**Shipped.** PR #102 squash-merged as `c73d022`; web `00064-cpz` and worker `00059-zwq` serve
+`sha256:1dcb981c…`. Plan assertions 60/60, deploy and served-card assertions pass. Verified by
+effect on the live `/api/public/stands`: 35 stands, zero payloads containing "No recent update",
+zero payment lists naming Bucks.
 
 ## 2026-08-11 — Customers can report a stock-out by SMS, and the DeepInfra key moved to VIGA
 
