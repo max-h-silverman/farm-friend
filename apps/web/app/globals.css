@@ -4834,7 +4834,8 @@ button.admin-action-danger,
   align-items: center;
   gap: 0.5rem;
   margin: 0;
-  font-size: 1.2rem;
+  font-size: clamp(1.45rem, 6vw, 2rem);
+  font-weight: 800;
   letter-spacing: -0.01em;
 }
 
@@ -4846,6 +4847,21 @@ button.admin-action-danger,
   margin: 0.1rem 0 0;
   font-size: 0.9rem;
   color: var(--ink-faint);
+}
+
+.sheet-address {
+  display: flex;
+  align-items: center;
+  gap: 0.42rem;
+  margin: 0.5rem 0 0;
+  color: var(--ink-soft);
+  font-size: 1rem;
+  line-height: 1.35;
+}
+
+.sheet-address .detail-icon {
+  flex: none;
+  color: var(--ink-soft);
 }
 
 .sheet-close {
@@ -4935,12 +4951,36 @@ button.admin-action-danger,
 .detail-payment,
 .stand-description {
   margin: 0;
-  padding: 1rem;
-  border: 1px solid var(--line);
-  border-radius: 1rem;
-  background: rgb(255 255 255 / 38%);
+  padding: 1.15rem;
+  border: 1px solid #d8d4c9;
+  border-radius: 1.1rem;
+  background: #fffefa;
+  box-shadow: 0 1px 1px rgb(35 45 38 / 3%);
 }
 
+.detail-section-heading {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  margin: 0 0 0.85rem;
+  color: var(--green);
+  font-size: 1rem;
+  font-weight: 800;
+  letter-spacing: 0.025em;
+  line-height: 1.2;
+  text-transform: uppercase;
+}
+
+.detail-icon {
+  width: 1.55rem;
+  height: 1.55rem;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.85;
+}
 
 .schedule-heading .open-state,
 .payment-status {
@@ -4953,6 +4993,14 @@ button.admin-action-danger,
   line-height: 1.25;
 }
 
+.schedule-heading .open-state-closed,
+.schedule-heading .open-state-closed_today,
+.schedule-heading .open-state-out_of_season {
+  color: #a51f1a;
+  background: #fff4f1;
+  border: 1px solid #dc8179;
+}
+
 .payment-status {
   color: var(--green);
   background: var(--green-soft);
@@ -4961,12 +5009,41 @@ button.admin-action-danger,
 /* No box. The section separator and the card's own edge do the containing — see
    `.stand-detail-body`. */
 .detail-inventory {
-  border-color: var(--sage-deep);
-  background: var(--green-soft);
+  border-color: #a3c2aa;
+  background: linear-gradient(105deg, #f5faf4, #fffefa);
 }
 
 .detail-usual-offerings {
-  border-color: var(--line);
+  border-color: #e0d4c4;
+  background: #fffcf7;
+}
+
+.detail-usual-offerings .detail-section-heading,
+.stand-description .detail-section-heading {
+  color: #89591e;
+}
+
+.stand-participants .detail-section-heading,
+.detail-payment .detail-section-heading {
+  color: var(--green);
+}
+
+.detail-inventory-heading {
+  flex-wrap: wrap;
+  margin-bottom: 0.9rem;
+  font-size: clamp(1.05rem, 4vw, 1.35rem);
+}
+
+.listing-recency {
+  color: var(--ink-soft);
+  font-size: 0.85rem;
+  font-weight: 500;
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.listing-recency-aged {
+  color: var(--amber);
 }
 
 .schedule-heading {
@@ -4979,11 +5056,6 @@ button.admin-action-danger,
 
 .detail-schedule h3 {
   margin: 0;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--ink-faint);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
 }
 
 .detail-schedule dl {
@@ -4998,14 +5070,21 @@ button.admin-action-danger,
 }
 
 .detail-schedule dt {
-  color: var(--ink-faint);
-  font-size: 0.8rem;
+  color: var(--ink);
+  font-size: 0.9rem;
   font-weight: 700;
 }
 
 .detail-schedule dd {
   margin: 0;
   color: var(--ink);
+}
+
+.detail-schedule dl > div + div::before {
+  content: "";
+  grid-column: 1 / -1;
+  height: 1px;
+  background: #dfddd5;
 }
 
 .detail-visit {
@@ -5015,12 +5094,7 @@ button.admin-action-danger,
 
 /* The card's one section-label style, matching `.listing-label` exactly. */
 .detail-visit h3 {
-  margin: 0 0 0.5rem;
-  font-size: 0.72rem;
-  font-weight: 700;
-  color: var(--ink-faint);
-  letter-spacing: 0.07em;
-  text-transform: uppercase;
+  margin-bottom: 0.35rem;
 }
 
 .detail-visit .address {
@@ -5076,7 +5150,8 @@ button.admin-action-danger,
   padding: 0 0.9rem;
   color: #fff;
   background: var(--olive);
-  border-radius: 0.75rem;
+  gap: 0.45rem;
+  border-radius: 0.8rem;
   text-decoration: none;
   white-space: nowrap;
 }
@@ -5090,9 +5165,28 @@ button.admin-action-danger,
   padding: 0 0.9rem;
   color: var(--brick);
   border: 1px solid currentColor;
-  border-radius: 0.75rem;
+  gap: 0.45rem;
+  border-radius: 0.8rem;
   font-weight: 650;
   text-decoration: none;
+}
+
+.detail-actions .detail-icon {
+  width: 1.3rem;
+  height: 1.3rem;
+}
+
+.detail-payment {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.detail-payment .detail-section-heading {
+  margin-bottom: 0.35rem;
+}
+
+.detail-payment .payment-status {
+  width: fit-content;
 }
 
 .sheet .stand-detail-body {

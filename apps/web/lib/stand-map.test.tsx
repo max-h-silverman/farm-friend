@@ -756,9 +756,7 @@ describe("farm-map poster treatment", () => {
     expect(sheet.querySelector(".stand-detail-body .detail-inventory")).toHaveTextContent(
       "6 bunches",
     );
-    expect(sheet.querySelector(".stand-detail-body .detail-visit")).toHaveTextContent(
-      "9 Orchard Way",
-    );
+    expect(sheet.querySelector(".sheet-address")).toHaveTextContent("9 Orchard Way");
   });
 
   /*
@@ -799,29 +797,30 @@ describe("farm-map poster treatment", () => {
 
     const body = container.querySelector(".stands .stand-detail-body")!;
 
-    // The confirmed line is a LIST of chips, dated by its own label.
+    // The confirmed line is a LIST of chips under an explicit current-stock heading.
     const confirmed = body.querySelector(".listing-confirmed")!;
-    expect(confirmed.querySelector(".listing-label")).toHaveTextContent(
+    const confirmedHeading = body.querySelector(".detail-inventory h3")!;
+    expect(confirmedHeading).toHaveTextContent("In stock");
+    expect(confirmedHeading).toHaveTextContent(
       "Last updated 2 hours ago",
     );
-    // F-097 — the date is a CAPTION under the items, not a heading over them. What a customer
-    // came for is what is there; the timestamp qualifies it. Asserted as document order rather
-    // than as a class, so moving the line back above the list fails here.
-    const confirmedParts = Array.from(confirmed.children);
-    expect(confirmedParts.indexOf(confirmed.querySelector(".items")!)).toBeLessThan(
-      confirmedParts.indexOf(confirmed.querySelector(".listing-label")!),
+    // The mockup puts the recency next to the stock heading, before the current items.
+    expect(confirmedHeading.compareDocumentPosition(confirmed.querySelector(".items")!)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
     );
     expect(confirmed.querySelectorAll(".items li")).toHaveLength(1);
 
     // The usual line is a SENTENCE. No list, no chips — nothing countable-looking, and no date.
     const usual = body.querySelector(".listing-usual")!;
+    expect(body.querySelector(".detail-usual-offerings h3")).toHaveTextContent(
+      "Typical offerings",
+    );
     expect(usual.querySelector("li")).toBeNull();
     expect(usual.querySelector(".items-usual")).toHaveTextContent("flowers, honey");
     expect(usual.textContent).not.toMatch(/ago/);
 
-    // Stock leads the card. Asserted on the phone SHEET, which is the surface that renders both
-    // sections: the expanded directory row suppresses "Plan your visit" because its address is
-    // already in the collapsed summary above.
+    // Stock leads the card. The address belongs directly beneath the phone-sheet title; the
+    // first practical destination after its facts is the action row.
     await user.click(screen.getByRole("button", { name: "Two Voices Stand" }));
     await user.click(
       screen.getByRole("button", { name: "1. Two Voices Stand, Two Voices Farm" }),
@@ -831,7 +830,7 @@ describe("farm-map poster treatment", () => {
       .querySelector(".stand-detail-body")!;
     const sections = Array.from(sheetBody.children);
     expect(sections.indexOf(sheetBody.querySelector(".detail-inventory")!)).toBeLessThan(
-      sections.indexOf(sheetBody.querySelector(".detail-visit")!),
+      sections.indexOf(sheetBody.querySelector(".detail-action-region")!),
     );
   });
 
@@ -876,9 +875,8 @@ describe("farm-map poster treatment", () => {
     const { container } = render(<StandMap stands={[stand]} />);
     await user.click(screen.getByRole("button", { name: "Wordy Stand" }));
 
-    // The dated caption under the items: the age stated in words, which is now the only
-    // non-colour signal a stale stand carries.
-    expect(container.querySelector(".listing-label-confirmed")).toHaveTextContent(
+    // The dated current-stock heading: the age is stated in words, not only colour.
+    expect(container.querySelector(".listing-recency")).toHaveTextContent(
       "Last updated 6 days ago",
     );
 
@@ -929,14 +927,14 @@ describe("farm-map poster treatment", () => {
     const fresh = render(<StandMap stands={[{ ...base, stale: false }]} />);
     await user.click(screen.getByRole("button", { name: "Aged Stand" }));
     expect(
-      fresh.container.querySelector(".listing-label-confirmed"),
-    ).not.toHaveClass("listing-label-aged");
+      fresh.container.querySelector(".listing-recency"),
+    ).not.toHaveClass("listing-recency-aged");
     fresh.unmount();
 
     const stale = render(<StandMap stands={[{ ...base, stale: true }]} />);
     await user.click(screen.getByRole("button", { name: "Aged Stand" }));
-    expect(stale.container.querySelector(".listing-label-confirmed")).toHaveClass(
-      "listing-label-aged",
+    expect(stale.container.querySelector(".listing-recency")).toHaveClass(
+      "listing-recency-aged",
     );
   });
 });
