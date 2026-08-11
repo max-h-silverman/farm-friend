@@ -195,17 +195,64 @@ async function standBelongsToSender(
   return rows.length > 0;
 }
 
+/**
+ * Fold a string to the form both sides of the stand-name match are compared in (F-106).
+ *
+ * Lowercase, strip everything that is not a letter, digit or space, then collapse runs of
+ * whitespace. "Bart's Cart" and "barts cart" both become `barts cart`, because nobody types
+ * the apostrophe in a text message.
+ *
+ * **This widens the SPELLINGS one name accepts, never the set of names a message can reach.**
+ * It is still an exact substring match, just computed over folded text — not fuzzy, not
+ * ranked, not "closest". Two stands still folding into one message is still ambiguous and
+ * still asks.
+ *
+ * Deliberately not `unaccent` or a similarity metric: those need an extension or a threshold,
+ * and a threshold is the guess this function exists to avoid.
+ */
+function foldForMatching(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 async function resolveReportedStand(
   db: Db,
   taskText: string,
 ): Promise<{ id: string } | null> {
-  // Normalized on both sides so "plum forest" matches "Plum Forest Stand". The customer's
-  // text is the HAYSTACK and the stand name is the NEEDLE: a customer writes a sentence, and
-  // we are asking which known stand appears inside it.
+  // Folded on both sides so "plum forest" matches "Plum Forest Stand" and "barts cart"
+  // matches "Bart's Cart". The customer's text is the HAYSTACK and the stand name is the
+  // NEEDLE: a customer writes a sentence, and we ask which known stand appears inside it.
+  //
+  // The customer's side is folded HERE and bound as an ordinary parameter; the stand name is
+  // folded in SQL by the same rules. Keeping the expression identical on both sides is the
+  // whole correctness argument, so the two must be read together.
+  //
+  // The empty-name guard matters: a name that folds to nothing (punctuation only) folds to
+  // `''`, and `position('' in …)` is 1 — it would match EVERY message and silently bind every
+  // report to that stand.
+  //
+  // `'\\s+'` is doubled ON PURPOSE. This is a JS template literal, so a single backslash is
+  // consumed before Postgres ever sees it and the pattern arrives as `s+` — which strips the
+  // letter "s" from every stand name and folds "Bart's Cart" to "bart   cart". It matched
+  // nothing and looked like a matching bug rather than an escaping one.
+  const folded = foldForMatching(taskText);
+  if (folded === "") return null;
+
   const rows = await db.sql`
     select id from sales_locations
     where retired_at is null
-      and position(lower(name) in lower(${taskText})) > 0
+      and btrim(regexp_replace(
+            regexp_replace(lower(name), '[^a-z0-9 ]', '', 'g'),
+            '\\s+', ' ', 'g')) <> ''
+      and position(
+            btrim(regexp_replace(
+              regexp_replace(lower(name), '[^a-z0-9 ]', '', 'g'),
+              '\\s+', ' ', 'g'))
+            in ${folded}
+          ) > 0
   `;
   // Exactly one, or we ask. Two stands whose names both appear is genuinely ambiguous, and
   // picking the first would be a silent guess against a farmer.
