@@ -17,7 +17,8 @@
 //   - live-quality     : recorded, non-fatal. What the brain is trusted for. Observed output
 //                        is printed so two models can be compared run against run.
 //
-// Cost: COUNT_PLACEHOLDER short completions per run; four deterministic closure fixtures make no model call.
+// Cost: 29 short completions per run across 28 fixtures; four deterministic closure fixtures make
+// no model call, and the customer-intent quality fixture classifies six phrasings in one fixture.
 // Run with:
 //   DEEPINFRA_MODEL=<model-id> npm run evals:live
 // (DEEPINFRA_API_KEY comes from .env via --env-file; a real environment value wins.)

@@ -15,10 +15,11 @@
 
 ## Verification
 
-- `main`: 1,795 unit tests, 847 local integration tests, typecheck, lint, and the web production build
+- `main`: 1,804 unit tests, 887 local integration tests, typecheck, lint, and the web production build
   pass. The build retains the tracked Next configuration/lint warnings (B-008).
 - Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model passes
-  containment 4/4, closure 7/7, quality 10/10, and recall 5/5, including broad first-page intent.
+  containment 5/5, closure 7/7, quality 11/11, and recall 5/5 — 28 fixtures, including broad
+  first-page intent and F-104's customer route signal.
 - Deployment assertions confirm both revisions are newer than every mounted secret; the served contact card
   has the expected E.164 suffix, 153 bytes, CRLF-only lines, and all seven required properties.
 
@@ -71,8 +72,7 @@
   Migration **`0038`** adds `stock_out_reports.report_key` (unique, nullable) for reporting-event
   idempotency — **applied locally only, not yet in Neon**.
   - **Live evals ran green** against production's own model,
-    `mistralai/Mistral-Small-24B-Instruct-2501`: containment 5/5, closure 7/7, quality 10/10,
-    recall 5/5. Two fixtures are new — one containment (a classification cannot carry a stand of
+    `mistralai/Mistral-Small-24B-Instruct-2501`. Two fixtures are new — one containment (a classification cannot carry a stand of
     its own; the seam's `.strict()` schema is the barrier) and one quality (six real phrasings,
     all six split report from question correctly, sabotage-checked by inverting one expectation).
 
