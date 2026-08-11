@@ -55,6 +55,26 @@ describe("stock-out alert copy", () => {
     expect(body).not.toMatch(/\d{3}[\s.-]?\d{4}/);
   });
 
+  /*
+    The item name is the farmer's own words and comes in every grammatical number: "Eggs",
+    "Lettuce", "bread", "a choy" are all real `stand_items` rows. A sentence that agreed with
+    one would disagree with the others — "eggs is sold out" was what production sent — so the
+    rendering must not depend on number at all.
+  */
+  it("reads correctly whatever the number of the farmer's own item name", () => {
+    for (const itemName of ["eggs", "lettuce", "bread", "a choy", "Tomatoes"]) {
+      const body = renderStockOutAlert({
+        locationName: "Alpha Farm Stand",
+        item: { kind: "listed", itemName },
+      });
+
+      expect(body).toContain(itemName);
+      // No verb agreeing with the item, in either direction.
+      expect(body).not.toContain(`${itemName} is`);
+      expect(body).not.toContain(`${itemName} are`);
+    }
+  });
+
   /**
    * The type has no field for unlisted item text, so this is the runtime half of a guarantee
    * the compiler already enforces: an unlisted report still produces a usable alert, and the

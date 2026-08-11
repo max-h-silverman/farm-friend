@@ -138,10 +138,12 @@ already texts Farm Friend while a QR code must first be printed and placed. The 
 remains specified and its endpoint exists, but nothing links to it yet.
 
 **The sales location is always bound by code, on every surface.** The web surface takes it from the
-scanned route; SMS resolves it by unique exact-substring match of stand names against real rows, and
-asks *"Which stand are you at?"* when zero or several match. A model never names a stand, so a
-stranger's report cannot be routed at a farmer they did not identify. A sender naming a stand that
-is not theirs is reporting — including an authorized farmer who spots a neighbour's empty bin.
+scanned route; SMS resolves it against real rows — a punctuation-folded unique name match, then
+scoring a partial name by a stand's distinctive words — and asks *"Which stand are you at?"* when
+nothing matches or two stands match equally. A misspelled name asks rather than being guessed at. A
+model never names a stand, so a stranger's report cannot be routed at a farmer they did not
+identify. A sender naming a stand that is not theirs is reporting — including an authorized farmer
+who spots a neighbour's empty bin.
 
 The report **does not affect the map, answers, or ranking**. Code resolves the authorized farmer
 from that location and asks them to send current inventory; the alert names the stand and, for a

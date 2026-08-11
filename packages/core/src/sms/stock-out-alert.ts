@@ -49,15 +49,21 @@ export interface StockOutAlertFacts {
 export function renderStockOutAlert(facts: StockOutAlertFacts): string {
   // The only interpolated values are the stand's own name and, when it exists, the farmer's
   // own item name. Both are Farm Friend-held facts, neither is model prose.
+  //
+  // The item is placed after "sold out of" rather than made the SUBJECT of a verb, and that
+  // is deliberate: `stand_items` holds plurals ("Eggs"), mass nouns ("bread", "lettuce") and
+  // singulars ("a choy") side by side, so any verb agreeing with the item is wrong for some
+  // real row. Production sent "someone reported that eggs is sold out". Nothing here may
+  // depend on the item's grammatical number, and no code may guess at it.
   const subject =
     facts.item.kind === "listed"
-      ? `${facts.item.itemName} is sold out`
-      : "something is sold out";
+      ? `sold out of ${facts.item.itemName}`
+      : "sold out of something";
 
   return [
     // "Someone reported" is doing real work: it states the provenance honestly (a stranger
     // said this) without implying Farm Friend confirmed it or changed the listing.
-    `VIGA Farm Friend: someone reported that ${subject} at ${facts.locationName}.`,
+    `VIGA Farm Friend: someone reported that ${facts.locationName} is ${subject}.`,
     "",
     // The ask is an ordinary update, in the same words the welcome message teaches. No token,
     // no menu, nothing that needs its own parser.

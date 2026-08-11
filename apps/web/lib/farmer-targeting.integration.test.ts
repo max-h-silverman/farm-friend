@@ -495,8 +495,8 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(queued[0]?.body).toContain("Plum Forest Stand");
     expect(queued[0]?.body).not.toContain("tomatoes");
 
-    // The reporter is thanked without being told whether anyone was reachable.
-    expect(result.replies[0]?.body).toBe("Thanks for letting us know.");
+    // The reporter is told the farmer will be told — intent, never a delivery receipt.
+    expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
     // The seam that binds the item never received a location to choose from.
     expect(JSON.stringify(parseItem.mock.calls[0]?.[0])).not.toContain(locationId);
   });
@@ -541,6 +541,309 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(await client()`
       select id from outbox_work where message_category = 'stock_out_alert'
     `).toHaveLength(0);
+  });
+
+  /*
+    F-106 tier 1 — punctuation and case must not defeat the EXACT match.
+
+    "Bart's Cart" is a real production stand, and nobody types the apostrophe. Folding both
+    sides is still an exact match on the folded text: it widens the spelling accepted for one
+    name, never the set of names a message can reach. A message that folds to two stands is
+    still ambiguous and still asks.
+  */
+  it("matches a stand name across punctuation and case without a model call", async () => {
+    const senderHash = "p".repeat(64);
+    const locationId = await otherFarmersStand("Bart's Cart");
+    const parseItem = vi.fn(
+      async (_input: {
+        taskText: string;
+        listedItems: readonly { entryId: string; itemName: string }[];
+      }) => ({ kind: "unlisted" as const, itemText: "kale" }),
+    );
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        // No apostrophe, lowercase — what a person actually sends.
+        taskText: "kale out at barts cart",
+        occurredAt: T0,
+        providerEventId: "stockout-folded-1",
+        inboxEventId: "88888888-8888-8888-8888-888888888888",
+      },
+    );
+
+    // Bound in code, silently, exactly as a fully-spelled name is. No confirmation step.
+    const reports = await client()`
+      select sales_location_id from stock_out_reports
+    `;
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.sales_location_id).toBe(locationId);
+    expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
+  });
+
+  /*
+    The mirror of the case above, and it is NOT redundant: "barts cart" has no punctuation to
+    strip, so folding only the STAND NAME already passed that test. Removing the customer-side
+    strip left every folding test green. This is the one that fails when it goes.
+  */
+  it("folds punctuation on the customer's side of the match too", async () => {
+    const senderHash = "r".repeat(64);
+    // Production spells this stand with a CURLY apostrophe (U+2019) — "Bart’s Cart" — which
+    // no phone keyboard produces by default. Measured against the live corpus 2026-08-11:
+    // before folding, that name was unmatchable by anyone typing it normally. The stand row
+    // here carries the real character, and the customer below types the straight one.
+    const locationId = await otherFarmersStand("Bart’s Cart");
+    const parseItem = vi.fn(
+      async (_input: {
+        taskText: string;
+        listedItems: readonly { entryId: string; itemName: string }[];
+      }) => ({ kind: "unlisted" as const, itemText: "kale" }),
+    );
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        // The APOSTROPHE is the customer's, and the stand's own name has none.
+        taskText: "kale out at Bart's Cart",
+        occurredAt: T0,
+        providerEventId: "stockout-folded-2",
+        inboxEventId: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+      },
+    );
+
+    const reports = await client()`select sales_location_id from stock_out_reports`;
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.sales_location_id).toBe(locationId);
+    expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
+  });
+
+  /*
+    F-106 tier 2 — a PARTIAL stand name, resolved in code (max, 2026-08-11).
+
+    "kale out at barts" names one real stand to any islander, but "barts" is not a substring
+    of "barts cart" reversed — the message does not contain the name, so tier 1 cannot see it.
+
+    Scoring the stand's DISTINCTIVE words against the message resolves it, and measurement
+    against the 36 live stands is why this is code and not a model call: a single best score
+    identified the right stand in every partial-name case tried, and produced a tie (which
+    asks) for the genuinely ambiguous ones. A model here would add a seam, a projection and a
+    validation path to reproduce an answer `Set.has` already gets right.
+
+    A MISSPELLED name ("pinecome") still asks. That is the deliberate stopping point (max,
+    2026-08-11): fuzzy matching is the only part that needs a model, and needing a model means
+    needing a confirmation token before a stranger's guess can text a farmer. Asking costs one
+    round-trip and risks nothing.
+  */
+  it("resolves a partial stand name by its distinctive words, with no model call", async () => {
+    const senderHash = "s".repeat(64);
+    const locationId = await otherFarmersStand("Bart’s Cart");
+    // A second stand sharing a GENERIC word, to prove the score ignores "farm"/"stand".
+    await otherFarmersStand("Forest Garden Farm", {
+      phone: "+12065550197",
+      hash: "7".repeat(64),
+    });
+    const parseItem = vi.fn(
+      async (_input: {
+        taskText: string;
+        listedItems: readonly { entryId: string; itemName: string }[];
+      }) => ({ kind: "unlisted" as const, itemText: "kale" }),
+    );
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        // Just "barts" — the stand's own name is never spelled out.
+        taskText: "kale out at barts",
+        occurredAt: T0,
+        providerEventId: "stockout-partial-1",
+        inboxEventId: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+      },
+    );
+
+    const reports = await client()`select sales_location_id from stock_out_reports`;
+    expect(reports).toHaveLength(1);
+    expect(reports[0]?.sales_location_id).toBe(locationId);
+    expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
+  });
+
+  it("asks when two stands score equally on a partial name", async () => {
+    const senderHash = "t".repeat(64);
+    // The real production pair: "Vashon Garlic" and "Vashon Island Farmers Market" share
+    // their only distinctive first word, so "vashon" alone cannot choose between them.
+    await otherFarmersStand("Vashon Garlic");
+    await otherFarmersStand("Vashon Island Farmers Market", {
+      phone: "+12065550196",
+      hash: "6".repeat(64),
+    });
+    const parseItem = vi.fn(async () => {
+      throw new Error("the item seam must not run before a stand is bound");
+    });
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "nothing at vashon",
+        occurredAt: T0,
+        providerEventId: "stockout-partial-ambiguous-1",
+        inboxEventId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
+      },
+    );
+
+    expect(result.replies[0]?.body).toMatch(/which stand/i);
+    expect(parseItem).not.toHaveBeenCalled();
+    expect(await client()`select id from stock_out_reports`).toHaveLength(0);
+  });
+
+  it("asks rather than guessing at a misspelled stand name", async () => {
+    const senderHash = "u".repeat(64);
+    await otherFarmersStand("Pinecone Gardens");
+    const parseItem = vi.fn(async () => {
+      throw new Error("the item seam must not run before a stand is bound");
+    });
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        // "pinecome" is not "pinecone". Code does not guess at spelling.
+        taskText: "no eggs at pinecome garden",
+        occurredAt: T0,
+        providerEventId: "stockout-misspelled-1",
+        inboxEventId: "dddddddd-dddd-dddd-dddd-dddddddddddd",
+      },
+    );
+
+    expect(result.replies[0]?.body).toMatch(/which stand/i);
+    expect(parseItem).not.toHaveBeenCalled();
+    expect(await client()`select id from stock_out_reports`).toHaveLength(0);
+  });
+
+  it("does not let a generic word alone bind a report to a stand", async () => {
+    const senderHash = "v".repeat(64);
+    // "farm" is in most stand names and distinguishes nothing. A message carrying only a
+    // generic word must reach nobody — silently texting a farmer off "farm" would be the
+    // worst failure this scoring could have.
+    await otherFarmersStand("Narwhal Farm");
+    const parseItem = vi.fn(async () => {
+      throw new Error("the item seam must not run before a stand is bound");
+    });
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "the farm stand is out of eggs",
+        occurredAt: T0,
+        providerEventId: "stockout-generic-1",
+        inboxEventId: "eeeeeeee-eeee-eeee-eeee-eeeeeeeeeeee",
+      },
+    );
+
+    expect(result.replies[0]?.body).toMatch(/which stand/i);
+    expect(parseItem).not.toHaveBeenCalled();
+    expect(await client()`select id from stock_out_reports`).toHaveLength(0);
+  });
+
+  it("still refuses when the folded text matches two stands", async () => {
+    const senderHash = "q".repeat(64);
+    // Folding must not collapse two distinct names into one silent guess.
+    await otherFarmersStand("Bart's Cart");
+    await otherFarmersStand("Barts Cart North", {
+      phone: "+12065550198",
+      hash: "8".repeat(64),
+    });
+    const parseItem = vi.fn(async () => {
+      throw new Error("the item seam must not run before a stand is bound");
+    });
+
+    const result = await handleFreeText(
+      {
+        db: database(),
+        interpreter: { interpret: vi.fn() },
+        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
+        customerIntent: {
+          classify: async () => ({ kind: "stock_out_report" as const }),
+        },
+        stockOut: { parseItem },
+        clock: new FixedClock(T0),
+      },
+      {
+        senderHash,
+        taskText: "nothing left at barts cart north",
+        occurredAt: T0,
+        providerEventId: "stockout-folded-ambiguous-1",
+        inboxEventId: "99999999-9999-9999-9999-999999999999",
+      },
+    );
+
+    expect(result.replies[0]?.body).toMatch(/which stand/i);
+    expect(parseItem).not.toHaveBeenCalled();
+    expect(await client()`select id from stock_out_reports`).toHaveLength(0);
   });
 
   /*
@@ -605,7 +908,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(queued[0]?.recipient_hash).not.toBe(senderHash);
 
     // No stand menu, no proposal: this was never about the sender's own stands.
-    expect(result.replies[0]?.body).toBe("Thanks for letting us know.");
+    expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
     expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
   });
 

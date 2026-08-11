@@ -676,7 +676,11 @@ describe("farm-map poster treatment", () => {
 
     const finder = screen.getByRole("region", { name: "Find a stand" });
     expect(within(finder).getByRole("heading", { name: "Find a stand" })).toBeTruthy();
-    expect(within(finder).getByRole("searchbox", { name: "What they sell" })).toBeTruthy();
+    expect(
+      within(finder).getByRole("searchbox", {
+        name: "What they sell, or a farm or stand name",
+      }),
+    ).toBeTruthy();
     expect(within(finder).getByRole("button", { name: "Near me" })).toBeTruthy();
     expect(within(finder).getByRole("button", { name: "Filters" })).toBeTruthy();
     expect(within(finder).queryByLabelText("Active filters")).toBeNull();

@@ -933,7 +933,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
 
         <div className="filter-command-bar">
           <label className="field field-search">
-            <span className="sr-only">What they sell</span>
+            <span className="sr-only">What they sell, or a farm or stand name</span>
             <span className="field-control">
               <svg className="field-icon" viewBox="0 0 24 24" aria-hidden="true">
                 <circle cx="11" cy="11" r="6.5" />
@@ -942,7 +942,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
               <input
                 type="search"
                 className="field-input"
-                placeholder="Search eggs, flowers, lamb…"
+                placeholder="Search eggs, flowers, Bart's Cart…"
                 value={filters.sells ?? ""}
                 onChange={(event) =>
                   setFilters((current) => ({

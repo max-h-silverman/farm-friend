@@ -67,15 +67,22 @@ export const STOCK_OUT_UNCLEAR_ITEM =
   "Thanks for letting us know. What was sold out?";
 
 /**
- * The reply to a recorded report — deliberately opaque about what happened next.
+ * The reply to a recorded report — it names the consequence (max, 2026-08-11).
  *
- * It does NOT say the farmer was told. Two reasons, and the second is the stronger one:
- * saying so would reveal whether a farmer is reachable and has consented (Golden Rule #5),
- * and it would often be FALSE — an alert to a farmer without active consent is suppressed at
- * dispatch, and a stand between farmers has nobody to alert at all. A stranger gets thanks,
- * which is honest in every case.
+ * The earlier copy thanked the reporter and said nothing about what would happen, to avoid
+ * two things: the sentence is not literally true when the farmer has no active consent (the
+ * alert is suppressed at dispatch) or when the stand is between farmers and there is nobody
+ * to alert, and stating it tells a stranger something about that farmer's reachability.
+ *
+ * Max chose this wording anyway, and the tradeoff is narrow: the leak is one bit about a
+ * business's contactability, inferable only by a reporter who already knows the alert should
+ * have produced a restock. What it buys is a reporter who knows their message went somewhere
+ * — the thing that makes reporting feel worth doing at all.
+ *
+ * It describes INTENT, not delivery. Nothing downstream may read it as a promise that a text
+ * was sent: dispatch consent remains the only authority on that (Golden Rule #5).
  */
-export const STOCK_OUT_THANKS = "Thanks for letting us know.";
+export const STOCK_OUT_THANKS = "Thanks, we'll let the farmer know.";
 
 export const FARMER_INTENT_CLARIFICATION =
   "Are you updating your inventory or asking what a farm stand has? Reply UPDATE or QUESTION.";
@@ -188,21 +195,154 @@ async function standBelongsToSender(
   return rows.length > 0;
 }
 
+/**
+ * Fold a string to the form both sides of the stand-name match are compared in (F-106).
+ *
+ * Lowercase, strip everything that is not a letter, digit or space, then collapse runs of
+ * whitespace. "Bart's Cart" and "barts cart" both become `barts cart`, because nobody types
+ * the apostrophe in a text message.
+ *
+ * **This widens the SPELLINGS one name accepts, never the set of names a message can reach.**
+ * It is still an exact substring match, just computed over folded text — not fuzzy, not
+ * ranked, not "closest". Two stands still folding into one message is still ambiguous and
+ * still asks.
+ *
+ * Deliberately not `unaccent` or a similarity metric: those need an extension or a threshold,
+ * and a threshold is the guess this function exists to avoid.
+ */
+function foldForMatching(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
+ * Words that appear in so many stand names they identify nobody (F-106).
+ *
+ * Scoring counts how much of a stand's name the customer actually typed, so a word almost
+ * every stand shares must not count — otherwise "the farm stand is out of eggs" scores a hit
+ * against most of the island and the highest score wins by accident.
+ *
+ * Derived from the live corpus, not invented: "farm"/"farms" appear in more than half the 36
+ * live stand names, and "garden(s)"/"stand" in several more. It is a stop-list for SCORING
+ * only — a stand named entirely from these words is still matchable by tier 1, which compares
+ * whole names.
+ */
+const GENERIC_NAME_WORDS: ReadonlySet<string> = new Set([
+  "farm",
+  "farms",
+  "farmstand",
+  "stand",
+  "garden",
+  "gardens",
+  "the",
+  "and",
+]);
+
+/**
+ * Resolve a stand from a PARTIAL name — "barts" for "Bart's Cart" (F-106).
+ *
+ * Scores each stand by how many of its own distinctive words the customer typed, and returns
+ * the single highest scorer. A tie is ambiguous and returns null, exactly as two whole-name
+ * matches do.
+ *
+ * **Why this is code and not a model call.** Measured against the 36 live stands on
+ * 2026-08-11: a single best score picked the right stand for every realistic partial message
+ * tried, and tied (so asked) for the two genuinely ambiguous ones. Adding a model here would
+ * mean a seam, a projection, a validation path and an eval to reproduce an answer a set
+ * intersection already gets right — and would put a model between a stranger's words and a
+ * farmer's handset for no measured gain. Golden Rule #4 permits a model to select from
+ * retrieved options; it does not require one where code decides.
+ *
+ * **What it deliberately cannot do:** spelling. "pinecome" scores zero against "pinecone" and
+ * falls through to the question. Fuzzy matching is the one part that needs a model, and a
+ * model's guess would need a confirmation step before it could reach a farmer (max,
+ * 2026-08-11: leave it here and ask when unclear).
+ */
+async function resolveStandByDistinctiveWords(
+  db: Db,
+  foldedText: string,
+): Promise<{ id: string } | null> {
+  const messageWords = new Set(foldedText.split(" ").filter((word) => word !== ""));
+  if (messageWords.size === 0) return null;
+
+  const stands = await db.sql`
+    select id, btrim(regexp_replace(
+             regexp_replace(lower(name), '[^a-z0-9 ]', '', 'g'),
+             '\\s+', ' ', 'g')) as folded_name
+    from sales_locations
+    where retired_at is null
+  `;
+
+  let best: { id: string; score: number } | null = null;
+  let bestIsTied = false;
+
+  for (const stand of stands) {
+    const distinctive = (stand.folded_name as string)
+      .split(" ")
+      .filter((word) => word !== "" && !GENERIC_NAME_WORDS.has(word));
+    const score = distinctive.filter((word) => messageWords.has(word)).length;
+    if (score === 0) continue;
+
+    if (best === null || score > best.score) {
+      best = { id: stand.id as string, score };
+      bestIsTied = false;
+    } else if (score === best.score) {
+      bestIsTied = true;
+    }
+  }
+
+  // A tie means two stands are equally named by these words. Picking either would be the
+  // silent guess against a farmer that this whole path exists to refuse.
+  return best !== null && !bestIsTied ? { id: best.id } : null;
+}
+
 async function resolveReportedStand(
   db: Db,
   taskText: string,
 ): Promise<{ id: string } | null> {
-  // Normalized on both sides so "plum forest" matches "Plum Forest Stand". The customer's
-  // text is the HAYSTACK and the stand name is the NEEDLE: a customer writes a sentence, and
-  // we are asking which known stand appears inside it.
+  // Folded on both sides so "plum forest" matches "Plum Forest Stand" and "barts cart"
+  // matches "Bart's Cart". The customer's text is the HAYSTACK and the stand name is the
+  // NEEDLE: a customer writes a sentence, and we ask which known stand appears inside it.
+  //
+  // The customer's side is folded HERE and bound as an ordinary parameter; the stand name is
+  // folded in SQL by the same rules. Keeping the expression identical on both sides is the
+  // whole correctness argument, so the two must be read together.
+  //
+  // The empty-name guard matters: a name that folds to nothing (punctuation only) folds to
+  // `''`, and `position('' in …)` is 1 — it would match EVERY message and silently bind every
+  // report to that stand.
+  //
+  // `'\\s+'` is doubled ON PURPOSE. This is a JS template literal, so a single backslash is
+  // consumed before Postgres ever sees it and the pattern arrives as `s+` — which strips the
+  // letter "s" from every stand name and folds "Bart's Cart" to "bart   cart". It matched
+  // nothing and looked like a matching bug rather than an escaping one.
+  const folded = foldForMatching(taskText);
+  if (folded === "") return null;
+
   const rows = await db.sql`
     select id from sales_locations
     where retired_at is null
-      and position(lower(name) in lower(${taskText})) > 0
+      and btrim(regexp_replace(
+            regexp_replace(lower(name), '[^a-z0-9 ]', '', 'g'),
+            '\\s+', ' ', 'g')) <> ''
+      and position(
+            btrim(regexp_replace(
+              regexp_replace(lower(name), '[^a-z0-9 ]', '', 'g'),
+              '\\s+', ' ', 'g'))
+            in ${folded}
+          ) > 0
   `;
   // Exactly one, or we ask. Two stands whose names both appear is genuinely ambiguous, and
   // picking the first would be a silent guess against a farmer.
-  return rows.length === 1 ? { id: rows[0]?.id as string } : null;
+  if (rows.length === 1) return { id: rows[0]?.id as string };
+  // More than one whole name inside the message stays ambiguous. Scoring cannot improve on
+  // that: both names are fully present, so both would score their maximum.
+  if (rows.length > 1) return null;
+
+  return resolveStandByDistinctiveWords(db, folded);
 }
 
 /**
