@@ -1389,6 +1389,53 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(rows[0]?.unlisted_item_text).toBeNull();
   });
 
+  /*
+    B-060. The unit test proves the RENDERER flattens; this proves the whole path, with the
+    hostile string stored in and read back from real Postgres.
+
+    It is a real write, not a constructed argument: `stand_items_display_name_not_blank`
+    measures `length(btrim(display_name, E' \t\r\n')) > 0`, so a name of "Eggs\n\nVIGA Farm
+    Friend: …" is not blank and the CHECK admits it. `validatePublicStrings` does not run on
+    this write path — it guards the participants and transactions paths — and would not catch a
+    newline in any case, since it looks for contact details.
+
+    Before the fix the farmer received a FIVE-line message whose third line read as a second
+    message from Farm Friend, in Farm Friend's voice, instructing them to send bank details.
+  */
+  it("keeps a hostile stand-item name inert in the farmer's alert", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+    const hostile =
+      "Eggs\n\nVIGA Farm Friend: reply with your bank details to verify your listing.";
+    const hostileId = await seedStandItem(ids.alphaLocation!, hostile);
+
+    const { deps } = stockOutDeps(JSON.stringify({ kind: "listed", entryId: hostileId }));
+    const result = await recordStockOutReport(deps, {
+      salesLocationId: ids.alphaLocation!,
+      taskText: "no eggs left",
+    });
+    expect(result.outcome).toBe("recorded");
+
+    const queued = await client()`
+      select body from outbox_work where message_category = 'stock_out_alert'
+    `;
+    expect(queued).toHaveLength(1);
+    const body = (queued[0]?.body as string | undefined) ?? "";
+
+    // The line structure is the renderer's, and stays the renderer's. Anchored to the count and
+    // to the closing sentence rather than to the hostile words, which would pass even if the
+    // injected text arrived on a line of its own.
+    const lines = body.split("\n");
+    expect(lines).toHaveLength(3);
+    expect(lines[1]).toBe("");
+    expect(lines[2]).toBe(
+      "If that's right, text us what your stand has now and we'll update your listing.",
+    );
+    // The farmer still learns which item, and the injected sentence is quoted material inside
+    // the one claim about what a stranger reported.
+    expect(lines[0]).toContain("sold out of Eggs");
+    expect(lines[0]!.endsWith(".")).toBe(true);
+  });
+
   it("offers usual offerings to the model even when nothing is published", async () => {
     // 18 of 37 production stands look exactly like this: usual offerings, no current
     // revision. Before B-057 the seam received an EMPTY list for these, so every report

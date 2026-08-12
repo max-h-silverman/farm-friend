@@ -7,6 +7,14 @@
 
 - Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
   and stand details. F-104's customer→farmer alert path is closed and proven on a real handset.
+- **B-057 is closed on the live path (2026-08-12).** A customer handset reported "pinecone gardens
+  out of eggs" and the farmer's alert named eggs. Confirmed by effect, not by the message: report
+  `8f2610c4` stored `referenced_stand_item_id` with the entry and unlisted columns null — the first
+  production write of that column. `eggs` is `usually_carried = false` and unpublished at that stand,
+  so the unpublished-offering branch is what ran. A kale report 31 minutes earlier stored
+  `referenced_inventory_entry_id`, and the 2026-08-11 defect row still reads `unlisted_item_text`;
+  the three together are the before/after. The customer reply is byte-identical on both branches, so
+  only the farmer's alert and the stored row distinguish them.
 - Cloud Run web `farm-friend-web-00071-fxf` and worker `farm-friend-worker-00066-75p` serve
   immutable digest `sha256:e647210b21cc92026f2183061a843db6d0e77a15a466a399bd295d5f2e8b23ce`,
   built from `main` `11c8163` and deployed 2026-08-12. Plan assertions 60/60 (delta was the image
@@ -106,11 +114,6 @@
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the
   roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
-- **B-057 owes one live check:** a stock-out alert can now name one of the stand's usual offerings,
-  not only its published inventory — live but unproven on the live path. Text a stock-out for an item
-  a stand carries as a usual offering but does not currently publish (Pinecone Gardens' eggs is the
-  original case), then confirm the farmer's alert names it and the report stored
-  `referenced_stand_item_id`. Until then the fix is proven only by test.
 - B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
   `correct/total`, but do not loosen it until it always passes.
 - **B-062 and B-063 owe one live check:** text a question whose answer includes a stand confirmed
