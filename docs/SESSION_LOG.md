@@ -11,6 +11,88 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-11 — One handset reply closed two items and opened three
+
+**Merged and deployed.** PR #107; migration `0040` applied to Neon ahead of the image.
+
+**The live check passed, and then paid for itself.** max texted "what do you have" to production.
+The broad question was *answered* rather than deflected — B-061's code check firing on the real
+inbound path, through the real model, on the real corpus — in F-107's one-entry-per-stand format.
+Both items closed on that single message.
+
+The same reply exposed three new defects, none a regression of either. **A format nobody had read
+on a handset passed every test and was still wrong in three ways**, which is the reusable lesson:
+the suites measured the shape of the answer and could not measure whether it read.
+
+**B-062 — the count and the paging unit disagreed with the list.** "1-3 of 45" over an island with
+35 stands. F-107 merged a stand's two facts into one entry *at render time*, deliberately, so
+grounding and the MORE pending list keep working on fact ids — but the count and the page window
+stayed in facts. Two consequences, and the second is the one that matters: the total over-stated
+what exists, and a stand whose confirmed row ended one page while its offering row began the next
+printed **twice** across two messages.
+
+Fixed by making the stand the unit everywhere: `groupFactsByStand` orders a stand's ids adjacently
+and counts claiming entries; `factsPerPage` takes whole stands. Migration `0040` stores
+`stand_total`, `stand_offset`, and `broad`.
+
+`broad` needed a column because **page 2 cannot re-derive it**. A general question names no item, so
+code substitutes a placeholder ("produce") to drive retrieval; a later page reading `itemsRequested`
+alone would print "Produce:" where page 1 said "Recently reported inventory". Deriving it from the
+placeholder was considered and rejected — a customer can search for produce.
+
+The MORE path recovers which stand an id belongs to **from the identifier itself**: `offeringFactId`
+derives an offering id from the confirmed one, so `standKeyOfFactId` reads that derivation backwards.
+No database round trip inside the lock, and no second source of truth about stand identity.
+
+**B-063 — `IN STOCK (16d ago)`.** A present-tense label and a fortnight-old timestamp in one line,
+and the label is what a customer reads first. F-107 had dropped the "- may be out of date" suffix
+because twenty characters per entry pushed an all-stale page over the segment ceiling; that
+reasoning held at "(3d ago)" and broke completely by "(16d ago)".
+
+**The fix changes the label, not the suffix** — `Last seen (16d ago)` — which costs one character
+because it *replaces* rather than appends. Measured: an all-stale page of three both-claim stands is
+416 characters / 3 segments, inside the accepted ceiling. The constraint that killed the previous
+attempt did not apply to this shape of fix.
+
+Also added, unasked but necessary: past 28 days the stock claim drops entirely, from the same
+`isConfirmationExpired` the public map already used. Without it, "Last seen (94d ago)" is the same
+defect one version later. And ranking became three tiers — fresh confirmation, usual offerings,
+stale confirmation — because a fortnight-old snapshot outranking a stand that reliably sells the
+thing steers the customer to the worse bet.
+
+**Freshness threshold 48 → 96 hours (max's call).** Four days: nearly every stand is unattended
+honor-system with stable staples, so a farmer who confirms Saturday is not wrong by Monday, and 48
+hours marked ordinary weekend listings as suspect. max chose to move **both surfaces together**
+rather than split the constant — so the deployed map's stale warning now starts two days later too.
+Two numbers would let one row read as current stock in a text and stale on the web.
+
+**A test gap this exposed.** The existing threshold test asserted `isStale(STALE_AFTER_HOURS - 1)`
+is false and `isStale(STALE_AFTER_HOURS)` is true — written *against the constant*, so it passed at
+any value and could not notice the threshold moving. A product commitment with nothing testing its
+number. Now pinned directly, plus a test keeping staleness ordered before the 28-day expiry.
+
+**B-064 — closed `wont-fix`.** `In stock (23h ago): Veggie` looked like a data-quality defect; max
+confirmed "Veggie" is the farmer's own word. That killed both halves of the proposed fix, and the
+renderer-side one would have been **a bug**: a structural check on name length or fragment shape
+would have silently suppressed a farmer's deliberate wording on the one surface where they cannot
+see what the customer received. Golden rule 1 settles it — the farmer owns published state, and
+"customer-grade" is not ours to judge on their behalf.
+
+**A sabotage that survived, and what it found.** Seven sabotages were run; six were caught by their
+intended tests. The seventh — flattening the MORE path's own page measurement — **passed**, because
+every paging fixture was offering-only and so never produced a dual-basis stand. Two chains of
+reasoning about why it "should" have failed were both wrong; printing the actual pages settled it.
+The fixture now gives stands a usual offering their confirmed row does not name, and a second test
+saves a deliberately interleaved list to exercise the pager's own measurement rather than the
+save-time grouping that masks it.
+
+**Verified:** 1,922 unit, 916 integration, typecheck, lint, stub evals (11/11, 4/4, 29/29).
+Migration applied to a fresh database and confirmed by reading the columns back, with a no-op rerun.
+Live evals not run — `packages/ai` is untouched, so no seam projection, schema, or instruction moved.
+
+**Owed:** one live check, same shape as the one that started this — text a question whose answer
+includes a stand confirmed more than four days ago, and read the label.
+
 ## 2026-08-11 — B-061 defect 4: the prompt could not reach it, so the harness took it
 
 **Merged and deployed.** `99db95d` (PR #106); web `00067-mlf`, worker `00062-qlw`. This deploy also
