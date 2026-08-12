@@ -433,7 +433,10 @@ describe("scheduled inventory prompt pass (integration)", () => {
     });
     expect(rows[0]?.outbox_work_id).toBeTruthy();
     expect(rows[0]?.activation_outbox_id).toBeNull();
-    expect(rows[0]?.body).toContain("For Prompt Stand:");
+    // The recency stamp comes from the revision's own `published_at`, so this asserts the
+    // database value reached the copy rather than that the renderer can format a date.
+    expect(rows[0]?.body).toContain("Items listed for Prompt Stand (updated ");
+    expect(rows[0]?.body).toMatch(/\(updated (now|\d+[hd] ago)\):/);
     expect(rows[0]?.body).toContain("- Eggs (6 dozen, $8)");
     expect(rows[0]?.body).toContain("- Kale (4 bunches, $5)");
     expect(rows[0]?.body).toContain("Reply SAME");
