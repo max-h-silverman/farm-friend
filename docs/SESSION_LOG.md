@@ -73,8 +73,11 @@ captured for rollback, re-queried after: 0 of 39 remain. Same bug class as B-054
 fact, two homes. Lavender Hill separately duplicates its own "Wreaths can be preordered" sentence;
 left alone as a different defect.
 
-Verified: 1,926 unit, 916 integration, typecheck, lint. Not verified: the reminder on a handset —
-no prompt has been sent since the change, and the schedule fires at 10:00 stand-local.
+Verified: 1,926 unit, 916 integration, typecheck, lint. Deployed from `main` `be4aeeb` — web
+`00070-msn`, worker `00065-thb`, digest `c19eb0c7`, plan assertions 60/60, no migration; the four
+cleaned descriptions were read back off the live public API and carry no payment prose. Not
+verified: the reminder on a handset — no prompt has been sent since the change, and the schedule
+fires at 10:00 stand-local.
 
 ---
 
