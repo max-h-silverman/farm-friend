@@ -10,7 +10,7 @@ import {
   type LLMProvider,
   type ModelSafeContext,
 } from "@farm-friend/ai";
-import { FixedClock } from "@farm-friend/core";
+import { FixedClock, PUBLIC_MAP_URL } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { containsRawPhone } from "@farm-friend/sms";
 import { answerInquiry, offeringFactId } from "./inquiry";
@@ -730,7 +730,9 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.body).toContain("In stock (2h ago)");
     // Plus the honest code-rendered limitation and the public-map link.
     expect(result.body).toContain("cannot work out which stand is closest");
-    expect(result.body).toContain("vigavashon.org/farm-stand-map");
+    // The WHOLE link, anchor included — a bare-hostname substring passes even when the `#map`
+    // fragment is dropped, which would land the customer above the embed with nothing failing.
+    expect(result.body).toContain(PUBLIC_MAP_URL);
     // And NO fabricated geography anywhere.
     expect(result.body).not.toMatch(/\d+(\.\d+)?\s*(miles?|km|minutes?)\b/i);
     expect(result.body).not.toMatch(/turn|head (north|south|east|west)|drive/i);

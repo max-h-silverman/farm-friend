@@ -17,6 +17,7 @@ import {
 } from "@farm-friend/ai";
 import {
   createPublicActionThrottle,
+  PUBLIC_MAP_URL,
   type Clock,
   type InventoryInterpreter,
   type PublicActionThrottle,
@@ -266,6 +267,24 @@ export function resolvePublicMapUrl(env: EnvVars): string {
   if (url.protocol !== "https:" && !(url.protocol === "http:" && isLocal)) {
     throw new ConfigurationError(
       "PUBLIC_MAP_URL must use https (http is permitted only for localhost)",
+    );
+  }
+
+  /*
+    The SAME destination is stated twice — here as deployed configuration, and in core as
+    `PUBLIC_MAP_URL`, which customer copy embeds directly ("The map at … is always up to date").
+    Two homes for one fact, and nothing used to compare them: updating the config alone changed
+    the `MAP` reply while the paged answer's `Map:` line kept the old link, and no test failed.
+
+    Rather than collapse them — the constant is deliberate, so a wrong or empty deploy value can
+    never reach a real person as SMS — this makes the disagreement LOUD. A non-local deployment
+    whose configured URL points somewhere other than the constant fails at startup instead of
+    sending two different links to the same customer.
+  */
+  if (!isLocal && raw !== PUBLIC_MAP_URL) {
+    throw new ConfigurationError(
+      `PUBLIC_MAP_URL (${raw}) must match the map URL stated in customer copy (${PUBLIC_MAP_URL}). ` +
+        "Change both, or SMS will send two different links.",
     );
   }
 

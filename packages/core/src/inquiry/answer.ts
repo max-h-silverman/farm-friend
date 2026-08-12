@@ -433,8 +433,14 @@ export const RECIPE_SCOPE_STATEMENT =
  *
  * It is a constant rather than configuration because it is a product fact stated in customer
  * copy, and a wrong or empty value would be delivered as an SMS to a real person.
+ *
+ * **The `#map` fragment is load-bearing, not decoration** (max, 2026-08-12). VIGA's page carries
+ * its own content above the embed, so the bare URL opens above the map and a customer who texted
+ * for the map has to scroll to find it. The anchor is a real `id` on that page. Dropping it is a
+ * silent regression — the link still resolves, nothing errors, and the reader simply lands in the
+ * wrong place — which is why a test pins the fragment rather than only the origin.
  */
-export const PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map";
+export const PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map#map";
 
 /**
  * The code-rendered response to a request that needs the customer's own position (F-017).

@@ -14,7 +14,7 @@ const baseEnv = {
   DATABASE_URL: "postgres://user@localhost:5432/db",
   PHONE_HASH_SALT: "salt",
   PUBLIC_BASE_URL: "https://farmfriend.example",
-  PUBLIC_MAP_URL: "https://www.vigavashon.org/farm-stand-map",
+  PUBLIC_MAP_URL: "https://www.vigavashon.org/farm-stand-map#map",
   SMS_PROVIDER: "simulator",
 } satisfies EnvVars;
 

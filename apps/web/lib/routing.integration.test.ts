@@ -129,7 +129,7 @@ describe("inbound routing end to end (integration)", () => {
     // Required by the composition root since F-032. Nothing on the SMS path uses them; they
     // are set so `appContext()` resolves at all.
     process.env.PUBLIC_BASE_URL = "https://ff.example";
-    process.env.PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map";
+    process.env.PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map#map";
     // GL-019: no default provider. These suites drive deterministic paths and assert no
     // model is reached, so the stub is the right choice — it now has to be stated.
     process.env.LLM_PROVIDER = "stub";
@@ -312,7 +312,7 @@ describe("inbound routing end to end (integration)", () => {
       clock: new FixedClock(at(1)),
       // F-040: configured origin for a farmer standing link. Never a request header.
       publicBaseUrl: "https://farmfriend.example",
-      publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+      publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
     });
     return provider;
   }
@@ -420,7 +420,7 @@ describe("inbound routing end to end (integration)", () => {
       `;
       expect(work).toEqual([{
         message_category: "inquiry_reply",
-        body: "https://www.vigavashon.org/farm-stand-map",
+        body: "https://www.vigavashon.org/farm-stand-map#map",
       }]);
       expect(provider.calls).toBe(0);
 
@@ -444,7 +444,7 @@ describe("inbound routing end to end (integration)", () => {
       expect(mapWork).toEqual([{
         id: expect.any(String),
         message_category: "inquiry_reply",
-        body: "https://www.vigavashon.org/farm-stand-map",
+        body: "https://www.vigavashon.org/farm-stand-map#map",
       }]);
       expect(provider.calls).toBe(0);
 
@@ -1021,7 +1021,7 @@ describe("inbound routing end to end (integration)", () => {
           clock: new FixedClock(at(1)),
           // F-040: configured origin for a farmer standing link. Never a request header.
           publicBaseUrl: "https://farmfriend.example",
-          publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+          publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
         }),
         runInboundPass({
           db: database(),
@@ -1041,7 +1041,7 @@ describe("inbound routing end to end (integration)", () => {
           clock: new FixedClock(at(1)),
           // F-040: configured origin for a farmer standing link. Never a request header.
           publicBaseUrl: "https://farmfriend.example",
-          publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+          publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
         }),
       ]);
 
@@ -1130,7 +1130,7 @@ describe("inbound routing end to end (integration)", () => {
         clock: new FixedClock(at(1)),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
-        publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+        publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
       });
 
       const proposals = await client()`
@@ -1185,7 +1185,7 @@ describe("inbound routing end to end (integration)", () => {
         clock: new FixedClock(at(1)),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
-        publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+        publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
       });
 
       // Precondition, asserted rather than assumed: the proposal is genuinely open and
@@ -1298,7 +1298,7 @@ describe("inbound routing end to end (integration)", () => {
         inquiry: createInquiryModel(provider),
         clock: new FixedClock(at(1)),
         publicBaseUrl: "https://farmfriend.example",
-        publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+        publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
       });
       await client()`
         update inventory_publication_proposals
@@ -1523,7 +1523,7 @@ describe("inbound routing end to end (integration)", () => {
         clock: new FixedClock(at(1)),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
-        publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+        publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
       });
 
       const work = await client()`
@@ -1569,7 +1569,7 @@ describe("inbound routing end to end (integration)", () => {
         clock: new FixedClock(at(1)),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
-        publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+        publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
       });
 
       // Answering a question is not enrollment: it licenses this reply and nothing later.

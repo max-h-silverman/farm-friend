@@ -105,7 +105,7 @@ recreate it with all eight values:
     telnyx_public_key           = "..."   # ed25519 webhook key, base64, MUST decode to 32 bytes
     telnyx_messaging_profile_id = "..."
     telnyx_from_number          = "+1..." # EXACT E.164 — anything else 400s on every send
-    public_map_url              = "https://www.vigavashon.org/farm-stand-map"
+    public_map_url              = "https://www.vigavashon.org/farm-stand-map#map"  # keep the #map anchor
     cloud_run_host_suffix       = "..."   # e.g. p5mfxfp5za-uw; see the bootstrapping note below
     rotation_applied_at         = "..."   # e.g. 2026-07-29T17-35; see "Rotating a secret"
     smtp_username               = "board@vigavashon.org"  # authenticates to the relay

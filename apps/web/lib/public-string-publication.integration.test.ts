@@ -241,7 +241,7 @@ describe("public-string safety at the shared publication boundary (integration)"
         db: database(),
         clock: new FixedClock(at(7)),
         publicBaseUrl: "https://farmfriend.example",
-        publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+        publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
         freeText: forbiddenFreeText,
         nextPage: forbiddenNextPage,
         farmerTarget: forbiddenFarmerTarget,
