@@ -17,11 +17,12 @@
 - **B-057 is live but unproven on the live path.** A stock-out alert can now name one of the stand's
   usual offerings, not only its published inventory. No production report has named one yet — that
   needs a real inbound text, and it is what closes the item.
-- **The SMS answer format is now LIVE** (F-107, deployed 2026-08-11 with the revisions above). One
-  entry per stand — name, street address, `IN STOCK (3h ago): …`, `MAYBE: …` — replacing the old
+- **The SMS answer format is LIVE and read on a handset** (F-107 + B-061, both closed 2026-08-11).
+  One entry per stand — name, street address, `IN STOCK (23h ago): …`, `MAYBE: …` — replacing the old
   "Confirmed <item>:" / "typical offering" sections, and no "may be out of date" phrase (the age
-  carries it; the map keeps its explicit warning). **What every customer reads changed with this
-  deploy, and no one has read it on a handset yet** — that live check is still owed.
+  carries it; the map keeps its explicit warning). A broad question ("what do you have") was
+  **answered rather than deflected**, proving B-061's code check on the real inbound path. The
+  `MAYBE:` line is still unproven live — all three stands in that reply were confirmed-only.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
@@ -90,10 +91,16 @@
   proven only by test.
 - B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
   `correct/total`, but do not loosen it until it always passes.
-- **B-061 and F-107 are deployed and owe the same one live check:** send a real question from a
-  handset and read the reply. That single text exercises the new one-entry-per-stand format **and**
-  a broad question ("what do you have"), which now answers instead of asking the customer to rephrase.
-  All four B-061 defects are fixed; the item stays open only for this check.
+- **Three defects the live check exposed, all in the deployed customer answer** (2026-08-11, from
+  one real "what do you have" reply — none is a regression of B-061 or F-107):
+  - **B-063** (high): `IN STOCK (16d ago)` — a 16-day-old claim under a present-tense label, ranked
+    above stands with no confirmation, with no warning. F-107 dropped the stale phrase on the theory
+    the elapsed time carries it; at 16 days the label contradicts it. Worst customer-facing of the three.
+  - **B-062** (high): the count says "1-3 of 45" over 35 stands — it counts facts, not stands,
+    because F-107 merges by location at render time and the page window was never moved with it.
+    A dual-basis stand can therefore repeat across a MORE boundary.
+  - **B-064** (normal): `IN STOCK: Veggie` — a raw `stand_items.display_name` printed as a stand's
+    whole answer. Same corpus rows as B-059; this is its customer-facing half.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
 - B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists
