@@ -68,8 +68,10 @@
 
 ## Verification
 
-- `main`: **1,951 unit tests, 938 local integration tests**, typecheck, and lint pass (2026-08-12).
-  The web production build retains the tracked Next configuration/lint warnings (B-008).
+- `b-058-live-fixture-flake`: **1,958 unit tests, 938 local integration tests**, typecheck, lint,
+  stub evals, and two live eval runs pass (2026-08-12). **Not merged and not deployed** — the
+  serving revisions below still carry the B-058 seam defect.
+- The web production build retains the tracked Next configuration/lint warnings (B-008).
 - **Migration `when` stamps can land behind their predecessor on this machine.** `0041`'s generated
   stamp was *earlier* than `0040`'s — the local clock runs behind the repo's — and the ordering
   tests caught it. RUNBOOK §Migrations has the fix; expect this on every new migration here.
@@ -77,7 +79,8 @@
   `psql` is not on the default PATH (`postgresql@16` lives under Homebrew's `opt`), so a bare
   `psql`/`pg_isready` reports "command not found" — that is **not** evidence the database is absent.
 - Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model scores
-  containment 5/5, closure 7/7, recall 5/5, quality **19/20** (2026-08-11). Note the per-category
+  containment 5/5, closure 7/7, recall 5/5, quality **20/20 — twice consecutively** on the B-058
+  branch (2026-08-12), against 19/20 before it. Note the per-category
   counts exceed the fixture count — several fixtures score multiple cases. B-057 added one quality
   fixture, proving the stock-out seam picks a usual offering out of a mixed candidate list; it passed
   7/7 runs.
@@ -92,12 +95,18 @@
   cases the model passes — the failing phrasings are what the code check exists for.**
   The check holds **no food or farm vocabulary** and a test asserts that against its own source; a miss
   is closed by extending the grammar, never by adding a crop word.
-- **Live evals are nondeterministic** in two distinct ways, and both must be held apart. Roughly one
+- **Live evals still carry one nondeterminism.** Roughly one
   run in three shows a provider error, labelled `[provider error, not a verdict — rerun]` and scored
   as a FAILURE on purpose: the seam returns the same `clarification` shape for "unreachable model"
   and "model declined", so accepting any clarification let an unreachable model read as correct.
-  Separately, one B-056 fixture returns real but wrong verdicts in ~2 of 7 runs (B-058) — so a
-  single live run cannot distinguish a regression from that noise.
+- **B-058 was not model noise — it was our seam discarding good work** (closed 2026-08-12). The
+  B-056 guard never failed: 16 of 16 `edits` runs validated to zero removals. Three separate seam
+  paths threw away a correct inventory edit over a `closure` field the message never justified —
+  an unevidenced closure tripping `closureMatchesTiming`, `closureKind:"none"` failing the strict
+  schema outright, and `edits` arriving with `additions`/`changes` omitted. All three are handled
+  in code now. Measured 70/70 clean afterwards against 3 failures in 20 before, and live quality
+  went 19/20 → **20/20 on two consecutive runs**. Every mode was far likelier on the phrasing
+  ending in a proper noun.
 - Deployment assertions confirm both revisions are newer than every mounted secret; the served contact card
   has the expected E.164 suffix, 153 bytes, CRLF-only lines, and all seven required properties.
 
@@ -128,8 +137,6 @@
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the
   roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
-- B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
-  `correct/total`, but do not loosen it until it always passes.
 - **B-062 and B-063 owe one live check:** text a question whose answer includes a stand confirmed
   more than four days ago, and read the label — it must say `Last seen`, and the header must count
   stands. Both are deployed but unread on a handset, which is exactly how the defects they fix got
@@ -145,7 +152,8 @@
 - B-059 remains open: measure the seam against the corpus's awkward lists. Its cited examples are
   **stale** — the reviewed offerings artifact has no "veggie, herb, flower plants" row and Fruits des
   Vignes carries plain "raspberries", so build cases from the live rows, not from the item text.
-  Land B-058 first or the signal mixes with unrelated live-eval noise.
+  **No longer blocked** — B-058 is closed, and two consecutive live runs came back 37/37, so a
+  single run is now readable.
 - **B-065 owes one live check:** text a stock-out misspelling the stand ("Pinecome is out of eggs"),
   answer "Which stand are you at?" with the name, and confirm the farmer's alert names the **eggs**.
   A second misspelling in the reply should also resolve. Proven by test and against the real corpus,
