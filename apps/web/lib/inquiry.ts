@@ -709,7 +709,7 @@ async function deliverPage(
     withScope: (body: string) => string;
   },
 ): Promise<InquiryOutcome> {
-  const { factIds, standCount } = groupFactsByStand(input.facts);
+  const { factIds, standCount } = groupFactsByStand(input.facts, deps.clock.now());
   const byId = new Map(input.facts.map((fact) => [fact.factId, fact]));
   const grouped = factIds.map((factId) => byId.get(factId)!);
   const firstPage = grouped.slice(0, factsPerPage(grouped, PAGE_SIZE));

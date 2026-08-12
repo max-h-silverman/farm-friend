@@ -179,6 +179,63 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
     expect(estimateSmsSegments(page.body).segmentCount).toBeLessThanOrEqual(3);
   });
 
+  it("holds when every stand on the page is stale (B-063)", () => {
+    /*
+      The worst case B-063's fix creates, and the one the previous attempt at this failed on.
+
+      F-107 removed the "- may be out of date" suffix precisely because twenty characters per
+      entry pushed an all-stale page over the ceiling. Changing the LABEL instead costs one
+      character per entry ("Last seen" against "In stock"), because it replaces rather than
+      appends — so the page that used to break the budget now sits inside it.
+
+      Measured 2026-08-11: 416 characters on the first page, 438 on the closing page that also
+      carries the map URL. Three segments, which is the ceiling max accepted for this format.
+    */
+    const stale = [
+      ["Fruits des Vignes Farm", "20430 111th Ave SW"],
+      ["Ostara Farm & Flowers", "13632 SW 220th St"],
+      ["Plum Forest Farm", "20020 107th Ave SW"],
+    ].flatMap(([name, address], i) => [
+      {
+        ...longest,
+        factId: `stale-${i}`,
+        farmName: name!,
+        locationName: name!,
+        publicAddress: address!,
+        basis: "confirmed" as const,
+        asOf: new Date(NOW.getTime() - 16 * 24 * 3_600_000),
+        matchedItems: [{ itemName: "leafy greens" }, { itemName: "winter squash" }],
+      },
+      {
+        ...longest,
+        factId: `stale-offering-${i}`,
+        farmName: name!,
+        locationName: name!,
+        publicAddress: address!,
+        matchedItems: [{ itemName: "kale" }],
+      },
+    ]);
+
+    for (const [offset, total] of [
+      [0, 20],
+      [17, 20],
+    ]) {
+      const page = renderResultPage({
+        itemsRequested: ["leafy greens", "winter squash"],
+        facts: stale,
+        offset: offset!,
+        total: total!,
+        clock,
+      });
+      expect(page.body).toContain("Last seen (16d ago)");
+      expect(page.body).not.toMatch(/In stock/);
+      expect(
+        estimateSmsSegments(page.body).segmentCount,
+        `offset ${offset}`,
+      ).toBeLessThanOrEqual(3);
+    }
+  });
+
   it("keeps the no-pending-list reply to a single segment", () => {
     expect(estimateSmsSegments(renderNoPendingList()).segmentCount).toBe(1);
   });

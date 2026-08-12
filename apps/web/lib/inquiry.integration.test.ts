@@ -271,9 +271,14 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     const result = await answerInquiry(deps, { taskText: "kale anywhere?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false }  });
     expect(result.outcome).toBe("answered");
     if (result.outcome !== "answered") return;
-    expect(result.body).toContain("In stock (3d ago)");
-    // F-107 — the age IS the warning on this surface; the explicit phrase belongs to the
-    // public map. What must hold is that the stale listing is SHOWN and stamped.
+    // B-063 — past 48 hours the LABEL carries the staleness, end to end through real rows.
+    // "In stock (3d ago)" put a present-tense claim beside a three-day-old timestamp; the
+    // live version of that read "IN STOCK (16d ago)".
+    expect(result.body).toContain("Last seen (3d ago)");
+    expect(result.body).not.toMatch(/In stock/);
+    // The honor-system commitment, unchanged: the stale listing is SHOWN and stamped, not
+    // hidden, and the explicit "may be out of date" phrase stays the public map's.
+    expect(result.body).toContain("Alpha Farm");
     expect(result.body).toContain("3d ago");
     expect(result.body).not.toMatch(/may be out of date/i);
   });

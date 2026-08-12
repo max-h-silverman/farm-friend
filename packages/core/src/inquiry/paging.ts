@@ -14,6 +14,8 @@
 
 import type { Clock } from "../clock";
 import {
+  isConfirmationExpired,
+  isStale,
   PUBLIC_MAP_URL,
   renderItem,
   renderNoCurrentListing,
@@ -158,7 +160,10 @@ export interface StandEntry {
  * the customer asked what is there NOW. Stable within each group, so the caller's order
  * survives.
  */
-export function mergeIntoStandEntries(facts: readonly PageableFact[]): StandEntry[] {
+export function mergeIntoStandEntries(
+  facts: readonly PageableFact[],
+  now: Date,
+): StandEntry[] {
   const entries: StandEntry[] = [];
   const byLocation = new Map<string, StandEntry>();
   for (const fact of facts) {
@@ -169,17 +174,30 @@ export function mergeIntoStandEntries(facts: readonly PageableFact[]): StandEntr
       entries.push(entry);
     }
     if (fact.matchedItems.length === 0) continue;
-    if (fact.basis === "confirmed") entry.confirmed ??= fact;
-    else entry.offering ??= fact;
+    if (fact.basis === "confirmed") {
+      // B-063 — past the expiry the confirmation stops being evidence of anything, so it makes
+      // no claim at all rather than a hedged one. Same rule and same function as the public
+      // map, which drops its stock claim here and falls back to what the stand usually sells.
+      if (isConfirmationExpired(fact.asOf, now)) continue;
+      entry.confirmed ??= fact;
+    } else entry.offering ??= fact;
   }
 
   const claiming = entries.filter(
     (entry) => entry.confirmed !== undefined || entry.offering !== undefined,
   );
-  return [
-    ...claiming.filter((entry) => entry.confirmed !== undefined),
-    ...claiming.filter((entry) => entry.confirmed === undefined),
-  ];
+  // Three tiers, not two (B-063). A fresh confirmation is the only thing that speaks to what
+  // is there NOW, so it leads. Below it, a stand's standing description of what it sells beats
+  // somebody else's fortnight-old snapshot: neither is a promise, but the description is at
+  // least current AS a description. Stable within each tier, so the caller's order survives.
+  const fresh = claiming.filter(
+    (entry) => entry.confirmed !== undefined && !isStale(entry.confirmed.asOf, now),
+  );
+  const stale = claiming.filter(
+    (entry) => entry.confirmed !== undefined && isStale(entry.confirmed.asOf, now),
+  );
+  const offeringOnly = claiming.filter((entry) => entry.confirmed === undefined);
+  return [...fresh, ...offeringOnly, ...stale];
 }
 
 /**
@@ -199,11 +217,14 @@ export function mergeIntoStandEntries(facts: readonly PageableFact[]): StandEntr
  * `standCount` is what the header must state. It counts entries that actually make a claim,
  * which is what the customer will be shown — never the raw fact count.
  */
-export function groupFactsByStand(facts: readonly PageableFact[]): {
+export function groupFactsByStand(
+  facts: readonly PageableFact[],
+  now: Date,
+): {
   factIds: string[];
   standCount: number;
 } {
-  const entries = mergeIntoStandEntries(facts);
+  const entries = mergeIntoStandEntries(facts, now);
   const factIds: string[] = [];
   for (const entry of entries) {
     if (entry.confirmed !== undefined) factIds.push(entry.confirmed.factId);
@@ -265,7 +286,7 @@ export function renderResultPage(input: {
 
   const lines: string[] = [];
 
-  const ordered = mergeIntoStandEntries(facts);
+  const ordered = mergeIntoStandEntries(facts, now);
 
   // Every stand was dropped, so there is nothing to lead in to. Returning the honest
   // no-listing reply beats a header standing over an empty list.
@@ -306,14 +327,17 @@ export function renderResultPage(input: {
       // nothing else in the entry. The "May also have" line below carries no time because
       // nobody confirmed it, and one timestamp above both would silently vouch for both.
       //
-      // F-107 — no separate staleness warning on this surface (max, 2026-08-11). The elapsed
-      // phrase IS the warning: "(3d ago)" tells a customer what "- may be out of date" told
-      // them, in four characters instead of twenty, and the twenty were what pushed an
-      // all-stale page past its segment ceiling. Nothing is hidden — a stale listing still
-      // appears, still ranked, still stamped with its age, which is the honor-system
-      // commitment. **The public map keeps its own explicit warning**; a browsed card has room
-      // for words a text message pays for.
-      lines.push(`In stock (${renderShortElapsed(entry.confirmed.asOf, now)}): ${items}`);
+      // B-063 — the LABEL carries the staleness, not a suffix. Found on a handset:
+      // "IN STOCK (16d ago)" put a present-tense claim and a fortnight-old timestamp in one
+      // line, and the label is what a customer reads first. F-107 had dropped the explicit
+      // "- may be out of date" because twenty characters per entry pushed an all-stale page
+      // over its segment ceiling; swapping the label instead costs nothing, because it
+      // REPLACES rather than appends. "Last seen" is honest at any age.
+      //
+      // The threshold is the map's own `isStale`, from the same function, so one row cannot
+      // read as current stock over SMS and as stale on the web.
+      const label = isStale(entry.confirmed.asOf, now) ? "Last seen" : "In stock";
+      lines.push(`${label} (${renderShortElapsed(entry.confirmed.asOf, now)}): ${items}`);
     }
     if (entry.offering !== undefined) {
       // A confirmation outranks a standing description of the SAME item. Both rows exist for

@@ -257,6 +257,28 @@ describe("grounded rendering — every value comes from typed facts", () => {
   });
 
   it("preserves the order it is given, since ranking is the model's interpretation", () => {
+    // WITHIN a tier. The renderer has always imposed its own tiers on top of the model's
+    // order — F-107 put every confirmed stand above every offering-only one, and B-063 split
+    // the confirmed group by freshness — because those are honesty rules rather than
+    // relevance judgements. What stays the model's to decide is the order among stands the
+    // renderer considers equally current, which is what this asserts: two fresh
+    // confirmations, handed over in a deliberate order, come out in it.
+    const second = confirmed("f3", "Second Stand", "3 Second St", [{ itemName: "Kale" }], 4);
+    const page = renderResultPage({
+      itemsRequested: ["Kale"],
+      facts: [second, provo],
+      offset: 0,
+      total: 2,
+      clock,
+    });
+    expect(page.body.indexOf("Second Stand")).toBeLessThan(
+      page.body.indexOf("Provo Stand"),
+    );
+  });
+
+  it("demotes a stale confirmation below a fresh one whatever order it is given", () => {
+    // The other half: freshness is NOT the model's call. Harbor is 72 hours old and Provo two,
+    // so Provo leads even though the model ranked Harbor first (B-063).
     const page = renderResultPage({
       itemsRequested: ["Kale"],
       facts: [harbor, provo],
@@ -264,8 +286,8 @@ describe("grounded rendering — every value comes from typed facts", () => {
       total: 2,
       clock,
     });
-    expect(page.body.indexOf("Harbor Stand")).toBeLessThan(
-      page.body.indexOf("Provo Stand"),
+    expect(page.body.indexOf("Provo Stand")).toBeLessThan(
+      page.body.indexOf("Harbor Stand"),
     );
   });
 });
@@ -666,7 +688,7 @@ describe("one entry per stand (F-107)", () => {
     }).body;
 
     expect(body).not.toMatch(/may be out of date/i);
-    expect(body).toContain("In stock (3d ago):");
+    expect(body).toContain("Last seen (3d ago):");
     expect(body).toContain("Provo Farms");
   });
 
@@ -686,7 +708,7 @@ describe("one entry per stand (F-107)", () => {
         total: 1,
         clock,
       }).body;
-      expect(body).toContain(`In stock ${expected}`);
+      expect(body).toContain(`${hours >= 48 ? "Last seen" : "In stock"} ${expected}`);
     });
 
     it("never states minutes", () => {
@@ -917,7 +939,7 @@ describe("the header names the query and the count", () => {
       basis: "offering",
       matchedItems: [{ itemName: "kale" }],
     };
-    const grouped = groupFactsByStand([confirmed, offering]);
+    const grouped = groupFactsByStand([confirmed, offering], NOW);
     expect(grouped.standCount).toBe(1);
 
     const body = renderResultPage({
@@ -930,6 +952,171 @@ describe("the header names the query and the count", () => {
     expect(body.split("\n")[0]).toBe("Eggs: 1 matching stand");
     // The two facts printed one entry, so there is nothing further to page to.
     expect(body).not.toMatch(/MORE/);
+  });
+});
+
+/*
+  A confirmation old enough to stop meaning "in stock" (B-063).
+
+  Found on a handset: `IN STOCK (16d ago): Zucchini, Carrots, garlic…`. The label is present
+  tense and the elapsed phrase says two and a half weeks, so the same line makes two opposite
+  claims — and the label is the one a customer reads first.
+
+  F-107 dropped the "- may be out of date" suffix on the reasoning that the elapsed phrase
+  carries the warning. That holds at "(3d ago)" and breaks down entirely by "(16d ago)". The
+  fix changes the LABEL rather than restoring the suffix: "Last seen" is honest at any age,
+  costs no extra characters (it replaces rather than appends), and leaves the segment ceiling
+  where it is.
+
+  Thresholds are the ones the public map already uses, so the two surfaces cannot come to
+  disagree about the same row: `isStale` at 48 hours, `isConfirmationExpired` at 28 days.
+*/
+describe("a stale confirmation stops claiming present stock (B-063)", () => {
+  const stand = (ageHours: number): PageableFact => ({
+    factId: "c1",
+    farmName: "Twisting Tree Farm",
+    locationName: "Twisting Tree Farm",
+    publicAddress: "12919 SW Cemetery Rd",
+    matchedItems: [{ itemName: "Zucchini" }, { itemName: "Carrots" }],
+    asOf: hoursAgo(ageHours),
+    basis: "confirmed",
+  });
+
+  const bodyAt = (ageHours: number, items = ["zucchini"]) =>
+    renderResultPage({
+      itemsRequested: items,
+      facts: [stand(ageHours)],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+
+  it("says In stock inside the freshness threshold", () => {
+    expect(bodyAt(3)).toContain("In stock (3h ago): Zucchini, Carrots");
+    expect(bodyAt(3)).not.toMatch(/Last seen/);
+  });
+
+  it("still says In stock at the last hour before the threshold", () => {
+    // 48 hours is where staleness STARTS, so 47 must still read as current.
+    expect(bodyAt(47)).toContain("In stock (1d ago)");
+  });
+
+  it("switches to Last seen once the confirmation is stale", () => {
+    // The live case. 16 days under a present-tense label was the defect.
+    const body = bodyAt(16 * 24);
+    expect(body).toContain("Last seen (16d ago): Zucchini, Carrots");
+    expect(body).not.toMatch(/In stock/);
+  });
+
+  it("switches exactly at the map's 48-hour threshold, not a second later", () => {
+    expect(bodyAt(48)).toContain("Last seen (2d ago)");
+    expect(bodyAt(47)).toContain("In stock (1d ago)");
+  });
+
+  it("keeps the stand listed, ranked, and stamped with its age", () => {
+    // The honor-system commitment, and the thing that must NOT change: a stale listing still
+    // appears and still carries its items and its age. Only the tense of the claim changes.
+    const body = bodyAt(16 * 24);
+    expect(body).toContain("Twisting Tree Farm");
+    expect(body).toContain("12919 SW Cemetery Rd");
+    expect(body).toContain("Zucchini, Carrots");
+    expect(body).toContain("16d ago");
+  });
+
+  it("drops the stock claim entirely once the confirmation has expired", () => {
+    // Past 28 days the map stops claiming stock at all rather than hedging, because a
+    // two-month-old confirmation is not weaker evidence than a three-month-old one — it is no
+    // evidence. SMS follows the same rule from the same shared function, so one row cannot
+    // read as stock on one surface and not on the other.
+    const body = bodyAt(40 * 24);
+    expect(body).not.toMatch(/In stock/);
+    expect(body).not.toMatch(/Last seen/);
+    // With no claim left, the entry has nothing to say about the question and is dropped —
+    // the same rule F-107 applies to a stand whose matched items were all filtered away.
+    expect(body).toMatch(/No stand has a current listing/i);
+  });
+
+  it("keeps an expired stand when its usual offerings still answer", () => {
+    // Losing the stock claim is not disappearing. The stand still carries what it usually
+    // sells, which is exactly what the map falls back to.
+    const body = renderResultPage({
+      itemsRequested: ["zucchini"],
+      facts: [
+        stand(40 * 24),
+        { ...stand(40 * 24), factId: "o1", basis: "offering" },
+      ],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+    expect(body).toContain("Twisting Tree Farm");
+    expect(body).toContain("May also have: Zucchini, Carrots");
+    expect(body).not.toMatch(/In stock|Last seen/);
+  });
+
+  it("ranks a fresh confirmation above a stale one", () => {
+    const fresh: PageableFact = {
+      ...stand(2),
+      factId: "c2",
+      locationName: "Fresh Farm",
+      farmName: "Fresh Farm",
+    };
+    const body = renderResultPage({
+      itemsRequested: ["zucchini"],
+      facts: [stand(16 * 24), fresh],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+    expect(body.indexOf("Fresh Farm")).toBeLessThan(body.indexOf("Twisting Tree Farm"));
+  });
+
+  it("ranks a stand's usual offerings above someone else's stale claim", () => {
+    /*
+      max's third shape in the item, and the one that steers the customer correctly.
+
+      A 16-day-old confirmation outranking a stand that reliably sells the thing is the wrong
+      bet: neither is a promise, but the standing description is at least CURRENT as a
+      description, while the confirmation is a fortnight-old snapshot. Fresh confirmations
+      still lead both.
+    */
+    const offering: PageableFact = {
+      ...stand(500),
+      factId: "o9",
+      locationName: "Reliable Stand",
+      farmName: "Reliable Stand",
+      basis: "offering",
+    };
+    const body = renderResultPage({
+      itemsRequested: ["zucchini"],
+      facts: [stand(16 * 24), offering],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+    expect(body.indexOf("Reliable Stand")).toBeLessThan(
+      body.indexOf("Twisting Tree Farm"),
+    );
+  });
+
+  it("still ranks a fresh confirmation above a usual offering", () => {
+    const offering: PageableFact = {
+      ...stand(500),
+      factId: "o9",
+      locationName: "Reliable Stand",
+      farmName: "Reliable Stand",
+      basis: "offering",
+    };
+    const body = renderResultPage({
+      itemsRequested: ["zucchini"],
+      facts: [offering, stand(2)],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+    expect(body.indexOf("Twisting Tree Farm")).toBeLessThan(
+      body.indexOf("Reliable Stand"),
+    );
   });
 });
 
@@ -963,7 +1150,7 @@ describe("stand-level paging arithmetic", () => {
     const grouped = groupFactsByStand([
       fact("c1", "Alpha", "confirmed"),
       fact("o1", "Alpha", "offering"),
-    ]);
+    ], NOW);
     expect(grouped.standCount).toBe(1);
     expect(grouped.factIds).toEqual(["c1", "o1"]);
   });
@@ -977,7 +1164,7 @@ describe("stand-level paging arithmetic", () => {
       fact("c2", "Beta", "confirmed"),
       fact("o1", "Alpha", "offering"),
       fact("o3", "Gamma", "offering"),
-    ]);
+    ], NOW);
     const alphaFirst = grouped.factIds.indexOf("c1");
     expect(grouped.factIds[alphaFirst + 1]).toBe("o1");
     expect(grouped.standCount).toBe(3);
@@ -985,7 +1172,7 @@ describe("stand-level paging arithmetic", () => {
 
   it("drops a claimless fact from both the count and the list", () => {
     const claimless: PageableFact = { ...fact("c9", "Empty", "confirmed"), matchedItems: [] };
-    const grouped = groupFactsByStand([fact("c1", "Alpha", "confirmed"), claimless]);
+    const grouped = groupFactsByStand([fact("c1", "Alpha", "confirmed"), claimless], NOW);
     expect(grouped.standCount).toBe(1);
     expect(grouped.factIds).toEqual(["c1"]);
   });
@@ -998,7 +1185,7 @@ describe("stand-level paging arithmetic", () => {
       fact("c2", "Beta", "confirmed"),
       fact("c3", "Gamma", "confirmed"),
       fact("c4", "Delta", "confirmed"),
-    ]);
+    ], NOW);
     const facts = factIds.map((id) => {
       const location = { c1: "Alpha", o1: "Alpha", c2: "Beta", c3: "Gamma", c4: "Delta" }[id]!;
       return fact(id, location, id.startsWith("o") ? "offering" : "confirmed");
@@ -1172,7 +1359,7 @@ describe("an item never appears under both claims for one stand", () => {
       total: 2,
       clock,
     }).body;
-    expect(body).toContain("In stock (2d ago): eggs");
+    expect(body).toContain("Last seen (2d ago): eggs");
     expect(body).toContain("May also have: kale");
     // Exactly one line claims eggs.
     expect(body.split("\n").filter((line) => /eggs/.test(line))).toHaveLength(1);
@@ -1186,7 +1373,7 @@ describe("an item never appears under both claims for one stand", () => {
       total: 2,
       clock,
     }).body;
-    expect(body).toContain("In stock (2d ago): eggs");
+    expect(body).toContain("Last seen (2d ago): eggs");
     expect(body).not.toMatch(/May also have/);
   });
 
@@ -1203,7 +1390,7 @@ describe("an item never appears under both claims for one stand", () => {
     }).body;
     expect(body).not.toMatch(/May also have/);
     // The farmer's own capitalization survives.
-    expect(body).toContain("In stock (2d ago): Eggs");
+    expect(body).toContain("Last seen (2d ago): Eggs");
   });
 
   it("keeps a stand whose only claim is what it usually sells", () => {
