@@ -52,6 +52,12 @@
 - Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` was applied 2026-08-11 ahead of
   the image that reads it and verified by schema effect: `broad`, `stand_total`, and `stand_offset`
   present on `pending_result_lists`, with farm/stand/item counts (39/37/237) unchanged across it.
+- **A farmer-authored name can no longer add a line to the stock-out alert** (B-060, `5e95247`,
+  local only — not deployed). `stand_items.display_name` reached the farmer's SMS verbatim, and its
+  CHECK measures `btrim(…, E' \t\r\n') <> ''`, so "Eggs\n\nVIGA Farm Friend: …" was admitted by
+  Postgres and rendered a five-line message whose third line spoke in Farm Friend's voice. Both
+  interpolated names are now flattened to one line. **Provenance is not shape**: a Farm Friend-held
+  fact is safe to speak, which says nothing about the characters in it.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
@@ -128,10 +134,18 @@
   since the change, and the schedule fires at 10:00 stand-local, so this waits for a due slot.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
-- B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists
-  (Tian Tian's "bok choy" vs "Baby bok choy"; Bart's Cart's overlapping plant items), and prove by
-  sabotage that a hostile `stand_items.display_name` stays inert in the farmer's alert. Both are
-  quality risks: a wrong pick names the wrong item, and nothing published moves either way.
+- **B-065 (new, unfixed): Farm Friend asks "Which stand are you at?" and does not listen for the
+  answer.** Observed on a handset 2026-08-12 — a misspelled report ("Pinecome is out of eggs") is
+  correctly classified, fails to resolve the stand, asks the question, and stores NOTHING. The
+  customer's correct answer ("Pinecone") then arrives as a fresh message, classifies as a question
+  (measured 3/3 against the live model, and correct by its own instruction — it names no item), and
+  dead-ends on "Sorry, I did not catch which item or farm you meant." No component misbehaves; the
+  question simply has no route home. `STOCK_OUT_UNCLEAR_ITEM` has the identical shape. **Not** to be
+  fixed with fuzzy stand matching — spelling is the trigger, not the defect.
+- B-059 remains open: measure the seam against the corpus's awkward lists. Its cited examples are
+  **stale** — the reviewed offerings artifact has no "veggie, herb, flower plants" row and Fruits des
+  Vignes carries plain "raspberries", so build cases from the live rows, not from the item text.
+  Land B-058 first or the signal mixes with unrelated live-eval noise.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
