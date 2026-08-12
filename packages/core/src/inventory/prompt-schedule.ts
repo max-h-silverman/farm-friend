@@ -1,3 +1,4 @@
+import { renderShortElapsed } from "../inquiry/answer";
 import { renderProposedSnapshot, type SnapshotEntry } from "./proposal";
 
 export type PromptCadence =
@@ -103,41 +104,91 @@ export function nextPromptDueSlot(input: {
  * last saw it, and max chose the simple version first (2026-08-08) — revisit only if farmers
  * report the prompts read as boilerplate.
  *
- * **It costs one item of snapshot capacity, measured not assumed**: a prompt for a typical
- * stand fits 9 items inside `MAX_SCHEDULED_PROMPT_SEGMENTS` with this footer and 10 without.
- * Past that ceiling `scheduledPromptFitsSms` withdraws the `SAME` offer and the farmer gets the
- * fallback, so the cost of this line is that a 10-item stand now retypes instead of replying
- * with one word. Real stands run well under that (F-046 measured 22-57 characters per entry
- * against the live corpus), which is why it is acceptable rather than free.
+ * **It costs one item of snapshot capacity, measured not assumed**: against F-046's live-corpus
+ * range of 22-57 characters per entry, a prompt fits 7/4/3 items inside
+ * `MAX_SCHEDULED_PROMPT_SEGMENTS` with this footer and 8/4/3 without. Past that ceiling
+ * `scheduledPromptFitsSms` withdraws the `SAME` offer and the farmer gets the fallback, so the
+ * cost of this line is that a stand one item over now retypes instead of replying with one word.
+ * Typical stands sit under it, which is why it is acceptable rather than free.
  */
 const SCHEDULED_PROMPT_OPT_OUT = "Reply STOP to opt out.";
+
+/**
+ * The prompt's own heading, which deliberately does NOT reuse the proposal renderer's.
+ *
+ * "Your stand will show:" is confirmation copy — it describes something about to publish, and
+ * the farmer is reading it to approve a change. Nothing publishes here: this is the listing
+ * that is ALREADY live, shown so the farmer can correct it. A future tense on a record of the
+ * present is the same class of error as B-063, where a present-tense label sat next to a
+ * fortnight-old timestamp on a customer's handset.
+ *
+ * **"Items listed", not "In stock" (max, 2026-08-12).** The heading states what our record
+ * holds, never what the stand currently has — the farmer is the authority on the second, and
+ * asking them is the entire point of the message. The recency stamp then says how old the
+ * record is, using the same `renderShortElapsed` arithmetic as the SMS answer path, so one
+ * listing cannot read as a week old over SMS and a fortnight old on the web.
+ *
+ * It costs against `MAX_SCHEDULED_PROMPT_SEGMENTS`, measured not assumed: at the 22/40/57
+ * characters-per-entry F-046 found in the live corpus, a prompt fits 7/4/3 items with this
+ * heading. Past that ceiling `scheduledPromptFitsSms` withdraws the `SAME` offer.
+ */
+function scheduledPromptHeading(
+  locationName: string,
+  publishedAt: Date | null,
+  now: Date,
+): string {
+  return publishedAt === null
+    ? `Items listed for ${locationName}:`
+    : `Items listed for ${locationName} (updated ${renderShortElapsed(publishedAt, now)}):`;
+}
 
 /** Code-render the exact visible snapshot; SAME is absent unless the caller proved it fits. */
 export function renderScheduledInventoryPrompt(input: {
   locationName: string;
   entries: SnapshotEntry[];
+  /** When the shown revision published. Null renders no recency claim rather than a false one. */
+  publishedAt: Date | null;
+  now: Date;
 }): string {
   return [
-    `For ${input.locationName}:`,
-    renderProposedSnapshot({
-      entries: input.entries,
-      baseRevisionId: null,
-      isFirstPublication: false,
-      // This prompt shows what is ALREADY published, not a proposed change — nothing is
-      // being taken off, so there is no loss to name.
-      removedItemNames: [],
-    }),
-    "Reply SAME if that is still right, or text us what changed.",
+    scheduledPromptHeading(input.locationName, input.publishedAt, input.now),
+    renderScheduledSnapshotItems(input.entries),
+    "Reply SAME to confirm, or let us know what changed.",
     SCHEDULED_PROMPT_OPT_OUT,
   ].join("\n\n");
 }
 
-/** Code-rendered fallback when no published base exists or the full prompt exceeds its ceiling. */
+/** The item lines alone: this prompt has its own heading, and nothing here is being removed. */
+function renderScheduledSnapshotItems(entries: SnapshotEntry[]): string {
+  const rendered = renderProposedSnapshot({
+    entries,
+    baseRevisionId: null,
+    isFirstPublication: false,
+    // This prompt shows what is ALREADY published, not a proposed change — nothing is
+    // being taken off, so there is no loss to name.
+    removedItemNames: [],
+  });
+  const [, ...lines] = rendered.split("\n");
+  // An empty snapshot renders one sentence and no items; it has no heading line to drop.
+  return entries.length === 0 ? rendered : lines.join("\n");
+}
+
+/**
+ * Code-rendered fallback when no published base exists or the full prompt exceeds its ceiling.
+ *
+ * **This is the one place the reminder stream names `LINK` (max, 2026-08-12).** The farmer is
+ * being asked to retype a listing they cannot see, which is exactly when the web editor is
+ * worth the characters — and this message has room the SAME prompt does not, having no snapshot
+ * to fit. In the prompt itself the same line costs an item of snapshot capacity to repeat a
+ * keyword onboarding already taught, and pushes the largest stands into this very fallback.
+ */
 export function renderScheduledInventoryUpdateRequest(input: {
   locationName: string;
 }): string {
-  return (
+  return [
     `${input.locationName}: no complete current listing can be shown here. ` +
-    `Please text what is available now.\n\n${SCHEDULED_PROMPT_OPT_OUT}`
-  );
+      `Please text what is available now.`,
+    "You can also text LINK to update on the web.",
+    SCHEDULED_PROMPT_OPT_OUT,
+  ].join("\n\n");
 }

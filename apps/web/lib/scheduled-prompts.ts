@@ -184,6 +184,8 @@ async function schedulePreference(
     const fullBody = renderScheduledInventoryPrompt({
       locationName: location.name as string,
       entries,
+      publishedAt: (revision?.published_at as Date | undefined) ?? null,
+      now,
     });
     const offersSame = revisionId !== null && scheduledPromptFitsSms(fullBody);
     const body = offersSame
