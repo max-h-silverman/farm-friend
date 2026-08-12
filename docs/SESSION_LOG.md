@@ -11,6 +11,115 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-11 — Probing the live corpus: four answer defects, then rebuilding the answer
+
+**Merged, not deployed.** Three commits on `main`; production still serves the old answer format.
+
+**One bad reply exposed a whole unmeasured seam, twice over.** max texted "looking for nigella"
+from a farmer handset and got "Reply UPDATE or QUESTION". The farmer-intent classifier had **no
+live fixture at all** — a stub reads neither the instructions nor the schema, so a prompt
+describing the wrong job is invisible to it. The sibling *customer* seam already carried the
+tie-breaker ("a message that merely names a product is a question"); the farmer seam never got it.
+A farmer also shops at every other stand on the island.
+
+**Then the same question applied to the whole customer path.** Scraped the 35 live stands out of
+the deployed map's payload (no production credential needed) and ran 46 plausible questions
+through the real pipeline — interpret → code-rank → select → render. **38/46.** Four distinct
+defects, filed as B-061:
+
+1. **A false availability claim.** "who has eggs today?" → `Confirmed eggs:` over Aeggy's, Useful
+   Bear and Forest Garden. Only Aeggy's sells eggs. The heading guard was `some()` across the
+   section, so one matching row licensed the claim for every stand beneath it.
+2. A malformed selection discarded a good retrieval.
+3. "Nobody sells shrimp" was said as "I did not catch which item you meant."
+4. Broad availability questions ("what do you have") read as `ambiguous`.
+
+**The heading bug was B-049 reopened at a different granularity** — and `paging.test.ts` carried a
+test *asserting* the broken behaviour, with a rationale that reads plausibly and inverts the logic
+("any single row is enough, because the heading covers the whole section"). A heading that covers
+a section must be true of the section. The test was the bug, encoded.
+
+**Defect 2 was milder than first reported.** The probe harness stopped at the outcome and never
+followed it to `free-text.ts`, which renders a clarification — so the customer got the wrong
+words, not silence. Corrected in the item rather than left standing.
+
+**Defect 4 is open, and the instruction was reverted.** Measuring the *family* rather than the one
+phrase changed the finding: the trigger is the **word "available"**, not the meaning. "what is
+available" and "what's in season" passed; "what do you have", "what's for sale", "what can I buy",
+"who has anything today" all failed. Three successive instruction edits each moved *which*
+phrasings passed without fixing the family, and the widest **regressed cases that previously
+worked** — "anything good today?" broke, and "what's available right now?" went non-deterministic
+(2 of 3 runs ambiguous). All reverted. A **deliberately red** live fixture now holds the failing
+phrasings; it sits in `live-quality`, which is observational rather than gating. Do not close it by
+trimming the fixture to passing cases — the failing phrasings *are* the finding.
+
+**F-107 then deleted the heading rather than guarding it better.** max designed the format in
+conversation; the shape is one entry per stand carrying both of its claims:
+
+```
+Provo Farms
+10142 Vashon Hwy SW
+IN STOCK (3h ago): eggs, bok choy
+MAYBE: a choy
+```
+
+No sentence can speak for a row other than its own, so the defect class is **unreachable rather
+than defended against** — the `some`/`every` guard and its four tests came out with the heading.
+Two retrieval facts (confirmed + offering) can describe one stand, so they merge at *render* time,
+leaving the fact ids the model selected and the MORE pending list pointing at what retrieval
+actually produced.
+
+**The seam now says which items answered.** This is what the whole-list fallback existed to paper
+over: only the model can see that "butter lettuce" answers "leafy greens", and discarding that
+forced the renderer to print a stand's entire inventory as a hedge. `matchedItems` is a **selection
+over values code already sent** — every name validated against that fact's own items, code's
+spelling rendered, so a model echoing "eggs" cannot restyle a farmer's "Eggs". Optional, so a model
+that omits it falls back to the old string matching.
+
+**Segments: the existing ceiling test passed before and after while measuring none of it.** Every
+fixture was an offering-only stand — the *cheapest* possible entry. The real worst case (both claim
+lines, longest corpus name) was **4 billed segments against a 2-segment ceiling**. Measured, then
+bought back: street-only addresses (every stand is on Vashon, so ", Vashon, WA 98070" is ~16
+characters of nothing) and "MAYBE" over "MAY ALSO HAVE". Now **404 chars / 3 segments** worst case,
+218 / 2 typical. The address rule anchors to the ZIP or state, never the bare word — **"Vashon Hwy
+SW" is a real road** carrying several stands, and a loose match mangles them. Sabotage-proven.
+
+**max's cost question forced an honest answer.** At 100 questions/day the 2→4 segment difference is
+~$45/month; at a realistic run-rate for a 12,000-person island (5–20/day, seasonal, weekend-peaked)
+it is a few dollars. So the ceiling was set on *reliability and readability*, not budget — long
+multi-segment messages reassemble badly on some carriers.
+
+**Staleness: max's call, against my recommendation.** The SMS answer no longer says "- may be out
+of date"; the elapsed phrase carries it in four characters instead of twenty, and the twenty were
+what pushed an all-stale page over the ceiling. I argued to keep a short marker because it is a
+stated product commitment and B-055 was filed for exactly this class; max decided the age is
+sufficient. **`PRODUCT_BRIEF.md` §freshness threshold was updated** so the contract and the
+behaviour do not silently disagree — the public map keeps its explicit warning, and what stays
+non-negotiable is that a stale listing still appears, still ranked, still stamped.
+
+**Found only by re-running the corpus probe after the rebuild:** a selected stand whose matched
+items were all filtered away rendered as a bare name and address — a stand printed under a question
+it made no claim about. Claimless entries are dropped, and a page left with none returns the honest
+no-listing reply instead of a lead-in over emptiness.
+
+**A wrap-time catch worth recording.** The stub adversarial eval H9 went red: it asserted the
+literal `"updated 2 hours ago"`. The *guarantee* (only code-rendered values reach a customer) was
+intact — only the wording moved. Updated and then sabotaged to confirm it still fails when a
+model-supplied value is spliced into the reply. **Two suites in this session held a stale literal
+while claiming to protect a live property.**
+
+**Deliberately not built:** the per-answer `MAP:` link (F-108). SMS has no markup, so a link cannot
+be labelled — the visible text is the URL. And no maps URL carries multiple pins on both platforms,
+so a multi-stand view is a Farm Friend page plus a stored per-answer code: a new public surface,
+not a render change. Street addresses stay in the reply meanwhile, which is what makes a stand
+findable today.
+
+**Verified:** typecheck, lint, 1,850 unit, 911 integration, stub evals 11/4/29, live evals
+containment 5/5, closure 7/7, recall 5/5, quality 19/20. Five deliberate sabotages across the
+session, each caught by the intended test. **Not verified:** nothing exercised over real SMS.
+
+---
+
 ## 2026-08-11 — B-057: the corpus said "something" was the normal alert, not the rare one
 
 **Deployed.** Web `farm-friend-web-00066-kq4`, worker `farm-friend-worker-00061-zpd`, digest

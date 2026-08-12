@@ -53,7 +53,24 @@ export const intentSchema = z.discriminatedUnion("kind", [
 
 export const selectionSchema = z.discriminatedUnion("kind", [
   // Identifiers only. There is deliberately no field here that could carry prose.
-  z.object({ kind: z.literal("selection"), factIds: z.array(z.string()) }).strict(),
+  //
+  // F-107 — `matchedItems` looks like an exception and is not. Every string in it must be one
+  // of the item names code ALREADY SENT for that fact; `validateFactSelection` drops anything
+  // else, exactly as it refuses an invented factId. So this is a SELECTION over values code
+  // supplied, in the same standing as `factIds`, and not a channel for model prose. It exists
+  // because the model is the only party that can see WHY a stand answers a category question
+  // ("leafy greens" → "butter lettuce"), and discarding that forced the renderer to print a
+  // stand's entire inventory as a hedge.
+  //
+  // Optional so a model that omits it is not a refusal: code falls back to the item names that
+  // match the request by string, which is what it did before this field existed.
+  z
+    .object({
+      kind: z.literal("selection"),
+      factIds: z.array(z.string()),
+      matchedItems: z.record(z.string(), z.array(z.string())).optional(),
+    })
+    .strict(),
   // Likewise a bare signal (F-018) — code renders the question.
   z.object({ kind: z.literal("clarification") }).strict(),
 ]);

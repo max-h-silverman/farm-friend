@@ -56,6 +56,62 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
     expect(estimateSmsSegments(page.body).segmentCount).toBeLessThanOrEqual(2);
   });
 
+  /*
+    F-107 — the fixtures above are all OFFERING-only stands, which render the SHORTEST possible
+    entry: a name, one MAY HAVE line, an address. They passed this ceiling before the format
+    changed and would have passed it after, while measuring none of the new cost.
+
+    The real worst case is a stand carrying BOTH claims: an IN STOCK line with its elapsed
+    phrase and staleness suffix, plus a MAY ALSO HAVE line. That is the ordinary shape against
+    the production corpus — 33 of 37 stands carry a usual offering their published inventory
+    does not — so it is what the ceiling has to hold for.
+  */
+  const bothClaims = [
+    { ...longest, factId: "worst-confirmed", basis: "confirmed" as const,
+      // Stale, which on this surface means only a larger elapsed phrase (F-107).
+      asOf: new Date(NOW.getTime() - 72 * 3_600_000),
+      matchedItems: [{ itemName: "leafy greens" }, { itemName: "butter lettuce" }] },
+    { ...longest, factId: "worst-offering" },
+  ];
+
+  it("holds for a full page of stands carrying BOTH claim lines", () => {
+    // Three segments, not two: F-107's two claim lines per stand cost more than the flat list
+    // the old ceiling was set against, and the extra information is the point of the format.
+    // Addresses were dropped to buy this back — see the renderer.
+    const page = renderResultPage({
+      itemsRequested: ["leafy greens"],
+      // PAGE_SIZE distinct stands, each with a confirmed and an offering fact that merge into
+      // one two-line entry.
+      facts: Array.from({ length: PAGE_SIZE }, (_, i) =>
+        bothClaims.map((fact) => ({
+          ...fact,
+          factId: `${fact.factId}-${i}`,
+          locationName: `${fact.locationName} ${i}`,
+          farmName: `${fact.farmName} ${i}`,
+        })),
+      ).flat(),
+      offset: 0,
+      total: 20,
+      clock,
+    });
+    expect(estimateSmsSegments(page.body).segmentCount).toBeLessThanOrEqual(3);
+  });
+
+  it("spends no segment budget on the city, state, and ZIP", () => {
+    // Addresses STAY — a stand nobody can find is not an answer (max, 2026-08-11). What goes
+    // is the ", Vashon, WA 98070" tail, which is ~16 characters of nothing per stand on an
+    // island where every address shares it.
+    const page = renderResultPage({
+      itemsRequested: ["leafy greens"],
+      facts: Array.from({ length: PAGE_SIZE }, () => longest),
+      offset: 0,
+      total: 20,
+      clock,
+    });
+    expect(page.body).toContain("20430 111th Ave SW");
+    expect(page.body).not.toMatch(/98070|\bWA\b/);
+  });
+
   it("keeps the no-pending-list reply to a single segment", () => {
     expect(estimateSmsSegments(renderNoPendingList()).segmentCount).toBe(1);
   });

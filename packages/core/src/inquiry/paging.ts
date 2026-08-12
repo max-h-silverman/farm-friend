@@ -14,10 +14,10 @@
 
 import type { Clock } from "../clock";
 import {
-  isStale,
   PUBLIC_MAP_URL,
   renderItem,
-  renderRecency,
+  renderNoCurrentListing,
+  renderShortElapsed,
   type RetrievedFact,
 } from "./answer";
 
@@ -25,10 +25,12 @@ import {
  * How many stands one page carries.
  *
  * Measured, not chosen by taste. Against the real corpus a stand's name plus address runs
- * 22-57 characters (median 35); at three per page the worst case still fits inside TWO
- * billed segments, which is the whole point of the feature. Raising this silently raises the
- * cost of every answer — `packages/sms/src/result-page-segments.test.ts` fails if it stops
- * fitting, and that test is the authority, since segment arithmetic lives in that package.
+ * 22-57 characters (median 35). F-107's two claim lines per stand raised the worst case from
+ * two billed segments to THREE — the extra information is the point of the format, and the
+ * cost was bought back by trimming the city/state/ZIP off each address (max, 2026-08-11).
+ * Raising this silently raises the cost of every answer —
+ * `packages/sms/src/result-page-segments.test.ts` fails if it stops fitting, and that test is
+ * the authority, since segment arithmetic lives in that package.
  */
 export const PAGE_SIZE = 3;
 
@@ -44,8 +46,28 @@ export interface RenderedPage {
   hasMore: boolean;
 }
 
+/**
+ * Drop the ", Vashon, WA 98070" tail a few stands store (F-107).
+ *
+ * Every stand is on Vashon, so the city/state/zip is ~16 characters of nothing on the one
+ * surface that pays per character. Measured against the live corpus 2026-08-11: most rows are
+ * already bare street addresses, and the handful that are not carry the tail with or without
+ * commas.
+ *
+ * **Anchored to the ZIP or the state, never to the word "Vashon" alone.** "Vashon Hwy SW" is a
+ * real road carrying several stands, and stripping the word wherever it appeared would mangle
+ * their addresses. The match therefore requires the city token to be followed by the state or
+ * ZIP that makes it a city.
+ */
+function stripIslandSuffix(address: string): string {
+  return address
+    .replace(/[,\s]+Vashon[,\s]+WA(\s+\d{5}(-\d{4})?)?\s*$/i, "")
+    .replace(/[,\s]+WA\s+\d{5}(-\d{4})?\s*$/i, "")
+    .trim();
+}
+
 function renderAddress(fact: PageableFact): string {
-  const address = fact.publicAddress?.trim() ?? "";
+  const address = stripIslandSuffix(fact.publicAddress?.trim() ?? "");
   // Never the literal "null", and never a dropped stand: a farm with no public address is
   // still a real answer to "who has lamb?", it just cannot be navigated to.
   return address === "" ? "address not listed" : address;
@@ -59,8 +81,10 @@ function renderAddress(fact: PageableFact): string {
  * `total` describe where that slice sits, so the page can say "4-6 of 9" without the renderer
  * needing the whole set.
  *
- * Confirmed stock leads within the page and carries its recency; an offering carries no
- * timestamp and no staleness warning, because nobody confirmed it (F-045's two voices).
+ * One entry per stand (F-107): its name, its street address, an IN STOCK line stamped with the
+ * age of the confirmation, and a MAYBE line for what it typically carries. A stand with a
+ * confirmation outranks one without. An offering carries no timestamp, because nobody
+ * confirmed it (F-045's two voices).
  */
 export function renderResultPage(input: {
   itemsRequested: string[];
@@ -73,71 +97,91 @@ export function renderResultPage(input: {
   const now = clock.now();
   const hasMore = offset + facts.length < total;
 
-  const confirmed = facts.filter((fact) => fact.basis === "confirmed");
-  const offerings = facts.filter((fact) => fact.basis === "offering");
-
-  const subject = input.itemsRequested.join(", ");
   const lines: string[] = [];
 
-  // B-049 — the heading is a CLAIM, and it may only name what the rows can support.
+  // F-107 — one entry per STAND, carrying both of its claims.
   //
-  // `matchedItems` is not always the requested item. When no published name matches the
-  // request, the caller deliberately falls back to the stand's whole list, because a
-  // category request ("leafy greens" answered by "butter lettuce") is a relationship only
-  // the model can see and listing nothing would render an empty claim. That fallback is
-  // right; naming the customer's word above it was not. Against the production corpus this
-  // rendered `Confirmed mangoes:` over a stand selling eggs and basil, and `Confirmed
-  // dairy:` over a creamery in reply to a dairy-allergy question — code fabricating a
-  // factual claim no retrieved row supports.
+  // The old layout grouped by claim type, under headings that named the customer's item. That
+  // heading was a claim about every stand beneath it, and B-049 and B-061 were the same failure
+  // twice: `Confirmed eggs:` printed over stands that sell no eggs. Scoping each claim to the
+  // stand it describes removes the heading's job rather than making it more careful — a neutral
+  // lead-in cannot be false, so there is no longer a guard here to get wrong.
   //
-  // So the item is named only where a row bears it out, per voice: the two headings make
-  // separate claims about separate stands and one must not borrow the other's evidence. Any
-  // single row is enough, because the heading covers the whole section rather than each line.
-  const wanted = new Set(
-    input.itemsRequested.map((item) => item.trim().toLowerCase()),
-  );
-  const namesRequestedItem = (group: PageableFact[]): boolean =>
-    group.some((fact) =>
-      fact.matchedItems.some((item) => wanted.has(item.itemName.trim().toLowerCase())),
-    );
-
-  // The generic subject keeps the sentence honest AND useful: the customer knows what they
-  // asked, and every stand line below still names exactly what that stand publishes.
-  const confirmedSubject = namesRequestedItem(confirmed) ? subject : "stock";
-  const offeringSubject = namesRequestedItem(offerings) ? subject : "these";
-
-  // The heading states what was asked about and, only when it matters, where this page sits.
-  // A result set that fits gets no count: it is noise when the customer can see everything.
-  const range = hasMore || offset > 0 ? ` (${offset + 1}-${offset + facts.length} of ${total})` : "";
-
-  if (confirmed.length > 0) {
-    lines.push(`Confirmed ${confirmedSubject}${offerings.length === 0 ? range : ""}:`);
-    for (const fact of confirmed) {
-      const items = fact.matchedItems.map(renderItem).join(", ");
-      const stale = isStale(fact.asOf, now) ? " - may be out of date" : "";
-      lines.push("");
-      lines.push(`${fact.locationName} - ${items} (${renderRecency(fact.asOf, now)}${stale})`);
-      lines.push(renderAddress(fact));
+  // Two facts can describe ONE stand: a confirmed revision and a standing offering, retrieved
+  // separately and carrying distinct ids. They merge here, at render time, so the fact ids the
+  // model selected and the MORE pending list still refer to exactly what retrieval produced.
+  const entries: {
+    locationName: string;
+    address: string;
+    confirmed?: PageableFact;
+    offering?: PageableFact;
+  }[] = [];
+  const byLocation = new Map<string, (typeof entries)[number]>();
+  for (const fact of facts) {
+    let entry = byLocation.get(fact.locationName);
+    if (entry === undefined) {
+      entry = { locationName: fact.locationName, address: renderAddress(fact) };
+      byLocation.set(fact.locationName, entry);
+      entries.push(entry);
     }
+    // A fact with no matched items makes no claim, so it contributes no line. Keeping it
+    // would print a stand name and address under a question they do not answer.
+    if (fact.matchedItems.length === 0) continue;
+    if (fact.basis === "confirmed") entry.confirmed ??= fact;
+    else entry.offering ??= fact;
   }
 
-  if (offerings.length > 0) {
-    if (confirmed.length > 0) lines.push("");
-    // The full explanation is worth a line ONCE. On a later page the customer already knows
-    // why they are reading typical offerings, and restating it costs characters on the page
-    // that can least afford them — the closing page also carries the map URL, and the two
-    // together pushed the worst case to a third billed segment.
-    lines.push(
-      confirmed.length > 0
-        ? `Also list ${offeringSubject} as a typical offering${range}:`
-        : offset > 0
-          ? `More stands that usually have ${offeringSubject}${range}:`
-          : `Nobody has confirmed ${offeringSubject} recently. Stands that usually have it${range}:`,
-    );
-    for (const fact of offerings) {
-      lines.push("");
-      lines.push(fact.locationName);
-      lines.push(renderAddress(fact));
+  // A confirmed stand outranks one that only lists what it typically carries: the customer
+  // asked what is there NOW, and only a confirmation speaks to that. Stable within each group,
+  // so the caller's ordering survives.
+  // An entry that ended up with neither claim is dropped entirely (F-107). Found live: a
+  // selected stand whose matched items were all filtered away rendered as a bare name and
+  // address, telling the customer nothing about what they asked.
+  const claiming = entries.filter(
+    (entry) => entry.confirmed !== undefined || entry.offering !== undefined,
+  );
+  const ordered = [
+    ...claiming.filter((entry) => entry.confirmed !== undefined),
+    ...claiming.filter((entry) => entry.confirmed === undefined),
+  ];
+
+  // Every stand was dropped, so there is nothing to lead in to. Returning the honest
+  // no-listing reply beats a heading standing over an empty list.
+  if (ordered.length === 0) {
+    return { body: renderNoCurrentListing(input.itemsRequested), hasMore: false };
+  }
+
+  // Where this page sits, stated only when there is more than one page to sit in.
+  const range =
+    hasMore || offset > 0 ? ` (${offset + 1}-${offset + ordered.length} of ${total})` : "";
+  lines.push(`Here are matching stands${range}:`);
+
+  for (const entry of ordered) {
+    lines.push("");
+    lines.push(entry.locationName);
+    // Street address directly under the name, where a reader looks for it. City/state/zip are
+    // omitted: every stand is on Vashon, so they are 16 characters of nothing per line.
+    lines.push(entry.address);
+    if (entry.confirmed !== undefined) {
+      const items = entry.confirmed.matchedItems.map(renderItem).join(", ");
+      // The elapsed phrase sits INSIDE this line on purpose: it is true of these items and of
+      // nothing else in the entry. The MAY line below carries no time because nobody confirmed
+      // it, and one timestamp above both would silently vouch for both.
+      //
+      // F-107 — no separate staleness warning on this surface (max, 2026-08-11). The elapsed
+      // phrase IS the warning: "(3d ago)" tells a customer what "- may be out of date" told
+      // them, in four characters instead of twenty, and the twenty were what pushed an
+      // all-stale page past its segment ceiling. Nothing is hidden — a stale listing still
+      // appears, still ranked, still stamped with its age, which is the honor-system
+      // commitment. **The public map keeps its own explicit warning**; a browsed card has room
+      // for words a text message pays for.
+      lines.push(`IN STOCK (${renderShortElapsed(entry.confirmed.asOf, now)}): ${items}`);
+    }
+    if (entry.offering !== undefined) {
+      const items = entry.offering.matchedItems.map(renderItem).join(", ");
+      // One label for both cases. "MAYBE" reads the same whether or not an IN STOCK line sits
+      // above it, and the shorter word buys back segment budget on every entry.
+      lines.push(`MAYBE: ${items}`);
     }
   }
 

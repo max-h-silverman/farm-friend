@@ -1529,7 +1529,7 @@ describe("inbound routing end to end (integration)", () => {
       expect(work[0]?.message_category).toBe("inquiry_reply");
       // Code rendered it: the stand name and a recency label the model never supplied.
       expect(work[0]?.body).toContain("Test Stand");
-      expect(work[0]?.body).toMatch(/updated .* ago|updated just now/);
+      expect(work[0]?.body).toMatch(/IN STOCK \(\d+[hd] ago\)|IN STOCK \(now\)/);
     });
 
     it("a customer inquiry creates no durable consent", async () => {

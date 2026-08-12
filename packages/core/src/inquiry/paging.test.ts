@@ -82,7 +82,10 @@ describe("case 3 — more than fits", () => {
       total: 1,
       clock,
     });
-    expect(page.body).toContain("Farm Number 0\n10000 SW 220th St");
+    // F-107 puts the stand's claim lines between its name and its address; what matters is
+    // that name and address never share a line and so cannot wrap into each other.
+    expect(page.body).toMatch(/^Farm Number 0$/m);
+    expect(page.body).toMatch(/^10000 SW 220th St$/m);
     expect(page.body).not.toMatch(/Farm Number 0 \(/);
   });
 
@@ -134,7 +137,7 @@ describe("case 4 — confirmed stock is never paged away", () => {
     });
     expect(page.body.indexOf("Provo Farms")).toBeLessThan(page.body.indexOf("Farm Number 0"));
     // Confirmed carries its recency; the honor-system rule forbids claiming more.
-    expect(page.body).toMatch(/1 day ago/);
+    expect(page.body).toMatch(/1d ago/);
     expect(page.body).not.toMatch(/right now|currently has|guaranteed/i);
   });
 });
@@ -231,10 +234,10 @@ describe("grounded rendering — every value comes from typed facts", () => {
     expect(page.body).toContain("Provo Stand");
     expect(page.body).toContain("Kale (6 bunches)");
     expect(page.body).toContain("Eggs (limited, $6)");
-    expect(page.body).toContain("updated 2 hours ago");
+    expect(page.body).toContain("2h ago");
   });
 
-  it("carries a prominent staleness warning rather than hiding an old listing", () => {
+  it("shows an old listing with its age rather than hiding it", () => {
     const page = renderResultPage({
       itemsRequested: ["Kale"],
       facts: [harbor],
@@ -243,8 +246,12 @@ describe("grounded rendering — every value comes from typed facts", () => {
       clock,
     });
     expect(page.body).toContain("Harbor Stand");
-    expect(page.body).toContain("updated 3 days ago");
-    expect(page.body).toContain("may be out of date");
+    // F-107 — the age IS the warning on this surface (max, 2026-08-11); the explicit phrase
+    // moved to the public map, which pays nothing per character. The commitment this test
+    // exists for is unchanged and still asserted: an old listing is SHOWN, never hidden, and
+    // it is stamped so a customer can judge it.
+    expect(page.body).toContain("3d ago");
+    expect(page.body).not.toMatch(/may be out of date/i);
   });
 
   it("preserves the order it is given, since ranking is the model's interpretation", () => {
@@ -305,12 +312,13 @@ describe("two voices — confirmed stock and typical offerings (F-045)", () => {
       clock,
     }).body;
 
-  it("leads with confirmed stock and lists offerings under a separate label", () => {
+  it("leads with confirmed stock and marks the two voices differently", () => {
     const body = pageOf(lamb);
     expect(body.indexOf("Provo")).toBeLessThan(body.indexOf("Alpha"));
-    // The second voice is introduced, not silently concatenated: a customer must be able to
-    // see where confirmation stops and description begins.
-    expect(body).toMatch(/also list|typical offering/i);
+    // F-107 moved the distinction from section headings onto the lines themselves: a customer
+    // must still be able to see where confirmation stops and description begins.
+    expect(body).toMatch(/^IN STOCK /m);
+    expect(body).toMatch(/^MAYBE: /m);
   });
 
   it("carries the address for both voices", () => {
@@ -321,7 +329,7 @@ describe("two voices — confirmed stock and typical offerings (F-045)", () => {
 
   it("gives confirmed stock a recency phrase and never claims present certainty", () => {
     const body = pageOf([lamb[0]!]);
-    expect(body).toContain("1 day ago");
+    expect(body).toContain("1d ago");
     // The honor-system rule: showing WHEN a farmer confirmed is precisely how we avoid
     // asserting what is on the table now. "right now"/"currently has" would be that claim.
     expect(body).not.toMatch(/right now|currently has|in stock now|guaranteed/i);
@@ -358,25 +366,27 @@ describe("two voices — confirmed stock and typical offerings (F-045)", () => {
   });
 });
 
-// B-049. Observed against the real model and the production corpus: "anyone got mangoes?"
-// answered `Confirmed mangoes:` over a stand publishing eggs, blueberries and basil, and "my
-// kid has a dairy allergy" answered `Confirmed dairy:` over a creamery.
+// B-049 / B-061, now structural rather than guarded.
 //
-// The heading names the CUSTOMER'S words, while the stand lines name what the stand actually
-// publishes. When code could not match the two, the heading asserted a confirmation no
-// retrieved row supports — a fabricated factual claim rendered entirely by code, which is
-// exactly what the grounded-answer rule exists to prevent.
+// Both bugs were the same shape: a section heading named the CUSTOMER'S word ("Confirmed
+// mangoes:", "Confirmed eggs:") over stands whose rows did not support it. B-049 fixed the
+// no-row case and B-061 the some-rows case, each by making the heading more careful.
 //
-// The item fallback itself is correct and stays: a category request ("leafy greens" reaching
-// "butter lettuce") is a relationship only the model can see, so listing every item is right.
-// What must change is the CLAIM above it, which may only name what the rows can support.
-describe("the heading may not claim an item the rows do not carry (B-049)", () => {
+// F-107 removed the heading instead. A stand's claims are now printed under that stand's own
+// name, so there is no sentence left that could speak for a row other than its own — the
+// defect class is unreachable rather than defended against, and the `some`/`every` guard and
+// its four tests came out with it.
+//
+// What remains to prove is that removal: the customer's word must not appear as a claim
+// anywhere the rows do not put it.
+describe("no rendered claim names an item its rows do not carry (B-049, B-061)", () => {
   const unmatched: PageableFact = {
     factId: "confirmed-x",
     locationName: "Aeggy's Farm",
     farmName: "Aeggy's Farm",
     publicAddress: "13609 SW 220th St",
-    // The fallback case: none of these is a mango.
+    // The category case: the model selected this stand for "mangoes" and none of its items
+    // is one. Under the old layout this rendered `Confirmed mangoes:`.
     matchedItems: [{ itemName: "Eggs" }, { itemName: "blueberries" }, { itemName: "basil" }],
     asOf: hoursAgo(2),
     basis: "confirmed",
@@ -385,10 +395,12 @@ describe("the heading may not claim an item the rows do not carry (B-049)", () =
   const matched: PageableFact = {
     ...unmatched,
     factId: "confirmed-y",
+    locationName: "Mango Stand",
+    farmName: "Mango Stand",
     matchedItems: [{ itemName: "mangoes" }],
   };
 
-  it("does not assert the requested item when no listed item names it", () => {
+  it("never states the requested item except as a stand's own listed item", () => {
     const body = renderResultPage({
       itemsRequested: ["mangoes"],
       facts: [unmatched],
@@ -396,27 +408,14 @@ describe("the heading may not claim an item the rows do not carry (B-049)", () =
       total: 1,
       clock,
     }).body;
-    // The exact production defect: a confirmation claim about mangoes over a stand with none.
-    expect(body).not.toMatch(/Confirmed mangoes/i);
+    // The word the customer typed appears nowhere, because no row carries it.
+    expect(body).not.toMatch(/mango/i);
     // The stand is still a real answer the model selected — it must not vanish.
     expect(body).toContain("Aeggy's Farm");
     expect(body).toContain("Eggs, blueberries, basil");
   });
 
-  it("still names the item when a listed item does carry it", () => {
-    const body = renderResultPage({
-      itemsRequested: ["mangoes"],
-      facts: [matched],
-      offset: 0,
-      total: 1,
-      clock,
-    }).body;
-    expect(body).toMatch(/Confirmed mangoes/i);
-  });
-
-  it("names the item for the subset of stands that carry it", () => {
-    // A mixed page must not be dragged down to the weakest claim: the heading is one claim
-    // over the whole page, so it may name the item as soon as ANY row supports it.
+  it("prints the item under the stand that carries it, and not over the one that does not", () => {
     const body = renderResultPage({
       itemsRequested: ["mangoes"],
       facts: [matched, unmatched],
@@ -424,10 +423,16 @@ describe("the heading may not claim an item the rows do not carry (B-049)", () =
       total: 2,
       clock,
     }).body;
-    expect(body).toMatch(/Confirmed mangoes/i);
+    const lines = body.split("\n");
+    const mangoLine = lines.findIndex((line) => /mango/i.test(line) && line.startsWith("IN STOCK"));
+    const mangoStand = lines.indexOf("Mango Stand");
+    const otherStand = lines.indexOf("Aeggy's Farm");
+    // The only line naming mangoes belongs to Mango Stand's entry, not Aeggy's.
+    expect(mangoLine).toBeGreaterThan(mangoStand);
+    expect(mangoLine).toBeLessThan(otherStand);
   });
 
-  it("applies the same rule to the offerings voice", () => {
+  it("applies the same rule to a stand carrying only typical offerings", () => {
     const body = renderResultPage({
       itemsRequested: ["dairy"],
       facts: [{ ...unmatched, basis: "offering" }],
@@ -435,18 +440,252 @@ describe("the heading may not claim an item the rows do not carry (B-049)", () =
       total: 1,
       clock,
     }).body;
-    expect(body).not.toMatch(/usually have dairy/i);
+    expect(body).not.toMatch(/dairy/i);
     expect(body).toContain("Aeggy's Farm");
   });
+});
 
-  it("keeps a case-insensitive match a match", () => {
-    const body = renderResultPage({
-      itemsRequested: ["Kale"],
-      facts: [{ ...unmatched, matchedItems: [{ itemName: "kale" }] }],
+/*
+  F-107 — one entry per STAND, carrying both of its claims.
+
+  The old layout grouped by claim type: a "Confirmed <item>:" section and an "Also list these
+  as a typical offering:" section, each with a heading that made a factual claim about every
+  stand beneath it. That heading is what B-061 defect 1 was — `Confirmed eggs:` printed over
+  two stands that sell no eggs — and this format removes its job rather than making it more
+  careful. A neutral lead-in cannot make a false claim.
+
+  Each claim is now scoped to the stand it sits under, and the timestamp lives INSIDE the
+  IN STOCK line so it cannot be read as covering the MAY ALSO HAVE items, which nobody
+  confirmed and which therefore have no age.
+*/
+describe("street-only addresses (F-107)", () => {
+  // Measured against the live corpus 2026-08-11: most stands store a bare street address, but
+  // several carry a ", Vashon, WA 98070" tail — with and without commas. Every stand is on
+  // Vashon, so that tail is ~16 characters of nothing on a surface that pays per character.
+  const withAddress = (address: string): PageableFact => ({
+    factId: "a1",
+    farmName: "Alpha Farm",
+    locationName: "Alpha Farm",
+    publicAddress: address,
+    matchedItems: [{ itemName: "eggs" }],
+    asOf: hoursAgo(2),
+    basis: "confirmed",
+  });
+
+  const bodyFor = (address: string) =>
+    renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [withAddress(address)],
       offset: 0,
       total: 1,
       clock,
     }).body;
-    expect(body).toMatch(/Confirmed Kale/i);
+
+  it.each([
+    ["10515 SW 140th St, Vashon, WA 98070", "10515 SW 140th St"],
+    ["20430 111th Ave SW Vashon WA 98070", "20430 111th Ave SW"],
+    ["13632 SW 220th St Vashon WA 98070", "13632 SW 220th St"],
+    // Already street-only: unchanged, including a trailing abbreviation dot.
+    ["9627 SW Elisha Ln.", "9627 SW Elisha Ln."],
+    ["13705 Vashon Hwy SW", "13705 Vashon Hwy SW"],
+  ])("renders %s as %s", (stored, expected) => {
+    const body = bodyFor(stored);
+    expect(body).toContain(expected);
+    expect(body).not.toMatch(/98070/);
+    expect(body).not.toMatch(/\bWA\b/);
+  });
+
+  it("keeps a street named Vashon, which is not the city tail", () => {
+    // "Vashon Hwy SW" is a real road on the island. Stripping the word wherever it appears
+    // would mangle the address of every stand on the main highway.
+    expect(bodyFor("13705 Vashon Hwy SW")).toContain("13705 Vashon Hwy SW");
+  });
+
+  it("puts the address directly under the stand name", () => {
+    const body = bodyFor("20171 87th Ave SW");
+    expect(body).toContain("Alpha Farm\n20171 87th Ave SW");
+  });
+});
+
+describe("one entry per stand (F-107)", () => {
+  const provo: PageableFact = {
+    factId: "c1",
+    farmName: "Provo Farms",
+    locationName: "Provo Farms",
+    publicAddress: "1 Road",
+    matchedItems: [{ itemName: "eggs" }, { itemName: "bok choy" }],
+    // Deliberately just inside STALE_AFTER_HOURS: this fixture is about the LAYOUT, and a
+    // staleness suffix in the same line would make the assertions test two things at once.
+    asOf: hoursAgo(47),
+    basis: "confirmed",
+  };
+  const provoOffering: PageableFact = {
+    ...provo,
+    factId: "o1",
+    matchedItems: [{ itemName: "a choy" }],
+    basis: "offering",
+  };
+  const sherman: PageableFact = {
+    factId: "o2",
+    farmName: "Sherman Creek Farm",
+    locationName: "Sherman Creek Farm",
+    publicAddress: "2 Road",
+    matchedItems: [{ itemName: "eggs" }],
+    asOf: hoursAgo(500),
+    basis: "offering",
+  };
+
+  it("omits a stand left with no claim to make", () => {
+    // FOUND against the live corpus (2026-08-11): "who has eggs today?" printed
+    //
+    //   Useful Bear Farm
+    //   13705 Vashon Hwy SW
+    //
+    // and nothing else. The model selected the stand and then named none of its items as an
+    // answer, so both claim lines rendered empty and the entry said only that a stand exists.
+    // A name and an address make no claim about the question, so the honest move is to leave
+    // it out rather than print a stand the customer cannot act on.
+    const empty: PageableFact = { ...provo, matchedItems: [] };
+    const body = renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [empty],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+    expect(body).not.toContain("Provo Farms");
+  });
+
+  it("keeps the stands that do make a claim when another is dropped", () => {
+    const empty: PageableFact = {
+      ...provo,
+      factId: "c9",
+      locationName: "Empty Stand",
+      farmName: "Empty Stand",
+      matchedItems: [],
+    };
+    const body = renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [provo, empty],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+    expect(body).toContain("Provo Farms");
+    expect(body).not.toContain("Empty Stand");
+  });
+
+  it("says nobody has it rather than leading in to an empty list", () => {
+    // The tail of the drop rule: if EVERY selected stand turns out to make no claim, the page
+    // must not render "Here are matching stands:" over nothing. That would be a lead-in with
+    // no answer under it — worse than the honest no-listing reply.
+    const body = renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [{ ...provo, matchedItems: [] }],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+    expect(body).not.toMatch(/Here are matching stands/i);
+    expect(body).toMatch(/No stand has a current listing/i);
+  });
+
+  it("merges a stand's confirmed and offering rows into one entry", () => {
+    const body = renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [provo, provoOffering],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+
+    // Named once, not once per claim type.
+    expect(body.match(/Provo Farms/g)).toHaveLength(1);
+    expect(body).toContain("IN STOCK (1d ago): eggs, bok choy");
+    expect(body).toContain("MAYBE: a choy");
+    // The old section headings are gone entirely.
+    expect(body).not.toMatch(/Confirmed /i);
+    expect(body).not.toMatch(/typical offering/i);
+  });
+
+  it("gives a stand with no confirmation a MAY HAVE line and no timestamp", () => {
+    const body = renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [sherman],
+      offset: 0,
+      total: 1,
+      clock,
+    }).body;
+
+    expect(body).toContain("MAYBE: eggs");
+    // Nobody confirmed it, so no elapsed phrase may appear anywhere in its entry.
+    expect(body).not.toMatch(/ago\)/);
+    expect(body).not.toContain("IN STOCK");
+  });
+
+  it("ranks stands with a confirmation above stands without one", () => {
+    const body = renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [sherman, provo],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+    expect(body.indexOf("Provo Farms")).toBeLessThan(body.indexOf("Sherman Creek Farm"));
+  });
+
+  it("states a stale listing's age rather than warning about it", () => {
+    // max's call (2026-08-11): the elapsed phrase IS the warning on this surface. "(3d ago)"
+    // carries what "- may be out of date" carried, in four characters instead of twenty, and
+    // the twenty pushed an all-stale page past its segment ceiling. The PUBLIC MAP keeps its
+    // explicit warning — a browsed card has room for words a text message pays for.
+    //
+    // What must not change: the stale listing still appears, still ranked, still stamped.
+    const stale: PageableFact = { ...provo, asOf: hoursAgo(72) };
+    const body = renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [stale, provoOffering],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+
+    expect(body).not.toMatch(/may be out of date/i);
+    expect(body).toContain("IN STOCK (3d ago):");
+    expect(body).toContain("Provo Farms");
+  });
+
+  describe("abbreviated elapsed — SMS pays per character", () => {
+    it.each([
+      [0.5, "(now)"],
+      [1, "(1h ago)"],
+      [5, "(5h ago)"],
+      [23, "(23h ago)"],
+      [24, "(1d ago)"],
+      [72, "(3d ago)"],
+    ])("renders %s hours as %s", (hours, expected) => {
+      const body = renderResultPage({
+        itemsRequested: ["eggs"],
+        facts: [{ ...provo, asOf: hoursAgo(hours) }],
+        offset: 0,
+        total: 1,
+        clock,
+      }).body;
+      // Prefix only: past STALE_AFTER_HOURS a " - may be out of date" suffix follows the
+      // parenthesis, and this case is about the elapsed phrase alone.
+      expect(body).toContain(`IN STOCK ${expected}`);
+    });
+
+    it("never states minutes", () => {
+      // max's call: nothing a customer decides changes inside an hour.
+      const body = renderResultPage({
+        itemsRequested: ["eggs"],
+        facts: [{ ...provo, asOf: hoursAgo(0.75) }],
+        offset: 0,
+        total: 1,
+        clock,
+      }).body;
+      expect(body).not.toMatch(/minute/i);
+    });
   });
 });

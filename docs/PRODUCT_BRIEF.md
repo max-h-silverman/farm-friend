@@ -226,8 +226,13 @@ Recorded here because the decision, not just the code, is the product answer:
 - **Raw-message retention: 30 days.** A body is written with an expiry that far outlives any
   conversation, and a scheduled purge clears it. A thread under open safety review is exempt only until
   the flag is disposed of.
-- **Freshness threshold: 48 hours.** Past it a listing is shown with a stale warning. It never
-  disappears — that is the honor-system reality above, not a tuning knob.
+- **Freshness threshold: 48 hours.** Past it a listing is shown with a stale warning **on the
+  public map**. It never disappears — that is the honor-system reality above, not a tuning knob.
+  **The SMS answer states age instead of warning** (max, 2026-08-11): every listing carries
+  "(3d ago)" beside its items, which is the same information in four characters rather than
+  twenty, and a text message pays per character where a browsed card does not. What is
+  non-negotiable is that a stale listing still appears, still ranked, still stamped with its
+  age; the explicit warning is the map's to give.
 - **Inventory proposals: patch language in, complete snapshot out.** Farmers speak in edits; code
   applies them to the current snapshot and the farmer confirms the *complete* result, so every
   confirmation publishes one immutable revision.

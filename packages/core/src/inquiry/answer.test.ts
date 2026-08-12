@@ -113,6 +113,63 @@ describe("selection validation — structural validity is not grounding", () => 
     const result = validateFactSelection({ kind: "selection", factIds: [] }, facts);
     expect(result.ok).toBe(true);
   });
+
+  // F-107 — the model may say WHICH of a stand's items answered the request, so the renderer
+  // can print those instead of the stand's whole inventory. It is a selection over names code
+  // already sent, never a prose channel: anything code did not send is dropped here.
+  describe("matched item names (F-107)", () => {
+    it("keeps the item names code sent for that fact", () => {
+      const result = validateFactSelection(
+        { kind: "selection", factIds: ["f1"], matchedItems: { f1: ["Eggs"] } },
+        facts,
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok || result.value.kind !== "selection") return;
+      expect(result.value.matchedItems).toEqual({ f1: ["Eggs"] });
+    });
+
+    it("drops an item name that fact never carried", () => {
+      // The grounding case: a model inventing produce for a real stand. "Caviar" is not on
+      // Provo's list, so it cannot reach a customer under Provo's name.
+      const result = validateFactSelection(
+        { kind: "selection", factIds: ["f1"], matchedItems: { f1: ["Eggs", "Caviar"] } },
+        facts,
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok || result.value.kind !== "selection") return;
+      expect(result.value.matchedItems).toEqual({ f1: ["Eggs"] });
+    });
+
+    it("drops names attributed to a fact that was not selected", () => {
+      // Naming items under an unselected fact is a claim about a stand the answer never
+      // returns. It carries no rendering, so it is discarded rather than refused.
+      const result = validateFactSelection(
+        { kind: "selection", factIds: ["f1"], matchedItems: { f2: ["Kale"] } },
+        facts,
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok || result.value.kind !== "selection") return;
+      expect(result.value.matchedItems).toEqual({});
+    });
+
+    it("matches an item name case-insensitively but renders code's spelling", () => {
+      // The model echoing "eggs" must not change how the farmer's "Eggs" is printed.
+      const result = validateFactSelection(
+        { kind: "selection", factIds: ["f1"], matchedItems: { f1: ["eggs"] } },
+        facts,
+      );
+      expect(result.ok).toBe(true);
+      if (!result.ok || result.value.kind !== "selection") return;
+      expect(result.value.matchedItems).toEqual({ f1: ["Eggs"] });
+    });
+
+    it("is absent when the model omits it", () => {
+      const result = validateFactSelection({ kind: "selection", factIds: ["f1"] }, facts);
+      expect(result.ok).toBe(true);
+      if (!result.ok || result.value.kind !== "selection") return;
+      expect(result.value.matchedItems).toBeUndefined();
+    });
+  });
 });
 
 describe("recency rendering — code states how fresh a fact is", () => {

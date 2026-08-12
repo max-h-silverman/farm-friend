@@ -92,7 +92,8 @@ export const SEAM_OUTPUT_SHAPES = {
     '{"kind":"ambiguous"}',
   ],
   "grounded-fact-selection": [
-    '{"kind":"selection","factIds":["loc-1","loc-2"]}',
+    '{"kind":"selection","factIds":["loc-1","loc-2"],"matchedItems":{"loc-1":["butter lettuce"],"loc-2":["kale"]}}',
+    '{"kind":"selection","factIds":[]}',
     '{"kind":"clarification"}',
   ],
   "stock-out-parse": [
@@ -112,10 +113,15 @@ type SeamName = keyof typeof SEAM_OUTPUT_SHAPES;
 const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
   "farmer-message-intent":
     "Classify the authorized farmer's message as inventory_update when they are reporting " +
-    "what a stand has, sold out of, or will have; farm_stand_question when they are asking " +
-    "what a stand has or when a stand is available; and unclear when the message does not " +
-    "clearly choose one. Return only the classification signal. Do not interpret the " +
-    "inventory, choose a stand, or write a reply.",
+    "what a stand has, sold out of, or will have - a statement about THEIR OWN stock. " +
+    "Classify it as farm_stand_question when they are asking what a stand has, where a stand " +
+    "is, when it is open, or looking for a product to buy - a request for information. A " +
+    "message that merely names or asks after a product (\"looking for nigella\", \"anyone " +
+    "have plums\", \"nigella?\") is a question, not an update: a farmer also shops at other " +
+    "stands. When you cannot clearly tell, choose farm_stand_question - it answers from real " +
+    "listings and is safe for either sender. Use unclear only as a last resort, when the " +
+    "message says nothing about stock and asks nothing at all. Return only the classification " +
+    "signal. Do not interpret the inventory, choose a stand, or write a reply.",
   "customer-message-intent":
     "Classify the customer's message as stock_out_report when they are telling you an item " +
     "is gone, sold out, empty, or unavailable at a stand they visited - a statement about " +
@@ -178,8 +184,16 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     'listing "beets"), and a request for a specific item selects stands listing it under any ' +
     'wording ("lamb" selects "frozen lamb"). basis is "confirmed" when a farmer confirmed the ' +
     'stock and "offering" when the stand merely lists it as typical; select BOTH kinds when ' +
-    "both answer the request, ordering confirmed facts first. If none fit, return the " +
-    "clarification shape with no other fields.",
+    "both answer the request, ordering confirmed facts first. If the request is clear but " +
+    "nothing here sells it, return the selection shape with an EMPTY factIds array - that is " +
+    "how you say nobody carries it. Reserve the clarification shape for a request you cannot " +
+    "interpret at all; returning it for an item nobody stocks tells the customer they mistyped " +
+    "when they did not. " +
+    "Also return matchedItems: an object keyed by each selected factId, whose value lists " +
+    "WHICH of that fact's matchedItemNames answered the request - copy those names EXACTLY as " +
+    'given ("butter lettuce" for a leafy-greens request, "frozen lamb" for lamb). Include only ' +
+    "names present in that fact's own matchedItemNames; never invent an item, and never move " +
+    "an item from one fact to another.",
   "stock-out-parse":
     "If the text names an item matching one of listedItems, return listed with that " +
     "entryId. If it names an item that is not in listedItems, return unlisted with the " +

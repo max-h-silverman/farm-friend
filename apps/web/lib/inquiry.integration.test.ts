@@ -241,7 +241,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     if (result.outcome !== "answered") return;
     expect(result.body).toContain("Alpha Farm Stand");
     expect(result.body).toContain("Kale");
-    expect(result.body).toContain("updated 2 hours ago");
+    expect(result.body).toContain("IN STOCK (2h ago)");
     // The customer asked about kale; eggs are not volunteered.
     expect(result.body).not.toContain("Eggs");
 
@@ -271,8 +271,11 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     const result = await answerInquiry(deps, { taskText: "kale anywhere?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false }  });
     expect(result.outcome).toBe("answered");
     if (result.outcome !== "answered") return;
-    expect(result.body).toContain("updated 3 days ago");
-    expect(result.body).toContain("may be out of date");
+    expect(result.body).toContain("IN STOCK (3d ago)");
+    // F-107 — the age IS the warning on this surface; the explicit phrase belongs to the
+    // public map. What must hold is that the stale listing is SHOWN and stamped.
+    expect(result.body).toContain("3d ago");
+    expect(result.body).not.toMatch(/may be out of date/i);
   });
 
   it("renders the honest no-listing answer WITHOUT a selection model call", async () => {
@@ -328,13 +331,12 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     if (result.outcome !== "answered") return;
     expect(result.body).toContain("Alpha Farm Stand");
     // The offerings voice announces itself as a standing description rather than a
-    // confirmation. F-046's page renderer says it as "nobody has confirmed X recently ...
-    // stands that usually have it"; what matters is that the customer is told which voice
-    // this is, not the particular phrasing.
-    expect(result.body).toMatch(/nobody has confirmed/i);
-    expect(result.body).toMatch(/usually have/i);
+    // confirmation. F-107 says it as a "MAY HAVE:" line on the stand's own entry; what
+    // matters is that the customer is told which voice this is, not the particular phrasing.
+    expect(result.body).toMatch(/^MAYBE: /m);
+    expect(result.body).not.toMatch(/^IN STOCK/m);
     // No confirmation happened, so no elapsed phrase may appear anywhere in the answer.
-    expect(result.body).not.toMatch(/updated .* ago/i);
+    expect(result.body).not.toMatch(/ago\)/);
 
     // The selection seam actually ran, and saw the offering as an offering.
     const ctx = provider.contextFor("grounded-fact-selection");
@@ -412,7 +414,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       result.body.indexOf("Beta Farm Stand"),
     );
     // The confirmed line carries recency; the honor-system rule forbids claiming more.
-    expect(result.body).toMatch(/1 day ago/);
+    expect(result.body).toMatch(/1d ago/);
     expect(result.body).not.toMatch(/right now|currently has|guaranteed/i);
     // The address reaches the customer for both voices.
     expect(result.body).toContain("1 Road");
@@ -521,6 +523,126 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.outcome).toBe("rejected");
   });
 
+  /*
+    B-061 — a malformed selection must not throw away a good retrieval.
+
+    Found live 2026-08-11 against the production corpus: "got any peppers" returned a fact id
+    outside the retrieved set and "eggz" returned the same id twice. Both were correctly
+    refused by `validateFactSelection` — and the customer was then told "Sorry, I did not catch
+    which item or farm you meant", which is false: code had already retrieved the peppers and
+    the eggs. The wording blames the customer for the model's malformed reply.
+
+    Code holds the ranked retrieved set, so it can answer from its OWN deterministic ordering.
+    Grounding is untouched: every fact rendered still comes from the retrieved set, and the
+    model's selection is discarded entirely rather than partially trusted.
+
+    This is deliberately NOT a retry. A second model call would cost the customer latency on a
+    path where code already knows a correct answer.
+  */
+  it("answers from code's own ranking when the model duplicates a retrieved id", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["Kale"],
+        ranking: "any",
+      }),
+      // A real retrieved id, returned twice. Malformed, not hostile: nothing is invented.
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [ids.alphaLocation, ids.alphaLocation],
+      }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "kale?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    // The stand code retrieved is named, and the reply never blames the customer's wording.
+    expect(result.body).toContain("Alpha Farm Stand");
+    expect(result.body).not.toMatch(/did not catch/i);
+  });
+
+  /*
+    F-107 — the model says WHICH items answered, and the reply prints those instead of the
+    stand's whole inventory.
+
+    This is the case the old whole-list fallback existed for: a category request whose answer
+    is a relationship code cannot see. Alpha publishes butter lettuce and eggs; "leafy greens"
+    matches neither by name, so before this the reply recited both.
+  */
+  it("prints the items the model matched, not the stand's whole list", async () => {
+    await publish(
+      ids.alphaLocation!,
+      ids.alphaFarm!,
+      ["Butter Lettuce", "Eggs"],
+      hoursAgo(1),
+    );
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["leafy greens"],
+        ranking: "any",
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [ids.alphaLocation],
+        matchedItems: { [ids.alphaLocation!]: ["Butter Lettuce"] },
+      }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "any leafy greens?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("Butter Lettuce");
+    // The eggs are real, and irrelevant to this question.
+    expect(result.body).not.toMatch(/eggs/i);
+  });
+
+  it("ignores a matched item the stand does not carry", async () => {
+    // Grounding at the item level: a model naming produce for a real stand must not put that
+    // word in front of a customer under the stand's name.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(1));
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["kale"],
+        ranking: "any",
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [ids.alphaLocation],
+        matchedItems: { [ids.alphaLocation!]: ["Kale", "Caviar"] },
+      }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "kale?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("Kale");
+    expect(result.body).not.toMatch(/caviar/i);
+  });
+
   // ------------------------------------------------------------------ hostile inquiry
 
   it("rejects a selection naming a location that was never retrieved", async () => {
@@ -597,7 +719,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     if (result.outcome !== "answered") return;
     // The useful half survives: real availability, real recency.
     expect(result.body).toContain("Alpha Farm Stand");
-    expect(result.body).toContain("updated 2 hours ago");
+    expect(result.body).toContain("IN STOCK (2h ago)");
     // Plus the honest code-rendered limitation and the public-map link.
     expect(result.body).toContain("cannot work out which stand is closest");
     expect(result.body).toContain("vigavashon.org/farm-stand-map");
@@ -676,7 +798,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // The useful half survives: real availability, real recency.
     expect(result.body).toContain("Alpha Farm Stand");
     expect(result.body).toContain("Kale");
-    expect(result.body).toContain("updated 2 hours ago");
+    expect(result.body).toContain("IN STOCK (2h ago)");
     // Followed by the code-rendered scope statement.
     expect(result.body).toContain("does not provide recipes");
     expect(result.body).toContain("food-safety guidance");

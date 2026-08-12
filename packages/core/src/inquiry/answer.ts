@@ -79,12 +79,38 @@ export const STALE_AFTER_HOURS = 48;
  * words via `renderClarificationRequest`.
  */
 export type FactSelection =
-  | { kind: "selection"; factIds: string[] }
+  | {
+      kind: "selection";
+      factIds: string[];
+      /**
+       * Which of each selected fact's OWN item names answered the request (F-107), keyed by
+       * factId. Absent when the model did not say.
+       *
+       * Every name here was validated against that fact's `matchedItems`, and code's spelling
+       * is what survives — the model's echo of "eggs" cannot restyle the farmer's "Eggs".
+       * A name the fact never carried, or a fact that was not selected, is dropped.
+       */
+      matchedItems?: Record<string, string[]>;
+    }
   | { kind: "clarification" };
+
+/**
+ * Why a selection was refused, as a typed value rather than prose (B-061).
+ *
+ * `duplicate_id` is the one failure that reveals NOTHING about facts the model was not shown:
+ * the identifier is real and retrieved, the model merely repeated it. Callers may recover from
+ * it using their own ranking. Every other failure — an invented identifier, a smuggled factual
+ * string, a malformed shape — is a claim about data the model never received, and callers must
+ * keep refusing so an attack stays observable.
+ *
+ * The kind exists so callers branch on a VALUE. Matching the human-readable `reason` string
+ * would couple recovery to wording that is free to change.
+ */
+export type SelectionFailureKind = "duplicate_id" | "ungrounded";
 
 export type SelectionValidation =
   | { ok: true; value: FactSelection }
-  | { ok: false; reason: string };
+  | { ok: false; reason: string; failure: SelectionFailureKind };
 
 /**
  * Validate untrusted selection output. Structural validity is NOT grounding: every selected
@@ -96,7 +122,7 @@ export function validateFactSelection(
   retrieved: RetrievedFact[],
 ): SelectionValidation {
   if (typeof candidate !== "object" || candidate === null) {
-    return { ok: false, reason: "selection must be an object" };
+    return { ok: false, reason: "selection must be an object", failure: "ungrounded" };
   }
   const record = candidate as Record<string, unknown>;
   const keys = Object.keys(record);
@@ -104,40 +130,99 @@ export function validateFactSelection(
   if (record.kind === "clarification") {
     // Exactly `kind`. No permitted field means no prose channel to smuggle through.
     if (keys.length !== 1) {
-      return { ok: false, reason: "clarification is a signal and carries no other field" };
+      return { ok: false, reason: "clarification is a signal and carries no other field", failure: "ungrounded" };
     }
     return { ok: true, value: { kind: "clarification" } };
   }
 
   if (record.kind !== "selection") {
-    return { ok: false, reason: "unsupported selection kind" };
+    return { ok: false, reason: "unsupported selection kind", failure: "ungrounded" };
   }
   // A field like `answerText`, `distance`, or `recency` would be the model supplying
   // authoritative content. The answer is code's; the model returns identifiers only.
-  if (keys.length !== 2 || !("factIds" in record)) {
-    return { ok: false, reason: "selection carries only ordered fact identifiers" };
+  //
+  // F-107 adds exactly one more permitted key, `matchedItems`, whose every value is checked
+  // against what code sent below. Keeping the allow-list a closed count is what makes a
+  // smuggled field a visible refusal rather than a silently stripped one.
+  const permitted = new Set(["kind", "factIds", "matchedItems"]);
+  if (!keys.every((key) => permitted.has(key)) || !("factIds" in record)) {
+    return { ok: false, reason: "selection carries only ordered fact identifiers", failure: "ungrounded" };
   }
   if (!Array.isArray(record.factIds)) {
-    return { ok: false, reason: "factIds must be an array" };
+    return { ok: false, reason: "factIds must be an array", failure: "ungrounded" };
   }
 
   const known = new Set(retrieved.map((fact) => fact.factId));
   const seen = new Set<string>();
   for (const factId of record.factIds) {
     if (typeof factId !== "string") {
-      return { ok: false, reason: "a fact identifier must be a string" };
+      return { ok: false, reason: "a fact identifier must be a string", failure: "ungrounded" };
     }
     if (!known.has(factId)) {
       // The model invented or hallucinated an identifier: reject the whole selection.
-      return { ok: false, reason: `fact ${factId} is not part of the retrieved set` };
+      return { ok: false, reason: `fact ${factId} is not part of the retrieved set`, failure: "ungrounded" };
     }
     if (seen.has(factId)) {
-      return { ok: false, reason: `fact ${factId} is selected more than once` };
+      return {
+        ok: false,
+        reason: `fact ${factId} is selected more than once`,
+        failure: "duplicate_id",
+      };
     }
     seen.add(factId);
   }
 
-  return { ok: true, value: { kind: "selection", factIds: record.factIds as string[] } };
+  const factIds = record.factIds as string[];
+
+  // F-107 — reduce the model's claimed matches to names code actually sent for that fact.
+  //
+  // Everything not provably ours is DROPPED rather than refused: an unknown item name is a
+  // model being loose about which stand carries what, not an attack on the retrieved set, and
+  // the answer is still correct with it removed. An invented factId stays a hard refusal
+  // above, because that one puts a whole stand in front of a customer who was never offered it.
+  //
+  // Comparison is case-insensitive on trimmed text, and the value kept is CODE's spelling —
+  // the farmer wrote "Eggs", and the model echoing "eggs" must not change what is printed.
+  let matchedItems: Record<string, string[]> | undefined;
+  if (record.matchedItems !== undefined) {
+    if (
+      typeof record.matchedItems !== "object" ||
+      record.matchedItems === null ||
+      Array.isArray(record.matchedItems)
+    ) {
+      return { ok: false, reason: "matchedItems must be an object", failure: "ungrounded" };
+    }
+    const selected = new Set(factIds);
+    const byFactId = new Map(retrieved.map((fact) => [fact.factId, fact]));
+    matchedItems = {};
+    for (const [factId, names] of Object.entries(
+      record.matchedItems as Record<string, unknown>,
+    )) {
+      // Names under a fact the answer does not return have nowhere to render.
+      if (!selected.has(factId)) continue;
+      const fact = byFactId.get(factId);
+      if (fact === undefined || !Array.isArray(names)) continue;
+      const bySpelling = new Map(
+        fact.matchedItems.map((item) => [item.itemName.trim().toLowerCase(), item.itemName]),
+      );
+      const kept: string[] = [];
+      for (const name of names) {
+        if (typeof name !== "string") continue;
+        const ours = bySpelling.get(name.trim().toLowerCase());
+        if (ours !== undefined && !kept.includes(ours)) kept.push(ours);
+      }
+      if (kept.length > 0) matchedItems[factId] = kept;
+    }
+  }
+
+  return {
+    ok: true,
+    value: {
+      kind: "selection",
+      factIds,
+      ...(matchedItems !== undefined ? { matchedItems } : {}),
+    },
+  };
 }
 
 /**
@@ -164,6 +249,25 @@ export function renderElapsed(asOf: Date, now: Date): string {
 /** Render "updated X ago" from typed values. Never approximated by a model. */
 export function renderRecency(asOf: Date, now: Date): string {
   return `updated ${renderElapsed(asOf, now)}`;
+}
+
+/**
+ * The abbreviated elapsed phrase the SMS answer prints inside its IN STOCK line (F-107).
+ *
+ * "(2d ago)" against "2 days ago" — six characters against ten, on a line that repeats for
+ * every stand on the page. SMS is the one surface that pays per character, so it is the one
+ * surface that abbreviates: **the public map deliberately keeps `renderElapsed`'s full
+ * wording**, and that divergence is intentional rather than drift to be tidied away.
+ *
+ * Granularity stops at the hour (max, 2026-08-11): nothing a customer decides changes inside
+ * one, so anything under an hour reads "now" rather than rounding to "0h ago" or reintroducing
+ * minutes nobody acts on.
+ */
+export function renderShortElapsed(asOf: Date, now: Date): string {
+  const hours = Math.max(0, Math.floor((now.getTime() - asOf.getTime()) / 3_600_000));
+  if (hours < 1) return "now";
+  if (hours < 24) return `${hours}h ago`;
+  return `${Math.floor(hours / 24)}d ago`;
 }
 
 /**

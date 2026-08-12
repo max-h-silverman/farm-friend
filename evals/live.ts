@@ -27,6 +27,7 @@ import {
   assertDeepInfraSelectionApproved,
   createCustomerMessageIntentModel,
   createDeepInfraProvider,
+  createFarmerMessageIntentModel,
   createInquiryModel,
   createInventoryInterpreter,
   createStockOutModel,
@@ -70,6 +71,7 @@ const provider = createDeepInfraProvider({
 const interpreter = createInventoryInterpreter(provider);
 const inquiry = createInquiryModel(provider);
 const customerIntent = createCustomerMessageIntentModel(provider);
+const farmerIntent = createFarmerMessageIntentModel(provider);
 const stockOut = createStockOutModel(provider);
 const CURRENT_LOCAL_DATE = "2026-08-06";
 
@@ -466,6 +468,59 @@ fx("live-quality", "separates a customer's stock-out report from a question", as
   };
 });
 
+/*
+  FOUND LIVE (max, 2026-08-11). A farmer handset texted "looking for nigella" and got the
+  UPDATE-or-QUESTION clarification: the seam returned `unclear`, so a plainly-a-question
+  message cost the sender a round trip.
+
+  This seam had no live fixture at all — the misfire is what a stub cannot see, because a stub
+  reads neither the instructions nor the schema. The sibling customer seam already carries the
+  tie-breaker ("a message that merely names a product is a question"); the farmer seam did not.
+
+  Anything seeking a product is a question — a farmer is also a customer of every other stand
+  on the island.
+
+  **This fixture deliberately has no `unclear` case (max, 2026-08-11).** `unclear` is the
+  seam's FALLBACK, not a target: `createFarmerMessageIntentModel` also returns it when the
+  provider's output fails validation. Measuring the model's ability to REACH it would push
+  toward an instruction that produces more clarification prompts, and a clarification prompt
+  is the worst outcome for a sender — a round trip that buys nothing. A message that is
+  neither an update nor a question falls to the inquiry path and gets an honest "no current
+  listing", which is a better answer than being asked to pick UPDATE or QUESTION.
+*/
+fx("live-quality", "separates a farmer's inventory update from a question", async () => {
+  const cases: {
+    text: string;
+    want: "inventory_update" | "farm_stand_question";
+  }[] = [
+    // The live misfire and its neighbours. All of these are people looking for a product.
+    { text: "looking for nigella", want: "farm_stand_question" },
+    { text: "anyone have plums", want: "farm_stand_question" },
+    { text: "who has eggs today?", want: "farm_stand_question" },
+    { text: "nigella?", want: "farm_stand_question" },
+    // The update arm, so the fixture cannot pass by classifying everything as a question.
+    { text: "we have kale and eggs today", want: "inventory_update" },
+    { text: "sold out of tomatoes", want: "inventory_update" },
+    { text: "adding a dozen eggs to the stand", want: "inventory_update" },
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const { text, want } of cases) {
+    const raw = await farmerIntent.classify({ taskText: text });
+    if (raw.kind === want) correct += 1;
+    else observations.push(`"${text}" -> ${raw.kind} (wanted ${want})`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed:
+      observations.length === 0
+        ? `all ${cases.length} classified correctly`
+        : observations.join("; "),
+  };
+});
+
 // ----------------------------------------------------------------------- live-quality
 fx("live-quality", "extracts a plain farmer list into typed additions", async () => {
   const raw = await interpreter.interpret({
@@ -795,16 +850,113 @@ fx("live-recall", "declines to invent a match when nothing in the set answers", 
   // The other half of recall: a model that selects a stand for an item nobody carries has
   // not been helpful, it has been wrong. Selecting nothing is the correct answer here, and
   // code renders the honest no-listing reply.
+  //
+  // B-061 — this used to accept `clarification` too, which is how the defect below stayed
+  // invisible. An EMPTY SELECTION is the right shape: the request was understood perfectly,
+  // and the honest reply is that nobody stocks it.
   const result = await inquiry.select({
     items: ["durian"],
     ranking: "any",
     facts: RECALL_FACTS,
   });
   const observed = JSON.stringify(result);
-  const ok =
-    result.kind === "clarification" ||
-    (result.kind === "selection" && result.factIds.length === 0);
+  const ok = result.kind === "selection" && result.factIds.length === 0;
   return { ok, observed };
+});
+
+/*
+  B-061 — "no stand sells this" and "I could not read your message" are DIFFERENT answers, and
+  the seam was returning the second for the first.
+
+  FOUND LIVE 2026-08-11 against the production corpus: "where can I buy shrimp" and "anyone
+  selling soap" — neither exists anywhere on the island — both answered "Sorry, I did not catch
+  which item or farm you meant." The customer is told they mistyped when their message was
+  perfectly clear and the real answer is simply that nobody carries it.
+
+  Code already renders the honest no-listing reply from an empty selection; nothing told the
+  model to use it. These are ordinary customer questions, not edge cases: an island of 35 farm
+  stands does not sell shrimp, soap, or avocados, and people will ask.
+*/
+fx("live-quality", "says nobody carries an item rather than blaming the customer", async () => {
+  const absent = ["shrimp", "soap", "avocados"];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const item of absent) {
+    const result = await inquiry.select({
+      items: [item],
+      ranking: "any",
+      facts: RECALL_FACTS,
+    });
+    // An empty selection renders "no current listing". A `clarification` renders "I did not
+    // catch which item you meant", which is the false apology this fixture exists to catch.
+    const ok = result.kind === "selection" && result.factIds.length === 0;
+    if (ok) correct += 1;
+    else observations.push(`"${item}" -> ${JSON.stringify(result)}`);
+  }
+
+  return {
+    ok: correct === absent.length,
+    observed: observations.length === 0 ? `${correct}/${absent.length}` : observations.join("; "),
+  };
+});
+
+/*
+  B-061 — "what do you have" is the most ordinary question a customer can send, and it was
+  answered with "Sorry, I did not catch which item or farm you meant."
+
+  FOUND LIVE 2026-08-11: "what's available right now?" interpreted correctly as a broad lookup,
+  while "what do you have" came back `ambiguous` — deterministically, 5 runs out of 5.
+
+  Measuring the family rather than the one phrase found the real shape: the trigger was the
+  WORD "available" (or "in season"), not the meaning. "what is available", "what's in season"
+  and "anything good today?" all passed; "what do you have", "what's for sale", "what can I
+  buy", "who has anything today" and "show me what's out there" all returned `ambiguous`. The
+  model was matching the instruction's vocabulary instead of the concept.
+
+  So this fixture holds the phrasings that FAILED, not the ones that already worked — a fixture
+  built from passing examples is what let the defect through. `ambiguous` is for a message that
+  asks for nothing at all; asking what there is to buy is the product's central question.
+
+  **THIS FIXTURE IS EXPECTED TO FAIL TODAY (B-061, still open).** Three successive instruction
+  edits each moved which phrasings passed without fixing the family, and measurement showed they
+  made things WORSE: with the widest edit in place "anything good today?" failed consistently
+  and "what's available right now?" became non-deterministic (ambiguous in 2 of 3 runs) — both
+  had passed before. The instruction was therefore reverted to its original wording, and this
+  fixture kept red as the standing record of the gap.
+
+  It sits in `live-quality`, which is observational rather than gating, so a red result here
+  reports the defect without blocking a release for it. Do not "fix" this by trimming the cases
+  back to the ones that pass; the failing phrasings ARE the finding. The next attempt should
+  measure whether this is reachable by instruction at all before editing more prose.
+*/
+fx("live-quality", "reads a broad availability question however it is worded", async () => {
+  const cases = [
+    "what do you have",
+    "what's for sale",
+    "what can I buy",
+    "who has anything today",
+    "show me what's out there",
+    // Two that already worked, so a regression here cannot hide behind the new ones.
+    "what's available right now?",
+    "anything good today?",
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const text of cases) {
+    const raw = await inquiry.interpret({ taskText: text });
+    const validated = validateInterpretedIntent(raw);
+    const ok =
+      validated.ok && validated.value.kind === "lookup" && validated.value.broad === true;
+    if (ok) correct += 1;
+    else observations.push(`"${text}" -> ${JSON.stringify(raw)}`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed: observations.length === 0 ? `${correct}/${cases.length}` : observations.join("; "),
+  };
 });
 
 fx("live-recall", "prefers a confirmed listing over a typical offering for the same item", async () => {
@@ -864,7 +1016,8 @@ fx("live-quality", "renders a grounded answer only from a legitimate live select
     total: facts.length,
     clock: new FixedClock(new Date("2026-07-28T10:00:00Z")),
   }).body;
-  const ok = answer.includes("Alpha Stand") && answer.includes("updated 2 hours ago");
+  // F-107 wording: the age is stamped inside the stand's own IN STOCK line.
+  const ok = answer.includes("Alpha Stand") && answer.includes("IN STOCK (2h ago)");
   return { ok, observed: answer.replace(/\n/g, " | ") };
 });
 

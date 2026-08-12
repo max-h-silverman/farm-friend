@@ -398,7 +398,7 @@ describe("SMS result paging end to end (integration)", () => {
     if (answer.outcome !== "answered") return;
     // On page ONE, above the offerings, carrying its recency.
     expect(answer.body).toContain(standNames[8]!);
-    expect(answer.body).toMatch(/updated 2 hours ago/);
+    expect(answer.body).toMatch(/IN STOCK \(2h ago\)/);
     expect(answer.body.indexOf(standNames[8]!)).toBeLessThan(
       answer.body.indexOf(standNames[0]!),
     );
