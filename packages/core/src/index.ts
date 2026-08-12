@@ -12,6 +12,7 @@ export * from "./sms/invited-join-reply";
 export * from "./inventory/proposal";
 export * from "./inventory/closure-timing";
 export * from "./inventory/prompt-schedule";
+export * from "./inquiry/broad-request";
 export * from "./inquiry/retrieval";
 export * from "./inquiry/answer";
 export * from "./inquiry/paging";

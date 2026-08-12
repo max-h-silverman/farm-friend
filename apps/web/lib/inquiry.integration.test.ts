@@ -869,6 +869,52 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.question).toContain("did not catch which item or farm");
   });
 
+  // B-061 defect 4. The model returns `ambiguous` for "what do you have" 10 runs out of 10
+  // EVEN WITH THAT EXACT PHRASE WRITTEN INTO THE INSTRUCTION as never-ambiguous, so the
+  // property is enforced in code: a customer asking what there is to buy gets an answer
+  // whichever model is installed. The stub here signals `ambiguous` exactly as the live model
+  // does, so this fixture fails if the override is removed.
+  it("answers a broad availability question the model called ambiguous", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({ kind: "ambiguous" }),
+      "grounded-fact-selection": JSON.stringify({ kind: "selection", factIds: [] }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "what do you have",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    // The customer is answered from real listings, not told they were unclear.
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("Kale");
+    expect(result.body).not.toContain("did not catch which item or farm");
+  });
+
+  it("still clarifies a genuinely contentless message the model called ambiguous", async () => {
+    // The override must not swallow the signal it overrides. A greeting has no shopping
+    // grammar, so `ambiguous` still reaches the customer as a code-rendered question.
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({ kind: "ambiguous" }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "are you a robot",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("clarification");
+    if (result.outcome !== "clarification") return;
+    expect(result.question).toContain("did not catch which item or farm");
+  });
+
   // B-049. Measured against the live model, roughly one reply in six was the provider's own
   // 20-second timeout, and the customer read the same "I did not catch which item or farm you
   // meant" as a genuine misunderstanding — advice to rephrase a question that was understood
