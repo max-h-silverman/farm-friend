@@ -59,17 +59,26 @@ export const interpretationSchema = z.discriminatedUnion("kind", [
   z
     .object({
       kind: z.literal("edits"),
-      additions: z.array(z.object(itemFields).strict()),
-      changes: z.array(
-        z
-          .object({
-            entryId: z.string(),
-            ...itemFields,
-            itemName: nullAsAbsent(z.string().min(1)),
-          })
-          .strict(),
-      ),
-      removals: z.array(z.object({ entryId: z.string() }).strict()),
+      // B-058: an OMITTED edit array defaults to empty rather than failing the whole output.
+      // The seam note calls all three required-but-possibly-empty and the live model still
+      // drops them (measured: 2 of 15 runs returned `edits` carrying only `removals`), which
+      // failed the strict parse and turned a farmer's stock report into "I could not read
+      // that." Defaulting invents nothing — an absent array has exactly one possible meaning,
+      // and it cannot manufacture an addition, change, or removal. Every entryId that IS
+      // present is still membership-checked by `validateInterpretation` against the snapshot.
+      additions: z.array(z.object(itemFields).strict()).default([]),
+      changes: z
+        .array(
+          z
+            .object({
+              entryId: z.string(),
+              ...itemFields,
+              itemName: nullAsAbsent(z.string().min(1)),
+            })
+            .strict(),
+        )
+        .default([]),
+      removals: z.array(z.object({ entryId: z.string() }).strict()).default([]),
       closure: nullAsAbsent(closureSchema),
     })
     .strict(),
@@ -79,6 +88,23 @@ export const interpretationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("closure"), closure: closureSchema }).strict(),
   z.object({ kind: z.literal("clarification"), question: z.string().min(1) }).strict(),
 ]);
+
+/**
+ * Drop an inadmissible `closure` key before validation (B-058).
+ *
+ * Applied ONLY when deterministic code found no closure evidence in the farmer's message, and
+ * only to the shapes where closure is an optional side-field. `kind: "closure"` is left alone:
+ * there the closure is the whole payload, so stripping it would turn a clean refusal into a
+ * parse failure wearing the provider-error question.
+ */
+function stripClosure(value: unknown): unknown {
+  if (typeof value !== "object" || value === null) return value;
+  const record = value as Record<string, unknown>;
+  if (!("closure" in record)) return value;
+  if (record.kind !== "edits" && record.kind !== "clear_all") return value;
+  const { closure: _dropped, ...rest } = record;
+  return rest;
+}
 
 /** What the seam concluded, or why it could not. */
 export type InterpretationAttempt =
@@ -113,11 +139,20 @@ export function createInventoryInterpreter(provider: LLMProvider) {
       // The ONLY context that crosses the seam, constructed field by field.
       const ctx = projectInventoryExtraction(request);
 
-      const result = await generateValidated(
-        provider,
-        ctx,
-        interpretationSchema,
-      );
+      // B-058: when code read NO closure evidence out of the message, no closure value the
+      // model returns can be admissible — so the key is dropped before the schema sees it.
+      // The live model echoes the `closureTiming is {"kind":"none"}` it was shown back as
+      // `closureKind: "none"`, which is not a legal kind; letting that reach the strict schema
+      // fails the ENTIRE output and throws away the farmer's inventory update with it.
+      //
+      // This narrows what the model may say, never what code accepts: the schema is unchanged,
+      // and on a message that genuinely evidences a closure a malformed one is still refused.
+      const schema =
+        timing.evidence.kind === "none"
+          ? z.preprocess(stripClosure, interpretationSchema)
+          : interpretationSchema;
+
+      const result = await generateValidated(provider, ctx, schema);
 
       if (!result.ok) {
         // Fail toward asking the farmer. A failed call must not look like "no items."
@@ -127,18 +162,32 @@ export function createInventoryInterpreter(provider: LLMProvider) {
             "Sorry, I could not read that. Could you list what your stand has right now?",
         };
       }
-      const closure: ClosureInstruction | undefined =
-        result.value.kind === "clarification" ? undefined : result.value.closure;
-      if (
-        result.value.kind !== "clarification" &&
-        !closureMatchesTiming(closure, timing.evidence)
-      ) {
-        return {
-          kind: "clarification" as const,
-          question: "What exact dates should I use for the closure?",
-        };
+      if (result.value.kind === "clarification") return result.value;
+
+      const closure: ClosureInstruction | undefined = result.value.closure;
+      if (closureMatchesTiming(closure, timing.evidence)) return result.value;
+
+      // The model's closure disagrees with what code deterministically read from the message.
+      // Code owns closure timing outright, so the model's field carries no authority — but the
+      // right consequence depends on whether anything else is in the result.
+      //
+      // B-058: on `edits`/`clear_all` the closure rides ALONGSIDE real inventory work, and the
+      // live model attaches an unevidenced one on messages that mention no closure at all
+      // (measured: 5 of 12 runs on "no eggs left at Pinecone Gardens"). Discarding the whole
+      // result there answers a farmer's stock report with a question about dates they never
+      // raised. When code found NO closure evidence in the message, the field is noise: drop
+      // it and keep the work.
+      if (timing.evidence.kind === "none" && result.value.kind !== "closure") {
+        return { ...result.value, closure: undefined };
       }
-      return result.value;
+
+      // Otherwise the message really did carry closure evidence and the model contradicted it —
+      // a genuine disagreement about a consequential fact — or the result is `kind: "closure"`,
+      // where the closure IS the whole payload and dropping it would leave nothing. Ask.
+      return {
+        kind: "clarification" as const,
+        question: "What exact dates should I use for the closure?",
+      };
     },
   };
 }

@@ -171,7 +171,14 @@ flag:
   weekend," unqualified whole-stand closure, seasonal closure, and explicit reopening from the current
   Vashon date. Vague timing, reversed or multiple ranges, and sub-operation/whole-stand conflicts
   return code-rendered clarification without reaching a model. The narrow projection carries the
-  resulting typed evidence; model dates must match it exactly or code clarifies. The model still
+  resulting typed evidence, and code — never the model — owns closure timing outright. Where the
+  message DOES carry closure evidence, model dates must match it exactly or code clarifies. Where
+  code found **no** closure evidence, no closure value is admissible at all: the field is stripped
+  before schema validation and dropped from the result, so a model that volunteers an unevidenced
+  closure cannot cost the farmer the inventory update it rode in on (B-058). The exception is
+  `kind: "closure"`, where the closure is the whole payload and a mismatch still clarifies. An
+  omitted edit array reads as empty rather than failing the parse — absence has one meaning there,
+  and it cannot manufacture an edit. The model still
   interprets arbitrary inventory language and must preserve inventory plus closure in one mixed result.
   Code validates the shape and authority and renders every public status; the model cannot publish or
   author a public closure note.
