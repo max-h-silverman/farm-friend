@@ -25,6 +25,12 @@
   "In stock" heading — confirmed items under it when there are any, "Nothing confirmed recently"
   when there are not — and Typical Offerings always follows. The map search placeholder reads
   `e.g. “eggs”, “flowers”, stand name…`, naming both halves of what the field actually matches.
+- **Code owns closure timing outright; a volunteered closure cannot cost a farmer their update**
+  (B-058, merged `e982cf0`, **not deployed**). Where the message carries no closure evidence, the
+  model's `closure` field is stripped before schema validation and dropped from the result — it
+  was discarding correct inventory edits three different ways. `kind: "closure"` still clarifies on
+  mismatch, since there the closure is the whole payload. Omitted `additions`/`changes` arrays read
+  as empty rather than failing the parse.
 - **`pending_result_lists.broad` is written and never read.** The one piece of data in the system
   with no consumer, kept deliberately — dropping it is a migration on live data for no behavioral
   gain. Revisit it whenever that table next needs a migration for another reason.
@@ -63,15 +69,16 @@
   built from `main` `99e63dd` and deployed 2026-08-12. Plan assertions 60/60 (the only delta was
   the image digest on both services); deploy and served-card assertions pass. The serving digest
   was read back from both services. Migration `0041` applied first and verified by schema effect.
+  **`main` is one merge ahead of production** (`e982cf0`, B-058/B-059): the serving revisions still
+  discard a farmer's inventory update when the model volunteers a closure, which the corpus makes
+  likeliest on a message naming the stand. No migration is owed with it.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
 ## Verification
 
-- `b-059-stock-out-corpus` (branched off `b-058-live-fixture-flake`, which is unmerged):
-  **1,958 unit tests, 938 local integration tests**, typecheck, lint, stub evals, and five live
-  eval runs pass (2026-08-12). **Neither branch is merged or deployed** — the serving revisions
-  below still carry the B-058 seam defect.
+- `main` at `e982cf0`: **1,958 unit tests, 938 local integration tests**, typecheck, lint, stub
+  evals, and live evals all pass (2026-08-12).
 - The web production build retains the tracked Next configuration/lint warnings (B-008).
 - **Migration `when` stamps can land behind their predecessor on this machine.** `0041`'s generated
   stamp was *earlier* than `0040`'s — the local clock runs behind the repo's — and the ordering
@@ -101,25 +108,11 @@
   run in three shows a provider error, labelled `[provider error, not a verdict — rerun]` and scored
   as a FAILURE on purpose: the seam returns the same `clarification` shape for "unreachable model"
   and "model declined", so accepting any clarification let an unreachable model read as correct.
-- **The stock-out seam is now measured on the real corpus** (B-059, closed 2026-08-12).
-  `evals/live.ts` carries an eleven-case fixture built from production rows read on 2026-08-12
-  through the same construction `apps/web/lib/stockout.ts` uses: Bart's Cart's split comma list
-  (`"Veggie"` / `"herb"` / `"flower plants"` published beside `veggie plants` and `herb plants`),
-  Fruits des Vignes' `"Current Produce Raspberries"` beside plain `raspberries`, Tian Tian's
-  `bok choy` / `Baby bok choy` and `kale` / `kale florets`, Twisting Tree's `bird house gourds` /
-  `birdhouse gourds`, Morgan Hill's nine-product sentence as one row, and Venison Valley's
-  28-candidate list. **11/11 on four consecutive runs** — the risk was worth measuring and is not
-  biting. Where the corpus genuinely admits two answers the fixture accepts either, so it measures
-  whether the product was found rather than the model's tie-break. **The ticket's cited examples
-  were stale and were not reused** — build any future case from live rows.
-- **B-058 was not model noise — it was our seam discarding good work** (closed 2026-08-12). The
-  B-056 guard never failed: 16 of 16 `edits` runs validated to zero removals. Three separate seam
-  paths threw away a correct inventory edit over a `closure` field the message never justified —
-  an unevidenced closure tripping `closureMatchesTiming`, `closureKind:"none"` failing the strict
-  schema outright, and `edits` arriving with `additions`/`changes` omitted. All three are handled
-  in code now. Measured 70/70 clean afterwards against 3 failures in 20 before, and live quality
-  went 19/20 → **20/20 on two consecutive runs**. Every mode was far likelier on the phrasing
-  ending in a proper noun.
+- **The stock-out seam is measured on the real corpus** (B-059). `evals/live.ts` carries an
+  eleven-case fixture built from production rows, covering the corpus's near-duplicates and split
+  comma lists; **11/11 on four consecutive runs**. Where the corpus genuinely admits two answers
+  the fixture accepts either. Build any future case from live rows — the ticket's cited examples
+  were stale. The score measures the **current** model and expires when it is swapped.
 - Deployment assertions confirm both revisions are newer than every mounted secret; the served contact card
   has the expected E.164 suffix, 153 bytes, CRLF-only lines, and all seven required properties.
 
@@ -166,8 +159,9 @@
   answer "Which stand are you at?" with the name, and confirm the farmer's alert names the **eggs**.
   A second misspelling in the reply should also resolve. Proven by test and against the real corpus,
   unread on a handset.
-- **B-060 has no live check to owe** — a hostile `display_name` cannot be typed by a customer, only
-  written by a farmer's own listing form, so the guarantee is a code property proven by sabotage.
+- **B-058/B-059 owe a deploy** (`e982cf0`, merged and unshipped by choice). No migration; the
+  web/worker deploy is the whole of it. Until then production still drops a farmer's inventory
+  update when the model volunteers a closure.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,

@@ -11,7 +11,79 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-12 (latest) — Two guarantees that were inferences, and a question nobody was listening to
+## 2026-08-12 (latest) — The flake was ours, and the corpus was fine
+
+Two bugs about live evals. The first was not an eval problem at all, and finding that out was the
+whole session.
+
+**B-058 was filed against the wrong thing.** The ticket said a B-056 live fixture "returns real but
+wrong verdicts in ~2 of 7 runs". It does not. Twenty runs against the real model, and **the B-056
+guard never failed once** — every `edits` run validated to zero removals, 16 for 16. The model
+always proposes removing an item the message never named ("no eggs left" → remove tomatoes), and
+code always strips it. That is the guarantee working, every time.
+
+Every failure was a `clarification`, and all three flavours traced to one cause: the model
+attaching a `closure` field to a message that mentions no closure. The trailing proper noun invites
+it — **5 of 12 runs on "no eggs left at Pinecone Gardens" versus 0 of 12 on the same sentence
+without the stand name.** Three distinct paths then threw away a perfectly good inventory edit:
+
+1. A schema-valid but unevidenced closure tripped `closureMatchesTiming`, which swapped the entire
+   result for "What exact dates should I use for the closure?"
+2. `closureKind:"none"` — the model echoing back the `closureTiming is {"kind":"none"}` it is shown
+   in the projection — is not a legal kind, so the **strict** schema failed the whole output, the
+   one repair attempt returned the same thing, and the seam fell through to its provider-error
+   clarification. 3 of 13 runs.
+3. `edits` arriving with `additions`/`changes` omitted entirely, which the seam note explicitly
+   calls required-but-possibly-empty. 2 of 15 runs.
+
+Each is a prompt promise the model does not keep, so each is now code. The shape of the fix matters
+more than the fix: **when deterministic code has found no closure evidence, no closure value the
+model returns can be admissible** — so the key is stripped before the schema sees it, and any that
+survives is dropped rather than discarding the farmer's report. The narrow seam was important.
+`kind: "closure"` is deliberately excluded, because there the closure *is* the payload and dropping
+it would return an empty result instead of a clean refusal; a test pins that, and sabotaging the
+exclusion fails it along with the pre-existing hallucinated-reopen guard.
+
+Nothing was loosened, which the ticket explicitly warned against. The strict schema is untouched,
+membership validation still runs, a malformed closure on a message that *does* evidence one is
+still refused, and the fixture still fails on a provider error or a real wrong verdict. Measured
+after: **70 of 70 clean** across both phrasings, against 3 failures in 20 before. Live quality went
+19/20 → 20/20 twice consecutively.
+
+The diagnostic lesson: the ticket's own hypotheses ("marginal model behavior", "phrasing admits a
+second reading") were both wrong, and reading the prompt would have confirmed either. Only running
+it 20 times and printing every raw verdict showed the model was 100% consistent on the thing being
+measured and the seam was the variable.
+
+**B-059 asked a fair question and got a boring answer, which is the useful outcome.** The worry was
+that B-057's widened candidate list — published inventory *plus* usual offerings, deduped on case
+and whitespace only — would make the stock-out seam grab near-neighbours on real data. B-057's
+fixture measured five clean, well-separated items and passed 7/7, which says nothing about the
+ordinary case.
+
+The ticket's cited examples were stale and the ticket said so, so the lists were read straight out
+of production through the same construction `apps/web/lib/stockout.ts` uses. The real rows are
+worse than the ticket described: Bart's Cart publishes `"Veggie"`, `"herb"`, `"flower plants"` — a
+farmer's comma list split into three entries, one of them the bare fragment `"herb"` — while *also*
+offering `veggie plants` and `herb plants`. Fruits des Vignes publishes `"Current Produce
+Raspberries"` and offers plain `raspberries`. Morgan Hill has one entry that is an entire
+nine-product sentence. Venison Valley runs 28 candidates with `chai` beside `sweet & spicy chai`.
+
+**11/11 on four consecutive runs.** The seam holds; no production code changed. The design decision
+worth keeping is in the expectations: where the corpus genuinely admits two answers — both
+raspberry rows name the same product to the farmer — the fixture accepts either, because pinning
+one would measure the model's arbitrary tie-break rather than whether it found the product. Where
+only one answer is defensible, only one is accepted. The fixture was sabotaged with two wrong
+expectations and caught both.
+
+Standing caveat, carried from the ticket: this measures the **current** model, so the score expires
+when the model is swapped.
+
+**Merged as `e982cf0` (PR #111). Not deployed** — the serving revisions still carry the B-058 seam
+defect, so a farmer texting a stock report with a stand name in it can still get a question about
+closure dates back.
+
+## 2026-08-12 — Two guarantees that were inferences, and a question nobody was listening to
 
 Three items, all downstream of B-057's stock-out work, plus map polish from a parallel session.
 

@@ -52,6 +52,12 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   failing phrase into the instruction verbatim and re-measure — if it still fails, the behavior is not
   reachable by prose and the lever is **code**. Hold instruction-immune properties in the harness, not
   the prompt; anything a customer must be able to rely on has to survive a model swap.
+- **A failing or flaky live fixture:** print every raw verdict across ~15 runs before believing any
+  theory about the cause. B-058 was filed as "the model returns wrong verdicts ~2 in 7"; the model
+  was 100% consistent on the measured property, and the variable was our own seam discarding correct
+  output three different ways over a field the model volunteered. A ticket's hypothesis about its own
+  failure is a lead, never a finding. The tell that it is the harness and not the brain: the failure
+  rate moves with something the instruction never mentions — here, a trailing proper noun.
 - **A new query/list:** after any approved semantic interpretation, run retrieval in code before
   grounded fact selection; label recency; carry stable fact identifiers; accept only selected IDs from
   the retrieved set; render factual text in code.
