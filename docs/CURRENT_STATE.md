@@ -17,10 +17,11 @@
 - **B-057 is live but unproven on the live path.** A stock-out alert can now name one of the stand's
   usual offerings, not only its published inventory. No production report has named one yet — that
   needs a real inbound text, and it is what closes the item.
-- **The SMS answer format changed on `main` and is NOT deployed** (F-107, `76fce64`). One entry per
-  stand — name, street address, `IN STOCK (3h ago): …`, `MAYBE: …` — replacing the old
-  "Confirmed <item>:" / "typical offering" sections. Locally verified only; the deployed revision
-  above still serves the old format.
+- **The SMS answer format changed on `main` and is NOT deployed** (F-107). One entry per stand —
+  name, street address, `IN STOCK (3h ago): …`, `MAYBE: …` — replacing the old "Confirmed <item>:"
+  / "typical offering" sections, and no "may be out of date" phrase (the age carries it; the map
+  keeps its explicit warning). Locally verified only; the deployed revision above still serves the
+  old format, so **the next deploy changes what every customer reads.**
 
 ## Verification
 

@@ -117,6 +117,17 @@ with the guard that protects each.
 - **`db:migrate` can skip a migration silently.** Drizzle applies only when `created_at <
   folderMillis` — equal counts as done, so a journal timestamp older than the newest applied one is
   skipped with a success message. Guard: `packages/core/src/migration-ordering.test.ts`.
+- **A ceiling test whose fixture is the cheapest case measures nothing.**
+  `result-page-segments.test.ts` asserted the SMS billing ceiling using offering-only stands — the
+  shortest possible entry — so it passed both before and after F-107 doubled the worst case to four
+  billed segments. A cost or size ceiling must be exercised with the most expensive shape the
+  corpus actually produces, not the most convenient one to construct.
+- **A test can encode the bug it looks like it guards.** `paging.test.ts` asserted that one matching
+  row licensed a heading for every stand beneath it, with a rationale that reads plausibly and
+  inverts the logic (B-061). When a defect contradicts a green test, read that test's *claim* before
+  trusting it — and when a rendering literal appears in an assertion, check that the guarantee, not
+  the wording, is what is being protected. Two suites in one session held a stale literal while
+  claiming to protect a live property.
 - **`sharedDb` caches on first call and ignores the URL afterward.** A second `createAppContext` in one
   process cannot be pointed at another database, and `close()` on any context tears down the shared
   pool. Assemble the capabilities a pass needs instead of building a second context.
