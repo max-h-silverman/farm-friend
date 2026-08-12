@@ -13,7 +13,8 @@ mid-session defeats its own purpose.
 
 ## 2026-08-11 — Probing the live corpus: four answer defects, then rebuilding the answer
 
-**Merged, not deployed.** Three commits on `main`; production still serves the old answer format.
+**Merged, not deployed.** Squashed to `main` as `cc7cb73` (PR #105); production still serves the
+old answer format, so the next deploy changes what every customer reads. max's call at wrap.
 
 **One bad reply exposed a whole unmeasured seam, twice over.** max texted "looking for nigella"
 from a farmer handset and got "Reply UPDATE or QUESTION". The farmer-intent classifier had **no
