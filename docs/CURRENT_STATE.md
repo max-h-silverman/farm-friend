@@ -29,6 +29,9 @@
 ## Verification
 
 - `main`: 1,877 unit tests, **913** local integration tests, typecheck, and lint pass (2026-08-11).
+  Branch `b-062-sms-answer-formatting` (unmerged, unpushed): **1,922 unit, 916 integration**,
+  typecheck, lint, and stub evals (critical 11/11, advisory 4/4, adversarial 29/29). Migration 0040
+  applied to a fresh database and confirmed by reading the columns back, with a no-op rerun.
   The web production build retains the tracked Next configuration/lint warnings (B-008).
 - Local integration tests need Postgres on `localhost` and are run with `npm run test:integration:local`.
   `psql` is not on the default PATH (`postgresql@16` lives under Homebrew's `opt`), so a bare
@@ -91,16 +94,29 @@
   proven only by test.
 - B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
   `correct/total`, but do not loosen it until it always passes.
-- **Three defects the live check exposed, all in the deployed customer answer** (2026-08-11, from
-  one real "what do you have" reply — none is a regression of B-061 or F-107):
-  - **B-063** (high): `IN STOCK (16d ago)` — a 16-day-old claim under a present-tense label, ranked
-    above stands with no confirmation, with no warning. F-107 dropped the stale phrase on the theory
-    the elapsed time carries it; at 16 days the label contradicts it. Worst customer-facing of the three.
-  - **B-062** (high): the count says "1-3 of 45" over 35 stands — it counts facts, not stands,
-    because F-107 merges by location at render time and the page window was never moved with it.
-    A dual-basis stand can therefore repeat across a MORE boundary.
-  - **B-064** (normal): `IN STOCK: Veggie` — a raw `stand_items.display_name` printed as a stand's
-    whole answer. Same corpus rows as B-059; this is its customer-facing half.
+- **The three defects the live check exposed** (2026-08-11, from one real "what do you have"
+  reply — none was a regression of B-061 or F-107). **All resolved in code on branch
+  `b-062-sms-answer-formatting`, none deployed:**
+  - **B-062** (fixed, 4390e08): the count said "1-3 of 45" over 35 stands — it counted facts while
+    the renderer merged them into per-stand entries, and a dual-basis stand could repeat across a
+    MORE. Both counts are stands now; migration **0040** stores `stand_total`, `stand_offset`, and
+    `broad`. Shipped with the answer-format rebuild max specified: name → claims → address,
+    sentence-case labels, a header naming the query, a bare `Map:` close.
+  - **B-063** (fixed, 43a0b65 + 6ba89e1): `IN STOCK (16d ago)` now reads `Last seen (16d ago)` —
+    the label carries the staleness, costing one character where the old suffix cost twenty. Past
+    28 days the stock claim drops entirely, as the map already did. Ranking is three tiers: fresh
+    confirmation, usual offerings, stale confirmation.
+  - **B-064: closed wont-fix** (max, 2026-08-11). "Veggie" is the farmer's own word, not a
+    truncation — so their listing stands (golden rule 1), and the renderer floor this item
+    proposed would have silently suppressed a farmer's deliberate wording.
+- **The freshness threshold is now 96 hours, up from 48** (max, 2026-08-11, commit 6ba89e1).
+  It governs BOTH surfaces from one constant, so **the deployed map's stale warning will start two
+  days later once this ships** — a change to live behaviour, chosen over splitting the number.
+  `PRODUCT_BRIEF` §freshness records it; `answer.test.ts` now pins the value, which nothing did
+  before (the old test was written against the constant and passed at any number).
+- **Migration 0040 is committed but NOT applied to production.** Applying it must precede or
+  accompany the deploy: the new answer path writes `stand_total` and `broad` on every saved paging
+  list, and an image reading columns that do not exist yet would fail on any multi-page answer.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
 - B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists
