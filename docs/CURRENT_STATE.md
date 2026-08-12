@@ -58,9 +58,11 @@
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. `0041` adds
   `pending_stock_out_reports`; its three CHECKs are hand-written, since `drizzle-kit generate` does
   not emit them.
-- **Deployed state — fill in from the wrap's own deploy.** Cloud Run web/worker revisions, the
-  immutable digest, the `main` commit they were built from, and the plan-assertion count belong on
-  this line; RUNBOOK §Deploy owns the procedure.
+- Cloud Run web `farm-friend-web-00072-jvd` and worker `farm-friend-worker-00067-7zf` serve
+  immutable digest `sha256:6a6b40afe084682bdac1dd71a72c3c254e3d11974714e3bb6979fd6eaab871ce`,
+  built from `main` `99e63dd` and deployed 2026-08-12. Plan assertions 60/60 (the only delta was
+  the image digest on both services); deploy and served-card assertions pass. The serving digest
+  was read back from both services. Migration `0041` applied first and verified by schema effect.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 

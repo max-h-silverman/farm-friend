@@ -98,6 +98,14 @@ The final code uses plain characters, which is simpler either way.
 Verified: 1,951 unit, 938 integration, typecheck, lint, stub evals 11/11 · 4/4 · 29/29. No
 `evals:live` — nothing touched a seam projection, schema, or output contract.
 
+**Deployed** (PR #110, squashed to `main` `99e63dd`) — web `00072-jvd`, worker `00067-7zf`, digest
+`6a6b40af`, plan assertions 60/60 with the image digest as the only delta; deploy and served-card
+assertions pass, and both services were read back for the serving digest. Migration `0041` went
+first and was verified **by effect** rather than by the runner's "migrations applied": 42 in the
+ledger, all three hand-written CHECKs present, the unique index and enum present,
+`sales_location_id` nullable, and farm/stand/item counts unchanged at 39/37/237. Production was
+fingerprinted before the DDL ran, so a mistyped connection string would have failed loudly.
+
 ## 2026-08-12 (later) — A one-line link change that wasn't one, because the URL had two homes
 
 **F-110.** VIGA added a `#map` anchor to their farm-stand page that scrolls straight to the embed;
