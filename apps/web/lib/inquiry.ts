@@ -1,4 +1,5 @@
 import {
+  isBroadAvailabilityRequest,
   rankCandidates,
   renderClarificationRequest,
   renderInterpreterUnavailable,
@@ -12,6 +13,7 @@ import {
   type Clock,
   type FactBasis,
   type InquiryCandidate,
+  type InterpretedIntent,
   type PageableFact,
   type RetrievedFact,
 } from "@farm-friend/core";
@@ -428,7 +430,32 @@ export async function answerInquiry(
   if (!intent.ok) {
     return { outcome: "rejected", reason: intent.reason };
   }
-  if (intent.value.kind === "ambiguous") {
+  // B-061 defect 4 — a customer asking what there is to buy must be answered, whichever model
+  // is installed. Measured live: "what do you have" came back `ambiguous` 10 runs out of 10
+  // while that exact phrase sat in the instruction as never-ambiguous, and three earlier
+  // instruction edits each moved which phrasings passed while regressing others. The model
+  // matches the instruction's vocabulary rather than its concept, so this is a code guarantee
+  // (`isBroadAvailabilityRequest`, grammar only, no food or farm words) rather than prose.
+  //
+  // It overrides ONLY toward answering, and only over `ambiguous`: a model that produced a
+  // lookup keeps its own interpretation. The substituted intent is the same one the model
+  // returns for a broad request, so the whole downstream path is unchanged — and `broad` means
+  // code pages its own ranked set rather than asking the model to reproduce identifiers.
+  const broadOverride =
+    intent.value.kind === "ambiguous" && isBroadAvailabilityRequest(input.taskText);
+
+  const interpreted: InterpretedIntent = broadOverride
+    ? {
+        kind: "lookup",
+        items: ["produce"],
+        ranking: "any",
+        broad: true,
+        outOfScopeRequest: false,
+        originDependent: false,
+      }
+    : intent.value;
+
+  if (interpreted.kind === "ambiguous") {
     // The model signalled; the words are code's.
     return { outcome: "clarification", question: renderClarificationRequest() };
   }
@@ -445,8 +472,8 @@ export async function answerInquiry(
   // boundary; it never fabricates the part it cannot support, and never returns an unranked
   // list as though it had answered "which is closest?".
   const notes = [
-    intent.value.outOfScopeRequest ? RECIPE_SCOPE_STATEMENT : undefined,
-    intent.value.originDependent ? ORIGIN_LIMITATION_STATEMENT : undefined,
+    interpreted.outOfScopeRequest ? RECIPE_SCOPE_STATEMENT : undefined,
+    interpreted.originDependent ? ORIGIN_LIMITATION_STATEMENT : undefined,
   ].filter((note): note is string => note !== undefined);
 
   const withScope = (body: string): string =>
@@ -464,10 +491,10 @@ export async function answerInquiry(
   }));
 
   const ranked = rankCandidates(candidates, {
-    ranking: intent.value.ranking,
-    items: intent.value.items,
-    ...(intent.value.farmScope !== undefined
-      ? { farmScope: intent.value.farmScope }
+    ranking: interpreted.ranking,
+    items: interpreted.items,
+    ...(interpreted.farmScope !== undefined
+      ? { farmScope: interpreted.farmScope }
       : {}),
   });
 
@@ -480,7 +507,7 @@ export async function answerInquiry(
     // substitute offered in place of the facts we do not have.
     return {
       outcome: "answered",
-      body: withScope(renderNoCurrentListing(intent.value.items)),
+      body: withScope(renderNoCurrentListing(interpreted.items)),
       selectedFactIds: [],
     };
   }
@@ -490,7 +517,7 @@ export async function answerInquiry(
   // invisible to a stand publishing "butter lettuce": the model cannot select what it was
   // never shown. Rendering narrows separately — that rule lives in `toPageableFact`, once,
   // because a later MORE page of this same answer must obey it too.
-  const itemsRequested = intent.value.items;
+  const itemsRequested = interpreted.items;
   const byId = new Map(listings.map((row) => [row.factId, row]));
   const retrieved: RetrievedFact[] = ranked.map((candidate) =>
     toPageableFact(byId.get(candidate.factId)!, itemsRequested),
@@ -504,14 +531,14 @@ export async function answerInquiry(
     ...retrieved.filter((fact) => fact.basis === "confirmed"),
     ...retrieved.filter((fact) => fact.basis === "offering"),
   ];
-  const selectionCandidates = intent.value.broad
+  const selectionCandidates = interpreted.broad
     ? displayOrdered.slice(0, PAGE_SIZE)
     : retrieved;
 
   // Step 4 — select. This call sees the retrieved facts and NOT the raw question.
   const rawSelection = await deps.model.select({
-    items: intent.value.items,
-    ranking: intent.value.ranking,
+    items: interpreted.items,
+    ranking: interpreted.ranking,
     facts: selectionCandidates.map((fact) => ({
       factId: fact.factId,
       farmName: fact.farmName,
@@ -605,7 +632,7 @@ export async function answerInquiry(
   if (selection.value.factIds.length === 0) {
     return {
       outcome: "answered",
-      body: withScope(renderNoCurrentListing(intent.value.items)),
+      body: withScope(renderNoCurrentListing(interpreted.items)),
       selectedFactIds: [],
     };
   }
@@ -617,7 +644,7 @@ export async function answerInquiry(
   // never paged away, because it is what the customer actually asked for. The model's order
   // is preserved within each group.
   const selectedFactIds = selection.value.factIds;
-  const answerFactIds = intent.value.broad
+  const answerFactIds = interpreted.broad
     ? [...selectedFactIds, ...displayOrdered.slice(PAGE_SIZE).map((fact) => fact.factId)]
     : selectedFactIds;
   // F-107 — re-narrow each fact to the items the MODEL said answered the request, where it
