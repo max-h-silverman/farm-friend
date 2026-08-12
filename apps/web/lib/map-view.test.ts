@@ -522,6 +522,13 @@ describe("standListingLines (F-042)", () => {
       expect(nothing!.items).toBeUndefined();
     });
 
+    it("puts availability before typical offerings, as it does for current stock", () => {
+      expect(standListingLines(tagged).map((line) => line.kind)).toEqual([
+        "nothing-confirmed",
+        "usual",
+      ]);
+    });
+
     it("does NOT fall back to 'No listing yet' — the two facts are different", () => {
       // The bug this item was filed for. Every tagged stand rendered the untagged copy, so
       // the database's 212 tags were invisible. Anchored to the ABSENCE of that line kind.

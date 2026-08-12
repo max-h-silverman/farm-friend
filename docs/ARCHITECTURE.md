@@ -248,21 +248,39 @@ order:
     a listing. Naming no stand, or naming their own, leaves the branches below unchanged. This can
     only move a message AWAY from publishing inventory, never toward publishing someone else's.
 
-    **Resolution is a two-tier ladder, entirely in code** (F-106). First a unique substring match of
+    **Resolution is a ladder, entirely in code** (F-106). First a unique substring match of
     a stand's whole name, with both sides folded to lowercase letters, digits and single spaces so
     punctuation cannot defeat it. Failing that, each stand is scored by how many of its own
     *distinctive* words (excluding corpus-generic ones like "farm") appear in the message, and the
     single highest scorer wins. **Zero matches, or any tie at the top score, asks "Which stand are
-    you at?" rather than guessing.** No model participates. A *misspelled* name therefore asks; fuzzy
-    matching is the only part that would need a model, and a model's guess would need a confirmation
-    gate before it could reach a farmer's handset.
+    you at?" rather than guessing.** No model participates at any tier.
+
+    **A cold message is matched exactly**, so a misspelled name asks. The one exception is the reply
+    to that question (B-065): there a third, edit-distance tier runs, because Farm Friend has already
+    asked and the reply is presumed to be an attempt at the answer rather than a new topic. The
+    allowance scales with word length — under 5 characters exact only, 5–7 one edit, 8 or more two —
+    which is load-bearing rather than tidy: measured against all 36 live stands, a flat allowance of
+    two turned "barts" from an exact match into a three-way tie with Bananas Barn and Green Ears.
+    The exact tier's verdict is final whenever it matched anything, *including a tie*; a looser
+    comparison may never overturn a stricter one's ambiguity. A fuzzy tie still asks.
 12. For authorized farmer free text about their own stands, the **farmer-message intent seam** returns
     only `inventory_update`, `farm_stand_question`, or `unclear`. It runs before stand targeting so a
     general question does not create a target menu.
 13. `inventory_update` continues through exact stand targeting and the existing proposal flow;
     `farm_stand_question` uses grounded inquiry; `unclear` gets a code-rendered clarification. No
     classification outcome publishes inventory.
-14. For everyone else, the **customer-message intent seam** returns `stock_out_report` or
+14. For everyone else, an **open stock-out clarification is offered the message first** (B-065),
+    before the intent seam. Farm Friend asks "Which stand are you at?" or "What was sold out?" and
+    holds the original report; the next message from that sender completes it. This must run here
+    and not in deterministic routing: steps 1–8 take the body and nothing else, which is what makes
+    "no stored state can reinterpret a STOP" structural rather than conventional (Golden Rule #2).
+
+    The check is needed because the answer is *correctly* classified as a question — a bare stand
+    name states nothing about stock and names no item — so without the held report the intent seam
+    routes it to inquiry, which finds no item and dead-ends. **A reply that resolves no stand at all
+    releases the held report** and is handled as an ordinary new message: releasing is recoverable,
+    capturing a real question is another dead end.
+15. Otherwise the **customer-message intent seam** returns `stock_out_report` or
     `farm_stand_question` (also its fallback). A report records a private signal and prompts the
     stand's own farmer; it never mutates published state — Golden Rule #1.
 

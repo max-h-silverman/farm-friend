@@ -146,6 +146,29 @@ describe("farm-map poster treatment", () => {
     )).toHaveClass("map-note");
   });
 
+  /*
+    The search placeholder is the only instruction a customer gets about what they may type,
+    and the field matches BOTH a product and a stand name — nothing else on the page says so.
+    Asserted on the rendered attribute, so the shape a customer reads is what is pinned.
+
+    **Only the examples are quoted.** The hint itself is not a quotation, and the quote marks
+    exist to mark "eggs" and "flowers" as things you could literally type (max, 2026-08-12).
+  */
+  it("offers both a product and a stand name as search examples", () => {
+    render(<StandMap stands={[]} />);
+
+    const placeholder =
+      screen.getByPlaceholderText(/e\.g\./i).getAttribute("placeholder") ?? "";
+
+    expect(placeholder).toContain("“eggs”");
+    expect(placeholder).toContain("“flowers”");
+    expect(placeholder).toContain("stand name");
+    expect(placeholder.endsWith("…")).toBe(true);
+    // The hint is not itself wrapped in quotes, and does not end up quoted by a later edit.
+    expect(placeholder.startsWith("e.g.")).toBe(true);
+    expect(placeholder).not.toMatch(/^["“]/);
+  });
+
   it("shows the save-contact action with a decorative add-contact icon", () => {
     render(<StandMap stands={[]} />);
 
@@ -776,7 +799,7 @@ describe("farm-map poster treatment", () => {
     the elements rather than on the text, so a change that kept the section and merely blanked
     its words still fails.
   */
-  it("renders no 'In stock' section for a confirmation that has aged out", async () => {
+  it("keeps the In stock status section for a confirmation that has aged out", async () => {
     const user = userEvent.setup();
     const stand: PublicStandPayload = {
       id: "aged",
@@ -804,18 +827,18 @@ describe("farm-map poster treatment", () => {
 
     const body = container.querySelector(".stands .stand-detail-body")!;
 
-    // The STOCK CLAIM is gone. The availability section itself legitimately remains — it now
+    // The stale STOCK CLAIM is gone. The In stock section itself legitimately remains — it now
     // carries "Nothing confirmed recently.", which is the honest line and the reason the stand
-    // is not simply blanked. What must not survive is the confirmed listing and its caption.
+    // is not simply blanked. What must not survive is the confirmed listing and its chips.
     expect(body.querySelector(".listing-confirmed")).toBeNull();
     expect(body.querySelector(".listing-recency")).toBeNull();
     expect(body.querySelector(".detail-inventory .items")).toBeNull();
     expect(body.querySelector(".detail-inventory")).toHaveTextContent(
       "Nothing confirmed recently.",
     );
+    expect(body.querySelector(".detail-inventory h3")).toHaveTextContent("In stock");
 
     // And the item itself is nowhere on the card as a confirmed chip.
-    expect(body.textContent).not.toMatch(/In stock/i);
     expect(body.textContent).not.toMatch(/Tulips/);
     expect(body.textContent).not.toMatch(/No recent update/i);
 

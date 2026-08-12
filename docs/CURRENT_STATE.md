@@ -6,15 +6,13 @@
 ## Release state
 
 - Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
-  and stand details. F-104's customer→farmer alert path is closed and proven on a real handset.
-- Cloud Run web `farm-friend-web-00071-fxf` and worker `farm-friend-worker-00066-75p` serve
-  immutable digest `sha256:e647210b21cc92026f2183061a843db6d0e77a15a466a399bd295d5f2e8b23ce`,
-  built from `main` `11c8163` and deployed 2026-08-12. Plan assertions 60/60 (delta was the image
-  digest plus `PUBLIC_MAP_URL` on both services); deploy assertions pass. The serving digest and
-  the anchored URL were both read back from the services. No migration — 41 applied, unchanged.
+  and stand details. The customer→farmer stock-out path is closed end to end and proven on real
+  handsets: a report can name a published item **or** one of the stand's usual offerings (B-057,
+  verified in production by effect), and a clarifying question now completes the report rather
+  than dropping it (B-065).
 - **The public map link carries a `#map` anchor** (F-110), so a customer texting `MAP` lands on
   VIGA's embed rather than above it. The destination is stated in two places — the `PUBLIC_MAP_URL`
-  env var and the core constant customer copy embeds — and `resolvePublicMapUrl` now **refuses to
+  env var and the core constant customer copy embeds — and `resolvePublicMapUrl` **refuses to
   start** a non-local deployment where they disagree. `infra/terraform.tfvars` is gitignored, so
   another checkout lacks the value; the guard turns that into a failed startup, not a stale link.
 - The SMS answer is the one B-062/B-063 rebuilt (PR #107): one entry per stand,
@@ -23,6 +21,10 @@
   threshold, and the stock claim dropped entirely past 28 days. The header states only the count and
   window (`9 matching stands (1-3 of 9)`) and echoes no search term, so a named and a broad request
   over the same facts render byte-identical pages.
+- **Stand cards lead with availability.** The card's inventory section always opens with an
+  "In stock" heading — confirmed items under it when there are any, "Nothing confirmed recently"
+  when there are not — and Typical Offerings always follows. The map search placeholder reads
+  `e.g. “eggs”, “flowers”, stand name…`, naming both halves of what the field actually matches.
 - **`pending_result_lists.broad` is written and never read.** The one piece of data in the system
   with no consumer, kept deliberately — dropping it is a migration on live data for no behavioral
   gain. Revisit it whenever that table next needs a migration for another reason.
@@ -41,16 +43,34 @@
   Littlest Bird, Plum Forest — hand-edited in production 2026-08-12). 0 of 39 descriptions now
   mention payment. Half the four disagreed with the chips by omission, which is why this was four
   reviewed edits and not a parser. Lavender Hill still duplicates its own "Wreaths" sentence.
-- Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` was applied 2026-08-11 ahead of
-  the image that reads it and verified by schema effect: `broad`, `stand_total`, and `stand_offset`
-  present on `pending_result_lists`, with farm/stand/item counts (39/37/237) unchanged across it.
+- **A clarifying question holds the report until it is answered** (B-065).
+  `pending_stock_out_reports` keeps one open clarification per sender — unique index as the arbiter,
+  15-minute expiry judged by the **message's** clock — and the answer completes the report. The
+  stand resolver has a third **edit-distance tier reachable only inside an open clarification**; a
+  cold message still matches exactly, so a misspelled report with nothing held still asks (max,
+  2026-08-11). The allowance scales with word length (under 5 chars exact, 5–7 one edit, 8+ two):
+  a flat allowance of two turned "barts" from an exact match into a three-way tie. Resolution sits
+  below all deterministic routing, so no held context can reinterpret a `STOP`.
+- **No interpolated name can add a line to the stock-out alert** (B-060). `stand_items.display_name`
+  and `sales_locations.name` are flattened to one line before rendering. **Provenance is not
+  shape**: a Farm Friend-held fact is safe to speak, which says nothing about the characters in it —
+  the CHECK admits `"Eggs\n\nVIGA Farm Friend: …"` because it is not blank.
+- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. `0041` adds
+  `pending_stock_out_reports`; its three CHECKs are hand-written, since `drizzle-kit generate` does
+  not emit them.
+- **Deployed state — fill in from the wrap's own deploy.** Cloud Run web/worker revisions, the
+  immutable digest, the `main` commit they were built from, and the plan-assertion count belong on
+  this line; RUNBOOK §Deploy owns the procedure.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
 ## Verification
 
-- `main`: **1,932 unit tests, 916 local integration tests**, typecheck, and lint pass (2026-08-12).
+- `main`: **1,951 unit tests, 938 local integration tests**, typecheck, and lint pass (2026-08-12).
   The web production build retains the tracked Next configuration/lint warnings (B-008).
+- **Migration `when` stamps can land behind their predecessor on this machine.** `0041`'s generated
+  stamp was *earlier* than `0040`'s — the local clock runs behind the repo's — and the ordering
+  tests caught it. RUNBOOK §Migrations has the fix; expect this on every new migration here.
 - Local integration tests need Postgres on `localhost` and are run with `npm run test:integration:local`.
   `psql` is not on the default PATH (`postgresql@16` lives under Homebrew's `opt`), so a bare
   `psql`/`pg_isready` reports "command not found" — that is **not** evidence the database is absent.
@@ -106,11 +126,6 @@
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the
   roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
-- **B-057 owes one live check:** a stock-out alert can now name one of the stand's usual offerings,
-  not only its published inventory — live but unproven on the live path. Text a stock-out for an item
-  a stand carries as a usual offering but does not currently publish (Pinecone Gardens' eggs is the
-  original case), then confirm the farmer's alert names it and the report stored
-  `referenced_stand_item_id`. Until then the fix is proven only by test.
 - B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
   `correct/total`, but do not loosen it until it always passes.
 - **B-062 and B-063 owe one live check:** text a question whose answer includes a stand confirmed
@@ -125,10 +140,16 @@
   since the change, and the schedule fires at 10:00 stand-local, so this waits for a due slot.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
-- B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists
-  (Tian Tian's "bok choy" vs "Baby bok choy"; Bart's Cart's overlapping plant items), and prove by
-  sabotage that a hostile `stand_items.display_name` stays inert in the farmer's alert. Both are
-  quality risks: a wrong pick names the wrong item, and nothing published moves either way.
+- B-059 remains open: measure the seam against the corpus's awkward lists. Its cited examples are
+  **stale** — the reviewed offerings artifact has no "veggie, herb, flower plants" row and Fruits des
+  Vignes carries plain "raspberries", so build cases from the live rows, not from the item text.
+  Land B-058 first or the signal mixes with unrelated live-eval noise.
+- **B-065 owes one live check:** text a stock-out misspelling the stand ("Pinecome is out of eggs"),
+  answer "Which stand are you at?" with the name, and confirm the farmer's alert names the **eggs**.
+  A second misspelling in the reply should also resolve. Proven by test and against the real corpus,
+  unread on a handset.
+- **B-060 has no live check to owe** — a hostile `display_name` cannot be typed by a customer, only
+  written by a farmer's own listing form, so the guarantee is a code property proven by sabotage.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,

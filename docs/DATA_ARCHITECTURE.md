@@ -198,6 +198,14 @@ by address. A deployment with no secret configured has no door at all, and answe
 passes. Only the body text goes — the `sms_messages` row, its inbox projection, dispatch attempts,
 flags, and audit events are retained.
 
+**A second, much shorter-lived copy exists while a question is open.** `pending_stock_out_reports`
+holds one unanswered stock-out report per sender so the answer to "Which stand are you at?" has
+somewhere to land (B-065). It carries the reporter's own message for **15 minutes**, keyed by phone
+hash, deleted on resolution and on release, with the retention purge as the backstop. It adds no new
+exposure: the same body already lives in `sms_messages` under the 30-day rule, and this copy is
+strictly shorter-lived. It is a held *question*, not a conversation history — nothing outside the
+stock-out path reads it, and it is unreachable from deterministic routing.
+
 **Messages in a flagged thread stay readable while the flag is open.** The exemption is keyed on
 `flags.status = 'open'` for any flag on the message's inbox event, and it **fails safe**: a body is
 purged only when the absence of an open flag can be shown, because over-retention is recoverable and

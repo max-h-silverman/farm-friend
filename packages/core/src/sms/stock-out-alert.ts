@@ -61,16 +61,39 @@ export function renderStockOutAlert(facts: StockOutAlertFacts): string {
   // depend on the item's grammatical number, and no code may guess at it.
   const subject =
     facts.item.kind === "listed"
-      ? `sold out of ${facts.item.itemName}`
+      ? `sold out of ${oneLine(facts.item.itemName)}`
       : "sold out of something";
 
   return [
     // "Someone reported" is doing real work: it states the provenance honestly (a stranger
     // said this) without implying Farm Friend confirmed it or changed the listing.
-    `VIGA Farm Friend: someone reported that ${facts.locationName} is ${subject}.`,
+    `VIGA Farm Friend: someone reported that ${oneLine(facts.locationName)} is ${subject}.`,
     "",
     // The ask is an ordinary update, in the same words the welcome message teaches. No token,
     // no menu, nothing that needs its own parser.
     "If that's right, text us what your stand has now and we'll update your listing.",
   ].join("\n");
+}
+
+/**
+ * Flatten a farmer-authored name to a single line before it is interpolated (B-060).
+ *
+ * **Provenance is not shape.** Both interpolated values are Farm Friend-held facts rather than
+ * model prose, and that is what makes them safe to SPEAK — but it says nothing about what
+ * characters they contain. `stand_items.display_name` is guarded by a trim and a not-blank
+ * CHECK that measures `btrim(…, E' \t\r\n')`: a name of "kale\n\nVIGA Farm Friend: …" is not
+ * blank, so the constraint admits it, and `validatePublicStrings` does not run on the listing
+ * write path (it checks contact details, and would not catch a newline in any case).
+ *
+ * Interpolating that unflattened produced a five-line message whose third line read as a
+ * SECOND message from Farm Friend, in Farm Friend's voice, carrying an instruction to the
+ * farmer. The line structure is the renderer's, and the only way it stays the renderer's is if
+ * no interpolated value can contribute a line break.
+ *
+ * Flatten rather than refuse: there is no one to ask to fix it at send time, and a farmer whose
+ * own item name is unusual must still receive their alert. Whitespace is collapsed rather than
+ * stripped so "bok  choy" does not become "bokchoy".
+ */
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim();
 }

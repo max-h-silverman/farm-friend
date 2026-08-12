@@ -75,6 +75,17 @@ export const standItemPriceBasis = pgEnum("stand_item_price_basis", [
   "for",
 ]);
 
+/**
+ * Which half of a stock-out report Farm Friend is still waiting on (B-065).
+ *
+ * Two values because there are exactly two questions the stock-out path asks. A third would
+ * mean a third question, and would arrive with its own copy and resolution rule.
+ */
+export const pendingStockOutAwaiting = pgEnum("pending_stock_out_awaiting", [
+  "stand",
+  "item",
+]);
+
 export const closureResult = pgEnum("closure_result", ["close", "reopen"]);
 export const closureKind = pgEnum("closure_kind", ["temporary", "seasonal"]);
 
@@ -3219,6 +3230,101 @@ export const pendingResultLists = pgTable(
       sql`${table.expiresAt} > ${table.createdAt}`,
     ),
     senderLookup: index("pending_result_lists_sender_idx").on(
+      table.senderHash,
+      table.expiresAt,
+    ),
+  }),
+);
+
+/**
+ * A stock-out report waiting on one answer from the reporter (B-065).
+ *
+ * **Why this exists.** Farm Friend asks "Which stand are you at?" or "What was sold out?" and
+ * then, before this table, stored nothing — so the customer's answer arrived as an unrelated
+ * message with half the report missing, read as a question, and dead-ended. Observed on a
+ * handset 2026-08-12: a stand-out report for eggs was silently dropped after the customer
+ * answered correctly.
+ *
+ * **It holds a QUESTION, not a conversation.** The row exists only between asking and the
+ * next message from that sender. It is not general chat state, it teaches no token, and
+ * nothing outside the stock-out path reads it. Two questions, two `awaiting` values; a third
+ * would be a third question with its own copy.
+ *
+ * Deliberately NOT reachable from deterministic routing. `parseCommand` takes the body and
+ * nothing else, which is what makes "no stored state can reinterpret a STOP" structural
+ * rather than conventional — resolution happens inside the free-text customer branch, below
+ * every compliance keyword.
+ */
+export const pendingStockOutReports = pgTable(
+  "pending_stock_out_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * The hash, never a raw number (Golden Rule #5). Unique: one open clarification per
+     * sender, so a second unfinished report REPLACES the first rather than leaving two rows
+     * for the next message to choose between. The index is the arbiter, not a read-then-write.
+     */
+    senderHash: text("sender_hash").notNull(),
+    /**
+     * The reporter's ORIGINAL message — "Pinecome is out of eggs".
+     *
+     * This is the column that makes the eggs survive. When the follow-up supplies the stand,
+     * this text supplies the item, and it flows to `recordStockOutReport`'s `taskText` —
+     * exactly the untrusted-text position the first message already occupied. It is never
+     * spoken back to anyone: the farmer's alert names the stand's OWN item row.
+     *
+     * Raw inbound customer text, and shorter-lived than the copy `sms_messages` already keeps
+     * for 30 days. Deleted on resolution and on release; the retention purge is the backstop.
+     */
+    reportText: text("report_text").notNull(),
+    /**
+     * The stand, when it is the ITEM that was missing. Null when the stand is what we asked
+     * for. `pending_stock_out_reports_awaiting_shape` keeps the two in step.
+     */
+    salesLocationId: uuid("sales_location_id"),
+    /** Which question was asked, and therefore how the next message resolves. */
+    awaiting: pendingStockOutAwaiting("awaiting").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    /**
+     * Bounds how long an answer can land. Evaluated against the MESSAGE's time, never
+     * `now()` — a delayed inbound event must be judged by the clock of the message it
+     * answers, the same rule `takeNextResultPage` follows.
+     */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    salesLocationReference: foreignKey({
+      name: "pending_stock_out_reports_location_fk",
+      columns: [table.salesLocationId],
+      foreignColumns: [salesLocations.id],
+    }).onDelete("cascade"),
+    senderUnique: unique("pending_stock_out_reports_sender_hash_unique").on(
+      table.senderHash,
+    ),
+    /**
+     * The two arms are mutually exclusive and each is incomplete without its half: waiting on
+     * an ITEM means the stand is already bound, and waiting on a STAND means it is not.
+     *
+     * Written as one biconditional rather than an enumeration of legal combinations, the way
+     * B-057's exclusivity CHECK was rewritten. Note this is NOT vulnerable to the NULL trap:
+     * `is not null` yields true or false, never NULL, so the constraint cannot pass by
+     * evaluating to NULL the way a bare comparison would.
+     */
+    awaitingShape: check(
+      "pending_stock_out_reports_awaiting_shape",
+      sql`(${table.awaiting} = 'item') = (${table.salesLocationId} is not null)`,
+    ),
+    reportTextNotBlank: check(
+      "pending_stock_out_reports_report_text_not_blank",
+      sql`length(btrim(${table.reportText}, E' \t\r\n')) > 0`,
+    ),
+    expiresAfterCreation: check(
+      "pending_stock_out_reports_expires_after_creation",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    senderLookup: index("pending_stock_out_reports_sender_idx").on(
       table.senderHash,
       table.expiresAt,
     ),

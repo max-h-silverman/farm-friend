@@ -420,13 +420,13 @@ function StandListings({ stand }: { stand: FilteredStand }) {
       {standListingLines(stand).map((line) => (
         <section
           className={line.kind === "usual" ? "detail-usual-offerings" : "detail-inventory"}
-          aria-label={line.kind === "usual" ? "Typical offerings" : "Availability and inventory"}
+          aria-label={line.kind === "usual" ? "Typical offerings" : "In-stock status and inventory"}
           key={line.kind}
         >
         <div className={`listing listing-${line.kind}`}>
           {line.items === undefined ? (
             <>
-              <DetailSectionHeading icon="inventory">Availability</DetailSectionHeading>
+              <DetailSectionHeading icon="inventory">In stock</DetailSectionHeading>
               <p className="listing-note">{line.label}</p>
             </>
           ) : line.kind === "confirmed" ? (
@@ -942,7 +942,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
               <input
                 type="search"
                 className="field-input"
-                placeholder="Search eggs, flowers, Bart's Cart…"
+                placeholder="e.g. “eggs”, “flowers”, stand name…"
                 value={filters.sells ?? ""}
                 onChange={(event) =>
                   setFilters((current) => ({

@@ -16,6 +16,7 @@ export * from "./listing-availability";
 export * from "./payment-methods";
 export * from "./farmer-targeting";
 export * from "./pending-result-list";
+export * from "./pending-stock-out-report";
 export * from "./participants";
 export * from "./review";
 export * from "./scheduled-prompts";

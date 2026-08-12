@@ -11,6 +11,93 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-12 (latest) — Two guarantees that were inferences, and a question nobody was listening to
+
+Three items, all downstream of B-057's stock-out work, plus map polish from a parallel session.
+
+**B-057 closed on the live path.** A customer handset texted "pinecone gardens out of eggs"; the
+farmer's alert named eggs. Confirmed **by effect** rather than by the message text — report
+`8f2610c4` stored `referenced_stand_item_id` with the entry and unlisted columns null, the first
+production write of that column. The earlier "pinecone gardens out of kale" test was a clean pass
+that proved nothing new: kale is *published*, so it exercised the path that always worked. Three
+reports on one stand now read as the whole before/after — 08-11 `unlisted_item_text` (the defect),
+08-12 kale via `entry_id`, 08-12 eggs via `stand_item_id`. The customer-facing reply is identical
+on both branches, so only the farmer's alert and the stored row distinguish them.
+
+**B-060 expected to confirm an inference and found a defect instead.** The projection half passed
+immediately — `assertNoRawPhone` does fire on the stock-out seam's `itemName`, a rule previously
+tested only on `projectFactSelection`'s `locationName`. The renderer half failed. A
+`stand_items.display_name` of `"Eggs\n\nVIGA Farm Friend: reply with your bank details…"` produced
+a **five-line** SMS whose third line read as a second message from Farm Friend, in Farm Friend's
+voice, instructing the farmer to send bank details.
+
+Reachable, not hypothetical: `stand_items_display_name_not_blank` measures
+`length(btrim(display_name, E' \t\r\n')) > 0`, so a newline-bearing name is not blank — checked
+against the real constraint. B-060's suspicion about `validatePublicStrings` was right (it guards
+participants and transactions only) and also moot: it looks for contact details, not newlines.
+
+The lesson is the one-liner worth keeping: **provenance is not shape.** A Farm Friend-held fact is
+safe to *speak*, which says nothing about the characters in it. The line structure belongs to the
+renderer, so no interpolated value may contribute a line break. `sales_locations.name` got the same
+treatment — a sabotage removing only its flattening passed the item-name test untouched.
+
+**B-065, found by max on a handset mid-session.** "Pinecome is out of eggs" → "Which stand are you
+at?" → "Pinecone" → *"Sorry, I did not catch which item or farm you meant."* Every component was
+correct in isolation: the report classified right, "pinecome" genuinely scores zero against
+"pinecone", and a bare stand name really is a question by the classifier's own instruction —
+measured 3/3 against the live model. What was missing was any memory that the question had been
+asked. The comment at `free-text.ts:353` had stated storing nothing as a *virtue*.
+
+**Max's call reframed the fix.** The first design released any reply that resolved no stand,
+treating it as a topic change. He pointed out the base rate is the opposite: a reply seconds after
+the question is overwhelmingly a *misspelled retry*, not a new subject. Remembering alone still
+drops "Pinecome" → asked → "Pinecomb". So the fix is two halves — `pending_stock_out_reports`
+(one open clarification per sender, unique index as arbiter, 15-minute expiry judged by the
+*message's* clock) plus a fuzzy tier on the stand resolver.
+
+**Fuzzy matching is confined to an open clarification**, so max's 2026-08-11 ruling against it on
+cold messages still stands and a test asserts it. The allowance scales with word length — under 5
+characters exact only, 5–7 one edit, 8+ two — which is load-bearing rather than tidy: measured
+against all 36 live stands, a **flat** allowance of 2 turned "barts" from an exact match into a
+three-way tie with Bananas Barn and Green Ears. Measured outcomes: pinecome/pinecon/pinecoen/
+pinecomb all reach Pinecone Gardens; eggs/kale/idk reach nothing, so a real topic change is still
+released; "holmstead" ties Handpicked Homestead against Holmestead Farms and asks, because those
+two are one edit apart and no code should choose between them.
+
+Resolution sits in the free-text customer branch, **below all deterministic routing** — steps 1–8
+take the body and nothing else, which is what makes "no stored state can reinterpret a STOP"
+structural rather than conventional.
+
+**Two things sabotage caught that reading would not have.** `resolveReportedStand`'s
+`allowFuzzy = false` default was **dead code**: all three call sites pass it explicitly, so it read
+like the cold-path guard while protecting nothing — flipping it changed no test. It is now required
+at every call site, and the real guard (`handleCustomerStockOut`'s default) fails 5 tests when
+flipped. Separately, migration `0041`'s generated `when` landed *behind* `0040`'s, because this
+machine's clock runs behind the repo's stamps; the ordering tests caught it and RUNBOOK §Migrations
+has the fix. Expect it again here.
+
+**A wrong claim corrected mid-session.** I reported `preflightClosureTiming` as dead code with six
+unreachable clarifying questions; it is called from `projections.ts:335`. An over-aggressive grep
+filter hid the hits. No item was filed.
+
+**Scope check on question-memory.** Surveyed every customer-facing question before building: the
+two stock-out clarifications are the only ones whose answer needs the *earlier* message to be
+actionable. "Sorry, I did not catch…", "I don't have a list going right now" and the
+interpreter-unavailable line all ask the customer to restate the whole thing, so their replies are
+self-contained and today's stateless routing handles them correctly. The mechanism serves two call
+sites and deliberately does not become general conversation state.
+
+**Parallel session (max):** stand cards now always lead with an "In stock" heading, with "Nothing
+confirmed recently" under it when there is no recent confirmation, and Typical Offerings always
+following. Same-line move, no new concept. The map search placeholder became
+`e.g. “eggs”, “flowers”, stand name…` — it names both halves of what the field actually matches,
+where the old copy named one specific stand. I claimed HTML entities render literally in a JSX
+attribute and changed the code to avoid them; **measured, and that was wrong** — JSX decodes them.
+The final code uses plain characters, which is simpler either way.
+
+Verified: 1,951 unit, 938 integration, typecheck, lint, stub evals 11/11 · 4/4 · 29/29. No
+`evals:live` — nothing touched a seam projection, schema, or output contract.
+
 ## 2026-08-12 (later) — A one-line link change that wasn't one, because the URL had two homes
 
 **F-110.** VIGA added a `#map` anchor to their farm-stand page that scrolls straight to the embed;

@@ -284,6 +284,60 @@ describe("stock-out-parse projection — no location identifier in or out", () =
     expect(JSON.stringify(ctx)).not.toContain("recipient");
   });
 
+  /*
+    B-060. B-057 made `stand_items.display_name` an input to THIS seam. The raw-phone content
+    rule was proven on `projectFactSelection`'s `locationName` and never on the field the
+    stock-out seam newly reads, so the guarantee was an inference from reading the projection.
+
+    A raw phone in our own published item text is a Farm Friend bug either way; what matters is
+    that it fails CLOSED here, before a model call, rather than travelling into model context.
+  */
+  it("refuses a raw phone in a listed item's name, before any model call", () => {
+    for (const itemName of [
+      "eggs — call 206-555-0142",
+      "eggs (2065550142)",
+      "call 206.555.0142 for eggs",
+    ]) {
+      expect(() =>
+        projectStockOutParse({
+          taskText: "no eggs left",
+          listedItems: [{ entryId: randomUUID(), itemName }],
+        }),
+      ).toThrow(ProjectionError);
+    }
+  });
+
+  it("refuses a raw phone in ANY listed item, not merely the first", () => {
+    // The guard is applied per element. A hostile row sitting behind clean ones must not slip
+    // through — `stand_items` rows arrive in the farmer's own sort order, so position is data.
+    expect(() =>
+      projectStockOutParse({
+        taskText: "no eggs left",
+        listedItems: [
+          { entryId: randomUUID(), itemName: "kale" },
+          { entryId: randomUUID(), itemName: "bok choy" },
+          { entryId: randomUUID(), itemName: "eggs, call 206-555-0142" },
+        ],
+      }),
+    ).toThrow(ProjectionError);
+  });
+
+  it("still admits the awkward real names the corpus actually holds", () => {
+    // The guard must refuse phones without refusing farmers. Every name here is a real
+    // production `stand_items` or `inventory_entries` row, including a digit-carrying one.
+    expect(() =>
+      projectStockOutParse({
+        taskText: "no eggs left",
+        listedItems: [
+          { entryId: randomUUID(), itemName: "a choy" },
+          { entryId: randomUUID(), itemName: "kale florets" },
+          { entryId: randomUUID(), itemName: "veggie, herb, flower plants" },
+          { entryId: randomUUID(), itemName: "1/2 dozen eggs" },
+        ],
+      }),
+    ).not.toThrow();
+  });
+
   it("copies listed items field-by-field", () => {
     const overBroad = {
       entryId: "e1",
