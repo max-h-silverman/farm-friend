@@ -52,6 +52,15 @@
 - Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` was applied 2026-08-11 ahead of
   the image that reads it and verified by schema effect: `broad`, `stand_total`, and `stand_offset`
   present on `pending_result_lists`, with farm/stand/item counts (39/37/237) unchanged across it.
+- **Farm Friend now listens for the answer to its own clarifying question** (B-065, `47222bd`, local
+  only — not deployed, and migration `0041` is NOT yet applied to production). A misspelled report
+  ("Pinecome is out of eggs") asks which stand and now HOLDS the report; the answer completes it and
+  the farmer hears about the eggs. Two halves: `pending_stock_out_reports` (one per sender, unique
+  index, 15-minute expiry judged by the message's clock) plus a third edit-distance tier on the stand
+  resolver, reachable **only** inside an open clarification — a cold message still matches exactly,
+  so max's 2026-08-11 ruling stands. The allowance scales with word length because a flat allowance
+  of two turned "barts" from an exact match into a three-way tie. Resolution sits below all
+  deterministic routing, so no held context can reinterpret a `STOP`.
 - **A farmer-authored name can no longer add a line to the stock-out alert** (B-060, `5e95247`,
   local only — not deployed). `stand_items.display_name` reached the farmer's SMS verbatim, and its
   CHECK measures `btrim(…, E' \t\r\n') <> ''`, so "Eggs\n\nVIGA Farm Friend: …" was admitted by
@@ -63,6 +72,10 @@
 
 ## Verification
 
+- Branch `b-065-pending-stock-out-report`: **1,949 unit tests, 938 local integration tests**,
+  typecheck, and lint pass (2026-08-12). B-060 and B-065 are both on it, unmerged and undeployed.
+  Migration `0041`'s generated `when` landed BEHIND `0040`'s (the machine clock runs behind the
+  repo's stamps) and was corrected per RUNBOOK §Migrations — the ordering tests caught it.
 - `main`: **1,932 unit tests, 916 local integration tests**, typecheck, and lint pass (2026-08-12).
   The web production build retains the tracked Next configuration/lint warnings (B-008).
 - Local integration tests need Postgres on `localhost` and are run with `npm run test:integration:local`.
@@ -134,14 +147,6 @@
   since the change, and the schedule fires at 10:00 stand-local, so this waits for a due slot.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
-- **B-065 (new, unfixed): Farm Friend asks "Which stand are you at?" and does not listen for the
-  answer.** Observed on a handset 2026-08-12 — a misspelled report ("Pinecome is out of eggs") is
-  correctly classified, fails to resolve the stand, asks the question, and stores NOTHING. The
-  customer's correct answer ("Pinecone") then arrives as a fresh message, classifies as a question
-  (measured 3/3 against the live model, and correct by its own instruction — it names no item), and
-  dead-ends on "Sorry, I did not catch which item or farm you meant." No component misbehaves; the
-  question simply has no route home. `STOCK_OUT_UNCLEAR_ITEM` has the identical shape. **Not** to be
-  fixed with fuzzy stand matching — spelling is the trigger, not the defect.
 - B-059 remains open: measure the seam against the corpus's awkward lists. Its cited examples are
   **stale** — the reviewed offerings artifact has no "veggie, herb, flower plants" row and Fruits des
   Vignes carries plain "raspberries", so build cases from the live rows, not from the item text.

@@ -323,6 +323,18 @@ duplicate must show rather than be papered over.
   confirmation time and a usual offering does not, and an operator judging the report needs to know
   which. Each is bound to the report's own location by a composite key, so an item belonging to another
   stand is refused by the database. A model does not supply the consequential location identifier.
+- **pending stock-out reports** (B-065) — the half-finished report held between a clarifying question
+  and its answer, so that answer has somewhere to land. Before it, Farm Friend asked "Which stand are
+  you at?" and stored nothing, so a customer who answered correctly was told "Sorry, I did not catch
+  which item or farm you meant" and their report was dropped. Holds the **original message** — the
+  half that would otherwise be lost — plus which of the two questions was asked (`awaiting`) and, on
+  the item arm, the already-bound stand. A CHECK ties those together as one biconditional: awaiting an
+  item means a stand is bound, awaiting a stand means it is not. **One open clarification per sender**,
+  enforced by a unique index rather than a read-then-write, so a second unfinished report replaces the
+  first. Expires (15 minutes), judged against the **message's** clock and not `now()`; deleted on
+  resolution and on release. It holds a question, not a conversation: nothing outside the stock-out
+  path reads it, it teaches no token, and it is unreachable from deterministic routing, which still
+  takes the body and nothing else.
 - **minimized SMS inbox and message records** with limited retention — unique provider event/message
   identifiers, event type and `occurred_at`, sender/contact reference, TTL-bound body where needed,
   processing state, and per-sender conversation watermark/claim. The raw provider envelope is not a
