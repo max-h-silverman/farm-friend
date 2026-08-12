@@ -17,8 +17,9 @@
 //   - live-quality     : recorded, non-fatal. What the brain is trusted for. Observed output
 //                        is printed so two models can be compared run against run.
 //
-// Cost: 29 short completions per run across 28 fixtures; four deterministic closure fixtures make
-// no model call, and the customer-intent quality fixture classifies six phrasings in one fixture.
+// Cost: roughly 55 short completions per run across 38 fixtures. Four deterministic closure
+// fixtures make no model call; several fixtures score multiple cases in one fixture — the
+// customer-intent one classifies six phrasings, and B-059's corpus fixture runs eleven.
 // Run with:
 //   DEEPINFRA_MODEL=<model-id> npm run evals:live
 // (DEEPINFRA_API_KEY comes from .env via --env-file; a real environment value wins.)
@@ -432,6 +433,224 @@ fx("live-quality", "reads a misspelled item in a stock-out report", async () => 
   return {
     ok: correct === cases.length,
     observed: observations.length === 0 ? `${correct}/${cases.length}` : observations.join("; "),
+  };
+});
+
+/*
+  B-059 — the seam measured against the REAL corpus, not against clean invented items.
+
+  Every list below was read out of production on 2026-08-12 by the same construction
+  `apps/web/lib/stockout.ts` uses: published entries in `sort_order`, then the stand's usual
+  offerings that the current revision does not already carry, deduped on case and surrounding
+  whitespace ONLY. That dedup is deliberately not a taxonomy, so near-duplicates survive into
+  the list — which is exactly the risk this measures.
+
+  The traps here are the corpus's own, and none of them were invented:
+    - Bart's Cart publishes "Veggie", "herb", "flower plants" — one farmer's comma list split
+      into three entries, one of them the bare word "herb" — while ALSO carrying "veggie
+      plants" and "herb plants" as offerings.
+    - Fruits des Vignes publishes "Current Produce Raspberries" and offers plain "raspberries";
+      case/whitespace dedup cannot fold those, so both are candidates for one word.
+    - Tian Tian carries "bok choy" and "Baby bok choy", and "kale" beside "kale florets".
+    - Twisting Tree carries "bird house gourds" and "birdhouse gourds" — a space apart.
+    - Morgan Hill has a single entry that is an entire nine-product sentence.
+    - Venison Valley is the longest list in the corpus at 28 candidates, with "chai" beside
+      "sweet & spicy chai" and "coffee" beside "cold brew coffee milk".
+
+  B-057's fixture measured five clean, well-separated items and passed 7/7. That says the easy
+  case works; these say whether the ordinary one does.
+
+  WHERE THE CORPUS ITSELF IS AMBIGUOUS, so is the expectation. When a customer says "raspberries"
+  at a stand carrying both "Current Produce Raspberries" and "raspberries", either id names the
+  right product to the farmer, so both are accepted — pinning one would measure the model's
+  arbitrary tie-break rather than whether it found the product. Where only one answer is
+  defensible, only one is accepted.
+*/
+const CORPUS_LISTS: Record<string, { entryId: string; itemName: string }[]> = {
+  // 6 published + 10 offerings.
+  bartsCart: [
+    { entryId: "b1", itemName: "Veggie" },
+    { entryId: "b2", itemName: "herb" },
+    { entryId: "b3", itemName: "flower plants" },
+    { entryId: "b4", itemName: "Bouquets of Nigella seed pods" },
+    { entryId: "b5", itemName: "Papyrus plants $3" },
+    { entryId: "b6", itemName: "Rhubarb $3" },
+    { entryId: "b7", itemName: "starts" },
+    { entryId: "b8", itemName: "tomatoes" },
+    { entryId: "b9", itemName: "peppers" },
+    { entryId: "b10", itemName: "rhubarb" },
+    { entryId: "b11", itemName: "pears" },
+    { entryId: "b12", itemName: "plums" },
+    { entryId: "b13", itemName: "apples" },
+    { entryId: "b14", itemName: "veggie plants" },
+    { entryId: "b15", itemName: "herb plants" },
+    { entryId: "b16", itemName: "flowering perennials" },
+  ],
+  // 5 published + 15 offerings.
+  tianTian: [
+    { entryId: "t1", itemName: "Gailan" },
+    { entryId: "t2", itemName: "radicchio" },
+    { entryId: "t3", itemName: "cilantro" },
+    { entryId: "t4", itemName: "kale" },
+    { entryId: "t5", itemName: "kale florets" },
+    { entryId: "t6", itemName: "asian vegetables" },
+    { entryId: "t7", itemName: "bok choy" },
+    { entryId: "t8", itemName: "Baby bok choy" },
+    { entryId: "t9", itemName: "Tomatoes" },
+    { entryId: "t10", itemName: "Thai basil" },
+    { entryId: "t11", itemName: "a choy" },
+    { entryId: "t12", itemName: "Italian basil" },
+    { entryId: "t13", itemName: "perilla" },
+    { entryId: "t14", itemName: "Cucumbers" },
+    { entryId: "t15", itemName: "Pea shoots" },
+    { entryId: "t16", itemName: "Scallions" },
+    { entryId: "t17", itemName: "Lettuce" },
+    { entryId: "t18", itemName: "Green beans" },
+    { entryId: "t19", itemName: "Asian eggplant" },
+    { entryId: "t20", itemName: "Fernhorn bread" },
+  ],
+  // 7 published + 13 offerings.
+  fruitsDesVignes: [
+    { entryId: "v1", itemName: "Current Produce Raspberries" },
+    { entryId: "v2", itemName: "Rhubarb" },
+    { entryId: "v3", itemName: "Cucumbers" },
+    { entryId: "v4", itemName: "Chard" },
+    { entryId: "v5", itemName: "lettuce mix" },
+    { entryId: "v6", itemName: "Eggs" },
+    { entryId: "v7", itemName: "Honey" },
+    { entryId: "v8", itemName: "raspberries" },
+    { entryId: "v9", itemName: "squashes" },
+    { entryId: "v10", itemName: "peppers" },
+    { entryId: "v11", itemName: "tomatoes" },
+    { entryId: "v12", itemName: "herbs" },
+    { entryId: "v13", itemName: "greens" },
+    { entryId: "v14", itemName: "flowers" },
+    { entryId: "v15", itemName: "sandwiches" },
+    { entryId: "v16", itemName: "salads" },
+    { entryId: "v17", itemName: "dried fruits" },
+    { entryId: "v18", itemName: "cold drinks" },
+    { entryId: "v19", itemName: "seasonal gift items" },
+    { entryId: "v20", itemName: "vegetable starts" },
+  ],
+  // 8 published + 20 offerings — the longest in the corpus.
+  venisonValley: [
+    { entryId: "n1", itemName: "yogurt" },
+    { entryId: "n2", itemName: "fromage blanc" },
+    { entryId: "n3", itemName: "strawberry milk" },
+    { entryId: "n4", itemName: "chocolate milk" },
+    { entryId: "n5", itemName: "mango lassi" },
+    { entryId: "n6", itemName: "whole milk" },
+    { entryId: "n7", itemName: "sweet & spicy chai" },
+    { entryId: "n8", itemName: "cold brew coffee milk" },
+    { entryId: "n9", itemName: "bottled pasteurized milk" },
+    { entryId: "n10", itemName: "seasonal produce" },
+    { entryId: "n11", itemName: "farm grown bouquets" },
+    { entryId: "n12", itemName: "butter" },
+    { entryId: "n13", itemName: "heavy cream" },
+    { entryId: "n14", itemName: "chai" },
+    { entryId: "n15", itemName: "coffee" },
+    { entryId: "n16", itemName: "lemon skyr" },
+    { entryId: "n17", itemName: "kale" },
+    { entryId: "n18", itemName: "tomatoes" },
+    { entryId: "n19", itemName: "salad mix" },
+    { entryId: "n20", itemName: "little gem lettuce" },
+    { entryId: "n21", itemName: "carrots" },
+    { entryId: "n22", itemName: "broccolini" },
+    { entryId: "n23", itemName: "cabbage" },
+    { entryId: "n24", itemName: "zucchini" },
+    { entryId: "n25", itemName: "pork sausage" },
+    { entryId: "n26", itemName: "eggs" },
+    { entryId: "n27", itemName: "dried fruit" },
+    { entryId: "n28", itemName: "honey" },
+  ],
+  // 8 published + 5 offerings. One offering is an entire sentence of nine products.
+  morganHill: [
+    { entryId: "m1", itemName: "Flowers" },
+    { entryId: "m2", itemName: "snap peas" },
+    { entryId: "m3", itemName: "zucchini" },
+    { entryId: "m4", itemName: "fresh cut basil" },
+    { entryId: "m5", itemName: "salad greens" },
+    { entryId: "m6", itemName: "rainbow chard" },
+    { entryId: "m7", itemName: "fresh cut herbs" },
+    { entryId: "m8", itemName: "duck eggs" },
+    { entryId: "m9", itemName: "eggs" },
+    {
+      entryId: "m10",
+      itemName:
+        "salad mix, pickling cucumbers, squash, variety of herbs, green beans, duck eggs, chicken eggs, flowers, swiss chard",
+    },
+    { entryId: "m11", itemName: "vegetables" },
+    { entryId: "m12", itemName: "basil" },
+    { entryId: "m13", itemName: "herbs" },
+  ],
+  // 8 published + 2 offerings — "bird house gourds" and "birdhouse gourds", one space apart.
+  twistingTree: [
+    { entryId: "w1", itemName: "Zucchini" },
+    { entryId: "w2", itemName: "Carrots" },
+    { entryId: "w3", itemName: "garlic" },
+    { entryId: "w4", itemName: "bird house gourds" },
+    { entryId: "w5", itemName: "herbs" },
+    { entryId: "w6", itemName: "cucumbers" },
+    { entryId: "w7", itemName: "peppers" },
+    { entryId: "w8", itemName: "potatoes" },
+    { entryId: "w9", itemName: "beets" },
+    { entryId: "w10", itemName: "birdhouse gourds" },
+  ],
+};
+
+fx("live-quality", "picks the right item out of the real corpus's awkward lists", async () => {
+  const cases: { list: keyof typeof CORPUS_LISTS; text: string; want: string[] }[] = [
+    // Both raspberry rows name the same product to the farmer, so either id is right.
+    { list: "fruitsDesVignes", text: "no raspberries left", want: ["v1", "v8"] },
+    // ...but a DIFFERENT product on the same long list must not drift onto them.
+    { list: "fruitsDesVignes", text: "the rhubarb is gone", want: ["v2"] },
+    // "Baby bok choy" is its own product; a plain "bok choy" report belongs to the plain row.
+    { list: "tianTian", text: "the bok choy is all out", want: ["t7"] },
+    // The qualifier is the whole point of the second row — it must win when it is named.
+    { list: "tianTian", text: "no baby bok choy today", want: ["t8"] },
+    // "kale" beside "kale florets": the bare word takes the bare row.
+    { list: "tianTian", text: "out of kale", want: ["t4"] },
+    // Bart's split comma list. "herb plants" is a real offering and the better answer than the
+    // bare fragment "herb", but the fragment is defensible — the farmer wrote both.
+    { list: "bartsCart", text: "the herb plants are gone", want: ["b15", "b2"] },
+    // A price suffix in the row must not stop the product being found.
+    { list: "bartsCart", text: "no rhubarb left", want: ["b10", "b6"] },
+    // 28 candidates with two chai-ish and two coffee-ish rows.
+    { list: "venisonValley", text: "the chai is sold out", want: ["n14", "n7"] },
+    { list: "venisonValley", text: "no eggs left", want: ["n26"] },
+    // A whole sentence as one row must not swallow a report about a product it happens to name.
+    { list: "morganHill", text: "the duck eggs are out", want: ["m8"] },
+    // A space apart, and both spellings are the same gourd.
+    { list: "twistingTree", text: "no birdhouse gourds left", want: ["w10", "w4"] },
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const { list, text, want } of cases) {
+    const raw = await stockOut.parseItem({ taskText: text, listedItems: CORPUS_LISTS[list]! });
+    const ok = raw.kind === "listed" && want.includes(raw.entryId);
+    if (ok) correct += 1;
+    else {
+      const chosen =
+        raw.kind === "listed"
+          ? CORPUS_LISTS[list]!.find((i) => i.entryId === raw.entryId)?.itemName
+          : undefined;
+      observations.push(
+        `[${list}] "${text}" -> ${JSON.stringify(raw)}` +
+          `${chosen === undefined ? "" : ` ("${chosen}")`} (want ${want.join(" or ")})`,
+      );
+    }
+  }
+
+  // Scored `correct/total` and NOT all-or-nothing: this measures the current model on the
+  // corpus's hardest input, so a dip must be readable as "which case moved" rather than as a
+  // single red line. The count is the record — see docs/CURRENT_STATE.md for the standing score.
+  return {
+    ok: correct === cases.length,
+    observed:
+      observations.length === 0
+        ? `${correct}/${cases.length}`
+        : `${correct}/${cases.length}; ${observations.join("; ")}`,
   };
 });
 
