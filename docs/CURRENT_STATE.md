@@ -7,15 +7,20 @@
 
 - Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
   and stand details. F-104's customer→farmer alert path is closed and proven on a real handset.
-- Cloud Run serves the SMS answer rebuilt by B-062/B-063 (PR #107, 2026-08-11): one entry per
-  stand, **name → claims → address**, `In stock (3h ago):` / `May also have:` in sentence case,
-  a header naming the query and counting **stands**, and a bare `Map:` closing the last page.
-  Past the freshness threshold the label reads `Last seen (6d ago)`; past 28 days the stock claim
-  drops and the stand falls back to its usual offerings.
+- Cloud Run web `farm-friend-web-00068-l8z` and worker `farm-friend-worker-00063-cpf` serve
+  immutable digest `sha256:020dedb27209f618ea3a39f54cbe550717d8a8d9414eee94200d3be9d3282cae`,
+  built from `main` `fb6762f` and deployed 2026-08-11. Plan assertions 60/60; deploy and
+  served-card assertions pass. The serving digest was read back and matches the build.
+- The SMS answer is the one B-062/B-063 rebuilt (PR #107): one entry per stand,
+  **name → claims → address**, `In stock (3h ago):` / `May also have:` in sentence case, a header
+  naming the query and counting **stands**, and a bare `Map:` closing the last page. Past the
+  freshness threshold the label reads `Last seen (6d ago)`; past 28 days the stock claim drops and
+  the stand falls back to its usual offerings.
 - **Freshness threshold is 96 hours** and governs BOTH surfaces from one constant — the SMS label
   and the public map's stale warning (max, 2026-08-11). `PRODUCT_BRIEF` §freshness owns it.
-- Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` adds `broad`, `stand_total`,
-  and `stand_offset` to `pending_result_lists`, applied ahead of the image that reads them.
+- Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` was applied 2026-08-11 ahead of
+  the image that reads it and verified by schema effect: `broad`, `stand_total`, and `stand_offset`
+  present on `pending_result_lists`, with farm/stand/item counts (39/37/237) unchanged across it.
 - **B-057 is live but unproven on the live path.** A stock-out alert can now name one of the stand's
   usual offerings, not only its published inventory. No production report has named one yet — that
   needs a real inbound text, and it is what closes the item.

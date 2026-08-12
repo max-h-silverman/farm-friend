@@ -13,7 +13,9 @@ mid-session defeats its own purpose.
 
 ## 2026-08-11 — One handset reply closed two items and opened three
 
-**Merged and deployed.** PR #107; migration `0040` applied to Neon ahead of the image.
+**Merged and deployed.** PR #107 (`fb6762f`); migration `0040` applied to Neon ahead of the image and
+verified by schema effect. Web `00068-l8z`, worker `00063-cpf`, digest `sha256:020dedb2…`; plan
+assertions 60/60, deploy and served-card assertions pass, serving digest read back and matches.
 
 **The live check passed, and then paid for itself.** max texted "what do you have" to production.
 The broad question was *answered* rather than deflected — B-061's code check firing on the real
