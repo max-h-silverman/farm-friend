@@ -241,7 +241,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     if (result.outcome !== "answered") return;
     expect(result.body).toContain("Alpha Farm Stand");
     expect(result.body).toContain("Kale");
-    expect(result.body).toContain("IN STOCK (2h ago)");
+    expect(result.body).toContain("In stock (2h ago)");
     // The customer asked about kale; eggs are not volunteered.
     expect(result.body).not.toContain("Eggs");
 
@@ -271,7 +271,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     const result = await answerInquiry(deps, { taskText: "kale anywhere?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false }  });
     expect(result.outcome).toBe("answered");
     if (result.outcome !== "answered") return;
-    expect(result.body).toContain("IN STOCK (3d ago)");
+    expect(result.body).toContain("In stock (3d ago)");
     // F-107 — the age IS the warning on this surface; the explicit phrase belongs to the
     // public map. What must hold is that the stale listing is SHOWN and stamped.
     expect(result.body).toContain("3d ago");
@@ -333,8 +333,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // The offerings voice announces itself as a standing description rather than a
     // confirmation. F-107 says it as a "MAY HAVE:" line on the stand's own entry; what
     // matters is that the customer is told which voice this is, not the particular phrasing.
-    expect(result.body).toMatch(/^MAYBE: /m);
-    expect(result.body).not.toMatch(/^IN STOCK/m);
+    expect(result.body).toMatch(/^May also have: /m);
+    expect(result.body).not.toMatch(/^In stock/m);
     // No confirmation happened, so no elapsed phrase may appear anywhere in the answer.
     expect(result.body).not.toMatch(/ago\)/);
 
@@ -719,7 +719,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     if (result.outcome !== "answered") return;
     // The useful half survives: real availability, real recency.
     expect(result.body).toContain("Alpha Farm Stand");
-    expect(result.body).toContain("IN STOCK (2h ago)");
+    expect(result.body).toContain("In stock (2h ago)");
     // Plus the honest code-rendered limitation and the public-map link.
     expect(result.body).toContain("cannot work out which stand is closest");
     expect(result.body).toContain("vigavashon.org/farm-stand-map");
@@ -798,7 +798,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // The useful half survives: real availability, real recency.
     expect(result.body).toContain("Alpha Farm Stand");
     expect(result.body).toContain("Kale");
-    expect(result.body).toContain("IN STOCK (2h ago)");
+    expect(result.body).toContain("In stock (2h ago)");
     // Followed by the code-rendered scope statement.
     expect(result.body).toContain("does not provide recipes");
     expect(result.body).toContain("food-safety guidance");

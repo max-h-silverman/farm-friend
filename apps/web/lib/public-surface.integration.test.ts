@@ -657,7 +657,7 @@ describe("public web surface boundary (integration)", () => {
       // ago") because it does not. What must still hold is that both describe the SAME
       // confirmation, so they cannot disagree about how fresh a stand is.
       expect(stands[0]!.recencyLabel).toBe("updated 3 hours ago");
-      expect(answer.body).toContain("IN STOCK (3h ago)");
+      expect(answer.body).toContain("In stock (3h ago)");
     });
 
     it("labels recency honestly rather than implying certainty", async () => {

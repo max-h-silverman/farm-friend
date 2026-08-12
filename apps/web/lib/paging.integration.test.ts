@@ -134,17 +134,27 @@ describe("SMS result paging end to end (integration)", () => {
     `;
     const farmId = farms[0]?.owner_farm_id as string;
 
+    // Reused across calls: several tests publish at more than one stand, and the farmer
+    // contact and the administrator are unique by phone and by email. `on conflict` keeps a
+    // second call from colliding while still returning the existing row.
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash)
       values ('+12065550999', ${"7".repeat(64)})
+      on conflict (phone_hash) do update set phone_e164 = excluded.phone_e164
       returning id
     `;
     const farmerContactId = contacts[0]?.id as string;
-    const admins = await client()`
-      insert into administrators (email, authorized_at)
-      values ('board@vigavashon.org', ${T0})
-      returning id
+    const existingAdmins = await client()`
+      select id from administrators where email = 'board@vigavashon.org'
     `;
+    const admins =
+      existingAdmins.length > 0
+        ? existingAdmins
+        : await client()`
+            insert into administrators (email, authorized_at)
+            values ('board@vigavashon.org', ${T0})
+            returning id
+          `;
     const auth = await client()`
       insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${farmerContactId}, ${T0}, ${T0})
@@ -195,8 +205,15 @@ describe("SMS result paging end to end (integration)", () => {
     `;
   }
 
-  /** Ask a question whose selection returns every seeded stand, in seeded order. */
-  async function askForEggs(
+  /**
+   * Ask for named items, with the selection returning exactly `factIds` in that order.
+   *
+   * The items matter beyond the header: `toPageableFact` narrows each stand's rendered items
+   * to what was asked, so a question naming only "eggs" renders nothing from a kale offering
+   * and the stand collapses to one claim line.
+   */
+  async function askFor(
+    items: string[],
     senderHash: string,
     occurredAt: Date,
     factIds: string[] = locationIds.map((id) => offeringFactId(id)),
@@ -204,7 +221,7 @@ describe("SMS result paging end to end (integration)", () => {
     const provider = new ScriptedProvider({
       "inquiry-interpretation": JSON.stringify({
         kind: "lookup",
-        items: ["eggs"],
+        items,
         ranking: "freshest",
       }),
       "grounded-fact-selection": JSON.stringify({ kind: "selection", factIds }),
@@ -216,12 +233,21 @@ describe("SMS result paging end to end (integration)", () => {
         clock: new FixedClock(occurredAt),
       },
       {
-        taskText: "any eggs?",
+        taskText: `any ${items.join(" and ")}?`,
         senderHash,
         occurredAt,
         scope: { includeTestFarms: false },
       },
     );
+  }
+
+  /** Ask a question whose selection returns every seeded stand, in seeded order. */
+  async function askForEggs(
+    senderHash: string,
+    occurredAt: Date,
+    factIds: string[] = locationIds.map((id) => offeringFactId(id)),
+  ) {
+    return askFor(["eggs"], senderHash, occurredAt, factIds);
   }
 
   /** MORE, with a provider that detonates if paging ever reaches a model. */
@@ -290,19 +316,183 @@ describe("SMS result paging end to end (integration)", () => {
     if (answer.outcome !== "answered") return;
     expect(answer.body).toMatch(/1-3 of 9/);
     expect(answer.body).toMatch(/reply MORE/i);
+    // A general question named no item, so the header describes the LIST rather than naming a
+    // search term. "produce" is code's own placeholder for driving retrieval and must never be
+    // shown to the customer as though they had typed it.
+    expect(answer.body.split("\n")[0]).toBe("Recently reported inventory (1-3 of 9)");
+    expect(answer.body).not.toMatch(/Produce:/i);
 
     const selection = seen.find((ctx) => ctx.seam === "grounded-fact-selection");
     expect((selection!.fields as { facts: unknown[] }).facts).toHaveLength(PAGE_SIZE);
 
     const rows = await client()`
-      select fact_ids from pending_result_lists where sender_hash = ${customerHash}
+      select fact_ids, broad, stand_total from pending_result_lists
+      where sender_hash = ${customerHash}
     `;
     expect(rows).toHaveLength(1);
     expect(rows[0]?.fact_ids).toHaveLength(9);
+    // Persisted, because page 2 cannot re-derive it: the saved list holds `itemsRequested`,
+    // and reading the placeholder out of it would print "Produce:" on the second message of
+    // the same answer.
+    expect(rows[0]?.broad).toBe(true);
+    expect(rows[0]?.stand_total).toBe(9);
 
     const next = await more(customerHash, at(1));
     expect(next.status).toBe("paged");
     expect(next.body).toMatch(/4-6 of 9/);
+    // THE POINT: page 2 heads the same way page 1 did. A MORE that lost the flag would open
+    // "Produce: 9 matching stands (4-6 of 9)" — a different answer to the same question.
+    expect(next.body.split("\n")[0]).toBe("Recently reported inventory (4-6 of 9)");
+    expect(next.body).not.toMatch(/Produce:/i);
+  });
+
+  /**
+   * Give a seeded stand a SECOND usual offering the confirmed row does not name.
+   *
+   * Without this, a dual-basis stand collapses to one claim line before paging ever sees it:
+   * the fixture's offering is "eggs" and its confirmed row is also "eggs", so the item
+   * precedence rule drops the offering. A stand only contributes TWO rendered facts when its
+   * usual offerings include something not currently published — which is the ordinary corpus
+   * shape, and the shape B-062's page-splitting defect needs.
+   */
+  async function alsoUsuallySells(index: number, item: string): Promise<void> {
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${locationIds[index]!}, ${item}, true, 1)
+    `;
+  }
+
+  it("never splits one stand's two claims across two messages (B-062)", async () => {
+    /*
+      The defect a real handset found. A stand retrieved on BOTH bases carries two fact ids —
+      a confirmed revision and a standing offering — and the saved list is a flat array of
+      them. Sliced by a fixed count, a stand's confirmed row can end one page while its
+      offering row begins the next, so the customer meets the same stand twice: once properly,
+      then again as a bare "May also have" they already have better information about.
+
+      Three dual-basis stands make the boundary land inside a stand under flat slicing, which
+      is what makes this fixture able to fail. Confirmed rows sort first, so with PAGE_SIZE 3
+      a flat slice takes three CONFIRMED rows and leaves all three offerings for page two.
+    */
+    for (const i of [0, 1, 2]) {
+      await publishEggs(i);
+      // A usual offering the confirmed row does NOT name, so the stand really renders two
+      // claim lines rather than collapsing to one.
+      await alsoUsuallySells(i, "kale");
+    }
+
+    const both = [0, 1, 2].flatMap((i) => [locationIds[i]!, offeringFactId(locationIds[i]!)]);
+    const answer = await askFor(["eggs", "kale"], customerHash, T0, both);
+
+    expect(answer.outcome).toBe("answered");
+    if (answer.outcome !== "answered") return;
+
+    // Three stands, not six facts — the count the customer reads is stands.
+    expect(answer.body).toContain("3 matching stands");
+    // Everything fits, so there is no second page at all.
+    expect(answer.body).not.toMatch(/MORE/i);
+
+    // Each stand appears exactly once, carrying both of its claims in the one entry.
+    for (const name of standNames.slice(0, 3)) {
+      expect(answer.body.match(new RegExp(name, "g")), name).toHaveLength(1);
+    }
+
+    // Nothing was left to page: a saved list here would mean the answer thought it had more.
+    const rows = await client()`
+      select id from pending_result_lists where sender_hash = ${customerHash}
+    `;
+    expect(rows).toHaveLength(0);
+  });
+
+  it("pages whole stands when dual-basis stands overflow a page (B-062)", async () => {
+    // Four dual-basis stands over a PAGE_SIZE of 3: page one must carry three WHOLE stands
+    // (six fact ids), and page two the fourth — never a stand's leftover second row.
+    for (const i of [0, 1, 2, 3]) {
+      await publishEggs(i);
+      await alsoUsuallySells(i, "kale");
+    }
+
+    const both = [0, 1, 2, 3].flatMap((i) => [
+      locationIds[i]!,
+      offeringFactId(locationIds[i]!),
+    ]);
+    const answer = await askFor(["eggs", "kale"], customerHash, T0, both);
+
+    expect(answer.outcome).toBe("answered");
+    if (answer.outcome !== "answered") return;
+    expect(answer.body).toContain("4 matching stands (1-3 of 4)");
+    expect(answer.body).toMatch(/Reply MORE for the next 1\./);
+    // The three stands on page one are each named once, with both claim lines.
+    for (const name of standNames.slice(0, 3)) {
+      expect(answer.body.match(new RegExp(name, "g")), name).toHaveLength(1);
+    }
+    // And the fourth stand is NOT on page one.
+    expect(answer.body).not.toContain(standNames[3]!);
+
+    const next = await more(customerHash, at(1));
+    expect(next.status).toBe("paged");
+    expect(next.body).toContain("4 matching stands (4-4 of 4)");
+    // The fourth stand, whole: its own entry with both claims, not a stray offering line.
+    expect(next.body).toContain(standNames[3]!);
+    expect(next.body).toMatch(/^In stock /m);
+    // No stand from page one reappears — the failure this test exists for.
+    for (const name of standNames.slice(0, 3)) {
+      expect(next.body, `${name} must not repeat after MORE`).not.toContain(name);
+    }
+  });
+
+  it("MORE takes whole stands even from an interleaved saved list (B-062)", async () => {
+    /*
+      The MORE side of the guard, exercised directly.
+
+      `answerInquiry` groups a stand's two ids together before saving, so a list it wrote can
+      never split. That makes the grouping at save time do all the work in the tests above —
+      and leaves the pager's OWN measurement unproven, which is the half that has to hold for
+      a list this process did not write: a row saved before the grouping existed, or one
+      written by any future caller.
+
+      So this saves the list by hand, interleaved the way retrieval produces it (all confirmed
+      rows, then all offerings). A pager that takes a flat PAGE_SIZE identifiers serves three
+      CONFIRMED rows and leaves all three offerings for page two, printing every stand twice.
+    */
+    for (const i of [0, 1, 2]) {
+      await publishEggs(i);
+      await alsoUsuallySells(i, "kale");
+    }
+
+    const interleaved = [
+      ...[0, 1, 2].map((i) => locationIds[i]!),
+      ...[0, 1, 2].map((i) => offeringFactId(locationIds[i]!)),
+    ];
+    await client()`
+      insert into pending_result_lists (
+        sender_hash, fact_ids, items_requested, "offset",
+        stand_total, stand_offset, created_at, expires_at
+      )
+      values (
+        ${customerHash}, ${interleaved}, ${["eggs", "kale"]}, 0,
+        3, 0, ${T0}, ${at(60)}
+      )
+    `;
+
+    const page = await more(customerHash, at(1));
+    expect(page.status).toBe("paged");
+
+    // All three stands land on ONE page, each named once and carrying both claim lines —
+    // rather than three confirmed rows now and three bare offerings after another MORE.
+    for (const name of standNames.slice(0, 3)) {
+      expect(page.body.match(new RegExp(name, "g")), name).toHaveLength(1);
+    }
+    expect(page.body.match(/^In stock /gm)).toHaveLength(3);
+    expect(page.body.match(/^May also have: /gm)).toHaveLength(3);
+    // Every stand was served, so the list is spent and the page closes with the map.
+    expect(page.body).not.toMatch(/MORE/i);
+    expect(page.body).toMatch(/^Map: https:/m);
+
+    const left = await client()`
+      select id from pending_result_lists where sender_hash = ${customerHash}
+    `;
+    expect(left).toHaveLength(0);
   });
 
   it("case 2 — an answer that fits saves nothing at all", async () => {
@@ -398,7 +588,7 @@ describe("SMS result paging end to end (integration)", () => {
     if (answer.outcome !== "answered") return;
     // On page ONE, above the offerings, carrying its recency.
     expect(answer.body).toContain(standNames[8]!);
-    expect(answer.body).toMatch(/IN STOCK \(2h ago\)/);
+    expect(answer.body).toMatch(/In stock \(2h ago\)/);
     expect(answer.body.indexOf(standNames[8]!)).toBeLessThan(
       answer.body.indexOf(standNames[0]!),
     );

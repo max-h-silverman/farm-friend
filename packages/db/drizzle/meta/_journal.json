@@ -281,6 +281,13 @@
       "when": 1788150405000,
       "tag": "0039_stock_out_usual_offering",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1788150406000,
+      "tag": "0040_paged_answer_stand_counts",
+      "breakpoints": true
     }
   ]
 }
