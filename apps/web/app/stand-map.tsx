@@ -942,7 +942,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
               <input
                 type="search"
                 className="field-input"
-                placeholder="Search eggs, flowers, Bart's Cart…"
+                placeholder="e.g. “eggs”, “flowers”, stand name…"
                 value={filters.sells ?? ""}
                 onChange={(event) =>
                   setFilters((current) => ({
