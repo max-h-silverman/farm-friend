@@ -877,9 +877,34 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   it("answers a broad availability question the model called ambiguous", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
 
-    const { deps } = inquiryDeps({
-      "inquiry-interpretation": JSON.stringify({ kind: "ambiguous" }),
+    const ambiguous = JSON.stringify({ kind: "ambiguous" });
+
+    // Pass 1 — discover the token the selection seam is shown. That the seam is REACHED at all
+    // is itself the override working: without it, `ambiguous` returns before any retrieval.
+    const discover = inquiryDeps({
+      "inquiry-interpretation": ambiguous,
       "grounded-fact-selection": JSON.stringify({ kind: "selection", factIds: [] }),
+    });
+    await answerInquiry(discover.deps, {
+      taskText: "what do you have",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+    const shown = (
+      discover.provider.contextFor("grounded-fact-selection")!.fields as {
+        facts: { factId: string }[];
+      }
+    ).facts;
+    expect(shown).toHaveLength(1);
+
+    // Pass 2 — the model selects it, as a well-behaved one does for a broad request.
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": ambiguous,
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [shown[0]!.factId],
+      }),
     });
 
     const result = await answerInquiry(deps, {
