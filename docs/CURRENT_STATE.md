@@ -17,15 +17,27 @@
 - **B-057 is live but unproven on the live path.** A stock-out alert can now name one of the stand's
   usual offerings, not only its published inventory. No production report has named one yet — that
   needs a real inbound text, and it is what closes the item.
+- **The SMS answer format changed on `main` and is NOT deployed** (F-107, `76fce64`). One entry per
+  stand — name, street address, `IN STOCK (3h ago): …`, `MAYBE: …` — replacing the old
+  "Confirmed <item>:" / "typical offering" sections. Locally verified only; the deployed revision
+  above still serves the old format.
 
 ## Verification
 
-- `main`: 1,824 unit tests, **908** local integration tests, typecheck, and lint pass (2026-08-11).
+- `main`: 1,850 unit tests, **911** local integration tests, typecheck, and lint pass (2026-08-11).
   The web production build retains the tracked Next configuration/lint warnings (B-008).
 - Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model scores
-  containment 5/5, closure 7/7, recall 5/5, quality 17/17 (2026-08-11). Note the per-category counts
-  exceed the fixture count — several fixtures score multiple cases. B-057 added one quality fixture,
-  proving the stock-out seam picks a usual offering out of a mixed candidate list; it passed 7/7 runs.
+  containment 5/5, closure 7/7, recall 5/5, quality **19/20** (2026-08-11). Note the per-category
+  counts exceed the fixture count — several fixtures score multiple cases. B-057 added one quality
+  fixture, proving the stock-out seam picks a usual offering out of a mixed candidate list; it passed
+  7/7 runs.
+- **One live-quality fixture is deliberately RED**: "reads a broad availability question however it is
+  worded" (B-061 defect 4). "what do you have", "what's for sale", "what can I buy" classify as
+  `ambiguous` and get a clarification instead of an answer. Three instruction edits each moved which
+  phrasings passed without fixing the family, and the widest regressed cases that previously worked,
+  so the instruction was reverted and the fixture kept red as the record. `live-quality` is
+  observational rather than gating, so it reports without blocking. **Do not close it by trimming the
+  fixture to passing cases — the failing phrasings are the finding.**
 - **Live evals are nondeterministic** in two distinct ways, and both must be held apart. Roughly one
   run in three shows a provider error, labelled `[provider error, not a verdict — rerun]` and scored
   as a FAILURE on purpose: the seam returns the same `clarification` shape for "unreachable model"
@@ -67,6 +79,15 @@
   proven only by test.
 - B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
   `correct/total`, but do not loosen it until it always passes.
+- **B-061 (high): three of four customer-answer defects fixed, defect 4 open.** Found by running 46
+  plausible questions through the real pipeline against the live corpus. Fixed: the section heading
+  claiming an item stands did not carry (superseded entirely by F-107); a malformed selection
+  discarding a good retrieval; and "nobody sells shrimp" answered as "I did not catch that". Open:
+  broad availability questions read as ambiguous — see the red live fixture under Verification.
+- **F-107 (in review): the SMS answer format above.** Locally verified, not deployed. Its live check
+  is the same one every SMS change owes — send a real question and read the reply on a handset.
+- F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
+  it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
 - B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists
   (Tian Tian's "bok choy" vs "Baby bok choy"; Bart's Cart's overlapping plant items), and prove by
   sabotage that a hostile `stand_items.display_name` stays inert in the farmer's alert. Both are
