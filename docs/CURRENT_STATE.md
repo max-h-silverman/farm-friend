@@ -7,10 +7,11 @@
 
 - Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
   and stand details. F-104's customer→farmer alert path is closed and proven on a real handset.
-- Cloud Run web `farm-friend-web-00068-l8z` and worker `farm-friend-worker-00063-cpf` serve
-  immutable digest `sha256:020dedb27209f618ea3a39f54cbe550717d8a8d9414eee94200d3be9d3282cae`,
-  built from `main` `fb6762f` and deployed 2026-08-11. Plan assertions 60/60; deploy and
-  served-card assertions pass. The serving digest was read back and matches the build.
+- Cloud Run web `farm-friend-web-00069-cd9` and worker `farm-friend-worker-00064-wcn` serve
+  immutable digest `sha256:9843a3944cf0282683c80e249ec9c4d1f2e9ccc43b6d006f55ffc7b3be3a91a0`,
+  built from `main` `f8a0d4c` and deployed 2026-08-11. Plan assertions 60/60 (delta was the image
+  digest on both services and nothing else); deploy and served-card assertions pass. The serving
+  digest was read back from both services and matches the build.
 - The SMS answer is the one B-062/B-063 rebuilt (PR #107): one entry per stand,
   **name → claims → address**, `In stock (3h ago):` / `May also have:` in sentence case — `May
   have:` when the entry carries no stock line above it — and a bare `Map:` closing the last page.

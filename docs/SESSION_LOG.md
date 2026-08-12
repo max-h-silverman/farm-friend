@@ -13,8 +13,10 @@ mid-session defeats its own purpose.
 
 ## 2026-08-11 (later) — Two copy edits that each deleted a concept
 
-**Committed to `main` and deployed.** No PR: max chose to commit directly. Both changes are
-render-layer only — no schema, no migration, no model seam.
+**Committed to `main` (`f8a0d4c`) and deployed.** No PR: max chose to commit directly. Both changes
+are render-layer only — no schema, no migration, no model seam. Web `00069-cd9`, worker `00064-wcn`,
+digest `sha256:9843a394…`; plan assertions 60/60 with the image digest as the only delta, deploy and
+served-card assertions pass, serving digest read back from both services.
 
 Two small wording corrections from reading the reply, and each turned out to remove machinery
 rather than add a special case. That is the pattern worth keeping: a copy fix that makes the code
