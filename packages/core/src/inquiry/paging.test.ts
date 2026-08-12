@@ -277,17 +277,20 @@ describe("grounded rendering — every value comes from typed facts", () => {
   });
 
   it("demotes a stale confirmation below a fresh one whatever order it is given", () => {
-    // The other half: freshness is NOT the model's call. Harbor is 72 hours old and Provo two,
-    // so Provo leads even though the model ranked Harbor first (B-063).
+    // The other half: freshness is NOT the model's call. Six days is past the 96-hour
+    // threshold and Provo is two hours old, so Provo leads even though the model ranked the
+    // stale stand first (B-063).
+    const week = confirmed("f4", "Week Old Stand", "4 Week Way", [{ itemName: "Kale" }], 144);
     const page = renderResultPage({
       itemsRequested: ["Kale"],
-      facts: [harbor, provo],
+      facts: [week, provo],
       offset: 0,
       total: 2,
       clock,
     });
+    expect(page.body).toContain("Last seen (6d ago)");
     expect(page.body.indexOf("Provo Stand")).toBeLessThan(
-      page.body.indexOf("Harbor Stand"),
+      page.body.indexOf("Week Old Stand"),
     );
   });
 });
@@ -688,7 +691,7 @@ describe("one entry per stand (F-107)", () => {
     }).body;
 
     expect(body).not.toMatch(/may be out of date/i);
-    expect(body).toContain("Last seen (3d ago):");
+    expect(body).toContain("In stock (3d ago):");
     expect(body).toContain("Provo Farms");
   });
 
@@ -708,7 +711,7 @@ describe("one entry per stand (F-107)", () => {
         total: 1,
         clock,
       }).body;
-      expect(body).toContain(`${hours >= 48 ? "Last seen" : "In stock"} ${expected}`);
+      expect(body).toContain(`${hours >= 96 ? "Last seen" : "In stock"} ${expected}`);
     });
 
     it("never states minutes", () => {
@@ -997,8 +1000,8 @@ describe("a stale confirmation stops claiming present stock (B-063)", () => {
   });
 
   it("still says In stock at the last hour before the threshold", () => {
-    // 48 hours is where staleness STARTS, so 47 must still read as current.
-    expect(bodyAt(47)).toContain("In stock (1d ago)");
+    // 96 hours is where staleness STARTS, so 95 must still read as current.
+    expect(bodyAt(95)).toContain("In stock (3d ago)");
   });
 
   it("switches to Last seen once the confirmation is stale", () => {
@@ -1008,9 +1011,10 @@ describe("a stale confirmation stops claiming present stock (B-063)", () => {
     expect(body).not.toMatch(/In stock/);
   });
 
-  it("switches exactly at the map's 48-hour threshold, not a second later", () => {
-    expect(bodyAt(48)).toContain("Last seen (2d ago)");
-    expect(bodyAt(47)).toContain("In stock (1d ago)");
+  it("switches exactly at the shared threshold, not a second later", () => {
+    // 96 hours, the same constant the public map warns on (max, 2026-08-11).
+    expect(bodyAt(96)).toContain("Last seen (4d ago)");
+    expect(bodyAt(95)).toContain("In stock (3d ago)");
   });
 
   it("keeps the stand listed, ranked, and stamped with its age", () => {
@@ -1359,7 +1363,7 @@ describe("an item never appears under both claims for one stand", () => {
       total: 2,
       clock,
     }).body;
-    expect(body).toContain("Last seen (2d ago): eggs");
+    expect(body).toContain("In stock (2d ago): eggs");
     expect(body).toContain("May also have: kale");
     // Exactly one line claims eggs.
     expect(body.split("\n").filter((line) => /eggs/.test(line))).toHaveLength(1);
@@ -1373,7 +1377,7 @@ describe("an item never appears under both claims for one stand", () => {
       total: 2,
       clock,
     }).body;
-    expect(body).toContain("Last seen (2d ago): eggs");
+    expect(body).toContain("In stock (2d ago): eggs");
     expect(body).not.toMatch(/May also have/);
   });
 
@@ -1390,7 +1394,7 @@ describe("an item never appears under both claims for one stand", () => {
     }).body;
     expect(body).not.toMatch(/May also have/);
     // The farmer's own capitalization survives.
-    expect(body).toContain("Last seen (2d ago): Eggs");
+    expect(body).toContain("In stock (2d ago): Eggs");
   });
 
   it("keeps a stand whose only claim is what it usually sells", () => {

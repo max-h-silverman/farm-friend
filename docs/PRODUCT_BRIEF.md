@@ -226,9 +226,14 @@ Recorded here because the decision, not just the code, is the product answer:
 - **Raw-message retention: 30 days.** A body is written with an expiry that far outlives any
   conversation, and a scheduled purge clears it. A thread under open safety review is exempt only until
   the flag is disposed of.
-- **Freshness threshold: 48 hours.** Past it a listing is shown with a stale warning **on the
-  public map**. It never disappears — that is the honor-system reality above, not a tuning knob.
-  **The SMS answer changes its label rather than adding a warning** (max, 2026-08-11): inside
+- **Freshness threshold: 96 hours** (four days; max raised it from 48 on 2026-08-11). Past it a
+  listing is shown with a stale warning **on the public map**. It never disappears — that is the
+  honor-system reality above, not a tuning knob. Four days rather than two because nearly every
+  stand is unattended with stable staples and variable stock: a farmer who confirms on Saturday
+  is not wrong by Monday, and 48 hours marked ordinary weekend listings as suspect. **One number
+  governs both surfaces** — the map's warning and the SMS label below — so the same row cannot
+  read as current stock in a text and as stale on the web.
+- **The SMS answer changes its label rather than adding a warning** (max, 2026-08-11): inside
   the threshold an entry reads "In stock (3h ago)", past it "Last seen (16d ago)". The label
   is what a customer reads first, so a present-tense claim over a fortnight-old timestamp was
   the dishonesty — not the missing sentence. Swapping the word costs nothing where appending

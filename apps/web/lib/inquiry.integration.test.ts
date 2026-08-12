@@ -254,7 +254,9 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   });
 
   it("labels a stale listing rather than hiding it", async () => {
-    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(72));
+    // Six days: past the 96-hour threshold (max raised it from 48 on 2026-08-11), and well
+    // short of the 28-day expiry that drops the claim entirely.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(144));
 
     const { deps } = inquiryDeps({
       "inquiry-interpretation": JSON.stringify({
@@ -274,12 +276,12 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // B-063 — past 48 hours the LABEL carries the staleness, end to end through real rows.
     // "In stock (3d ago)" put a present-tense claim beside a three-day-old timestamp; the
     // live version of that read "IN STOCK (16d ago)".
-    expect(result.body).toContain("Last seen (3d ago)");
+    expect(result.body).toContain("Last seen (6d ago)");
     expect(result.body).not.toMatch(/In stock/);
     // The honor-system commitment, unchanged: the stale listing is SHOWN and stamped, not
     // hidden, and the explicit "may be out of date" phrase stays the public map's.
     expect(result.body).toContain("Alpha Farm");
-    expect(result.body).toContain("3d ago");
+    expect(result.body).toContain("6d ago");
     expect(result.body).not.toMatch(/may be out of date/i);
   });
 
