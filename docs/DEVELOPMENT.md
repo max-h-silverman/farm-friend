@@ -123,6 +123,12 @@ with the guard that protects each.
 - **`db:migrate` can skip a migration silently.** Drizzle applies only when `created_at <
   folderMillis` — equal counts as done, so a journal timestamp older than the newest applied one is
   skipped with a success message. Guard: `packages/core/src/migration-ordering.test.ts`.
+- **One fact stated as BOTH config and constant drifts silently.** The public map URL lived in
+  `PUBLIC_MAP_URL` (deployed config, answering `MAP`) *and* in a core constant customer copy embeds
+  (the paged answer's `Map:` line). Nothing compared them, so changing one sent two different links
+  to the same customer with every test still green — the old value resolved fine. Where a second
+  home is deliberate, make disagreement fail at startup rather than documenting the pairing. Guard:
+  `apps/web/lib/public-map-url.test.ts`.
 - **A ceiling test whose fixture is the cheapest case measures nothing.**
   `result-page-segments.test.ts` asserted the SMS billing ceiling using offering-only stands — the
   shortest possible entry — so it passed both before and after F-107 doubled the worst case to four

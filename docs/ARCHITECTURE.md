@@ -201,7 +201,9 @@ order:
    sender with no record, and otherwise replies naming `START`.
 2. **`MAP`** returns only the configured canonical public-map URL. Stateless, model-free, available
    for a delayed carrier event; its inquiry reply is still suppressed at dispatch if STOP has taken
-   effect.
+   effect. That URL is stated twice — as deployed configuration and as the core constant customer
+   copy embeds — so `resolvePublicMapUrl` refuses to start a non-local deployment where the two
+   disagree, rather than letting one surface send a link the others do not (F-110).
 3. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). A **Farm
    Friend product safety feature**, not a carrier-mandated keyword.
 4. **Live farmer-update confirmation** — a context-bound `YES` or `NO` applying to the sender's one

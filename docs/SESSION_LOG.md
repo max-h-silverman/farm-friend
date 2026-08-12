@@ -48,6 +48,14 @@ Verified: 1,932 unit, 916 integration, typecheck, lint. Deployed from `main` `11
 services read back the anchored URL, and the container starting clean *is* the guard passing
 against real deployed config. Not verified: the scroll behavior in a handset browser.
 
+**Doc sync (wrap).** Four contract docs described the old behavior and now don't: ARCHITECTURE and
+SMS_COMPLIANCE each said `MAP` returns "the configured" URL, which is now only half the rule;
+RUNBOOK's env table gained the agreement requirement, and its gitignored-`terraform.tfvars` warning
+gained `public_map_url` beside `rotation_applied_at` — same trap, different ending, because this one
+fails startup rather than silently serving a stale link. DEVELOPMENT gained the general lesson: one
+fact stated as both config and constant drifts silently, and where the second home is deliberate the
+disagreement must fail at startup rather than be documented.
+
 ---
 
 ## 2026-08-12 — The farmer's reminder stops saying "will show", and starts saying how old it is

@@ -44,9 +44,6 @@
 - Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` was applied 2026-08-11 ahead of
   the image that reads it and verified by schema effect: `broad`, `stand_total`, and `stand_offset`
   present on `pending_result_lists`, with farm/stand/item counts (39/37/237) unchanged across it.
-- **B-057 is live but unproven on the live path.** A stock-out alert can now name one of the stand's
-  usual offerings, not only its published inventory. No production report has named one yet — that
-  needs a real inbound text, and it is what closes the item.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
@@ -109,10 +106,11 @@
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the
   roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
-- **B-057 owes one live check:** text a stock-out for an item a stand carries as a usual offering
-  but does not currently publish (Pinecone Gardens' eggs is the original case), then confirm the
-  farmer's alert names it and the report stored `referenced_stand_item_id`. Until then the fix is
-  proven only by test.
+- **B-057 owes one live check:** a stock-out alert can now name one of the stand's usual offerings,
+  not only its published inventory — live but unproven on the live path. Text a stock-out for an item
+  a stand carries as a usual offering but does not currently publish (Pinecone Gardens' eggs is the
+  original case), then confirm the farmer's alert names it and the report stored
+  `referenced_stand_item_id`. Until then the fix is proven only by test.
 - B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
   `correct/total`, but do not loosen it until it always passes.
 - **B-062 and B-063 owe one live check:** text a question whose answer includes a stand confirmed

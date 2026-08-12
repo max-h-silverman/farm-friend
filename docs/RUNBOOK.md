@@ -129,7 +129,7 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `CLOUD_TASKS_*` | Five variables, all or none. Omit all for local scheduled-pass-only operation |
 | `ADMIN_PASSWORD_HASH` | Required Argon2id verifier on the `web` role only; never log or pass as a command argument |
 | `PUBLIC_BASE_URL` | Required absolute origin. HTTPS except localhost; never derived from request headers |
-| `PUBLIC_MAP_URL` | Required canonical map page. HTTPS except localhost; returned unchanged for the deterministic `MAP` SMS command |
+| `PUBLIC_MAP_URL` | Required canonical map page. HTTPS except localhost; returned unchanged for the deterministic `MAP` SMS command. **Must equal `PUBLIC_MAP_URL` in `packages/core/src/inquiry/answer.ts`** (the value customer copy embeds) or a non-local deployment refuses to start — changing the link means changing both, and the `#map` anchor is part of it (F-110). Local dev is exempt |
 | `SMS_PROVIDER` | Required `simulator` or `telnyx`; no default |
 | `TELNYX_API_KEY`, `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY` | All required with Telnyx; the public key verifies webhook signatures |
 | `LLM_PROVIDER` | Required `stub` or `deepinfra`; no default or environment exception |
@@ -501,6 +501,11 @@ secret currently live on a service.
 **`infra/terraform.tfvars` is gitignored**, so `rotation_applied_at` lives on one machine. A plan from
 any other checkout moves it backward and silently rolls containers onto the pre-rotation secret while
 reporting success.
+
+`public_map_url` lives in that same file and is the same trap with a different ending: a checkout
+without the current value deploys a URL disagreeing with the constant customer copy embeds, and the
+container **refuses to start** (F-110) instead of quietly sending a stale link. Loud, but it is still
+a value no repository holds.
 
 **Run `infra/plan-assertions.py` before trusting it.** It was a SyntaxError under Python 3.10 for
 several commits; a safety gate that fails to start looks identical to one nobody invoked.
