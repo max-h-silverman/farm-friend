@@ -11,6 +11,45 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-12 (later) — A one-line link change that wasn't one, because the URL had two homes
+
+**F-110.** VIGA added a `#map` anchor to their farm-stand page that scrolls straight to the embed;
+the links Farm Friend sends should use it. That looked like editing one config value.
+
+**It was two values, and nothing compared them.** The map's address is stated as deployed
+configuration (`PUBLIC_MAP_URL`, which the `MAP` keyword replies with and the onboarding pages
+link to) *and* as a constant in `packages/core/src/inquiry/answer.ts` that customer copy embeds
+directly — the paged answer's `Map:` line, and the origin-limitation sentence. Changing the config
+alone would have updated some messages and not others, sending two different links to the same
+customer, and **no test would have failed**: the old link still resolves, so the only symptom is
+the reader landing in the wrong place.
+
+The constant is deliberate — its own comment says configuration must never be able to deliver a
+wrong or empty value to a real person as SMS — so collapsing the two was the wrong fix. Instead
+`resolvePublicMapUrl` now refuses to start a non-local deployment whose configured URL disagrees
+with the constant, naming both values in the error. Two homes are safe when they cannot drift
+silently.
+
+**An existing assertion was the loose-anchor trap in miniature.** `inquiry.integration.test.ts`
+checked `toContain("vigavashon.org/farm-stand-map")` — a substring that passes with or without the
+fragment, so it would have watched the anchor disappear without complaint. It now pins the whole
+constant.
+
+Verified before shipping that `id="map"` is actually present in the page VIGA serves, rather than
+trusting that the anchor exists because it was described. Sabotage-proven both directions: dropping
+the anchor fails the anchor test, disabling the guard fails 2 of 5 guard tests.
+
+`infra/terraform.tfvars` is gitignored, so its `public_map_url` edit lives only on the deploying
+machine — the standing trap in this repo. The new guard converts a missed edit from a silently
+stale link into a failed startup.
+
+Verified: 1,932 unit, 916 integration, typecheck, lint. Deployed from `main` `11c8163` — web
+`00071-fxf`, worker `00066-75p`, digest `e647210b`, plan assertions 60/60, no migration; both
+services read back the anchored URL, and the container starting clean *is* the guard passing
+against real deployed config. Not verified: the scroll behavior in a handset browser.
+
+---
+
 ## 2026-08-12 — The farmer's reminder stops saying "will show", and starts saying how old it is
 
 **F-109.** The scheduled inventory reminder had been reusing the proposal renderer's heading,

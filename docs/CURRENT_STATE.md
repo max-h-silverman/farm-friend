@@ -7,11 +7,16 @@
 
 - Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
   and stand details. F-104's customer→farmer alert path is closed and proven on a real handset.
-- Cloud Run web `farm-friend-web-00070-msn` and worker `farm-friend-worker-00065-thb` serve
-  immutable digest `sha256:c19eb0c7a4b18b6cedd6faee14d3a8c019c2b5e257081949dc0a415537581a94`,
-  built from `main` `be4aeeb` and deployed 2026-08-12. Plan assertions 60/60 (delta was the image
-  digest on both services and nothing else); deploy assertions pass. The serving digest was read
-  back from both services and matches the build. No migration — 41 applied, unchanged.
+- Cloud Run web `farm-friend-web-00071-fxf` and worker `farm-friend-worker-00066-75p` serve
+  immutable digest `sha256:e647210b21cc92026f2183061a843db6d0e77a15a466a399bd295d5f2e8b23ce`,
+  built from `main` `11c8163` and deployed 2026-08-12. Plan assertions 60/60 (delta was the image
+  digest plus `PUBLIC_MAP_URL` on both services); deploy assertions pass. The serving digest and
+  the anchored URL were both read back from the services. No migration — 41 applied, unchanged.
+- **The public map link carries a `#map` anchor** (F-110), so a customer texting `MAP` lands on
+  VIGA's embed rather than above it. The destination is stated in two places — the `PUBLIC_MAP_URL`
+  env var and the core constant customer copy embeds — and `resolvePublicMapUrl` now **refuses to
+  start** a non-local deployment where they disagree. `infra/terraform.tfvars` is gitignored, so
+  another checkout lacks the value; the guard turns that into a failed startup, not a stale link.
 - The SMS answer is the one B-062/B-063 rebuilt (PR #107): one entry per stand,
   **name → claims → address**, `In stock (3h ago):` / `May also have:` — `May have:` with no stock
   line above it — a bare `Map:` closing the last page, `Last seen (6d ago)` past the freshness
@@ -47,7 +52,7 @@
 
 ## Verification
 
-- `main`: **1,926 unit tests, 916 local integration tests**, typecheck, and lint pass (2026-08-12).
+- `main`: **1,932 unit tests, 916 local integration tests**, typecheck, and lint pass (2026-08-12).
   The web production build retains the tracked Next configuration/lint warnings (B-008).
 - Local integration tests need Postgres on `localhost` and are run with `npm run test:integration:local`.
   `psql` is not on the default PATH (`postgresql@16` lives under Homebrew's `opt`), so a bare
