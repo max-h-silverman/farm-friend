@@ -1,4 +1,6 @@
 import {
+  factsPerPage,
+  groupFactsByStand,
   isBroadAvailabilityRequest,
   rankCandidates,
   renderClarificationRequest,
@@ -119,6 +121,26 @@ export function offeringFactId(locationId: string): string {
     return `${locationId}z`;
   }
   return `${locationId.slice(0, 19)}${nibble}${locationId.slice(20)}`;
+}
+
+/**
+ * The key two identifiers share when they describe the SAME stand (B-062).
+ *
+ * A stand can be retrieved on both bases, and `offeringFactId` derives the offering's id from
+ * the confirmed one — so the relation is already encoded in the identifier and needs no
+ * database round trip to recover. Normalizing to the confirmed form is that derivation read
+ * backwards.
+ *
+ * Used to size a page in STANDS while the saved list stores facts. A page that took a flat
+ * count of identifiers split a stand's two rows across two messages and printed it twice.
+ */
+const CONFIRMED_VARIANT_NIBBLE: Record<string, string> = { c: "8", d: "9", e: "a", f: "b" };
+
+export function standKeyOfFactId(factId: string): string {
+  if (factId.endsWith("z")) return factId.slice(0, -1);
+  const nibble = CONFIRMED_VARIANT_NIBBLE[factId[19] ?? ""];
+  if (nibble === undefined) return factId;
+  return `${factId.slice(0, 19)}${nibble}${factId.slice(20)}`;
 }
 
 export interface LocationRow {
@@ -600,31 +622,14 @@ export async function answerInquiry(
       return { outcome: "rejected", reason: selection.reason };
     }
 
-    const fallback = displayOrdered.slice(0, PAGE_SIZE);
-    const fallbackPage = renderResultPage({
+    return await deliverPage(deps, {
+      facts: displayOrdered,
       itemsRequested,
-      facts: fallback,
-      offset: 0,
-      total: displayOrdered.length,
-      clock: deps.clock,
+      broad: interpreted.broad === true,
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+      withScope,
     });
-
-    if (fallbackPage.hasMore) {
-      await savePendingResultList(deps.db, {
-        senderHash: input.senderHash,
-        factIds: displayOrdered.map((fact) => fact.factId),
-        itemsRequested,
-        shown: PAGE_SIZE,
-        occurredAt: input.occurredAt,
-        ttlMinutes: PENDING_LIST_TTL_MINUTES,
-      });
-    }
-
-    return {
-      outcome: "answered",
-      body: withScope(fallbackPage.body),
-      selectedFactIds: displayOrdered.map((fact) => fact.factId),
-    };
   }
   if (selection.value.kind === "clarification") {
     return { outcome: "clarification", question: renderClarificationRequest() };
@@ -671,11 +676,50 @@ export async function answerInquiry(
     ...selected.filter((fact) => fact.basis === "offering"),
   ];
 
-  const page = renderResultPage({
+  return await deliverPage(deps, {
+    facts: ordered,
     itemsRequested,
-    facts: ordered.slice(0, PAGE_SIZE),
+    broad: interpreted.broad === true,
+    senderHash: input.senderHash,
+    occurredAt: input.occurredAt,
+    withScope,
+  });
+}
+
+/**
+ * Render the first page of an answer and remember the rest, counting in STANDS.
+ *
+ * One function for both exits — the ordinary answer and B-061's duplicate-id recovery — so the
+ * two cannot come to page differently. Both previously sliced `PAGE_SIZE` FACTS and reported
+ * `facts.length` as the total, which is the arithmetic B-062 found live: "1-3 of 45" over an
+ * island of 35 stands, and a stand whose two rows straddled a page boundary printed twice.
+ *
+ * `groupFactsByStand` puts a stand's rows next to each other and counts entries rather than
+ * rows; `factsPerPage` then takes whole stands. The saved list holds the SAME fact ids in that
+ * grouped order, so the MORE replay inherits the property without knowing about it.
+ */
+async function deliverPage(
+  deps: InquiryDeps,
+  input: {
+    facts: PageableFact[];
+    itemsRequested: string[];
+    broad: boolean;
+    senderHash: string;
+    occurredAt: Date;
+    withScope: (body: string) => string;
+  },
+): Promise<InquiryOutcome> {
+  const { factIds, standCount } = groupFactsByStand(input.facts, deps.clock.now());
+  const byId = new Map(input.facts.map((fact) => [fact.factId, fact]));
+  const grouped = factIds.map((factId) => byId.get(factId)!);
+  const firstPage = grouped.slice(0, factsPerPage(grouped, PAGE_SIZE));
+
+  const page = renderResultPage({
+    itemsRequested: input.itemsRequested,
+    broad: input.broad,
+    facts: firstPage,
     offset: 0,
-    total: ordered.length,
+    total: standCount,
     clock: deps.clock,
   });
 
@@ -685,9 +729,12 @@ export async function answerInquiry(
     // common small answer at all.
     await savePendingResultList(deps.db, {
       senderHash: input.senderHash,
-      factIds: ordered.map((fact) => fact.factId),
-      itemsRequested,
-      shown: PAGE_SIZE,
+      factIds,
+      itemsRequested: input.itemsRequested,
+      broad: input.broad,
+      shown: firstPage.length,
+      standTotal: standCount,
+      standsShown: PAGE_SIZE,
       occurredAt: input.occurredAt,
       ttlMinutes: PENDING_LIST_TTL_MINUTES,
     });
@@ -695,7 +742,7 @@ export async function answerInquiry(
 
   return {
     outcome: "answered",
-    body: withScope(page.body),
-    selectedFactIds: answerFactIds,
+    body: input.withScope(page.body),
+    selectedFactIds: factIds,
   };
 }

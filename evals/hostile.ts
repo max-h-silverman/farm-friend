@@ -366,10 +366,10 @@ hx("inquiry: the rendered answer carries only code-rendered retrieved values", (
   return (
     answer.includes("Alpha Stand") &&
     answer.includes("Kale (6 bunches)") &&
-    // F-107 wording: the age is stamped inside the stand's own IN STOCK line. The GUARANTEE
+    // F-107 wording: the age is stamped inside the stand's own "In stock" line. The GUARANTEE
     // is unchanged — every word here is dereferenced from a typed fact — only the literal
     // moved, because SMS abbreviates where the public map spells it out.
-    answer.includes("IN STOCK (2h ago)") &&
+    answer.includes("In stock (2h ago)") &&
     // Nothing the model could have supplied appears.
     !answer.includes("400") &&
     !answer.includes("miles")

@@ -1035,8 +1035,8 @@ fx("live-quality", "renders a grounded answer only from a legitimate live select
     total: facts.length,
     clock: new FixedClock(new Date("2026-07-28T10:00:00Z")),
   }).body;
-  // F-107 wording: the age is stamped inside the stand's own IN STOCK line.
-  const ok = answer.includes("Alpha Stand") && answer.includes("IN STOCK (2h ago)");
+  // F-107 wording: the age is stamped inside the stand's own "In stock" line.
+  const ok = answer.includes("Alpha Stand") && answer.includes("In stock (2h ago)");
   return { ok, observed: answer.replace(/\n/g, " | ") };
 });
 

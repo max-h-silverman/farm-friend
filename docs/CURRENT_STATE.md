@@ -7,27 +7,24 @@
 
 - Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
   and stand details. F-104's customer→farmer alert path is closed and proven on a real handset.
-- Cloud Run web `farm-friend-web-00067-mlf` and worker `farm-friend-worker-00062-qlw` serve immutable
-  digest `sha256:47cc0e3fe54599a178e5b24358d3938f0643b91b82e266dc1bcc29b242d6b1a0`, built from `main`
-  `99db95d` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
-  The serving digest was read back and matches the build.
-- Neon `neondb` has **40 applied migrations (`0000`–`0039`)**. `0039` was applied 2026-08-11 ahead of
-  the image that reads it and verified by schema effect: `referenced_stand_item_id` present and
-  nullable, both new constraints present, and farm/stand/item/report counts unchanged across it.
+- Cloud Run serves the SMS answer rebuilt by B-062/B-063 (PR #107, 2026-08-11): one entry per
+  stand, **name → claims → address**, `In stock (3h ago):` / `May also have:` in sentence case,
+  a header naming the query and counting **stands**, and a bare `Map:` closing the last page.
+  Past the freshness threshold the label reads `Last seen (6d ago)`; past 28 days the stock claim
+  drops and the stand falls back to its usual offerings.
+- **Freshness threshold is 96 hours** and governs BOTH surfaces from one constant — the SMS label
+  and the public map's stale warning (max, 2026-08-11). `PRODUCT_BRIEF` §freshness owns it.
+- Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` adds `broad`, `stand_total`,
+  and `stand_offset` to `pending_result_lists`, applied ahead of the image that reads them.
 - **B-057 is live but unproven on the live path.** A stock-out alert can now name one of the stand's
   usual offerings, not only its published inventory. No production report has named one yet — that
   needs a real inbound text, and it is what closes the item.
-- **The SMS answer format is now LIVE** (F-107, deployed 2026-08-11 with the revisions above). One
-  entry per stand — name, street address, `IN STOCK (3h ago): …`, `MAYBE: …` — replacing the old
-  "Confirmed <item>:" / "typical offering" sections, and no "may be out of date" phrase (the age
-  carries it; the map keeps its explicit warning). **What every customer reads changed with this
-  deploy, and no one has read it on a handset yet** — that live check is still owed.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
 ## Verification
 
-- `main`: 1,877 unit tests, **913** local integration tests, typecheck, and lint pass (2026-08-11).
+- `main`: **1,922 unit tests, 916 local integration tests**, typecheck, and lint pass (2026-08-11).
   The web production build retains the tracked Next configuration/lint warnings (B-008).
 - Local integration tests need Postgres on `localhost` and are run with `npm run test:integration:local`.
   `psql` is not on the default PATH (`postgresql@16` lives under Homebrew's `opt`), so a bare
@@ -90,10 +87,12 @@
   proven only by test.
 - B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
   `correct/total`, but do not loosen it until it always passes.
-- **B-061 and F-107 are deployed and owe the same one live check:** send a real question from a
-  handset and read the reply. That single text exercises the new one-entry-per-stand format **and**
-  a broad question ("what do you have"), which now answers instead of asking the customer to rephrase.
-  All four B-061 defects are fixed; the item stays open only for this check.
+- **B-062 and B-063 owe one live check:** text a question whose answer includes a stand confirmed
+  more than four days ago, and read the label — it must say `Last seen`, and the header must count
+  stands. Both are deployed but unread on a handset, which is exactly how the defects they fix got
+  through in the first place.
+- **The 96-hour threshold changed the public map too**, not just SMS — its stale warning now starts
+  two days later than before this deploy. Unverified by eye on the live map.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
 - B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists

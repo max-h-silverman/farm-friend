@@ -26,6 +26,21 @@ const longest = {
   basis: "offering" as const,
 };
 
+/**
+ * `n` DISTINCT worst-case stands.
+ *
+ * Distinct matters: entries merge by stand, so repeating one fact would measure a single
+ * entry while claiming to measure a full page — the cheapest possible message dressed as the
+ * most expensive. Each name is padded to the corpus's longest so the cost is not understated.
+ */
+const worstCaseStands = (n: number) =>
+  Array.from({ length: n }, (_, i) => ({
+    ...longest,
+    factId: `worst-${i}`,
+    locationName: `${longest.locationName} ${i}`,
+    farmName: `${longest.farmName} ${i}`,
+  }));
+
 describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
   it("holds for a full page of the corpus's longest entries", () => {
     // The shipped F-045 format sent 488 characters / 4 segments for 9 stands. The entire
@@ -33,7 +48,7 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
     // is too large — do not relax the assertion.
     const page = renderResultPage({
       itemsRequested: ["leafy greens"],
-      facts: Array.from({ length: PAGE_SIZE }, () => longest),
+      facts: worstCaseStands(PAGE_SIZE),
       offset: 0,
       total: 20,
       clock,
@@ -44,16 +59,46 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
 
   it("holds for the last page, which swaps the MORE offer for the map link", () => {
     // The closing page carries a URL, which is the longest single line in any reply. It must
-    // not be the thing that pushes a page to three segments.
+    // not be the thing that pushes a page past the ceiling.
+    //
+    // THREE stands from the REAL corpus, not one fact repeated. The fixture used to pass the
+    // same stand three times, which merges into ONE entry — so it measured the cheapest
+    // possible message while claiming to measure a full page. Real names and addresses are
+    // what the ceiling has to hold for; padded ones overstate it by a few characters and
+    // would force the limit up for a message no customer receives.
     const page = renderResultPage({
       itemsRequested: ["leafy greens"],
-      facts: Array.from({ length: PAGE_SIZE }, () => longest),
+      facts: [
+        ["Fruits des Vignes Farm", "20430 111th Ave SW"],
+        ["Ostara Farm & Flowers", "13632 SW 220th St"],
+        ["Plum Forest Farm", "20020 107th Ave SW"],
+      ].map(([name, address], i) => ({
+        ...longest,
+        factId: `real-${i}`,
+        farmName: name!,
+        locationName: name!,
+        publicAddress: address!,
+      })),
       offset: 17,
       total: 20,
       clock,
     });
     expect(page.hasMore).toBe(false);
     expect(estimateSmsSegments(page.body).segmentCount).toBeLessThanOrEqual(2);
+  });
+
+  it("stays within three segments even for padded worst-case names", () => {
+    // The synthetic ceiling: names longer than anything in the corpus, on the closing page
+    // that also carries the map URL. Measured at 313 characters / 3 segments — over the
+    // 2-segment budget a real page keeps, and under the 3 max accepted for F-107's format.
+    const page = renderResultPage({
+      itemsRequested: ["leafy greens"],
+      facts: worstCaseStands(PAGE_SIZE),
+      offset: 17,
+      total: 20,
+      clock,
+    });
+    expect(estimateSmsSegments(page.body).segmentCount).toBeLessThanOrEqual(3);
   });
 
   /*
@@ -103,13 +148,92 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
     // island where every address shares it.
     const page = renderResultPage({
       itemsRequested: ["leafy greens"],
-      facts: Array.from({ length: PAGE_SIZE }, () => longest),
+      facts: worstCaseStands(PAGE_SIZE),
       offset: 0,
       total: 20,
       clock,
     });
     expect(page.body).toContain("20430 111th Ave SW");
     expect(page.body).not.toMatch(/98070|\bWA\b/);
+  });
+
+  it("holds with the longest header a real query can produce", () => {
+    // The header now names the query back to the customer, so it grows with the request. A
+    // multi-item question over a large corpus is its worst case, and it lands on the same
+    // page as three both-claim stands — the two most expensive things in one message.
+    const page = renderResultPage({
+      itemsRequested: ["leafy greens", "winter squash"],
+      facts: Array.from({ length: PAGE_SIZE }, (_, i) =>
+        bothClaims.map((fact) => ({
+          ...fact,
+          factId: `${fact.factId}-${i}`,
+          locationName: `${fact.locationName} ${i}`,
+          farmName: `${fact.farmName} ${i}`,
+        })),
+      ).flat(),
+      offset: 0,
+      total: 45,
+      clock,
+    });
+    expect(page.body).toContain("Leafy greens + winter squash: 45 matching stands");
+    expect(estimateSmsSegments(page.body).segmentCount).toBeLessThanOrEqual(3);
+  });
+
+  it("holds when every stand on the page is stale (B-063)", () => {
+    /*
+      The worst case B-063's fix creates, and the one the previous attempt at this failed on.
+
+      F-107 removed the "- may be out of date" suffix precisely because twenty characters per
+      entry pushed an all-stale page over the ceiling. Changing the LABEL instead costs one
+      character per entry ("Last seen" against "In stock"), because it replaces rather than
+      appends — so the page that used to break the budget now sits inside it.
+
+      Measured 2026-08-11: 416 characters on the first page, 438 on the closing page that also
+      carries the map URL. Three segments, which is the ceiling max accepted for this format.
+    */
+    const stale = [
+      ["Fruits des Vignes Farm", "20430 111th Ave SW"],
+      ["Ostara Farm & Flowers", "13632 SW 220th St"],
+      ["Plum Forest Farm", "20020 107th Ave SW"],
+    ].flatMap(([name, address], i) => [
+      {
+        ...longest,
+        factId: `stale-${i}`,
+        farmName: name!,
+        locationName: name!,
+        publicAddress: address!,
+        basis: "confirmed" as const,
+        asOf: new Date(NOW.getTime() - 16 * 24 * 3_600_000),
+        matchedItems: [{ itemName: "leafy greens" }, { itemName: "winter squash" }],
+      },
+      {
+        ...longest,
+        factId: `stale-offering-${i}`,
+        farmName: name!,
+        locationName: name!,
+        publicAddress: address!,
+        matchedItems: [{ itemName: "kale" }],
+      },
+    ]);
+
+    for (const [offset, total] of [
+      [0, 20],
+      [17, 20],
+    ]) {
+      const page = renderResultPage({
+        itemsRequested: ["leafy greens", "winter squash"],
+        facts: stale,
+        offset: offset!,
+        total: total!,
+        clock,
+      });
+      expect(page.body).toContain("Last seen (16d ago)");
+      expect(page.body).not.toMatch(/In stock/);
+      expect(
+        estimateSmsSegments(page.body).segmentCount,
+        `offset ${offset}`,
+      ).toBeLessThanOrEqual(3);
+    }
   });
 
   it("keeps the no-pending-list reply to a single segment", () => {

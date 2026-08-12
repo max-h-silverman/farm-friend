@@ -226,13 +226,28 @@ Recorded here because the decision, not just the code, is the product answer:
 - **Raw-message retention: 30 days.** A body is written with an expiry that far outlives any
   conversation, and a scheduled purge clears it. A thread under open safety review is exempt only until
   the flag is disposed of.
-- **Freshness threshold: 48 hours.** Past it a listing is shown with a stale warning **on the
-  public map**. It never disappears — that is the honor-system reality above, not a tuning knob.
-  **The SMS answer states age instead of warning** (max, 2026-08-11): every listing carries
-  "(3d ago)" beside its items, which is the same information in four characters rather than
-  twenty, and a text message pays per character where a browsed card does not. What is
-  non-negotiable is that a stale listing still appears, still ranked, still stamped with its
-  age; the explicit warning is the map's to give.
+- **Freshness threshold: 96 hours** (four days; max raised it from 48 on 2026-08-11). Past it a
+  listing is shown with a stale warning **on the public map**. It never disappears — that is the
+  honor-system reality above, not a tuning knob. Four days rather than two because nearly every
+  stand is unattended with stable staples and variable stock: a farmer who confirms on Saturday
+  is not wrong by Monday, and 48 hours marked ordinary weekend listings as suspect. **One number
+  governs both surfaces** — the map's warning and the SMS label below — so the same row cannot
+  read as current stock in a text and as stale on the web.
+- **The SMS answer changes its label rather than adding a warning** (max, 2026-08-11): inside
+  the threshold an entry reads "In stock (3h ago)", past it "Last seen (16d ago)". The label
+  is what a customer reads first, so a present-tense claim over a fortnight-old timestamp was
+  the dishonesty — not the missing sentence. Swapping the word costs nothing where appending
+  one cost twenty characters per entry, which is what a text message pays for and a browsed
+  card does not. What is non-negotiable is that a stale listing still appears, still stamped
+  with its age; the explicit "may be out of date" sentence remains the map's to give.
+- **A confirmation stops being evidence at 28 days**, on both surfaces and from one shared
+  rule. Past it the stock claim is dropped rather than hedged — the map says "Nothing confirmed
+  recently" and the SMS entry falls back to what the stand usually sells — because a two-month-old
+  confirmation is not weaker evidence than a three-month-old one. The stand itself stays listed.
+- **Ranking follows the same honesty, in three tiers**: a fresh confirmation, then what a stand
+  says it usually sells, then a stale confirmation. Neither of the last two is a promise, but a
+  standing description is at least current *as a description*, where a fortnight-old snapshot
+  sends a customer to the worse bet.
 - **Inventory proposals: patch language in, complete snapshot out.** Farmers speak in edits; code
   applies them to the current snapshot and the farmer confirms the *complete* result, so every
   confirmation publishes one immutable revision.

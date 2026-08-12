@@ -5,7 +5,7 @@ import {
   type Clock,
 } from "@farm-friend/core";
 import { isPrivilegedSender, takeNextResultPage, type Db } from "@farm-friend/db";
-import { dereferenceFacts } from "./inquiry";
+import { dereferenceFacts, standKeyOfFactId } from "./inquiry";
 
 // The MORE branch of inbound routing (F-046 part 3).
 //
@@ -52,33 +52,55 @@ export async function handleNextPage(
   deps: PagingDeps,
   input: { senderHash: string; occurredAt: Date },
 ): Promise<PagedReply> {
+  // F-074 — the sender's privilege is re-read on every MORE rather than saved with the list.
+  // A saved list holds identifiers, not entitlement: if the number was removed from the
+  // administrator phone list between the question and this MORE, the test farms drop out of
+  // the remaining pages.
+  const scope = {
+    includeTestFarms: await isPrivilegedSender(deps.db, { senderHash: input.senderHash }),
+  };
+
+
   // A page is claimed and the offset advanced in one locked transaction, so two MOREs racing
   // cannot both be served the same stands. The loop below re-enters that claim; it never
   // re-reads a position it already consumed.
   for (;;) {
+    // A page is PAGE_SIZE STANDS, and one stand can hold two identifiers — a confirmed row and
+    // a standing offering. Taking a flat count of identifiers split those rows across two
+    // messages and printed the stand twice (B-062).
+    //
+    // The identifier itself says which stand it belongs to: an offering id is DERIVED from the
+    // confirmed one, so normalizing recovers the pair with no database round trip inside the
+    // lock.
     const claimed = await takeNextResultPage(deps.db, {
       senderHash: input.senderHash,
       occurredAt: input.occurredAt,
       pageSize: PAGE_SIZE,
+      measurePage: (remaining, stands) => {
+        const seen = new Set<string>();
+        let factCount = 0;
+        for (const factId of remaining) {
+          const key = standKeyOfFactId(factId);
+          if (!seen.has(key)) {
+            if (seen.size === stands) break;
+            seen.add(key);
+          }
+          factCount += 1;
+        }
+        return { factCount, standCount: seen.size };
+      },
     });
     if (claimed === null) {
       return { body: renderNoPendingList(), status: "no_pending_list" };
     }
 
-    // F-074 — the sender's privilege is re-read on every page rather than saved with the list.
-    // A saved list holds identifiers, not entitlement: if the number was removed from the
-    // administrator phone list between the question and this `MORE`, the test farms drop out
-    // of the remaining pages. The `facts.length === 0` branch below already handles a page
-    // that empties out, so a revoked sender walks off the end honestly rather than erroring.
+    // The `facts.length === 0` branch below handles a page that empties out, so a sender whose
+    // privilege was revoked mid-list walks off the end honestly rather than erroring.
     const facts = await dereferenceFacts(deps.db, {
       factIds: claimed.factIds,
       itemsRequested: claimed.itemsRequested,
       at: deps.clock.now(),
-      scope: {
-        includeTestFarms: await isPrivilegedSender(deps.db, {
-          senderHash: input.senderHash,
-        }),
-      },
+      scope,
     });
 
     if (facts.length === 0) {
@@ -91,6 +113,10 @@ export async function handleNextPage(
 
     const page = renderResultPage({
       itemsRequested: claimed.itemsRequested,
+      // Carried from the saved list so page 2 heads the same way page 1 did. A general
+      // availability question named no item, and a later page reading `itemsRequested` alone
+      // would print code's placeholder word as though the customer had typed it.
+      broad: claimed.broad,
       facts,
       offset: claimed.offset,
       total: claimed.total,

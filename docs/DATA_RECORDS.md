@@ -360,6 +360,12 @@ duplicate must show rather than be papered over.
   here would create a second, longer-lived home for it. The requested items are the narrow exception —
   the product words the interpretation seam extracted, not the sender's sentence — because a later
   page must name its subject to read as an answer.
+  It also carries **two counts in different units** (B-062, migration `0040`): the offset advances in
+  FACT ids, while `stand_total`/`stand_offset` count STANDS, because one stand can contribute two
+  facts and the customer is shown stands. Plus `broad` — whether the question was a general
+  availability request — which a later page **cannot re-derive**: such a question names no item, so
+  code substitutes a placeholder into the requested items, and a page reading that column alone would
+  print the placeholder as though the customer had typed it.
 - **flags and admin dispositions.**
 - **transactional outbox.**
 - **minimal audit and model-run evidence.**

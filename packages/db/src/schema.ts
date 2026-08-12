@@ -3169,8 +3169,27 @@ export const pendingResultLists = pgTable(
     factIds: text("fact_ids").array().notNull(),
     /** The product words the answer was about, for a later page's heading. */
     itemsRequested: text("items_requested").array().notNull(),
+    /**
+     * Whether the question was a general availability request rather than a search.
+     *
+     * Stored because the header depends on it and `MORE` must not contradict page 1. A broad
+     * question names no item, so code substitutes a placeholder word into `itemsRequested` to
+     * drive retrieval; a later page reading that column alone would print it as though the
+     * customer had typed it. Derived state would be a guess — this is the fact.
+     */
+    broad: boolean("broad").notNull().default(false),
     /** How many of `factIds` the sender has already been shown. */
     offset: integer("offset").notNull().default(0),
+    /**
+     * How many STANDS the whole list covers, and how many have been shown (B-062).
+     *
+     * Both counts are in stands while `offset` and `factIds` are in facts, because one stand
+     * can contribute two facts — a confirmed row and a standing offering. The customer is
+     * shown stands, so the count and the window must be stands: the first live reply said
+     * "1-3 of 45" over an island with 35 of them.
+     */
+    standTotal: integer("stand_total").notNull().default(0),
+    standOffset: integer("stand_offset").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

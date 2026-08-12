@@ -68,8 +68,21 @@ export interface RetrievedItem {
  * Inventory older than this is shown with a prominent staleness warning rather than
  * disappearing: unattended honor-system stands are usually right but never certain, and
  * hiding an old listing serves the customer worse than labelling it (PRODUCT_BRIEF).
+ *
+ * FOUR DAYS (max, 2026-08-11; raised from 48 hours). Nearly every stand is unattended and
+ * honor-system, with stable staples and variable stock — a farmer who confirms on Saturday is
+ * not wrong by Monday morning, and two days marked ordinary weekend listings as suspect. The
+ * threshold is a judgement about how fast an island farm stand actually changes, not a
+ * property of the data.
+ *
+ * **One number for both surfaces**, deliberately: it decides the public map's stale warning
+ * AND whether an SMS entry reads "In stock" or "Last seen" (B-063). Two numbers would let the
+ * same row read as current stock in a text message and as stale on the web.
+ *
+ * `answer.test.ts` pins the VALUE as well as the boundary — a test written against the
+ * constant passes at any number, which is no test of a product commitment at all.
  */
-export const STALE_AFTER_HOURS = 48;
+export const STALE_AFTER_HOURS = 96;
 
 /**
  * The model's selection: ordered opaque IDs, or a bare signal that it cannot choose.

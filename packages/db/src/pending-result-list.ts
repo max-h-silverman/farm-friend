@@ -33,8 +33,17 @@ export interface SavePendingResultListInput {
   factIds: string[];
   /** The product words the answer was about — not the sender's message. */
   itemsRequested: string[];
+  /**
+   * Whether the question was a general availability request rather than a search for an item.
+   * A later page's header depends on it, and must not contradict the first.
+   */
+  broad: boolean;
   /** How many of `factIds` the answering message already showed. */
   shown: number;
+  /** How many STANDS the whole list covers (B-062) — what a page reports as "of 45". */
+  standTotal: number;
+  /** How many STANDS the answering message already showed. */
+  standsShown: number;
   /** The inbound message's own time. */
   occurredAt: Date;
   /** How long the list stays pageable, from `occurredAt`. */
@@ -55,16 +64,21 @@ export async function savePendingResultList(
   const expiresAt = new Date(input.occurredAt.getTime() + input.ttlMinutes * 60_000);
   await driver(db)`
     insert into pending_result_lists (
-      sender_hash, fact_ids, items_requested, "offset", created_at, expires_at
+      sender_hash, fact_ids, items_requested, broad, "offset",
+      stand_total, stand_offset, created_at, expires_at
     )
     values (
-      ${input.senderHash}, ${input.factIds}, ${input.itemsRequested}, ${input.shown},
+      ${input.senderHash}, ${input.factIds}, ${input.itemsRequested}, ${input.broad},
+      ${input.shown}, ${input.standTotal}, ${input.standsShown},
       ${input.occurredAt}, ${expiresAt}
     )
     on conflict (sender_hash) do update set
       fact_ids = excluded.fact_ids,
       items_requested = excluded.items_requested,
+      broad = excluded.broad,
       "offset" = excluded."offset",
+      stand_total = excluded.stand_total,
+      stand_offset = excluded.stand_offset,
       created_at = excluded.created_at,
       expires_at = excluded.expires_at
   `;
@@ -73,11 +87,18 @@ export async function savePendingResultList(
 export interface NextResultPage {
   /** The identifiers this page covers, in their saved order. */
   factIds: string[];
-  /** Where this page starts in the saved list — what the renderer reports as "4-6 of 9". */
+  /**
+   * Where this page starts, counted in STANDS — what the renderer reports as "4-6 of 9".
+   *
+   * Stands rather than facts because that is the unit the customer sees; a stand retrieved on
+   * both bases contributes two identifiers to `factIds` and one entry to the reply (B-062).
+   */
   offset: number;
-  /** How long the whole list is. */
+  /** How many STANDS the whole list covers. */
   total: number;
   itemsRequested: string[];
+  /** Whether the original question was a general availability request. */
+  broad: boolean;
 }
 
 /**
@@ -93,14 +114,35 @@ export interface NextResultPage {
  */
 export async function takeNextResultPage(
   db: Db,
-  input: { senderHash: string; occurredAt: Date; pageSize: number },
+  input: {
+    senderHash: string;
+    occurredAt: Date;
+    /** How many STANDS one page carries. */
+    pageSize: number;
+    /**
+     * How many of the remaining identifiers make up `pageSize` stands, and how many stands
+     * that actually is.
+     *
+     * Supplied by the caller because a fact id is OPAQUE here (this module stores identifiers
+     * and interprets none), while the stand a fact belongs to is the inquiry path's knowledge.
+     * Taking a fixed `pageSize` identifiers instead splits a stand's two rows across two
+     * messages and prints it twice — B-062, found on a real handset.
+     *
+     * Defaults to one identifier per stand, which is what a list of single-basis facts is.
+     */
+    measurePage?: (remainingFactIds: string[], stands: number) => {
+      factCount: number;
+      standCount: number;
+    };
+  },
 ): Promise<NextResultPage | null> {
   return driver(db).begin(async (tx) => {
     // `for update` serializes concurrent MOREs from the same sender on the row itself. The
     // row always exists before any claimant reads it (a question wrote it), so the lock is a
     // sufficient arbiter here — unlike a first-insert race, which needs a unique index.
     const rows = await tx`
-      select id, fact_ids, items_requested, "offset", expires_at
+      select id, fact_ids, items_requested, broad, "offset",
+             stand_total, stand_offset, expires_at
       from pending_result_lists
       where sender_hash = ${input.senderHash}
       for update
@@ -117,7 +159,16 @@ export async function takeNextResultPage(
 
     const factIds = row.fact_ids as string[];
     const offset = row.offset as number;
-    const slice = factIds.slice(offset, offset + input.pageSize);
+    const standOffset = row.stand_offset as number;
+    const remaining = factIds.slice(offset);
+    const measure =
+      input.measurePage ??
+      ((ids: string[], stands: number) => ({
+        factCount: Math.min(ids.length, stands),
+        standCount: Math.min(ids.length, stands),
+      }));
+    const { factCount, standCount } = measure(remaining, input.pageSize);
+    const slice = remaining.slice(0, factCount);
 
     if (slice.length === 0) {
       // Exhausted. Delete rather than leave a terminal row, so the next MORE is answered as
@@ -133,15 +184,18 @@ export async function takeNextResultPage(
       await tx`delete from pending_result_lists where id = ${listId}`;
     } else {
       await tx`
-        update pending_result_lists set "offset" = ${advanced} where id = ${listId}
+        update pending_result_lists
+        set "offset" = ${advanced}, stand_offset = ${standOffset + standCount}
+        where id = ${listId}
       `;
     }
 
     return {
       factIds: slice,
-      offset,
-      total: factIds.length,
+      offset: standOffset,
+      total: row.stand_total as number,
       itemsRequested: row.items_requested as string[],
+      broad: row.broad as boolean,
     };
   });
 }

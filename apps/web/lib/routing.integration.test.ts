@@ -1338,11 +1338,16 @@ describe("inbound routing end to end (integration)", () => {
         `;
         pagedStands.push(offeringFactId(standId));
       }
+      // Nine offering-only stands: one fact each, so the stand counts equal the fact counts.
       await client()`
         insert into pending_result_lists (
-          sender_hash, fact_ids, items_requested, "offset", created_at, expires_at
+          sender_hash, fact_ids, items_requested, "offset",
+          stand_total, stand_offset, created_at, expires_at
         )
-        values (${farmerHash}, ${pagedStands}, ${["eggs"]}, 3, ${at(2)}, ${at(62)})
+        values (
+          ${farmerHash}, ${pagedStands}, ${["eggs"]}, 3,
+          ${pagedStands.length}, 3, ${at(2)}, ${at(62)}
+        )
       `;
 
       // Preconditions, asserted rather than assumed.
@@ -1529,7 +1534,7 @@ describe("inbound routing end to end (integration)", () => {
       expect(work[0]?.message_category).toBe("inquiry_reply");
       // Code rendered it: the stand name and a recency label the model never supplied.
       expect(work[0]?.body).toContain("Test Stand");
-      expect(work[0]?.body).toMatch(/IN STOCK \(\d+[hd] ago\)|IN STOCK \(now\)/);
+      expect(work[0]?.body).toMatch(/In stock \(\d+[hd] ago\)|In stock \(now\)/);
     });
 
     it("a customer inquiry creates no durable consent", async () => {

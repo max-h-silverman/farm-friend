@@ -9,6 +9,7 @@ import {
   renderElapsed,
   renderRecency,
   NO_RECENT_UPDATE,
+  NO_RECENT_UPDATE_AFTER_DAYS,
   STALE_AFTER_HOURS,
   validateFactSelection,
   type RetrievedFact,
@@ -185,6 +186,28 @@ describe("recency rendering — code states how fresh a fact is", () => {
   it("marks a fact stale at the threshold, not before", () => {
     expect(isStale(hoursAgo(STALE_AFTER_HOURS - 1), NOW)).toBe(false);
     expect(isStale(hoursAgo(STALE_AFTER_HOURS), NOW)).toBe(true);
+  });
+
+  it("holds the threshold at four days (max, 2026-08-11)", () => {
+    /*
+      The VALUE, pinned separately from the boundary behaviour above.
+
+      That test is written against the constant, so it passes at any number and cannot notice
+      the threshold moving — which is exactly what a product commitment needs a test for. This
+      one fails if the number changes, so a change has to be deliberate and has to update
+      PRODUCT_BRIEF alongside it.
+
+      Four days, not two: nearly every stand is unattended and honor-system, with stable
+      staples and variable stock, and a farmer who confirms on Saturday is not wrong by Monday
+      morning. 48 hours marked ordinary weekend listings as suspect.
+    */
+    expect(STALE_AFTER_HOURS).toBe(96);
+  });
+
+  it("keeps the two ageing thresholds distinct and correctly ordered", () => {
+    // Staleness (warn, keep the claim) must come well before expiry (drop the claim). If they
+    // ever crossed, a listing would lose its stock claim before it was ever labelled stale.
+    expect(STALE_AFTER_HOURS).toBeLessThan(NO_RECENT_UPDATE_AFTER_DAYS * 24);
   });
 
   // F-042 — the public map's confirmed line reads "Confirmed 4 hours ago", the SMS answer
