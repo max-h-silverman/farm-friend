@@ -3892,14 +3892,14 @@ describe("the confirmation links the word 'map' (F-098)", () => {
       <ListingStep
         credential={{ kind: "grandfathered", farmId: FARM_ID }}
         farmName="Test Farm"
-        mapUrl="https://www.vigavashon.org/farm-stand-map"
+        mapUrl="https://www.vigavashon.org/farm-stand-map#map"
       />,
     );
 
     await publish(user);
 
     const link = await screen.findByRole("link", { name: "map" });
-    expect(link).toHaveAttribute("href", "https://www.vigavashon.org/farm-stand-map");
+    expect(link).toHaveAttribute("href", "https://www.vigavashon.org/farm-stand-map#map");
     expect(link).toHaveClass("farmer-listing-map-link");
     // Opens away from a form the farmer just completed, so Back does not return them to a
     // submitted page — and the new tab cannot reach back into this one.

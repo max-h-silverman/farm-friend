@@ -342,4 +342,12 @@ describe("the origin limitation statement (F-017)", () => {
     expect(url.protocol).toBe("https:");
     expect(url.hostname).not.toMatch(/example|localhost|todo/i);
   });
+
+  it("lands the reader ON the map rather than at the top of the page", () => {
+    // VIGA's page carries other content above the embed, so the bare URL opens above the map
+    // and the customer has to scroll to reach the thing they texted for. The `#map` anchor is
+    // a real `id` on that page (max, 2026-08-12) — dropping it is a silent regression, because
+    // the link still resolves and nothing else fails.
+    expect(new URL(PUBLIC_MAP_URL).hash).toBe("#map");
+  });
 });

@@ -111,7 +111,7 @@ describe("admin routes (integration)", () => {
     process.env.DATABASE_URL = url;
     // F-040: the farmer route builds a standing link against the CONFIGURED origin.
     process.env.PUBLIC_BASE_URL = "https://ff.example";
-    process.env.PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map";
+    process.env.PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map#map";
 
     const administrators = await sql()`
       insert into administrators (email, authorized_at)

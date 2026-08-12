@@ -123,7 +123,7 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     // F-040. A configured origin, because a farmer's standing link is built against it and
     // must never come from a request header.
     publicBaseUrl: "https://farmfriend.example",
-    publicMapUrl: "https://www.vigavashon.org/farm-stand-map",
+    publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
     freeText: forbiddenFreeText(),
     nextPage: forbiddenNextPage(),
     farmerTarget: forbiddenFarmerTarget(),
@@ -165,7 +165,7 @@ describe("MAP routing (F-057)", () => {
     expect(result.outcome).toEqual({ kind: "map" });
     expect(result.replies).toEqual([
       {
-        body: "https://www.vigavashon.org/farm-stand-map",
+        body: "https://www.vigavashon.org/farm-stand-map#map",
         category: "inquiry_reply",
         logicalKey: "map-evt-1",
       },
@@ -179,7 +179,7 @@ describe("MAP routing (F-057)", () => {
     );
 
     expect(result.outcome).toEqual({ kind: "map" });
-    expect(result.replies[0]?.body).toBe("https://www.vigavashon.org/farm-stand-map");
+    expect(result.replies[0]?.body).toBe("https://www.vigavashon.org/farm-stand-map#map");
   });
 });
 
