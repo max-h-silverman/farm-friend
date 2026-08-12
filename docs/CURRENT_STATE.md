@@ -68,9 +68,10 @@
 
 ## Verification
 
-- `b-058-live-fixture-flake`: **1,958 unit tests, 938 local integration tests**, typecheck, lint,
-  stub evals, and two live eval runs pass (2026-08-12). **Not merged and not deployed** — the
-  serving revisions below still carry the B-058 seam defect.
+- `b-059-stock-out-corpus` (branched off `b-058-live-fixture-flake`, which is unmerged):
+  **1,958 unit tests, 938 local integration tests**, typecheck, lint, stub evals, and five live
+  eval runs pass (2026-08-12). **Neither branch is merged or deployed** — the serving revisions
+  below still carry the B-058 seam defect.
 - The web production build retains the tracked Next configuration/lint warnings (B-008).
 - **Migration `when` stamps can land behind their predecessor on this machine.** `0041`'s generated
   stamp was *earlier* than `0040`'s — the local clock runs behind the repo's — and the ordering
@@ -79,8 +80,9 @@
   `psql` is not on the default PATH (`postgresql@16` lives under Homebrew's `opt`), so a bare
   `psql`/`pg_isready` reports "command not found" — that is **not** evidence the database is absent.
 - Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model scores
-  containment 5/5, closure 7/7, recall 5/5, quality **20/20 — twice consecutively** on the B-058
-  branch (2026-08-12), against 19/20 before it. Note the per-category
+  containment 5/5, closure 7/7, recall 5/5, quality **21/21** on the B-059 branch (2026-08-12) —
+  20/20 twice consecutively once B-058 landed, against 19/20 before it, plus B-059's new corpus
+  fixture. Note the per-category
   counts exceed the fixture count — several fixtures score multiple cases. B-057 added one quality
   fixture, proving the stock-out seam picks a usual offering out of a mixed candidate list; it passed
   7/7 runs.
@@ -99,6 +101,17 @@
   run in three shows a provider error, labelled `[provider error, not a verdict — rerun]` and scored
   as a FAILURE on purpose: the seam returns the same `clarification` shape for "unreachable model"
   and "model declined", so accepting any clarification let an unreachable model read as correct.
+- **The stock-out seam is now measured on the real corpus** (B-059, closed 2026-08-12).
+  `evals/live.ts` carries an eleven-case fixture built from production rows read on 2026-08-12
+  through the same construction `apps/web/lib/stockout.ts` uses: Bart's Cart's split comma list
+  (`"Veggie"` / `"herb"` / `"flower plants"` published beside `veggie plants` and `herb plants`),
+  Fruits des Vignes' `"Current Produce Raspberries"` beside plain `raspberries`, Tian Tian's
+  `bok choy` / `Baby bok choy` and `kale` / `kale florets`, Twisting Tree's `bird house gourds` /
+  `birdhouse gourds`, Morgan Hill's nine-product sentence as one row, and Venison Valley's
+  28-candidate list. **11/11 on four consecutive runs** — the risk was worth measuring and is not
+  biting. Where the corpus genuinely admits two answers the fixture accepts either, so it measures
+  whether the product was found rather than the model's tie-break. **The ticket's cited examples
+  were stale and were not reused** — build any future case from live rows.
 - **B-058 was not model noise — it was our seam discarding good work** (closed 2026-08-12). The
   B-056 guard never failed: 16 of 16 `edits` runs validated to zero removals. Three separate seam
   paths threw away a correct inventory edit over a `closure` field the message never justified —
@@ -149,11 +162,6 @@
   since the change, and the schedule fires at 10:00 stand-local, so this waits for a due slot.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
-- B-059 remains open: measure the seam against the corpus's awkward lists. Its cited examples are
-  **stale** — the reviewed offerings artifact has no "veggie, herb, flower plants" row and Fruits des
-  Vignes carries plain "raspberries", so build cases from the live rows, not from the item text.
-  **No longer blocked** — B-058 is closed, and two consecutive live runs came back 37/37, so a
-  single run is now readable.
 - **B-065 owes one live check:** text a stock-out misspelling the stand ("Pinecome is out of eggs"),
   answer "Which stand are you at?" with the name, and confirm the farmer's alert names the **eggs**.
   A second misspelling in the reply should also resolve. Proven by test and against the real corpus,
