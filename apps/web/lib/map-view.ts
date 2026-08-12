@@ -369,6 +369,12 @@ export function standListingLines(
     );
   }
 
+  // Availability always leads this part of the card. When there is no current confirmation,
+  // say that before the standing offerings so a customer reads the status first either way.
+  if (!hasConfirmation && remainingTags.length > 0) {
+    lines.push({ kind: "nothing-confirmed", label: "Nothing confirmed recently." });
+  }
+
   if (remainingTags.length > 0) {
     // No `detail`, no interpolation, both headings constant. The only difference between them
     // is whether a confirmation is already on screen above.
@@ -394,12 +400,7 @@ export function standListingLines(
 
   if (hasConfirmation) return lines;
 
-  if (lines.length > 0) {
-    // Tags with no confirmation. The absence is the message, stated plainly — a friendlier
-    // "call ahead or take a chance" would nudge toward risk in VIGA's voice.
-    lines.push({ kind: "nothing-confirmed", label: "Nothing confirmed recently." });
-    return lines;
-  }
+  if (lines.length > 0) return lines;
 
   // Nothing known at all. F-038's wording first: a farm with no stand cannot "still have
   // produce out", and saying so would be the friendly-sounding lie.
