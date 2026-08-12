@@ -128,6 +128,186 @@ describe("inventory-extraction seam — the live interpreter over a provider", (
     expect(result.kind).toBe("clarification");
   });
 
+  /*
+    B-058. MEASURED against the real model (2026-08-12): on "no eggs left at Pinecone Gardens"
+    the model attached `closure: {"result":"close","closureKind":"none"}` to an otherwise
+    correct `edits` result in 5 of 12 runs — and 0 of 12 on the same sentence without the
+    trailing stand name. It is told `closureTiming is {"kind":"none"}` in the projection and
+    ignores it, which is exactly why this cannot be a prompt promise.
+
+    A spurious closure beside real inventory work is NOISE, not grounds to discard the work.
+    Code already owns closure timing outright, so the model's closure field carries no
+    authority: drop it and keep the edits. The farmer's eggs report must not be silently
+    converted into a question about dates they never raised.
+  */
+  it("keeps the inventory edits when the model attaches a closure code did not evidence", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "edits",
+        additions: [],
+        changes: [],
+        removals: [{ entryId: "e1" }],
+        closure: { result: "reopen" },
+      }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "no eggs left at Pinecone Gardens",
+      currentEntries: [{ entryId: "e1", itemName: "tomatoes" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("edits");
+    // The unevidenced closure is dropped, not carried forward.
+    expect(result.kind === "edits" && result.closure).toBeUndefined();
+    // ...and the edits themselves survive intact.
+    expect(result.kind === "edits" && result.removals).toEqual([{ entryId: "e1" }]);
+  });
+
+  it("keeps a clear_all when the model attaches a closure code did not evidence", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({ kind: "clear_all", closure: { result: "reopen" } }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "everything is gone for today",
+      currentEntries: [{ entryId: "e1", itemName: "tomatoes" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("clear_all");
+    expect(result.kind === "clear_all" && result.closure).toBeUndefined();
+  });
+
+  /*
+    The mirror, and the reason this is a drop rather than a blanket "ignore closure": when the
+    message DOES carry closure evidence, a model closure that contradicts it is still a real
+    disagreement about a consequential fact. Dropping it there would silently publish inventory
+    while discarding a closure the farmer actually asked for, so that case still clarifies.
+  */
+  /*
+    B-058, the residual half. On the same live sentence the model also emits
+    `closure: {"result":"close","closureKind":"none"}` — echoing back the `closureTiming is
+    {"kind":"none"}` it was shown — in 3 of 13 runs. "none" is not a legal closureKind, so the
+    STRICT schema rejects the whole output, the one repair attempt returns the same thing, and
+    the seam falls through to its provider-error clarification. The farmer's stock report is
+    discarded over a field that could not have been admissible in the first place.
+
+    When code found no closure evidence, no closure value is readable — so the key is stripped
+    BEFORE parsing rather than being allowed to fail the parse. The schema itself is untouched:
+    on a message that does carry closure evidence, a malformed closure is still a refusal.
+  */
+  it("keeps the edits when the model returns a closure whose shape is not even legal", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "edits",
+        additions: [],
+        changes: [],
+        removals: [{ entryId: "e1" }],
+        closure: { result: "close", closureKind: "none" },
+      }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "no eggs left at Pinecone Gardens",
+      currentEntries: [{ entryId: "e1", itemName: "tomatoes" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("edits");
+    expect(result.kind === "edits" && result.removals).toEqual([{ entryId: "e1" }]);
+    expect(result.kind === "edits" && result.closure).toBeUndefined();
+  });
+
+  /*
+    B-058, third measured mode. In 2 of 15 live runs on the same sentence the model returned
+    `{"kind":"edits","removals":[...],"closure":...}` — omitting `additions` and `changes`
+    entirely. The seam note tells it all three arrays are REQUIRED, each possibly empty; it
+    drops them anyway, so the strict schema fails the whole output and the farmer's report
+    becomes "Sorry, I could not read that."
+
+    An omitted edit array is unambiguous — there is exactly one thing it can mean, and it is
+    the empty list. Defaulting it invents nothing: it cannot manufacture a removal, an addition,
+    or a change, and every entryId that does arrive is still membership-checked downstream.
+  */
+  it("reads an edits result that omits the arrays it had nothing to put in", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({ kind: "edits", removals: [{ entryId: "e1" }] }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "no eggs left at Pinecone Gardens",
+      currentEntries: [{ entryId: "e1", itemName: "tomatoes" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("edits");
+    expect(result.kind === "edits" && result.removals).toEqual([{ entryId: "e1" }]);
+    expect(result.kind === "edits" && result.additions).toEqual([]);
+    expect(result.kind === "edits" && result.changes).toEqual([]);
+  });
+
+  it("still refuses a malformed closure when the message really does evidence one", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "edits",
+        additions: [],
+        changes: [],
+        removals: [],
+        closure: { result: "close", closureKind: "none" },
+      }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "Closed this weekend, but we still have eggs.",
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("clarification");
+  });
+
+  /*
+    The other half of the same boundary: with `kind: "closure"` the closure IS the payload, so
+    "drop the unevidenced closure and keep the rest" would return a closure result with no
+    closure in it. That case must still clarify even though the message carries no evidence —
+    which is what the hallucinated-reopen test above depends on.
+  */
+  it("clarifies rather than emptying a closure-only result the message did not evidence", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "closure",
+        closure: { result: "close", closureKind: "seasonal", startsOn: "2026-08-06" },
+      }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "no eggs left at Pinecone Gardens",
+      currentEntries: [{ entryId: "e1", itemName: "tomatoes" }],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("clarification");
+  });
+
+  it("still clarifies when edits carry a closure that contradicts real timing evidence", async () => {
+    const provider = new RecordingProvider(
+      JSON.stringify({
+        kind: "edits",
+        additions: [],
+        changes: [],
+        removals: [],
+        closure: {
+          result: "close",
+          closureKind: "temporary",
+          startsOn: "2026-08-02",
+          closedThrough: "2026-08-04",
+        },
+      }),
+    );
+    const result = await createInventoryInterpreter(provider).interpret({
+      taskText: "Closed this weekend, but we still have eggs.",
+      currentEntries: [],
+      currentLocalDate: CURRENT_LOCAL_DATE,
+    });
+
+    expect(result.kind).toBe("clarification");
+  });
+
   it("accepts an explicit reopen while rejecting implicit model invention", async () => {
     const provider = new RecordingProvider(
       JSON.stringify({ kind: "closure", closure: { result: "reopen" } }),

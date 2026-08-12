@@ -593,11 +593,22 @@ fx("live-quality", "an explicit sold-out statement does remove that item", async
 // provider error and a closure-timing bail both produce `kind: "clarification"`, so scoring any
 // clarification as a pass would let an unreachable model read as correct behaviour — a
 // containment-style false green.
-// The provider-error fallback specifically. Observed intermittently (roughly 1 run in 3) on an
-// otherwise-healthy suite, so it is a flaky upstream call rather than a behavioural verdict —
-// but it must NEVER be scored as a pass, because "the model was unreachable" and "the model
-// declined to remove" are opposite facts wearing the same shape. Reported as a distinct
-// outcome so a red line here is read as "rerun", not as "the guard regressed".
+//
+// B-058 (closed 2026-08-12) began as "this fixture returns wrong verdicts in ~2 of 7 runs". It
+// did not. The B-056 guard never once failed — every `edits` run validated to zero removals,
+// 16 for 16. What failed was the SEAM, three ways, all of them discarding a correct inventory
+// edit over a `closure` field the message never justified:
+//   1. a schema-valid but unevidenced closure tripped `closureMatchesTiming` (5 of 12 runs);
+//   2. `closureKind:"none"` — the model echoing back the `closureTiming` it was shown — is not
+//      a legal kind, so the STRICT schema failed the whole output (3 of 13);
+//   3. `edits` returned with `additions`/`changes` omitted entirely (2 of 15).
+// All three now resolve in code (packages/ai/src/inventory-seam.ts); measured 70 of 70 clean
+// across both phrasings afterwards, against 3 failures in 20 before. Note the tell: every mode
+// was far likelier on the phrasing ending in a proper noun.
+//
+// So a red line here is now a genuine signal. It must NEVER be scored as a pass, because "the
+// model was unreachable" and "the model declined to remove" are opposite facts wearing the same
+// shape — but neither should it be waved through as known noise. Investigate it.
 const PROVIDER_ERROR_QUESTION =
   "Sorry, I could not read that. Could you list what your stand has right now?";
 const SEAM_FALLBACK_QUESTIONS = [
