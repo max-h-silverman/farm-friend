@@ -18,11 +18,13 @@
   usual offerings, not only its published inventory. No production report has named one yet — that
   needs a real inbound text, and it is what closes the item.
 - **The SMS answer format is LIVE and read on a handset** (F-107 + B-061, both closed 2026-08-11).
-  One entry per stand — name, street address, `IN STOCK (23h ago): …`, `MAYBE: …` — replacing the old
-  "Confirmed <item>:" / "typical offering" sections, and no "may be out of date" phrase (the age
-  carries it; the map keeps its explicit warning). A broad question ("what do you have") was
-  **answered rather than deflected**, proving B-061's code check on the real inbound path. The
-  `MAYBE:` line is still unproven live — all three stands in that reply were confirmed-only.
+  What production currently serves: one entry per stand — name, street address, `IN STOCK (23h ago): …`,
+  `MAYBE: …`. A broad question ("what do you have") was **answered rather than deflected**, proving
+  B-061's code check on the real inbound path. The `MAYBE:` line is still unproven live — all three
+  stands in that reply were confirmed-only.
+  **That reply is also what B-062/B-063 rebuilt**, so the deployed wording above is one deploy
+  behind the branch: `In stock` / `May also have` in sentence case, name → claims → address, a
+  header naming the query, `Last seen` past the freshness threshold.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
