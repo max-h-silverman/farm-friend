@@ -652,8 +652,12 @@ describe("public web surface boundary (integration)", () => {
       expect(answer.outcome).toBe("answered");
       if (answer.outcome !== "answered") throw new Error("expected an answer");
       expect(answer.selectedFactIds).toEqual([stands[0]!.factId]);
-      // Identical recency wording on both channels, from the one shared renderer.
-      expect(answer.body).toContain(stands[0]!.recencyLabel);
+      // F-107 — the two channels no longer share WORDING, deliberately: SMS abbreviates
+      // ("3h ago") because it pays per character, and the map spells it out ("updated 3 hours
+      // ago") because it does not. What must still hold is that both describe the SAME
+      // confirmation, so they cannot disagree about how fresh a stand is.
+      expect(stands[0]!.recencyLabel).toBe("updated 3 hours ago");
+      expect(answer.body).toContain("IN STOCK (3h ago)");
     });
 
     it("labels recency honestly rather than implying certainty", async () => {

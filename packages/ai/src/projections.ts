@@ -92,7 +92,8 @@ export const SEAM_OUTPUT_SHAPES = {
     '{"kind":"ambiguous"}',
   ],
   "grounded-fact-selection": [
-    '{"kind":"selection","factIds":["loc-1","loc-2"]}',
+    '{"kind":"selection","factIds":["loc-1","loc-2"],"matchedItems":{"loc-1":["butter lettuce"],"loc-2":["kale"]}}',
+    '{"kind":"selection","factIds":[]}',
     '{"kind":"clarification"}',
   ],
   "stock-out-parse": [
@@ -187,7 +188,12 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "nothing here sells it, return the selection shape with an EMPTY factIds array - that is " +
     "how you say nobody carries it. Reserve the clarification shape for a request you cannot " +
     "interpret at all; returning it for an item nobody stocks tells the customer they mistyped " +
-    "when they did not.",
+    "when they did not. " +
+    "Also return matchedItems: an object keyed by each selected factId, whose value lists " +
+    "WHICH of that fact's matchedItemNames answered the request - copy those names EXACTLY as " +
+    'given ("butter lettuce" for a leafy-greens request, "frozen lamb" for lamb). Include only ' +
+    "names present in that fact's own matchedItemNames; never invent an item, and never move " +
+    "an item from one fact to another.",
   "stock-out-parse":
     "If the text names an item matching one of listedItems, return listed with that " +
     "entryId. If it names an item that is not in listedItems, return unlisted with the " +

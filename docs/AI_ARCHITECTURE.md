@@ -101,7 +101,7 @@ A projection is **built only when its seam has a real consumer** — the zen-des
 | stock-out item parsing | the current item text plus public item IDs/names for the code-bound location — its published inventory and its usual offerings, as one flat list carrying no indication of which is which |
 | customer-message intent | the customer's current message alone |
 | inquiry interpretation | the current customer SMS request |
-| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts |
+| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts (returns selected IDs and, per ID, which of that fact's own item names answered) |
 | offering extraction | one stand's public "generally offers" description, alone |
 
 **Offering extraction is the one seam that does not run on a message.** It reads VIGA's published stand
@@ -205,9 +205,17 @@ flag:
   **boolean**, or a bare "ambiguous → ask" signal. **Never privileges one reading** of a multi-item
   request, and is not restricted to a fixed strategy enum. Launch does not resolve an arbitrary SMS
   origin.
-- **grounded fact selection** — select and order identifiers from the **retrieved facts only**. Code
+- **grounded fact selection** — select and order identifiers from the **retrieved facts only**, and
+  say **which of each selected fact's own item names answered the request** (F-107). Code
   validates membership and renders the authoritative, recency-labeled answer; empty retrieval → a
   code-rendered honest "no current listing."
+
+  The matched-item names are a **selection over values code already sent**, in the same standing as
+  the identifiers: every name is checked against that fact's own retrieved items and anything else is
+  dropped, and code's spelling is what renders, so the model echoing "eggs" cannot restyle a farmer's
+  "Eggs". It exists because only the model can see *why* a stand answers a category question ("butter
+  lettuce" for leafy greens) — discarding that forced the renderer to print a stand's entire inventory
+  as a hedge.
 
   A **fact identifier is an opaque token the model copies back verbatim, and must carry no structure
   worth reconstructing** (B-049): a live model stripped a meaningful prefix and returned the bare uuid
@@ -258,9 +266,10 @@ The first inquiry call interprets the current request. Code validates that inter
 a **general** retrieval layer: *given items, optional farm scope, and a proposed ranking interpretation
 → candidate locations with recency.* Intersection, coverage, and freshest-N are **expressible
 interpretations**, not an enumerated architecture constant. Only retrieved rows reach the
-grounded-selection call. The model returns only selected and ordered identifiers; code verifies that
-each belongs to the retrieved set, dereferences the authoritative values, and renders the factual
-answer and recency. Empty retrieval is code-rendered without a grounded-selection call. Model-supplied
+grounded-selection call. The model returns selected and ordered identifiers, plus which of each
+fact's own item names answered; code verifies that every identifier belongs to the retrieved set and
+every item name to that fact's own items, dereferences the authoritative values, and renders the
+factual answer and recency. Empty retrieval is code-rendered without a grounded-selection call. Model-supplied
 values or prose are not accepted as evidence.
 
 **Retrieval is also where VISIBILITY is decided, and that placement is the guarantee** (F-074). Whether

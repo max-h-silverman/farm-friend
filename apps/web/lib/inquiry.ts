@@ -351,21 +351,45 @@ export async function dereferenceFacts(
  * customer READS about a stand should stay on topic: an answer about kale should not recite
  * the eggs.
  *
- * When no published name matches the requested words — the category case, where the
- * relationship is exactly what code cannot see — every item is shown rather than none,
- * because listing nothing under a stand the model chose would render an empty claim.
+ * Three sources, in descending order of precision (F-107):
+ *
+ *   1. `modelMatched` — the items the MODEL says answered the request for this fact. The only
+ *      source that can resolve a category question, because "butter lettuce" answers "leafy
+ *      greens" by a relationship code cannot see. Already validated against this row's real
+ *      item names by `validateFactSelection`, so nothing invented reaches here.
+ *   2. exact name match against the requested words — what code can prove on its own.
+ *   3. every item the stand publishes.
+ *
+ * Source 3 is the honest floor rather than a good answer: listing nothing under a stand the
+ * model chose would render an empty claim. It is reached when the model said nothing and no
+ * name matched — the category case on a MORE page, where the model's matches were never
+ * saved. Keeping the rule in ONE function is what stops page 1 and page 2 of the same answer
+ * from narrowing differently.
  */
-function toPageableFact(row: LocationRow, itemsRequested: string[]): PageableFact {
+function toPageableFact(
+  row: LocationRow,
+  itemsRequested: string[],
+  modelMatched?: readonly string[],
+): PageableFact {
   const wanted = new Set(itemsRequested.map((item) => item.trim().toLowerCase()));
   const named = row.items.filter((item) =>
     wanted.has(item.itemName.trim().toLowerCase()),
   );
+  const claimed =
+    modelMatched === undefined
+      ? []
+      : row.items.filter((item) =>
+          modelMatched.some(
+            (name) => name.trim().toLowerCase() === item.itemName.trim().toLowerCase(),
+          ),
+        );
   return {
     factId: row.factId,
     farmName: row.farmName,
     locationName: row.locationName,
     publicAddress: row.publicAddress,
-    matchedItems: named.length > 0 ? named : row.items,
+    matchedItems:
+      claimed.length > 0 ? claimed : named.length > 0 ? named : row.items,
     asOf: row.asOf,
     basis: row.basis,
   };
@@ -596,7 +620,24 @@ export async function answerInquiry(
   const answerFactIds = intent.value.broad
     ? [...selectedFactIds, ...displayOrdered.slice(PAGE_SIZE).map((fact) => fact.factId)]
     : selectedFactIds;
-  const byFactId = new Map(retrieved.map((fact) => [fact.factId, fact]));
+  // F-107 — re-narrow each fact to the items the MODEL said answered the request, where it
+  // said. Built from `listings` rather than `retrieved` so the full published list is in hand:
+  // `toPageableFact` already narrowed once on string match, and narrowing a narrowed list
+  // would silently drop a category answer the model correctly identified.
+  const modelMatched = selection.value.matchedItems ?? {};
+  const rowByFactId = new Map(listings.map((row) => [row.factId, row]));
+  const byFactId = new Map(
+    retrieved.map((fact) => {
+      const row = rowByFactId.get(fact.factId);
+      const claimed = modelMatched[fact.factId];
+      return [
+        fact.factId,
+        row !== undefined && claimed !== undefined
+          ? toPageableFact(row, itemsRequested, claimed)
+          : fact,
+      ];
+    }),
+  );
   const selected = answerFactIds.map((factId) => byFactId.get(factId)!);
   const ordered = [
     ...selected.filter((fact) => fact.basis === "confirmed"),
