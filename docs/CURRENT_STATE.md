@@ -13,19 +13,29 @@
   digest on both services and nothing else); deploy and served-card assertions pass. The serving
   digest was read back from both services and matches the build.
 - The SMS answer is the one B-062/B-063 rebuilt (PR #107): one entry per stand,
-  **name → claims → address**, `In stock (3h ago):` / `May also have:` in sentence case — `May
-  have:` when the entry carries no stock line above it — and a bare `Map:` closing the last page.
-  Past the freshness threshold the label reads `Last seen (6d ago)`; past 28 days the stock claim
-  drops and the stand falls back to its usual offerings.
-- **The header states only the count and window** — `9 matching stands (1-3 of 9)` — and echoes no
-  search term, for a named request or a broad one alike (max, 2026-08-11). Two different requests
-  over the same facts render byte-identical pages, which is what removed the `broad` flag from the
-  render path: its only job was keeping code's placeholder ("produce") out of a page-2 header.
+  **name → claims → address**, `In stock (3h ago):` / `May also have:` — `May have:` with no stock
+  line above it — a bare `Map:` closing the last page, `Last seen (6d ago)` past the freshness
+  threshold, and the stock claim dropped entirely past 28 days. The header states only the count and
+  window (`9 matching stands (1-3 of 9)`) and echoes no search term, so a named and a broad request
+  over the same facts render byte-identical pages.
 - **`pending_result_lists.broad` is written and never read.** The one piece of data in the system
   with no consumer, kept deliberately — dropping it is a migration on live data for no behavioral
   gain. Revisit it whenever that table next needs a migration for another reason.
 - **Freshness threshold is 96 hours** and governs BOTH surfaces from one constant — the SMS label
   and the public map's stale warning (max, 2026-08-11). `PRODUCT_BRIEF` §freshness owns it.
+- The scheduled farmer reminder reads `Items listed for <stand> (updated 7d ago):` over the item
+  list, then `Reply SAME to confirm, or let us know what changed.` and the STOP footer (F-109). The
+  stamp comes from the shown revision's `published_at` through the same `renderShortElapsed` as the
+  SMS answer; a null date renders no recency claim. It names the RECORD, never the stand's current
+  stock — a present-tense heading beside a stale timestamp is B-063. `LINK` is offered only on the
+  over-ceiling fallback, where the farmer must retype a listing they cannot see.
+- **Reminder capacity: 7/4/3 items** inside the two-segment ceiling at F-046's 22–57 characters per
+  entry. Past it `scheduledPromptFitsSms` withdraws `SAME` and the farmer retypes. Re-measure before
+  adding any line to that message; the opt-out footer alone costs one item at the small-entry end.
+- **Four farm descriptions no longer restate their payment chips** (Holmestead, Lavender Hill,
+  Littlest Bird, Plum Forest — hand-edited in production 2026-08-12). 0 of 39 descriptions now
+  mention payment. Half the four disagreed with the chips by omission, which is why this was four
+  reviewed edits and not a parser. Lavender Hill still duplicates its own "Wreaths" sentence.
 - Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` was applied 2026-08-11 ahead of
   the image that reads it and verified by schema effect: `broad`, `stand_total`, and `stand_offset`
   present on `pending_result_lists`, with farm/stand/item counts (39/37/237) unchanged across it.
@@ -37,7 +47,7 @@
 
 ## Verification
 
-- `main`: **1,922 unit tests, 916 local integration tests**, typecheck, and lint pass (2026-08-11).
+- `main`: **1,926 unit tests, 916 local integration tests**, typecheck, and lint pass (2026-08-12).
   The web production build retains the tracked Next configuration/lint warnings (B-008).
 - Local integration tests need Postgres on `localhost` and are run with `npm run test:integration:local`.
   `psql` is not on the default PATH (`postgresql@16` lives under Homebrew's `opt`), so a bare
@@ -107,6 +117,9 @@
   search term, and a stand with no stock line says `May have`, not `May also have`.
 - **The 96-hour threshold changed the public map too**, not just SMS — its stale warning now starts
   two days later than before this deploy. Unverified by eye on the live map.
+- **F-109 owes one live check:** read a real scheduled reminder on a handset — the heading must name
+  the stand and carry `(updated Xd ago)` matching that listing's true age. No prompt has been sent
+  since the change, and the schedule fires at 10:00 stand-local, so this waits for a due slot.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
 - B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists
