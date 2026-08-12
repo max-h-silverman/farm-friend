@@ -716,7 +716,6 @@ async function deliverPage(
 
   const page = renderResultPage({
     itemsRequested: input.itemsRequested,
-    broad: input.broad,
     facts: firstPage,
     offset: 0,
     total: standCount,

@@ -345,7 +345,9 @@ describe("two voices — confirmed stock and typical offerings (F-045)", () => {
     // F-107 moved the distinction from section headings onto the lines themselves: a customer
     // must still be able to see where confirmation stops and description begins.
     expect(body).toMatch(/^In stock /m);
-    expect(body).toMatch(/^May also have: /m);
+    // "also" belongs only under a stock line in the SAME entry; these stands have none.
+    expect(body).toMatch(/^May have: /m);
+    expect(body).not.toMatch(/May also have/);
   });
 
   it("carries the address for both voices", () => {
@@ -648,7 +650,7 @@ describe("one entry per stand (F-107)", () => {
     expect(body).not.toMatch(/typical offering/i);
   });
 
-  it("gives a stand with no confirmation a May also have line and no timestamp", () => {
+  it("gives a stand with no confirmation a May have line and no timestamp", () => {
     const body = renderResultPage({
       itemsRequested: ["eggs"],
       facts: [sherman],
@@ -657,7 +659,7 @@ describe("one entry per stand (F-107)", () => {
       clock,
     }).body;
 
-    expect(body).toContain("May also have: eggs");
+    expect(body).toContain("May have: eggs");
     // Nobody confirmed it, so no elapsed phrase may appear anywhere in its entry.
     expect(body).not.toMatch(/ago\)/);
     expect(body).not.toMatch(/In stock/);
@@ -819,7 +821,7 @@ describe("entry layout — name, then claims, then address", () => {
     expect(rendered.join("\n").match(/\b[A-Z]{2,}\b/g)).toEqual(["MORE"]);
   });
 
-  it("renders a stand with no confirmation as May also have", () => {
+  it("renders a stand with no confirmation as May have", () => {
     const body = renderResultPage({
       itemsRequested: ["eggs"],
       facts: [{ ...stand, factId: "o9", basis: "offering", matchedItems: [{ itemName: "eggs" }] }],
@@ -827,19 +829,21 @@ describe("entry layout — name, then claims, then address", () => {
       total: 1,
       clock,
     }).body;
-    expect(body).toContain("May also have: eggs");
+    expect(body).toContain("May have: eggs");
     expect(body).not.toMatch(/ago/);
   });
 });
 
 /*
-  The header states the query, the count, and the window (max, 2026-08-11).
+  The header states the count and the window — nothing else (max, 2026-08-11).
 
-  What it replaces: "Here are matching stands (1-3 of 45):" — a phrase that says nothing, over
-  a count that a customer cannot connect to what they asked. The header now names the query
-  back to them, which is also the only confirmation they get that we understood it.
+  It named the query back first ("Eggs: 10 matching stands"). The customer just typed the
+  query, so echoing it spends characters on the one thing they already know, and it made the
+  header a claim about the list that B-049 and B-061 both got wrong. A bare count cannot be
+  false about any entry beneath it, and it reads identically for a named item and for "what do
+  you have" — so the broad path needs no separate subject line.
 */
-describe("the header names the query and the count", () => {
+describe("the header states the count and the window", () => {
   const eggStand = (n: number): PageableFact => ({
     factId: `c${n}`,
     farmName: `Farm ${n}`,
@@ -850,7 +854,7 @@ describe("the header names the query and the count", () => {
     basis: "confirmed",
   });
 
-  it("names a single requested item and the total", () => {
+  it("states the total and the window", () => {
     const body = renderResultPage({
       itemsRequested: ["eggs"],
       facts: [eggStand(1), eggStand(2), eggStand(3)],
@@ -858,10 +862,10 @@ describe("the header names the query and the count", () => {
       total: 10,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("Eggs: 10 matching stands (1-3 of 10)");
+    expect(body.split("\n")[0]).toBe("10 matching stands (1-3 of 10)");
   });
 
-  it("joins multiple requested items with a plus", () => {
+  it("never echoes the requested items, however many were named", () => {
     const body = renderResultPage({
       itemsRequested: ["eggs", "kale"],
       facts: [eggStand(1), eggStand(2), eggStand(3)],
@@ -869,7 +873,8 @@ describe("the header names the query and the count", () => {
       total: 6,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("Eggs + kale: 6 matching stands (1-3 of 6)");
+    expect(body.split("\n")[0]).toBe("6 matching stands (1-3 of 6)");
+    expect(body).not.toMatch(/eggs \+ kale/i);
   });
 
   it("says stand, singular, for exactly one", () => {
@@ -880,7 +885,7 @@ describe("the header names the query and the count", () => {
       total: 1,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("Nigella: 1 matching stand");
+    expect(body.split("\n")[0]).toBe("1 matching stand");
     // A range of one over a total of one is noise.
     expect(body).not.toMatch(/\(1-1 of 1\)/);
   });
@@ -893,7 +898,7 @@ describe("the header names the query and the count", () => {
       total: 2,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("Eggs: 2 matching stands");
+    expect(body.split("\n")[0]).toBe("2 matching stands");
   });
 
   it("counts the window from the page's true offset", () => {
@@ -904,12 +909,10 @@ describe("the header names the query and the count", () => {
       total: 10,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("Eggs: 10 matching stands (4-6 of 10)");
+    expect(body.split("\n")[0]).toBe("10 matching stands (4-6 of 10)");
   });
 
-  it("drops the query from the header when there is no term to show", () => {
-    // The renderer states what it can prove. With nothing requested there is no subject, and
-    // inventing one ("Produce:") would put a word in the customer's mouth.
+  it("reads the same with no requested term at all", () => {
     const body = renderResultPage({
       itemsRequested: [],
       facts: [eggStand(1)],
@@ -952,7 +955,7 @@ describe("the header names the query and the count", () => {
       total: grouped.standCount,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("Eggs: 1 matching stand");
+    expect(body.split("\n")[0]).toBe("1 matching stand");
     // The two facts printed one entry, so there is nothing further to page to.
     expect(body).not.toMatch(/MORE/);
   });
@@ -1054,7 +1057,8 @@ describe("a stale confirmation stops claiming present stock (B-063)", () => {
       clock,
     }).body;
     expect(body).toContain("Twisting Tree Farm");
-    expect(body).toContain("May also have: Zucchini, Carrots");
+    // The expired confirmation is gone, so nothing remains for "also" to be additional to.
+    expect(body).toContain("May have: Zucchini, Carrots");
     expect(body).not.toMatch(/In stock|Last seen/);
   });
 
@@ -1209,8 +1213,9 @@ describe("stand-level paging arithmetic", () => {
   General inventory questions have no search term (B-061 defect 4's path).
 
   "what do you have" is answered by code rather than by the model, and the header has to say
-  something true about a question that named nothing. "Produce: 45 matching stands" would be
-  putting our own placeholder word in the customer's mouth.
+  something true about a question that named nothing. A bare count already does, so this path
+  gets no special subject line — and the placeholder word code substitutes into
+  `itemsRequested` ("produce") can no longer reach the customer, because nothing echoes it.
 */
 describe("the general inventory header", () => {
   const stand = (n: number): PageableFact => ({
@@ -1223,42 +1228,32 @@ describe("the general inventory header", () => {
     basis: "confirmed",
   });
 
-  it("says what it is showing rather than naming a search term", () => {
+  it("counts stands rather than naming a search term", () => {
     const body = renderResultPage({
       itemsRequested: ["produce"],
-      broad: true,
       facts: [stand(1), stand(2), stand(3)],
       offset: 0,
       total: 45,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("Recently reported inventory (1-3 of 45)");
+    expect(body.split("\n")[0]).toBe("45 matching stands (1-3 of 45)");
     // The placeholder the code path substitutes must never surface as the customer's word.
-    expect(body).not.toMatch(/^Produce:/m);
+    expect(body).not.toMatch(/produce/i);
   });
 
-  it("keeps the window across later pages", () => {
-    const body = renderResultPage({
-      itemsRequested: ["produce"],
-      broad: true,
-      facts: [stand(4), stand(5), stand(6)],
-      offset: 3,
-      total: 45,
-      clock,
-    }).body;
-    expect(body.split("\n")[0]).toBe("Recently reported inventory (4-6 of 45)");
-  });
-
-  it("states no window when everything fits", () => {
-    const body = renderResultPage({
-      itemsRequested: ["produce"],
-      broad: true,
-      facts: [stand(1)],
-      offset: 0,
-      total: 1,
-      clock,
-    }).body;
-    expect(body.split("\n")[0]).toBe("Recently reported inventory");
+  it("renders the same page whatever was requested, placeholder or real term", () => {
+    // The `broad` flag existed to keep the placeholder out of the header. With no echo, a
+    // general request and a named one produce byte-identical pages, so the flag has no
+    // rendering job left and the placeholder cannot leak by any path.
+    const page = (itemsRequested: string[]) =>
+      renderResultPage({
+        itemsRequested,
+        facts: [stand(1), stand(2)],
+        offset: 0,
+        total: 9,
+        clock,
+      }).body;
+    expect(page(["produce"])).toBe(page(["eggs", "kale"]));
   });
 });
 
@@ -1405,7 +1400,31 @@ describe("an item never appears under both claims for one stand", () => {
       total: 1,
       clock,
     }).body;
-    expect(body).toContain("May also have: eggs");
+    expect(body).toContain("May have: eggs");
     expect(body).not.toMatch(/In stock/);
+  });
+
+  it("uses May also have only in the entry that carries a stock line", () => {
+    const confirmed = { ...base, factId: "c1", matchedItems: [{ itemName: "eggs" }] };
+    const body = renderResultPage({
+      itemsRequested: ["eggs"],
+      facts: [
+        confirmed,
+        { ...base, factId: "o1", basis: "offering", matchedItems: [{ itemName: "kale" }] },
+        {
+          ...base,
+          factId: "o2",
+          locationName: "Other Stand",
+          basis: "offering",
+          matchedItems: [{ itemName: "eggs" }],
+        },
+      ],
+      offset: 0,
+      total: 2,
+      clock,
+    }).body;
+    // One entry has a confirmation above its offering line; the other has nothing above it.
+    expect(body).toMatch(/^May also have: kale$/m);
+    expect(body).toMatch(/^May have: eggs$/m);
   });
 });

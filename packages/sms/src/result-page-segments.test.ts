@@ -157,25 +157,29 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
     expect(page.body).not.toMatch(/98070|\bWA\b/);
   });
 
-  it("holds with the longest header a real query can produce", () => {
-    // The header now names the query back to the customer, so it grows with the request. A
-    // multi-item question over a large corpus is its worst case, and it lands on the same
-    // page as three both-claim stands — the two most expensive things in one message.
-    const page = renderResultPage({
-      itemsRequested: ["leafy greens", "winter squash"],
-      facts: Array.from({ length: PAGE_SIZE }, (_, i) =>
-        bothClaims.map((fact) => ({
-          ...fact,
-          factId: `${fact.factId}-${i}`,
-          locationName: `${fact.locationName} ${i}`,
-          farmName: `${fact.farmName} ${i}`,
-        })),
-      ).flat(),
-      offset: 0,
-      total: 45,
-      clock,
-    });
-    expect(page.body).toContain("Leafy greens + winter squash: 45 matching stands");
+  it("keeps the header a fixed cost, whatever was asked", () => {
+    // The header used to name the query back, so a multi-item question grew it without bound
+    // and the worst case had to be budgeted for. It states a count now, so its length varies
+    // only with the digits in the total — and a long request costs the page nothing.
+    const render = (itemsRequested: string[]) =>
+      renderResultPage({
+        itemsRequested,
+        facts: Array.from({ length: PAGE_SIZE }, (_, i) =>
+          bothClaims.map((fact) => ({
+            ...fact,
+            factId: `${fact.factId}-${i}`,
+            locationName: `${fact.locationName} ${i}`,
+            farmName: `${fact.farmName} ${i}`,
+          })),
+        ).flat(),
+        offset: 0,
+        total: 45,
+        clock,
+      });
+
+    const page = render(["leafy greens", "winter squash"]);
+    expect(page.body.split("\n")[0]).toBe("45 matching stands (1-3 of 45)");
+    expect(page.body).toBe(render(["eggs"]).body);
     expect(estimateSmsSegments(page.body).segmentCount).toBeLessThanOrEqual(3);
   });
 

@@ -316,11 +316,10 @@ describe("SMS result paging end to end (integration)", () => {
     if (answer.outcome !== "answered") return;
     expect(answer.body).toMatch(/1-3 of 9/);
     expect(answer.body).toMatch(/reply MORE/i);
-    // A general question named no item, so the header describes the LIST rather than naming a
-    // search term. "produce" is code's own placeholder for driving retrieval and must never be
-    // shown to the customer as though they had typed it.
-    expect(answer.body.split("\n")[0]).toBe("Recently reported inventory (1-3 of 9)");
-    expect(answer.body).not.toMatch(/Produce:/i);
+    // The header counts stands and names nothing. "produce" is code's own placeholder for
+    // driving retrieval, and nothing echoes the request back, so it cannot reach the customer.
+    expect(answer.body.split("\n")[0]).toBe("9 matching stands (1-3 of 9)");
+    expect(answer.body).not.toMatch(/produce/i);
 
     const selection = seen.find((ctx) => ctx.seam === "grounded-fact-selection");
     expect((selection!.fields as { facts: unknown[] }).facts).toHaveLength(PAGE_SIZE);
@@ -331,19 +330,17 @@ describe("SMS result paging end to end (integration)", () => {
     `;
     expect(rows).toHaveLength(1);
     expect(rows[0]?.fact_ids).toHaveLength(9);
-    // Persisted, because page 2 cannot re-derive it: the saved list holds `itemsRequested`,
-    // and reading the placeholder out of it would print "Produce:" on the second message of
-    // the same answer.
+    // Still recorded on the saved list, but no longer read by any renderer — the header stopped
+    // echoing the request, so nothing downstream branches on it.
     expect(rows[0]?.broad).toBe(true);
     expect(rows[0]?.stand_total).toBe(9);
 
     const next = await more(customerHash, at(1));
     expect(next.status).toBe("paged");
     expect(next.body).toMatch(/4-6 of 9/);
-    // THE POINT: page 2 heads the same way page 1 did. A MORE that lost the flag would open
-    // "Produce: 9 matching stands (4-6 of 9)" — a different answer to the same question.
-    expect(next.body.split("\n")[0]).toBe("Recently reported inventory (4-6 of 9)");
-    expect(next.body).not.toMatch(/Produce:/i);
+    // THE POINT: page 2 heads the same way page 1 did — same count, advanced window.
+    expect(next.body.split("\n")[0]).toBe("9 matching stands (4-6 of 9)");
+    expect(next.body).not.toMatch(/produce/i);
   });
 
   /**

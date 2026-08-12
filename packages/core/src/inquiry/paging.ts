@@ -75,53 +75,29 @@ function renderAddress(fact: PageableFact): string {
   return address === "" ? "address not listed" : address;
 }
 
-/** What the header says when there is nothing to show. */
-const GENERAL_INVENTORY_SUBJECT = "Recently reported inventory";
-
 /**
- * The header: what was asked, how many stands answer it, and which of them this page holds.
+ * The header: how many stands answer, and which of them this page holds.
  *
- * Replaces "Here are matching stands:" (max, 2026-08-11), which was read on a handset and
- * says nothing — it neither confirms what we understood nor connects the count to the
- * question. Naming the query back to the customer is the only acknowledgement they get that
- * we read it correctly, and it is free: the words are already in hand.
+ * It named the query back first — "Eggs: 10 matching stands" (max, 2026-08-11). The customer
+ * typed the query moments ago, so the echo spends characters on the one thing they already
+ * know, and it made the header a claim ABOUT the entries beneath it, which is the shape
+ * B-049 and B-061 both got wrong. A bare count cannot be false about any entry, and it reads
+ * the same for a named item and for "what do you have" — so the broad path needs no separate
+ * subject line, and the placeholder word code substitutes for such a request ("produce") can
+ * no longer surface as though the customer had typed it.
  *
- * `count` is the number of STANDS, never the number of retrieved facts. One stand can be
+ * `total` is the number of STANDS, never the number of retrieved facts. One stand can be
  * retrieved on both bases and merge into a single entry, so a fact count would over-state
  * what the customer is being offered (B-062).
- *
- * A general availability request has no term to name, so it gets a subject describing what
- * the list IS. The placeholder item code substitutes for such a request must never surface as
- * though the customer had typed it.
  */
-function renderHeader(input: {
-  itemsRequested: string[];
-  broad: boolean;
-  shown: number;
-  offset: number;
-  total: number;
-}): string {
-  const { broad, shown, offset, total } = input;
+function renderHeader(input: { shown: number; offset: number; total: number }): string {
+  const { shown, offset, total } = input;
   // Stated only when this page is a window onto something larger. On a single-page answer the
   // range is a restatement of the count, and the count is already right there.
   const window =
     shown < total || offset > 0 ? ` (${offset + 1}-${offset + shown} of ${total})` : "";
 
-  if (broad) return `${GENERAL_INVENTORY_SUBJECT}${window}`;
-
-  const count = `${total} matching stand${total === 1 ? "" : "s"}`;
-  const items = input.itemsRequested
-    .map((item) => item.trim())
-    .filter((item) => item !== "");
-  // Nothing to name — say what is true and no more, rather than inventing a subject.
-  if (items.length === 0) return `${count}${window}`;
-
-  // Sentence case on the customer's own words: they arrive lowercase from interpretation, and
-  // a header that opens mid-sentence reads as a fragment. Only the first word is touched —
-  // "Eggs + kale", never "Eggs + Kale", because the rest are the same words they typed.
-  const subject = items.join(" + ");
-  const titled = subject.charAt(0).toUpperCase() + subject.slice(1);
-  return `${titled}: ${count}${window}`;
+  return `${total} matching stand${total === 1 ? "" : "s"}${window}`;
 }
 
 
@@ -264,18 +240,13 @@ export function factsPerPage(facts: readonly PageableFact[], standsPerPage: numb
  * confirmation, a "May also have" line for what it typically carries, then its street address.
  * A stand with a confirmation outranks one without. An offering carries no timestamp, because
  * nobody confirmed it (F-045's two voices).
+ *
+ * `itemsRequested` no longer reaches the header, which states only a count. It survives for
+ * the empty-retrieval reply, which does name what was asked for — "no current listing for
+ * eggs" is the one place the customer's own term still earns its characters.
  */
 export function renderResultPage(input: {
   itemsRequested: string[];
-  /**
-   * A general availability request ("what do you have"), which named no item.
-   *
-   * It changes the header only — there is no search term to state, so the page says what the
-   * list IS instead. Carried in rather than inferred from `itemsRequested`, because the
-   * placeholder code substitutes for such a request is an ordinary word a customer could also
-   * type as a real search.
-   */
-  broad?: boolean;
   facts: PageableFact[];
   offset: number;
   total: number;
@@ -298,15 +269,7 @@ export function renderResultPage(input: {
   // facts behind them promised more than existed (B-062).
   const hasMore = offset + ordered.length < total;
 
-  lines.push(
-    renderHeader({
-      itemsRequested: input.itemsRequested,
-      broad: input.broad === true,
-      shown: ordered.length,
-      offset,
-      total,
-    }),
-  );
+  lines.push(renderHeader({ shown: ordered.length, offset, total }));
 
   for (const entry of ordered) {
     lines.push("");
@@ -349,7 +312,11 @@ export function renderResultPage(input: {
         .map(renderItem)
         .join(", ");
       // Only when something survives: a label over nothing is worse than no label.
-      if (items !== "") lines.push(`May also have: ${items}`);
+      //
+      // "also" is relative to a line above it. With no confirmation in this entry there is
+      // nothing to be additional TO, so the entry says "May have" (max, 2026-08-11).
+      const label = entry.confirmed === undefined ? "May have" : "May also have";
+      if (items !== "") lines.push(`${label}: ${items}`);
     }
 
     lines.push(entry.address);

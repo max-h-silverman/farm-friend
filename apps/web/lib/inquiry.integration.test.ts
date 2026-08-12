@@ -340,7 +340,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // The offerings voice announces itself as a standing description rather than a
     // confirmation. F-107 says it as a "MAY HAVE:" line on the stand's own entry; what
     // matters is that the customer is told which voice this is, not the particular phrasing.
-    expect(result.body).toMatch(/^May also have: /m);
+    // Nothing was confirmed here, so the line has nothing to be additional to: "May have".
+    expect(result.body).toMatch(/^May have: /m);
     expect(result.body).not.toMatch(/^In stock/m);
     // No confirmation happened, so no elapsed phrase may appear anywhere in the answer.
     expect(result.body).not.toMatch(/ago\)/);

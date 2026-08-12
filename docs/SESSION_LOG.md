@@ -11,6 +11,48 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-11 (later) — Two copy edits that each deleted a concept
+
+**Committed to `main` and deployed.** No PR: max chose to commit directly. Both changes are
+render-layer only — no schema, no migration, no model seam.
+
+Two small wording corrections from reading the reply, and each turned out to remove machinery
+rather than add a special case. That is the pattern worth keeping: a copy fix that makes the code
+*smaller* is usually the copy fix that was actually correct.
+
+**"May also have" → "May have" when there is nothing above it.** The offerings line said "also"
+unconditionally, including on entries with no `In stock` line — where there is nothing for it to be
+additional to. The label is now chosen from whether the same entry rendered a confirmation. A stale
+confirmation (`Last seen`) still counts as a line above, so it keeps "also"; an *expired* one is
+dropped before rendering, so those entries correctly fall to "May have".
+
+**The header stopped naming the query.** It read "Eggs: 10 matching stands (1-3 of 10)"; it now
+reads "10 matching stands (1-3 of 10)". The echo spent characters on the one thing the customer
+already knows — they typed it moments ago — and it made the header a *claim about the entries
+beneath it*, which is precisely the shape B-049 and B-061 were, twice. A bare count cannot be false
+about any entry under it.
+
+**That deleted the `broad` render path.** The flag existed for exactly one reason, recorded in the
+entry below: page 2 couldn't re-derive whether the question was general, so a later page reading
+`itemsRequested` alone would print code's placeholder ("Produce:") where page 1 said "Recently
+reported inventory". With no echo, a general request and a named one now produce **byte-identical**
+pages, so the placeholder cannot leak by any path and the flag has no rendering job. `broad` is gone
+from `renderResultPage` and both call sites.
+
+The **column** stays on `pending_result_lists`, deliberately: dropping it is a migration on live
+data for no behavioral gain. It is now written and never read — flagged in CURRENT_STATE as the
+one piece of data with no consumer, which is normally a defect and here is a deliberate deferral.
+
+The header is also now a *fixed* cost — its length varies only with the digits in the total. The SMS
+segment-ceiling suite had a test budgeting for "the longest header a real query can produce"; that
+worst case no longer exists, and the test now pins the invariant instead: two different requests
+must render byte-identical pages.
+
+**Both fixes were sabotage-checked**, per the verification discipline — the label test caught a
+forced-constant label, and nine tests caught a reintroduced `Eggs:` prefix.
+
+---
+
 ## 2026-08-11 — One handset reply closed two items and opened three
 
 **Merged and deployed.** PR #107 (`fb6762f`); migration `0040` applied to Neon ahead of the image and

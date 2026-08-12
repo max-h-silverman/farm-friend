@@ -113,10 +113,6 @@ export async function handleNextPage(
 
     const page = renderResultPage({
       itemsRequested: claimed.itemsRequested,
-      // Carried from the saved list so page 2 heads the same way page 1 did. A general
-      // availability question named no item, and a later page reading `itemsRequested` alone
-      // would print code's placeholder word as though the customer had typed it.
-      broad: claimed.broad,
       facts,
       offset: claimed.offset,
       total: claimed.total,

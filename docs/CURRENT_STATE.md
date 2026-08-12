@@ -12,10 +12,17 @@
   built from `main` `fb6762f` and deployed 2026-08-11. Plan assertions 60/60; deploy and
   served-card assertions pass. The serving digest was read back and matches the build.
 - The SMS answer is the one B-062/B-063 rebuilt (PR #107): one entry per stand,
-  **name → claims → address**, `In stock (3h ago):` / `May also have:` in sentence case, a header
-  naming the query and counting **stands**, and a bare `Map:` closing the last page. Past the
-  freshness threshold the label reads `Last seen (6d ago)`; past 28 days the stock claim drops and
-  the stand falls back to its usual offerings.
+  **name → claims → address**, `In stock (3h ago):` / `May also have:` in sentence case — `May
+  have:` when the entry carries no stock line above it — and a bare `Map:` closing the last page.
+  Past the freshness threshold the label reads `Last seen (6d ago)`; past 28 days the stock claim
+  drops and the stand falls back to its usual offerings.
+- **The header states only the count and window** — `9 matching stands (1-3 of 9)` — and echoes no
+  search term, for a named request or a broad one alike (max, 2026-08-11). Two different requests
+  over the same facts render byte-identical pages, which is what removed the `broad` flag from the
+  render path: its only job was keeping code's placeholder ("produce") out of a page-2 header.
+- **`pending_result_lists.broad` is written and never read.** The one piece of data in the system
+  with no consumer, kept deliberately — dropping it is a migration on live data for no behavioral
+  gain. Revisit it whenever that table next needs a migration for another reason.
 - **Freshness threshold is 96 hours** and governs BOTH surfaces from one constant — the SMS label
   and the public map's stale warning (max, 2026-08-11). `PRODUCT_BRIEF` §freshness owns it.
 - Neon `neondb` has **41 applied migrations (`0000`–`0040`)**. `0040` was applied 2026-08-11 ahead of
@@ -95,7 +102,8 @@
 - **B-062 and B-063 owe one live check:** text a question whose answer includes a stand confirmed
   more than four days ago, and read the label — it must say `Last seen`, and the header must count
   stands. Both are deployed but unread on a handset, which is exactly how the defects they fix got
-  through in the first place.
+  through in the first place. The same read confirms this session's copy: the header names no
+  search term, and a stand with no stock line says `May have`, not `May also have`.
 - **The 96-hour threshold changed the public map too**, not just SMS — its stale warning now starts
   two days later than before this deploy. Unverified by eye on the live map.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
