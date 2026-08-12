@@ -46,6 +46,12 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   output; run the **swap test**; run evals **and `npm run evals:live`**. Give the seam an entry in
   `SEAM_OUTPUT_SHAPES` (its examples are parsed through the real schema, so they cannot drift). **To
   add a seam or a program, or swap a provider, follow RUNBOOK.md "how to extend."**
+- **An instruction (prompt) edit:** measure the FAMILY across repeated runs before and after, never one
+  phrasing once. B-061 spent three edits each moving *which* phrasings passed while regressing others,
+  because a single green run cannot tell a fix from a coin flip. The decisive test is cheap: write the
+  failing phrase into the instruction verbatim and re-measure — if it still fails, the behavior is not
+  reachable by prose and the lever is **code**. Hold instruction-immune properties in the harness, not
+  the prompt; anything a customer must be able to rely on has to survive a model swap.
 - **A new query/list:** after any approved semantic interpretation, run retrieval in code before
   grounded fact selection; label recency; carry stable fact identifiers; accept only selected IDs from
   the retrieved set; render factual text in code.

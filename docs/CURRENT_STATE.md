@@ -7,38 +7,47 @@
 
 - Farm Friend is **pre-go-live**. Production serves SMS stock-out reporting, broad-inquiry paging
   and stand details. F-104's customer→farmer alert path is closed and proven on a real handset.
-- Cloud Run web `farm-friend-web-00066-kq4` and worker `farm-friend-worker-00061-zpd` serve immutable
-  digest `sha256:5a84dd8fbf95259abacdb2d69543913c7b8530448a786f47d9975a13bb8004b2`, built from `main`
-  `067b1c6` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
-  Verified by effect on the live `/api/public/stands`: 35 stands served.
+- Cloud Run web `farm-friend-web-00067-mlf` and worker `farm-friend-worker-00062-qlw` serve immutable
+  digest `sha256:47cc0e3fe54599a178e5b24358d3938f0643b91b82e266dc1bcc29b242d6b1a0`, built from `main`
+  `99db95d` and deployed 2026-08-11. Plan assertions 60/60; deploy and served-card assertions pass.
+  The serving digest was read back and matches the build.
 - Neon `neondb` has **40 applied migrations (`0000`–`0039`)**. `0039` was applied 2026-08-11 ahead of
   the image that reads it and verified by schema effect: `referenced_stand_item_id` present and
   nullable, both new constraints present, and farm/stand/item/report counts unchanged across it.
 - **B-057 is live but unproven on the live path.** A stock-out alert can now name one of the stand's
   usual offerings, not only its published inventory. No production report has named one yet — that
   needs a real inbound text, and it is what closes the item.
-- **The SMS answer format changed on `main` and is NOT deployed** (F-107). One entry per stand —
-  name, street address, `IN STOCK (3h ago): …`, `MAYBE: …` — replacing the old "Confirmed <item>:"
-  / "typical offering" sections, and no "may be out of date" phrase (the age carries it; the map
-  keeps its explicit warning). Locally verified only; the deployed revision above still serves the
-  old format, so **the next deploy changes what every customer reads.**
+- **The SMS answer format is now LIVE** (F-107, deployed 2026-08-11 with the revisions above). One
+  entry per stand — name, street address, `IN STOCK (3h ago): …`, `MAYBE: …` — replacing the old
+  "Confirmed <item>:" / "typical offering" sections, and no "may be out of date" phrase (the age
+  carries it; the map keeps its explicit warning). **What every customer reads changed with this
+  deploy, and no one has read it on a handset yet** — that live check is still owed.
+- **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
+  page means nothing on its own: the local suites are the only gate before a merge.
 
 ## Verification
 
-- `main`: 1,850 unit tests, **911** local integration tests, typecheck, and lint pass (2026-08-11).
+- `main`: 1,877 unit tests, **913** local integration tests, typecheck, and lint pass (2026-08-11).
   The web production build retains the tracked Next configuration/lint warnings (B-008).
+- Local integration tests need Postgres on `localhost` and are run with `npm run test:integration:local`.
+  `psql` is not on the default PATH (`postgresql@16` lives under Homebrew's `opt`), so a bare
+  `psql`/`pg_isready` reports "command not found" — that is **not** evidence the database is absent.
 - Stub evals pass critical 11/11, advisory 4/4, adversarial 29/29. The real DeepInfra model scores
   containment 5/5, closure 7/7, recall 5/5, quality **19/20** (2026-08-11). Note the per-category
   counts exceed the fixture count — several fixtures score multiple cases. B-057 added one quality
   fixture, proving the stock-out seam picks a usual offering out of a mixed candidate list; it passed
   7/7 runs.
-- **One live-quality fixture is deliberately RED**: "reads a broad availability question however it is
-  worded" (B-061 defect 4). "what do you have", "what's for sale", "what can I buy" classify as
-  `ambiguous` and get a clarification instead of an answer. Three instruction edits each moved which
-  phrasings passed without fixing the family, and the widest regressed cases that previously worked,
-  so the instruction was reverted and the fixture kept red as the record. `live-quality` is
-  observational rather than gating, so it reports without blocking. **Do not close it by trimming the
-  fixture to passing cases — the failing phrasings are the finding.**
+- **Broad availability questions are answered by CODE, not by the prompt** (B-061 defect 4, closed
+  2026-08-11). The model classifies "what do you have" as `ambiguous` **even when that exact phrase is
+  written into the instruction as never-ambiguous** — measured 10 runs out of 10, and 0/7 across the
+  family in the deploy-day live run. `isBroadAvailabilityRequest`
+  (`packages/core/src/inquiry/broad-request.ts`) overrides `ambiguous` toward answering when a message
+  has shopping grammar and names no product; measured 27/27 end to end where the model alone was 5/21.
+  The live fixture now scores "N model + M code" so a regression in the check surfaces as an unrescued
+  case instead of hiding behind the model's score. **Do not "fix" that fixture by trimming it to the
+  cases the model passes — the failing phrasings are what the code check exists for.**
+  The check holds **no food or farm vocabulary** and a test asserts that against its own source; a miss
+  is closed by extending the grammar, never by adding a crop word.
 - **Live evals are nondeterministic** in two distinct ways, and both must be held apart. Roughly one
   run in three shows a provider error, labelled `[provider error, not a verdict — rerun]` and scored
   as a FAILURE on purpose: the seam returns the same `clarification` shape for "unreachable model"
@@ -63,7 +72,8 @@
   verified handset redemption before publication.
 - `visitability` controls the map invitation. A contact-only farm may be placed, but gets no directions link.
 - Broad availability inquiries expose only the first three selection candidates to the model; code keeps the
-  validated remainder in deterministic order for `MORE`.
+  validated remainder in deterministic order for `MORE`. A broad request is recognized by **code** when the
+  model calls it ambiguous, so the customer is answered whichever model is installed.
 
 ## Open before go-live
 
@@ -80,13 +90,10 @@
   proven only by test.
 - B-058: one B-056 live fixture returns wrong verdicts in ~2 of 7 runs — fix or make it score
   `correct/total`, but do not loosen it until it always passes.
-- **B-061 (high): three of four customer-answer defects fixed, defect 4 open.** Found by running 46
-  plausible questions through the real pipeline against the live corpus. Fixed: the section heading
-  claiming an item stands did not carry (superseded entirely by F-107); a malformed selection
-  discarding a good retrieval; and "nobody sells shrimp" answered as "I did not catch that". Open:
-  broad availability questions read as ambiguous — see the red live fixture under Verification.
-- **F-107 (in review): the SMS answer format above.** Locally verified, not deployed. Its live check
-  is the same one every SMS change owes — send a real question and read the reply on a handset.
+- **B-061 and F-107 are deployed and owe the same one live check:** send a real question from a
+  handset and read the reply. That single text exercises the new one-entry-per-stand format **and**
+  a broad question ("what do you have"), which now answers instead of asking the customer to rephrase.
+  All four B-061 defects are fixed; the item stays open only for this check.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
 - B-059, B-060: B-057's follow-ups — measure the seam against the corpus's genuinely awkward lists

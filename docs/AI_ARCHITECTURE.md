@@ -205,6 +205,16 @@ flag:
   **boolean**, or a bare "ambiguous → ask" signal. **Never privileges one reading** of a multi-item
   request, and is not restricted to a fixed strategy enum. Launch does not resolve an arbitrary SMS
   origin.
+
+  The `ambiguous` signal is **advisory, and code may override it toward answering** (B-061). A message
+  with shopping grammar that names no product — "what do you have", "what's for sale" — is read as a
+  broad request by `isBroadAvailabilityRequest` in core, whatever the model said. This is the trust
+  contract working as designed rather than an exception to it: asking what there is to buy is the
+  product's central question, so answering it must survive a model swap. Measured, the installed model
+  returns `ambiguous` for that phrase **even when the phrase itself is written into the instruction as
+  never-ambiguous** — a property no amount of prompt wording made reliable. The override runs one way
+  only: it can turn an ask into an answer, never an answer into an ask, and it holds no food or farm
+  vocabulary (it matches grammar, and a leftover content word means the customer named a target).
 - **grounded fact selection** — select and order identifiers from the **retrieved facts only**, and
   say **which of each selected fact's own item names answered the request** (F-107). Code
   validates membership and renders the authoritative, recency-labeled answer; empty retrieval → a

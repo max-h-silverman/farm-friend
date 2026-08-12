@@ -11,6 +11,57 @@ mid-session defeats its own purpose.
 
 ---
 
+## 2026-08-11 — B-061 defect 4: the prompt could not reach it, so the harness took it
+
+**Merged and deployed.** `99db95d` (PR #106); web `00067-mlf`, worker `00062-qlw`. This deploy also
+carried F-107's answer-format rewrite and B-061 defects 1–3, which had been sitting on `main`
+undeployed — max approved shipping them together.
+
+**The previous session left one instruction: find out whether this is reachable by prose at all
+before editing more prose.** It is not, and the test that settled it was cheap. Write the failing
+phrase into the instruction *verbatim* — "what do you have ... ALL broad lookups, never ambiguous" —
+and measure again. The model still returned `ambiguous` **10 runs out of 10**. A variant enumerating
+every failing phrasing lifted the rest of the family (5/21 → 15/21) but never moved that one.
+
+Baseline on unmodified `main` measured **5/21**, worse than the record claimed: "anything good
+today?" also fails, so it was never the stable pass the last entry recorded. Measuring the family
+across repeated runs is what showed that; a single run cannot separate a fix from a coin flip.
+
+**So the property moved into the harness.** `isBroadAvailabilityRequest` overrides the `ambiguous`
+signal toward answering when a message has shopping grammar and names no product. Three design
+constraints, each load-bearing:
+
+- **No food or farm vocabulary**, asserted against the file's own source, so the tempting fix —
+  adding a crop word to close a miss — fails a test.
+- **Decides by residue.** Strip the interrogative, the commerce verb, and pure filler; if any content
+  word survives, the customer named a target and it stays on the model's semantic path. An unknown
+  crop is treated as a named target *because* it is unknown — which is why no vocabulary is needed.
+- **One direction only.** It can turn an ask into an answer, never the reverse, and only over
+  `ambiguous`. A model that produced a lookup keeps its own interpretation.
+
+Measured end to end: **27/27** on the family that was 5/21, greetings still ambiguous, named items
+still narrow. In the deploy-day live run the model scored **0/7** on this family and code rescued all
+seven — an instruction-based fix would have shipped as an intermittent customer-facing defect.
+
+**Deliberately declined:** "whats at the farm stands" is a real broad request the check does not
+read, because reading it needs "farm"/"stand" as filler — domain vocabulary this must not hold. The
+model gets it right today, and the override only adds answers, so declining costs nothing. Pinned by
+a test as a stated limit rather than left as a silent miss.
+
+**Two process failures worth keeping.** First: I reported the integration fixtures as unrunnable
+("no local Postgres") on the strength of `psql: command not found`. Postgres was running the whole
+time — `postgresql@16` just isn't on the default PATH. A negative from one lookup is not proof of
+absence. Second, and worse: when those fixtures finally ran, the new one **failed** — the stub
+returned an empty selection, so the answer rendered "no current listing" and the assertion was never
+reached. For the span between the two commits, the wiring I had reported as "covered by those
+fixtures alone" was covered by nothing. Forcing the override off now fails a test; before, it left
+all 27 unit tests green.
+
+**No CI exists in this repo.** No workflow files, and `gh pr checks` reports none. The local suites
+are the entire gate — a clean PR page means nothing on its own. Recorded in CURRENT_STATE.md.
+
+---
+
 ## 2026-08-11 — Probing the live corpus: four answer defects, then rebuilding the answer
 
 **Merged, not deployed.** Squashed to `main` as `cc7cb73` (PR #105); production still serves the
