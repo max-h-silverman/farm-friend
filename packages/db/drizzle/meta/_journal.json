@@ -288,6 +288,13 @@
       "when": 1788150406000,
       "tag": "0040_paged_answer_stand_counts",
       "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1786564100379,
+      "tag": "0041_pending_stock_out_reports",
+      "breakpoints": true
     }
   ]
 }

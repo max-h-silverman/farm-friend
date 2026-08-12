@@ -16,6 +16,7 @@ export * from "./inquiry/broad-request";
 export * from "./inquiry/retrieval";
 export * from "./inquiry/answer";
 export * from "./inquiry/paging";
+export * from "./inquiry/stand-name-match";
 export * from "./public/throttle";
 export * from "./public/proximity";
 export * from "./public/daylight";
