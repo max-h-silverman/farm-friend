@@ -75,6 +75,8 @@ const expectedTables = [
   "outbox_work",
   // F-046 — the pending result list `MORE` pages through.
   "pending_result_lists",
+  // B-065 — the stock-out report held between a clarifying question and its answer.
+  "pending_stock_out_reports",
   "provider_inbox_events",
   "sales_location_offerings",
   "sales_location_participants",

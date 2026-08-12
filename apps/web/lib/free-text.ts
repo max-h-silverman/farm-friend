@@ -1,4 +1,5 @@
 import {
+  isFuzzyNameMatch,
   renderClarificationRequest,
   type Clock,
   type InventoryInterpreter,
@@ -10,9 +11,12 @@ import type {
   StockOutModel,
 } from "@farm-friend/ai";
 import {
+  clearPendingStockOutReport,
   hasLiveFarmerAuthorization,
   isPrivilegedSender,
+  readPendingStockOutReport,
   resolveFarmerTarget,
+  savePendingStockOutReport,
   type Db,
 } from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
@@ -56,8 +60,13 @@ export interface FreeTextDeps {
  *
  * Code-rendered and deliberately plain. A customer has no farm affiliation, so there is
  * nothing to infer from and nobody to disambiguate against — the honest move is to ask
- * (max, 2026-08-10). Answering it is an ordinary next message, which arrives here with the
- * stand named and resolves deterministically.
+ * (max, 2026-08-10).
+ *
+ * The answer is held against the sender until it arrives (B-065). This once read "answering
+ * it is an ordinary next message, which arrives here with the stand named and resolves
+ * deterministically" — which was false, and the defect: a bare stand name carries no item, so
+ * it classified as a question and the report was dropped after the customer answered
+ * correctly.
  */
 export const STOCK_OUT_STAND_QUESTION =
   "Thanks for letting us know. Which stand are you at?";
@@ -170,8 +179,12 @@ async function handleCustomerInquiry(
  * **Code matches; the model never names a stand.** This is Golden Rule #1 at the door: a
  * customer's report must not be able to land on a farmer they did not identify, and a model
  * that could choose a location could route a stranger's report at any farm on the island.
- * So the match runs in SQL against real rows, and it is exact-substring — not fuzzy, not
- * ranked, not "closest". A near-miss is an ambiguity to ask about, never a guess to act on.
+ * So the match runs against real rows, in code.
+ *
+ * **A cold message is matched exactly** — not fuzzily, not ranked, not "closest". A near-miss
+ * is an ambiguity to ask about, never a guess to act on (max, 2026-08-11). The one exception
+ * is an open clarification, where Farm Friend has already asked which stand and the reply is
+ * presumed to be the answer; `allowFuzzy` is that context and nothing else grants it (B-065).
  *
  * Returns the single unambiguous match, or `null` when zero or several stands match. Both of
  * those mean the same thing to the caller: ask which stand they are at.
@@ -264,9 +277,14 @@ const GENERIC_NAME_WORDS: ReadonlySet<string> = new Set([
 async function resolveStandByDistinctiveWords(
   db: Db,
   foldedText: string,
+  /**
+   * Whether the fuzzy tier may run (B-065). TRUE only when Farm Friend has already asked
+   * "Which stand are you at?" and this is the reply — see `resolveClarifiedStand`.
+   */
+  allowFuzzy = false,
 ): Promise<{ id: string } | null> {
-  const messageWords = new Set(foldedText.split(" ").filter((word) => word !== ""));
-  if (messageWords.size === 0) return null;
+  const messageWords = [...new Set(foldedText.split(" ").filter((word) => word !== ""))];
+  if (messageWords.length === 0) return null;
 
   const stands = await db.sql`
     select id, btrim(regexp_replace(
@@ -276,32 +294,71 @@ async function resolveStandByDistinctiveWords(
     where retired_at is null
   `;
 
-  let best: { id: string; score: number } | null = null;
-  let bestIsTied = false;
-
-  for (const stand of stands) {
-    const distinctive = (stand.folded_name as string)
+  const distinctiveWords = (stand: Record<string, unknown>) =>
+    (stand.folded_name as string)
       .split(" ")
       .filter((word) => word !== "" && !GENERIC_NAME_WORDS.has(word));
-    const score = distinctive.filter((word) => messageWords.has(word)).length;
-    if (score === 0) continue;
 
-    if (best === null || score > best.score) {
-      best = { id: stand.id as string, score };
-      bestIsTied = false;
-    } else if (score === best.score) {
-      bestIsTied = true;
+  /** Highest scorer, or null when nothing scored or two stands tied for the lead. */
+  const winner = (
+    score: (words: string[]) => number,
+  ): { id: string } | null => {
+    let best: { id: string; score: number } | null = null;
+    let bestIsTied = false;
+    for (const stand of stands) {
+      const value = score(distinctiveWords(stand as Record<string, unknown>));
+      if (value === 0) continue;
+      if (best === null || value > best.score) {
+        best = { id: stand.id as string, score: value };
+        bestIsTied = false;
+      } else if (value === best.score) {
+        bestIsTied = true;
+      }
     }
+    // A tie means two stands are equally named by these words. Picking either would be the
+    // silent guess against a farmer that this whole path exists to refuse.
+    return best !== null && !bestIsTied ? { id: best.id } : null;
+  };
+
+  const exact = winner((words) => words.filter((word) => messageWords.includes(word)).length);
+  if (exact !== null || !allowFuzzy) {
+    /*
+      The exact tier's verdict is FINAL whenever it found anything at all — including a tie,
+      which returns null here and asks. Falling through to fuzzy on an exact tie would let a
+      looser comparison overturn a stricter one's ambiguity, which is backwards.
+
+      Returning null on a tie is also why `exact !== null` cannot be replaced by "did any
+      stand score": those are different questions, and only the second one is asked here.
+    */
+    return exact;
   }
 
-  // A tie means two stands are equally named by these words. Picking either would be the
-  // silent guess against a farmer that this whole path exists to refuse.
-  return best !== null && !bestIsTied ? { id: best.id } : null;
+  /*
+    B-065's fuzzy tier. Reached ONLY when the exact tier matched no stand at all AND we are
+    inside an open clarification, so the reply is presumed to be an attempt at the answer.
+
+    Measured against all 36 live stands 2026-08-12: pinecome/pinecon/pinecoen/pinecomb all
+    reach Pinecone Gardens; "eggs", "kale" and "idk" reach nothing, so a customer who changed
+    the subject is released rather than captured; and "holmstead" ties Handpicked Homestead
+    against Holmestead Farms and asks, because those two are one edit apart and no code
+    should choose between them.
+  */
+  return winner(
+    (words) =>
+      messageWords.filter((typed) => words.some((word) => isFuzzyNameMatch(typed, word)))
+        .length,
+  );
 }
 
 async function resolveReportedStand(
   db: Db,
   taskText: string,
+  /**
+   * B-065 — see `resolveStandByDistinctiveWords`. Stated at every call site rather than
+   * defaulted: a default here would be dead (all three callers pass it) while reading like
+   * the guard, which is exactly the kind of protection that looks present and is not.
+   */
+  allowFuzzy: boolean,
 ): Promise<{ id: string } | null> {
   // Folded on both sides so "plum forest" matches "Plum Forest Stand" and "barts cart"
   // matches "Bart's Cart". The customer's text is the HAYSTACK and the stand name is the
@@ -342,15 +399,26 @@ async function resolveReportedStand(
   // that: both names are fully present, so both would score their maximum.
   if (rows.length > 1) return null;
 
-  return resolveStandByDistinctiveWords(db, folded);
+  return resolveStandByDistinctiveWords(db, folded, allowFuzzy);
 }
+
+/**
+ * How long an answer to a stock-out clarifying question may still land (B-065).
+ *
+ * Long enough for a customer standing at a stand to type a reply; short enough that a
+ * forgotten context cannot swallow an unrelated question later in the day. Run from the
+ * MESSAGE's own time, never `now()`.
+ */
+export const PENDING_STOCK_OUT_TTL_MINUTES = 15;
 
 /**
  * A customer reporting that something is sold out (F-104).
  *
  * The stand is bound in CODE before anything durable happens. When it cannot be resolved the
- * customer is asked which stand they are at and nothing is recorded — no report, no alert,
- * and no stored half-finished state to expire or leak.
+ * customer is asked which stand they are at, and the report is held (B-065) so their answer
+ * has somewhere to land — before that, the question was asked and the report thrown away, so
+ * a customer who answered correctly was told "Sorry, I did not catch which item or farm you
+ * meant." The held row carries no consent, teaches no token, and expires.
  */
 async function handleCustomerStockOut(
   deps: FreeTextDeps,
@@ -360,10 +428,23 @@ async function handleCustomerStockOut(
     providerEventId: string;
     occurredAt: Date;
   },
+  /**
+   * Whether this text is the answer to a clarification we already asked (B-065), which is
+   * the only context where the fuzzy name tier may run. Off for every cold message.
+   */
+  allowFuzzy = false,
 ): Promise<FreeTextResult> {
-  const stand = await resolveReportedStand(deps.db, input.taskText);
+  const stand = await resolveReportedStand(deps.db, input.taskText, allowFuzzy);
+  const reportText = input.taskText;
 
   if (stand === null) {
+    await savePendingStockOutReport(deps.db, {
+      senderHash: input.senderHash,
+      reportText,
+      awaiting: "stand",
+      occurredAt: input.occurredAt,
+      ttlMinutes: PENDING_STOCK_OUT_TTL_MINUTES,
+    });
     return {
       replies: [
         {
@@ -381,7 +462,7 @@ async function handleCustomerStockOut(
     { db: deps.db, model: deps.stockOut, clock: deps.clock },
     {
       salesLocationId: stand.id,
-      taskText: input.taskText,
+      taskText: reportText,
       // The inbound event id makes a redelivered message one report and one farmer text.
       reportKey: input.providerEventId,
     },
@@ -389,7 +470,16 @@ async function handleCustomerStockOut(
 
   if (outcome.outcome !== "recorded") {
     // The text named a stand but no item we could identify. Ask rather than record a report
-    // that says nothing a farmer could act on.
+    // that says nothing a farmer could act on — and hold the bound stand, so the answer
+    // completes the report instead of starting over.
+    await savePendingStockOutReport(deps.db, {
+      senderHash: input.senderHash,
+      reportText,
+      awaiting: "item",
+      salesLocationId: stand.id,
+      occurredAt: input.occurredAt,
+      ttlMinutes: PENDING_STOCK_OUT_TTL_MINUTES,
+    });
     return {
       replies: [
         {
@@ -401,6 +491,9 @@ async function handleCustomerStockOut(
       handled: "customer",
     };
   }
+
+  // Recorded. Whatever clarification was open is answered and must not outlive it.
+  await clearPendingStockOutReport(deps.db, { senderHash: input.senderHash });
 
   return {
     replies: [
@@ -417,6 +510,71 @@ async function handleCustomerStockOut(
 export interface FreeTextResult {
   replies: RoutedReply[];
   handled: "farmer" | "customer" | "none";
+}
+
+/**
+ * Answer an open stock-out clarification with the message that just arrived (B-065).
+ *
+ * Returns `null` when there is nothing open, or when the message plainly is not an answer —
+ * both of which mean "handle this as an ordinary new message", exactly as before this
+ * existed.
+ *
+ * **The release rule.** A reply that resolves no stand at all releases the held report and
+ * falls through. Inside a clarification a reply is presumed to be an attempt at the answer
+ * (max, 2026-08-12), which is why the fuzzy tier runs here and only here — but a customer who
+ * changed the subject must still get a real answer, and "eggs" resolves to no stand, so it is
+ * released. Releasing is recoverable; capturing a real question is another dead end.
+ *
+ * **No model decides any of this.** The stand is resolved by the same code the cold path
+ * uses, and the item still comes from the stock-out seam selecting an identifier out of a
+ * list code built.
+ */
+async function resolveClarification(
+  deps: FreeTextDeps,
+  input: {
+    senderHash: string;
+    taskText: string;
+    providerEventId: string;
+    occurredAt: Date;
+  },
+): Promise<FreeTextResult | null> {
+  const pending = await readPendingStockOutReport(deps.db, {
+    senderHash: input.senderHash,
+    occurredAt: input.occurredAt,
+  });
+  if (pending === null) return null;
+
+  /*
+    Both arms combine the two messages into one report text, and that is deliberate: one
+    mechanism, not two. Whichever half was missing, the pair together says what a single
+    message would have said, and `handleCustomerStockOut` then does exactly what it does for
+    a message that arrived complete — resolve the stand from the text, read the item from it.
+
+    Order is original-then-reply because the original is the sentence with the grammar in it
+    ("Pinecome is out of eggs" + "Pinecone"); nothing downstream depends on the order, but a
+    reader of the stored report should see the report first.
+  */
+  const combined = `${pending.reportText} ${input.taskText}`;
+
+  if (pending.awaiting === "item") {
+    // The stand is already bound and named in the original text, so the combined message
+    // still resolves to it — no separate id needs threading through.
+    return handleCustomerStockOut(deps, { ...input, taskText: combined }, true);
+  }
+
+  /*
+    Awaiting a stand. Checked against the REPLY alone rather than the combined text: the
+    original is the message that already failed to name a stand, and folding it in would let
+    its words vote. "Pinecome is out of eggs" plus "Pinecone" must resolve because of the
+    reply, not because the pair happens to contain a near-duplicate.
+  */
+  if ((await resolveReportedStand(deps.db, input.taskText, true)) === null) {
+    // Not an answer we can use. Release, and let the message be whatever it is.
+    await clearPendingStockOutReport(deps.db, { senderHash: input.senderHash });
+    return null;
+  }
+
+  return handleCustomerStockOut(deps, { ...input, taskText: combined }, true);
 }
 
 /**
@@ -465,7 +623,9 @@ export async function handleFreeText(
     Deliberately narrow. Naming no stand, or naming their own, leaves the farmer path exactly
     as it was — an ambiguous or unnamed message is still an update, which is the common case.
   */
-  const namedStand = isFarmer ? await resolveReportedStand(deps.db, input.taskText) : null;
+  const namedStand = isFarmer
+    ? await resolveReportedStand(deps.db, input.taskText, false)
+    : null;
   const namedSomeoneElsesStand =
     namedStand !== null &&
     !(await standBelongsToSender(deps.db, {
@@ -479,6 +639,21 @@ export async function handleFreeText(
   }
 
   if (!isFarmer) {
+    /*
+      B-065 — a clarifying question Farm Friend asked, and the answer to it.
+
+      This runs BEFORE the intent seam on purpose. The reply to "Which stand are you at?" is
+      a bare stand name: it states nothing about stock and names no item, so the classifier
+      correctly calls it a question (measured 3/3 against the live model) and the report is
+      lost. The pending row is what makes it an answer instead.
+
+      It runs BELOW all of deterministic routing, which is the load-bearing placement. STOP,
+      HELP, FLAG and the confirmation tokens are decided by `parseCommand` from the body
+      alone, so no held context can reinterpret one (Golden Rule #2).
+    */
+    const resolved = await resolveClarification(deps, input);
+    if (resolved !== null) return resolved;
+
     // F-104 — the customer branch now has a route signal of its own. `farm_stand_question`
     // is both the other arm and the fallback, so an unreachable or refused model leaves this
     // path exactly as it was before the seam existed.
