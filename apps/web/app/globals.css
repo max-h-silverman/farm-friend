@@ -1633,6 +1633,11 @@ body {
   gap: 0.12rem;
 }
 
+.admin-person-access {
+  justify-items: end;
+  text-align: right;
+}
+
 .admin-person-identity strong {
   font-size: 0.98rem;
 }
@@ -1644,7 +1649,6 @@ body {
 }
 
 .admin-access-pill {
-  justify-self: start;
   padding: 0.15rem 0.5rem;
   color: var(--ink-faint);
   background: var(--paper);

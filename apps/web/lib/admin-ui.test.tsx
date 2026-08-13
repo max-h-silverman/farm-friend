@@ -449,6 +449,26 @@ describe("the user list", () => {
     expect(screen.queryByText("(•••) •••-0701")).toBeNull();
     expect(screen.getByText("(•••) •••-0702")).toBeTruthy();
   });
+
+  it("names the two kinds of person plainly, in the pills and the filter alike", () => {
+    render(
+      <UserList
+        users={[
+          { userId: "user-1", senderMask: "(•••) •••-0701", isFarmer: true, farms: ["Example Farm"] },
+          { userId: "user-2", senderMask: "(•••) •••-0702", isFarmer: false, farms: [] },
+        ]}
+      />,
+    );
+
+    expect(screen.getByRole("option", { name: "Farmer" })).toBeTruthy();
+    expect(screen.getByRole("option", { name: "Regular user" })).toBeTruthy();
+    // The pill reads as a description of the person, not as a note about paperwork they
+    // still owe us — "no access yet" implied a pending step that does not exist.
+    expect(screen.getByText("Farmer", { selector: ".admin-access-pill" })).toBeTruthy();
+    expect(screen.getByText("Regular user", { selector: ".admin-access-pill" })).toBeTruthy();
+    expect(screen.queryByText("Farmer access")).toBeNull();
+    expect(screen.queryByText("No access yet")).toBeNull();
+  });
 });
 
 describe("administrator queue interactions", () => {

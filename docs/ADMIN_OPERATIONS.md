@@ -108,8 +108,9 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Remove a whole farm:** open it on `/admin/farms` and press **Remove this farm**, then confirm.
   The farm and **all of its stands** leave the map and the text answers. **Nothing it already
   published is deleted** — a farm cannot be erased, because that would erase the record of what
-  its stands said they had and when. Press **Put this farm back** to undo it. A stand you had
-  already taken off the map on its own stays off when the farm comes back.
+  its stands said they had and when. Its farmer also stops being able to publish updates to it,
+  the same way removing a single stand works. Press **Put this farm back** to undo it. A stand you
+  had already taken off the map on its own stays off when the farm comes back.
 - **Rehearse against the real site with a test farm (F-074):** open the farm on `/admin/farms` and
   press **Mark as test farm**.
   Marking a farm as a test farm makes it **absent** — from the map, from `/api/public/stands`,
