@@ -46,8 +46,8 @@
   and named the wrong word after VIGA became the onboarding keyword. A farmer whose SMS box was never
   ticked reads the acknowledgement alone — they wait on a person, and no keyword reaches that.
   Recovery after a carrier opt-out is unaffected: `ALREADY_JOINED_RESPONSE` owns it and names START.
-- **Removing a farm now removes it from what customers see** (B-066, merged 2026-08-13, **not yet
-  deployed**). `retireFarm` always wrote `farms.retired_at` correctly, but every public reader
+- **Removing a farm now removes it from what customers see** (B-066, deployed 2026-08-13).
+  `retireFarm` always wrote `farms.retired_at` correctly, but every public reader
   filtered the *stand's* `retired_at`, which a farm take-down deliberately never writes — so a
   removed farm stayed on the map, reachable by text, in the public pickers, and still publishing.
   `visibleFarms` now carries the farm clause **unconditionally** (`?hidden=true` and listed sender
@@ -88,15 +88,15 @@
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. `0041` adds
   `pending_stock_out_reports`; its three CHECKs are hand-written, since `drizzle-kit generate` does
   not emit them.
-- Cloud Run web `farm-friend-web-00073-7qz` and worker `farm-friend-worker-00068-l52` serve
-  immutable digest `sha256:b4325bb5db6e3e56c6dd867bd99fdd99e299daa5756b807eb5173e74dd340d21`,
-  built from `main` `bd40629` and deployed 2026-08-12. Plan assertions 60/60 (the only delta was
+- Cloud Run web `farm-friend-web-00074-4hk` and worker `farm-friend-worker-00069-bp6` serve
+  immutable digest `sha256:f1f40aae16fd5eb4518943ac33a9da9238b561c7f01df8183990920a3cbaf7ed`,
+  built from `main` `3f89523` and deployed 2026-08-13. Plan assertions 60/60 (the only delta was
   the image digest on both services); deploy and served-card assertions pass. The serving digest
-  was read back from both services. No migration was owed — the ledger stands at `0041`.
-  This deploy carried B-058/B-059 (`e982cf0`, merged earlier and previously unshipped), plus B-052
-  and B-043; the closure defect that discarded a farmer's inventory update is no longer serving.
-  **`main` is now AHEAD of production by B-066** — a removed farm is still served to customers in
-  production until the next deploy. No migration is owed with it.
+  was read back from both services and matches the build. No migration was owed — the ledger
+  stands at `0041`. **Production and `main` are level.** This deploy carried B-066, so a removed
+  farm no longer reaches the map, the text answers, the public pickers, or publication.
+  `/api/public/stands` returned 34 stands and 35 under `?hidden=true` immediately after, so both
+  branches of `visibleFarms` are live and neither over-excludes.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
@@ -182,9 +182,10 @@
 - Finish physical-handset checks: farmer onboarding, consent, vCard, paged SMS, administrator/settings,
   and F-105’s stand-detail sheet at phone width in both appearances; verify VIGA’s Squarespace embeds and
   the `?hidden=true` behavior.
-- **B-066 owes one live check after the next deploy:** remove a test farm in the console, then
-  confirm it is gone from the map and unreachable by text. Until that deploy, production still
-  serves removed farms.
+- **B-066 owes one console check** (now deployed): remove a test farm on `/admin/farms`, then
+  confirm it is gone from the map and unreachable by text, and put it back. Both `visibleFarms`
+  branches were verified live by stand counts, but no farm was retired at the time, so the
+  retirement clause itself is proven only by integration test against production code.
 - F-065: attribute every listing change to its actor; F-084: decide participant attribution during onboarding.
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the

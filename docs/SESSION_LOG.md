@@ -63,9 +63,12 @@ Also folded in: the admin user-list pills and filter now read **Farmer / Regular
 "Farmer access / No access yet", which implied a pending step that does not exist, with the access
 pill right-aligned to its column. Pre-existing uncommitted work, covered by its own test.
 
-**Verified:** typecheck, lint, 1,960 unit, 945 integration. **Owed:** one live check after deploy —
-remove a test farm in the console, confirm it is gone from the map and unreachable by text. Filed as
-B-066, `in review`.
+**Verified:** typecheck, lint, 1,960 unit, 945 integration. **Deployed** the same day — web
+`00074-4hk`, worker `00069-bp6`, digest `sha256:f1f40aae…` from `main` `3f89523`, plan assertions
+60/60 with the image digest as the only delta, no migration owed. `/api/public/stands` returned 34
+stands and 35 under `?hidden=true` right after, so both branches of the predicate are live and
+neither over-excludes. **Owed:** the console check — remove a test farm, confirm it leaves the map
+and the text answers, put it back. Filed as B-066.
 
 ## 2026-08-12 — The flake was ours, and the corpus was fine
 
