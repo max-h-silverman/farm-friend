@@ -140,6 +140,17 @@ with the guard that protects each.
   shortest possible entry — so it passed both before and after F-107 doubled the worst case to four
   billed segments. A cost or size ceiling must be exercised with the most expensive shape the
   corpus actually produces, not the most convenient one to construct.
+- **A test that asserts through the ADMIN reader proves nothing about what customers see.** F-100's
+  load-bearing test claimed "every stand under a retired farm goes down" and checked it with
+  `listStandsForAdministration` — the one reader that joined `farms.retired_at`. The map, both SMS
+  retrieval queries, the public pickers and publication all filtered the *stand's* `retired_at`,
+  which a farm take-down deliberately never writes, so a removed farm stayed live for every real
+  customer while the suite, the doc sentence in DATA_RECORDS.md, and the operator's own screen all
+  agreed it was gone (B-066). When a state change is supposed to reach several surfaces, assert it
+  on the surfaces a **user** touches; the admin screen is the one most likely to read the column you
+  just wrote and least likely to catch the ones that don't. Guard: the farm-removal cases in
+  `apps/web/lib/public-surface.integration.test.ts` and
+  `packages/db/src/stand-retirement.integration.test.ts`.
 - **A test can encode the bug it looks like it guards.** `paging.test.ts` asserted that one matching
   row licensed a heading for every stand beneath it, with a rationale that reads plausibly and
   inverts the logic (B-061). When a defect contradicts a green test, read that test's *claim* before

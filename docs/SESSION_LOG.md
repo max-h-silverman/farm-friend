@@ -11,7 +11,63 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-12 (latest) — The flake was ours, and the corpus was fine
+## 2026-08-13 (latest) — The farm was removed everywhere except where it counted
+
+VIGA admin reported "farm removal isn't working". Checked both halves as asked: **stand removal
+(F-071) was correct on every surface; farm removal (F-100) worked on none that a customer sees.**
+
+The writer was never the problem. `retireFarm` sets `farms.retired_at` and writes its audit event
+exactly as designed. The whole defect was on the read side, and it came from a *correct* design
+decision that only got built halfway.
+
+A farm take-down deliberately never writes each stand's own `retired_at` — that is what lets a
+restore return exactly the stands the farm was holding down while a stand retired on its own stays
+retired. Right call, unchanged. But **nothing downstream implemented the other half of that
+contract.** Every public reader filtered `sales_locations.retired_at` — the stand's column, which a
+farm take-down never touches. So a removed farm stayed on the map, stayed reachable by text, stayed
+in the public signup pickers, and its farmer could still publish new inventory to it. The admin
+console was the only surface that agreed with the operator, because `listStandsForAdministration`
+is the one reader that joined `farms.retired_at`.
+
+**Why the suite was green, and this is the part worth keeping.** F-100's load-bearing test asserts
+"every stand under the farm goes down" — and checks it through the admin reader. So the test passed,
+`DATA_RECORDS.md` stated the rule as settled fact ("readers treat a stand under a retired farm as
+off the map"), and the operator's own screen confirmed it. Three independent-looking confirmations,
+all downstream of the same single reader, none of them evidence about a customer. The requirement
+was written down, asserted, and never built. That failure class is now in DEVELOPMENT.md §gotchas:
+*a test that asserts through the admin reader proves nothing about what customers see* — the admin
+screen is the one most likely to read the column you just wrote and least likely to catch the ones
+that don't.
+
+**The fix is one seam plus one gate.** `visibleFarms` already existed for exactly this reason — four
+surfaces compose it rather than hand-writing the rule, because four copies is four chances to miss
+one. It stated only the test-farm clause; it now states both reasons a farm is absent, and the map,
+both SMS retrieval queries and both public pickers inherited the fix for free. The retirement clause
+is **unconditional**, unlike the test-farm one: `?hidden=true` and a listed sender hash make a viewer
+deliberate about *fake* farms, which hold no real data, and neither is authority to see a real farm
+VIGA removed. Publication needed its own locked check inside `confirmInventoryPublication` beside the
+approval it belongs with — it is a transactional read, not a filter — returning a new `farm_retired`
+status. The routing fallback already replies on any non-published status, so the farmer gets the same
+clarification the `stand_retired` path produced; no SMS branch changed.
+
+No schema change, no migration, no model or seam touched.
+
+Four new tests, each written failing and confirmed to reproduce the reported defect first: a removed
+farm leaves the map AND the SMS answer, with the model scripted **hostile** so grounding is proven
+rather than assumed; restore returns it to both; a stand retired on its own stays down after its farm
+is restored; publication is refused once the farm is removed and works again after restore. Both
+fixes were then sabotaged and the tests caught each — neutering the retirement clause failed two
+public-surface tests, neutering the publication gate failed the publication test.
+
+Also folded in: the admin user-list pills and filter now read **Farmer / Regular user** instead of
+"Farmer access / No access yet", which implied a pending step that does not exist, with the access
+pill right-aligned to its column. Pre-existing uncommitted work, covered by its own test.
+
+**Verified:** typecheck, lint, 1,960 unit, 945 integration. **Owed:** one live check after deploy —
+remove a test farm in the console, confirm it is gone from the map and unreachable by text. Filed as
+B-066, `in review`.
+
+## 2026-08-12 — The flake was ours, and the corpus was fine
 
 Two bugs about live evals. The first was not an eval problem at all, and finding that out was the
 whole session.

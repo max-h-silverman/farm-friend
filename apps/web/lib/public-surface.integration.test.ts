@@ -19,6 +19,8 @@ import {
   isPrivilegedSender,
   listFarmsForSelfService,
   removeAdministratorPhone,
+  restoreFarm,
+  retireFarm,
   retireStand,
   saveOnboardingListing,
   setTestFarm,
@@ -737,6 +739,97 @@ describe("public web surface boundary (integration)", () => {
       expect(answer.selectedFactIds).toEqual([]);
       expect(answer.body).not.toContain("Provo Stand");
       expect(answer.body).not.toContain("Provo Farms");
+    });
+
+    it("omits a farm VIGA removed, from the map AND from the SMS answer", async () => {
+      // A farm take-down deliberately never writes each stand's own `retired_at` — that is
+      // what lets a restore put back exactly the stands the farm was holding down. So every
+      // public surface must honour the FARM's retirement itself; filtering only the stand's
+      // column leaves a removed farm on the map and reachable by text while the admin screen
+      // reports it gone. That gap is the failure this test exists for.
+      //
+      // Both channels in one test, and via the real writer rather than a hand-written column,
+      // for the same reason as the stand case above: `inquiry.ts` runs its own SQL, so the map
+      // passing proves nothing about the text reply.
+      const clock = new FixedClock(T0);
+      expect(
+        await listPublicStands({ db: db!, clock }),
+        "the stand must be public before its farm is removed",
+      ).toHaveLength(1);
+
+      const admins = await client()`select id from administrators limit 1`;
+      const result = await retireFarm(db!, {
+        farmId: ids.farm,
+        administratorId: admins[0]?.id as string,
+        occurredAt: T0,
+      });
+      expect(result.status, "the fixture's farm must really be removed").toBe("retired");
+
+      // The stand keeps no retirement of its own — the take-down's load-bearing property, and
+      // the reason the public filter cannot be satisfied by the stand's column alone.
+      const standRows = await client()`
+        select retired_at from sales_locations where id = ${ids.location}
+      `;
+      expect(standRows[0]?.retired_at).toBeNull();
+
+      expect(await listPublicStands({ db: db!, clock })).toEqual([]);
+
+      // The model is scripted to select the removed farm's stand anyway — a hostile selection.
+      // Code must refuse to ground an answer in a fact retrieval no longer returns.
+      const answer = await answerInquiry(
+        {
+          db: db!,
+          model: createInquiryModel(
+            new ScriptedProvider(
+              JSON.stringify({ kind: "lookup", items: ["kale"], ranking: "freshest" }),
+              JSON.stringify({ kind: "selection", factIds: [ids.location] }),
+            ),
+          ),
+          clock,
+        },
+        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
+      );
+      expect(answer.outcome).toBe("answered");
+      if (answer.outcome !== "answered") throw new Error("expected an answer");
+      expect(answer.selectedFactIds).toEqual([]);
+      expect(answer.body).not.toContain("Provo Stand");
+      expect(answer.body).not.toContain("Provo Farms");
+    });
+
+    it("puts a removed farm back on both public surfaces when it is restored", async () => {
+      // Restore is what makes a take-down safe to reach for, so it is proven on the surfaces
+      // customers actually read rather than on the admin screen that already agreed.
+      const clock = new FixedClock(T0);
+      const admins = await client()`select id from administrators limit 1`;
+      const administratorId = admins[0]?.id as string;
+
+      await retireFarm(db!, { farmId: ids.farm, administratorId, occurredAt: T0 });
+      expect(await listPublicStands({ db: db!, clock })).toEqual([]);
+
+      const restored = await restoreFarm(db!, { farmId: ids.farm, administratorId, occurredAt: T0 });
+      expect(restored.status).toBe("restored");
+
+      const stands = await listPublicStands({ db: db!, clock });
+      expect(stands).toHaveLength(1);
+      expect(stands[0]!.farmName).toBe("Provo Farms");
+    });
+
+    it("keeps a stand retired on its own down after its farm is restored", async () => {
+      // Two independent decisions. The farm coming back must not silently republish a stand an
+      // operator took off the map separately — the map is the only place that difference shows.
+      const clock = new FixedClock(T0);
+      const admins = await client()`select id from administrators limit 1`;
+      const administratorId = admins[0]?.id as string;
+
+      await retireStand(db!, {
+        salesLocationId: ids.location,
+        administratorId,
+        occurredAt: T0,
+      });
+      await retireFarm(db!, { farmId: ids.farm, administratorId, occurredAt: T0 });
+      await restoreFarm(db!, { farmId: ids.farm, administratorId, occurredAt: T0 });
+
+      expect(await listPublicStands({ db: db!, clock })).toEqual([]);
     });
 
     // ──────────────────────────────────────────────────── F-074: test farms

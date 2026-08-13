@@ -22,8 +22,8 @@ export function UserList({ users }: { users: AdminUserRow[] }) {
           <span className="admin-control-label">Show</span>
           <select value={filter} onChange={(event) => setFilter(event.target.value as typeof filter)}>
             <option value="all">Everyone</option>
-            <option value="farmer">Farmer access</option>
-            <option value="not_farmer">No access yet</option>
+            <option value="farmer">Farmer</option>
+            <option value="not_farmer">Regular user</option>
           </select>
         </label>
       </div>
@@ -41,7 +41,7 @@ export function UserList({ users }: { users: AdminUserRow[] }) {
               </div>
               <div className="admin-person-access">
                 <span className={`admin-access-pill${user.isFarmer ? " admin-access-pill--active" : ""}`}>
-                  {user.isFarmer ? "Farmer access" : "No access yet"}
+                  {user.isFarmer ? "Farmer" : "Regular user"}
                 </span>
                 {user.isFarmer ? <span>Can update: {user.farms.join(", ")}</span> : null}
               </div>

@@ -46,6 +46,15 @@
   and named the wrong word after VIGA became the onboarding keyword. A farmer whose SMS box was never
   ticked reads the acknowledgement alone — they wait on a person, and no keyword reaches that.
   Recovery after a carrier opt-out is unaffected: `ALREADY_JOINED_RESPONSE` owns it and names START.
+- **Removing a farm now removes it from what customers see** (B-066, merged 2026-08-13, **not yet
+  deployed**). `retireFarm` always wrote `farms.retired_at` correctly, but every public reader
+  filtered the *stand's* `retired_at`, which a farm take-down deliberately never writes — so a
+  removed farm stayed on the map, reachable by text, in the public pickers, and still publishing.
+  `visibleFarms` now carries the farm clause **unconditionally** (`?hidden=true` and listed sender
+  hashes grant sight of *fake* farms, never of a removed real one), and all four read surfaces
+  inherit it; `confirmInventoryPublication` has its own locked gate returning `farm_retired`. The
+  admin console was the only surface that was ever right, which is why F-100's suite stayed green —
+  its test asserts through `listStandsForAdministration`.
 - **`pending_result_lists.broad` is written and never read.** The one piece of data in the system
   with no consumer, kept deliberately — dropping it is a migration on live data for no behavioral
   gain. Revisit it whenever that table next needs a migration for another reason.
@@ -84,21 +93,22 @@
   built from `main` `bd40629` and deployed 2026-08-12. Plan assertions 60/60 (the only delta was
   the image digest on both services); deploy and served-card assertions pass. The serving digest
   was read back from both services. No migration was owed — the ledger stands at `0041`.
-  **Production and `main` are level.** This deploy carried B-058/B-059 (`e982cf0`, merged earlier
-  and previously unshipped), plus B-052 and B-043; the closure defect that discarded a farmer's
-  inventory update is no longer serving.
+  This deploy carried B-058/B-059 (`e982cf0`, merged earlier and previously unshipped), plus B-052
+  and B-043; the closure defect that discarded a farmer's inventory update is no longer serving.
+  **`main` is now AHEAD of production by B-066** — a removed farm is still served to customers in
+  production until the next deploy. No migration is owed with it.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
 ## Verification
 
-- `main` at `bd40629`: **1,959 unit tests, 941 local integration tests**, typecheck, lint, and stub
-  evals all pass (2026-08-12). Live evals were last run at `e982cf0` and are not owed here: this
-  change touched a route path, a routing condition, and dead copy — no seam projection, schema, or
-  output contract.
-- The unit count fell by three against `e982cf0` while coverage grew: B-043 deleted a constant and
-  the three dead branches that read it, replacing seven thin cases with five that pin what is
-  actually reachable.
+- `main` at B-066: **1,960 unit tests, 945 local integration tests**, typecheck and lint all pass
+  (2026-08-13). Live evals are not owed: B-066 touched a SQL visibility fragment and a transactional
+  gate — no seam projection, schema, or output contract, and no model call on either path.
+- The integration count grew by four, all B-066: a removed farm leaving the map and the SMS answer
+  (with the model scripted hostile), restore returning it to both, a stand retired on its own staying
+  down across a farm restore, and publication refused while the farm is removed. Each was confirmed
+  to fail before the fix, and both fixes were sabotaged to prove the tests catch them.
 - The web production build retains the tracked Next configuration/lint warnings (B-008).
 - **Migration `when` stamps can land behind their predecessor on this machine.** `0041`'s generated
   stamp was *earlier* than `0040`'s — the local clock runs behind the repo's — and the ordering
@@ -172,6 +182,9 @@
 - Finish physical-handset checks: farmer onboarding, consent, vCard, paged SMS, administrator/settings,
   and F-105’s stand-detail sheet at phone width in both appearances; verify VIGA’s Squarespace embeds and
   the `?hidden=true` behavior.
+- **B-066 owes one live check after the next deploy:** remove a test farm in the console, then
+  confirm it is gone from the map and unreachable by text. Until that deploy, production still
+  serves removed farms.
 - F-065: attribute every listing change to its actor; F-084: decide participant attribution during onboarding.
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the

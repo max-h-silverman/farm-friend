@@ -879,6 +879,7 @@ export type ConfirmPublicationResult =
   | { status: "not_authorized" }
   | { status: "not_approved" }
   | { status: "stand_retired" }
+  | { status: "farm_retired" }
   | { status: "unsafe_public_text"; prohibited: ProhibitedPublicStringKind[] }
   | { status: "already_consumed" }
   | { status: "no_open_proposal" };
@@ -1102,6 +1103,18 @@ export async function confirmInventoryPublication(
       for update
     `;
     if (approval.length === 0) return { status: "not_approved" };
+
+    // VIGA took the whole FARM down. Checked separately from the stand's own retirement below
+    // because a farm take-down deliberately never writes its stands' `retired_at` — that is
+    // what lets a restore put back exactly the stands the farm was holding down. A gate reading
+    // only the stand's column would let a removed farm keep publishing to the map.
+    //
+    // Locked, like the approval above, so a take-down committing mid-confirmation either loses
+    // the race and is seen here or wins it and queues behind this publication.
+    const farmRetirement = await tx`
+      select retired_at from farms where id = ${farmId} for update
+    `;
+    if (farmRetirement[0]?.retired_at !== null) return { status: "farm_retired" };
 
     // F-071 — VIGA took this stand down. Read from the location row locked at the top of this
     // transaction, so a retirement committing mid-confirmation either loses the lock race and
