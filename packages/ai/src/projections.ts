@@ -50,10 +50,33 @@ declare const modelSafeBrand: unique symbol;
  * A model input constructed by a task-specific projection in this module. Branded so the
  * low-level provider call cannot be reached with a record of the caller's choosing.
  */
+/**
+ * How a seam's prompt is PRESENTED to the model (F-111).
+ *
+ * Presentation is a property of the seam's task, not of its schema or its transport — those
+ * stay shared. A projection declares which framing its task needs; the adapter reads the
+ * declaration and never infers one from a seam name or a schema shape, because a name-matching
+ * branch would silently re-frame the next seam that happened to be named similarly.
+ *
+ * - `extraction` (the DEFAULT, and what every pre-F-111 seam uses) — `Task:`, then
+ *   `Input (JSON):`, then `Output requirements:`. Suited to "read this record and pull
+ *   structured values out of it".
+ * - `classification` — the instruction FIRST, then the labelled fields. Suited to "decide what
+ *   this message is". Measured: the settled request taxonomy scored 100% over 47 cases in this
+ *   framing and 41/47 in the extraction framing, which buries the task under the record.
+ *
+ * **Field values are JSON-encoded under BOTH framings.** The injection boundary does not vary
+ * with presentation: sender text is always a JSON string literal, so a newline and a forged
+ * label inside it cannot become a second field.
+ */
+export type PromptFraming = "extraction" | "classification";
+
 export type ModelSafeContext<T = unknown> = {
   readonly seam: string;
   readonly fields: T;
   readonly outputInstructions: string;
+  /** Absent means `extraction` — the framing every seam had before F-111. */
+  readonly framing?: PromptFraming;
 } & { readonly [modelSafeBrand]: true };
 
 /**
@@ -102,6 +125,14 @@ export const SEAM_OUTPUT_SHAPES = {
     '{"kind":"unclear"}',
   ],
   "offering-extraction": ['{"items":["eggs","bok choy","cut flowers"]}'],
+  "request-classification": [
+    '{"kind":"search_stands"}',
+    '{"kind":"stand_lookup"}',
+    '{"kind":"inventory_report"}',
+    '{"kind":"system_inquiry"}',
+    '{"kind":"chitchat"}',
+    '{"kind":"unclear"}',
+  ],
 } as const;
 
 type SeamName = keyof typeof SEAM_OUTPUT_SHAPES;
@@ -207,6 +238,53 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "text says the stand offers. Exclude farming practices, certifications, schedules, " +
     "contact details, and commentary. When the text names no products, return an empty " +
     "items array.",
+  /*
+    The FIRST-PASS request classifier. This text is the one measured at 100% over 47 cases x 3
+    runs (2026-08-13, docs/plans/REQUEST_CLASSIFICATION_REFACTOR.md) and is reproduced verbatim
+    from the plan, with ONE documented deviation: the settled text ended "Return only the
+    category name", and the transport here is JSON, so the closing line is supplied by
+    `outputInstructionsFor` and the shapes above instead.
+
+    EDITING THIS RE-OPENS THE MEASUREMENT. Every clause below closed a specific measured
+    failure, and several look redundant until you know which one:
+
+      - "whether or not a stand is named" — without it, "no eggs left" and "out of kale" fell
+        to unclear 3/3. That is the shape a farmer texts about their own stand and the shape a
+        customer texts before we ask which stand.
+      - the bare-product and bare-stand rules — "tomatoes?" and "Pinecone Gardens" were both
+        unclear without them.
+      - "including its location" — "where is Pinecone Gardens" was unclear without it.
+      - the service-name rule, paired with the projected `systemName` — "what is farm friend",
+        "what can farm friend do" and "who are you" were all unclear without it.
+
+    There is deliberately NO update-vs-report split. That distinction was measured and FAILED:
+    a farmer reporting another stand's stock-out classified as their own update 3/3, which is
+    B-053 reintroduced. Who may act on an inventory_report is an ACCESS question, decided
+    downstream in code from `farmer_authorizations` — never here.
+  */
+  "request-classification":
+    "Classify the message into exactly one category.\n\n" +
+    "search_stands: asking which stand(s) meet a need or asking generally about stands, " +
+    "including availability, payment, hours, or other stand information.\n" +
+    "stand_lookup: asking for information about one specific stand.\n" +
+    "inventory_report: stating that items are available, unavailable, sold out, or coming " +
+    "soon, whether or not a stand is named.\n" +
+    "system_inquiry: asking what the service is, how it works, what it can do, or about the " +
+    "map.\n" +
+    "chitchat: greeting, thanks, acknowledgement, or small talk.\n" +
+    "unclear: none of the above.\n\n" +
+    "Rules:\n" +
+    "- A bare product or item name is search_stands.\n" +
+    "- A bare stand name is stand_lookup.\n" +
+    "- Questions about stands generally are search_stands.\n" +
+    "- Questions about a specific stand, including its location, are stand_lookup.\n" +
+    "- A named stand does not imply stand_lookup when the message is an inventory statement.\n" +
+    "- Use inventory_report for statements about a stand's inventory regardless of who sent " +
+    "them.\n" +
+    "- An inventory statement with no stand named is still inventory_report.\n" +
+    "- A message naming the service is system_inquiry when it asks what the service is or " +
+    "does.\n" +
+    "- Use unclear only when no other category reasonably fits.",
 };
 
 function outputInstructionsFor(
@@ -422,6 +500,56 @@ export function projectCustomerMessageIntent(input: {
     fields: { taskText: input.taskText },
     outputInstructions: outputInstructionsFor("customer-message-intent"),
   } as ModelSafeContext<CustomerMessageIntentFields>;
+}
+
+/**
+ * The complete permitted input for the first-pass request classifier: ONE field.
+ *
+ * **Field NAMES are part of what was measured**, because under the classification framing each
+ * becomes a labelled line the model reads. The text is called `message` rather than `taskText`
+ * — the name it carried through the measurement.
+ *
+ * A `systemName` field carrying "Farm Friend" was here briefly and was **removed after
+ * measurement** (max, 2026-08-13). It was added when the *harness* framing needed it — without
+ * it, "what is farm friend", "what can farm friend do" and "who are you" all classified as
+ * `unclear` 3/3 there. Under production transport an ablation showed it contributed nothing:
+ * all four service-name cases pass without it, and removing it *improved* the baseline by
+ * fixing "when does Plum Forest restock". A field that earns its place in one framing and not
+ * another is not a field; it is a workaround for the framing.
+ */
+export interface RequestClassificationFields {
+  /** The sender's own current message, verbatim — the only thing being classified. */
+  readonly message: string;
+}
+
+/**
+ * Project the first-pass request classifier: the sender's message, and nothing else.
+ *
+ * **Deliberately NO stand roster.** Max proposed passing the ~34 live stand names as
+ * classification context, which is safe (a one-field output cannot leak a roster) and was a
+ * reasonable idea. It was MEASURED and it made the classifier WORSE — twice, on two different
+ * taxonomies: 94%→85% on the first, 87%→63% on the second. The failure was legible: with the
+ * roster present, `Pinecone Gardens`, `where is Pinecone Gardens` and `does Misty Isle have
+ * flowers` all returned `unclear` across every run, as though the model were checking the name
+ * against the list and bailing rather than reading the sentence's shape. A classifier that
+ * never sees the corpus also cannot drift as VIGA adds or removes farms.
+ *
+ * **Deliberately NO sender type.** Whether the sender may publish is an access question code
+ * answers downstream from `farmer_authorizations`. Absent here, it cannot be reasoned around.
+ *
+ * **Deliberately NO service name** — see `RequestClassificationFields`. Measured out.
+ */
+export function projectRequestClassification(input: {
+  taskText: string;
+}): ModelSafeContext<RequestClassificationFields> {
+  return {
+    seam: "request-classification",
+    fields: { message: input.taskText },
+    outputInstructions: outputInstructionsFor("request-classification"),
+    // Declared here, at the seam that needs it — see `PromptFraming`. The default framing
+    // costs this seam 6 of 47 cases; the adapter must not have to guess that.
+    framing: "classification",
+  } as ModelSafeContext<RequestClassificationFields>;
 }
 
 /**

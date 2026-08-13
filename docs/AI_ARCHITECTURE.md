@@ -94,8 +94,20 @@ One narrow task interface, with:
 
 A projection is **built only when its seam has a real consumer** — the zen-desk rule.
 
+**Prompt PRESENTATION is a per-seam property; schema and transport stay shared** (F-111). A
+projection declares a `framing` — `extraction` (the default every pre-F-111 seam uses: `Task:` →
+`Input (JSON):` → `Output requirements:`, with a system message about extracting structured data) or
+`classification` (instruction first, then labelled fields, with a minimal role-only system message).
+The adapter **reads the declaration and never infers one** from a seam name or schema shape, which
+would silently re-frame the next seam that happened to resemble this one. This exists because
+"extraction" had been baked into shared plumbing that then had to carry a non-extraction task: the
+same instruction scored 41/47 under extraction framing and 52/53 under classification framing.
+**Field values are JSON-encoded under every framing**, so the injection boundary does not vary with
+presentation — a newline and a forged label inside sender text cannot become a second field.
+
 | Seam | Permitted model input |
 |---|---|
+| request classification (F-111) | the sender's current message alone — **no stand roster, no sender type, no service name**, each excluded on measurement rather than principle |
 | farmer-message intent | the authorized farmer's current message, and nothing else |
 | inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), the current or pending canonical closure instruction for the farmer's own location, the exact current Vashon calendar date, and deterministic closure timing evidence derived by code before the call |
 | stock-out item parsing | the current item text plus public item IDs/names for the code-bound location — its published inventory and its usual offerings, as one flat list carrying no indication of which is which |
@@ -182,11 +194,41 @@ flag:
   interprets arbitrary inventory language and must preserve inventory plus closure in one mixed result.
   Code validates the shape and authority and renders every public status; the model cannot publish or
   author a public closure note.
-- **farmer-message intent** — authorized farmer free text → one of three route signals:
+- **request classification** (F-111) — any sender's free text → exactly one of six categories:
+  `search_stands`, `stand_lookup`, `inventory_report`, `system_inquiry`, `chitchat`, `unclear`. One
+  `.strict()` enum field and nothing else, so the seam has no channel through which a stand, a
+  recipient, an attribute or prose could travel. **It replaces the two sender-split intent seams
+  below**, which Phase 2 deletes.
+  - **`inventory_report` is one category for every sender.** Splitting it by sender was measured and
+    failed: "no eggs left at Pinecone Gardens" from a farmer classified as *their own* update 3/3,
+    which is B-053 reintroduced. Who may act on a report is an **access** question code answers from
+    `farmer_authorizations` — customer → report; farmer with access → update; farmer **without**
+    access → report. The classifier cannot express authority at all.
+  - **There is no fallback category.** A provider error or invalid output returns a failure the
+    caller renders as an outage reply, rather than reusing a real category as its refusal value the
+    way customer-message intent does — which made an outage indistinguishable from a classification
+    and answered "no current listing" for a corpus nothing had searched.
+  - **`unclear` is a real, reachable category**, not that fallback: a message outside what Farm
+    Friend does gets an honest answer rather than being forced into product retrieval.
+  - **Two code-owned fast paths run before the model**, each a shortcut to a category the model could
+    also produce and never a route to a consequence its output could not reach. A **generic
+    acceptance matcher** ("who takes X", subject + acceptance verb + object, carrying no payment or
+    organisation vocabulary) and the **VIGA Bucks resolver**, which claims four shapes:
+    acceptance at one named stand → `stand_lookup`; general acceptance or spending →
+    `search_stands`; what they are or how to get them → `system_inquiry`; and an unsupported
+    *statement* about them → `unclear`. That last arm is a domain override: "no viga bucks left" is
+    grammatically identical to "no eggs left", so the model correctly applies an instruction rule we
+    need for real reports — it simply lacks the domain fact that VIGA Bucks are not stand inventory.
+    Recognising a fixed program of the service is the same act as recognising `MAP`; the
+    no-hard-coded-vocabulary rule forbids *farm and food* vocabulary, which changes as stands and
+    seasons turn.
+- **farmer-message intent** *(superseded by request classification; deleted in F-111 Phase 2)* —
+  authorized farmer free text → one of three route signals:
   `inventory_update`, `farm_stand_question`, or `unclear`. Code owns authority, exact stand resolution,
   inquiry grounding, confirmation, and the clarification text. A classifier error or invalid output
   becomes `unclear`; it never becomes an inventory write.
-- **customer-message intent** (F-104) — customer free text → `stock_out_report` or
+- **customer-message intent** (F-104) *(superseded by request classification; deleted in F-111
+  Phase 2)* — customer free text → `stock_out_report` or
   `farm_stand_question`. The sibling of farmer-message intent on the other branch, and deliberately
   NOT a field on inquiry interpretation: every working customer answer flows through that seam, so a
   new job there risks the whole question path. There is no third `unclear` arm —
