@@ -26,7 +26,7 @@
   when there are not — and Typical Offerings always follows. The map search placeholder reads
   `e.g. “eggs”, “flowers”, stand name…`, naming both halves of what the field actually matches.
 - **Code owns closure timing outright; a volunteered closure cannot cost a farmer their update**
-  (B-058, merged `e982cf0`, **not deployed**). Where the message carries no closure evidence, the
+  (B-058, `e982cf0`, deployed 2026-08-12). Where the message carries no closure evidence, the
   model's `closure` field is stripped before schema validation and dropped from the result — it
   was discarding correct inventory edits three different ways. `kind: "closure"` still clarifies on
   mismatch, since there the closure is the whole payload. Omitted `additions`/`changes` arrays read
@@ -133,6 +133,19 @@
   comma lists; **11/11 on four consecutive runs**. Where the corpus genuinely admits two answers
   the fixture accepts either. Build any future case from live rows — the ticket's cited examples
   were stale. The score measures the **current** model and expires when it is swapped.
+- **B-062 and B-063 are verified on a handset** (max, 2026-08-12): a stand confirmed past the
+  freshness threshold reads `Last seen`, the header counts stands rather than rows, it echoes no
+  search term, and a stand with no stock line reads `May have`.
+- **B-065 is verified on a handset** (max, 2026-08-12): a stock-out misspelling the stand asked
+  which stand, the answer completed the report, and the farmer's alert named the item. The held
+  clarification survives the round trip on real handsets, not only in test.
+- **F-109 is verified on a handset** (max, 2026-08-12): a real scheduled reminder read with the
+  stand named in the heading and `(updated Xd ago)` matching the listing's age.
+- **B-052 is verified on a handset** (max, 2026-08-12): a bare `VIGA` returned the carrier receipt,
+  the offer, and the card previewing as **`viga-farm-friend`**. The same read confirmed the VIGA
+  contact-card fix — that sender received no card at all before. As expected and unchangeable:
+  the second line reads `Contact Card · 153 bytes` (iOS's own label) over the Cloud Run host,
+  which stays until a real domain exists.
 - Deployment assertions confirm both revisions are newer than every mounted secret; the served contact card
   has the expected E.164 suffix, 153 bytes, CRLF-only lines, and all seven required properties.
 
@@ -163,27 +176,10 @@
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the
   roster as a farm at all — it is the market itself, not a stand with a farmer to onboard.
-- **B-062 and B-063 owe one live check:** text a question whose answer includes a stand confirmed
-  more than four days ago, and read the label — it must say `Last seen`, and the header must count
-  stands. Both are deployed but unread on a handset, which is exactly how the defects they fix got
-  through in the first place. The same read confirms this session's copy: the header names no
-  search term, and a stand with no stock line says `May have`, not `May also have`.
 - **The 96-hour threshold changed the public map too**, not just SMS — its stale warning now starts
   two days later than before this deploy. Unverified by eye on the live map.
-- **F-109 owes one live check:** read a real scheduled reminder on a handset — the heading must name
-  the stand and carry `(updated Xd ago)` matching that listing's true age. No prompt has been sent
-  since the change, and the schedule fires at 10:00 stand-local, so this waits for a due slot.
 - F-108 (idea): a per-answer `MAP:` link resolving to a view of just those stands. Blocked on nothing;
   it is a new public surface plus a stored per-answer code, so it was kept out of F-107.
-- **B-065 owes one live check:** text a stock-out misspelling the stand ("Pinecome is out of eggs"),
-  answer "Which stand are you at?" with the name, and confirm the farmer's alert names the **eggs**.
-  A second misspelling in the reply should also resolve. Proven by test and against the real corpus,
-  unread on a handset.
-- **B-052 is verified on a handset** (max, 2026-08-12): a bare `VIGA` returned the carrier receipt,
-  the offer, and the card previewing as **`viga-farm-friend`**. The same read confirmed the VIGA
-  contact-card fix — that sender received no card at all before. As expected and unchangeable:
-  the second line reads `Contact Card · 153 bytes` (iOS's own label) over the Cloud Run host,
-  which stays until a real domain exists.
 - **Unread on a handset: the card on the ONBOARDING path.** The verified read was a returning
   sender with no invitation waiting, so no listing-live message was owed and none came. The farmer
   case — an unredeemed invitation, where the card now arrives beside `renderFarmerOnboardingComplete`
