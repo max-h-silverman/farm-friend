@@ -6,7 +6,7 @@ import {
 } from "./deepinfra";
 import { generateValidated } from "./index";
 import {
-  projectFarmerMessageIntent,
+  projectInventoryExtraction,
   projectInquiryInterpretation,
   projectOfferingExtraction,
   projectRequestClassification,
@@ -81,7 +81,11 @@ describe("the DeepInfra adapter", () => {
     // needs updating, an existing seam's measured behaviour has changed with it.
     const cases = [
       projectOfferingExtraction({ sourceText: "eggs and plant starts" }),
-      projectFarmerMessageIntent({ taskText: "we have kale" }),
+      projectInventoryExtraction({
+        taskText: "we have kale",
+        currentEntries: [],
+        currentLocalDate: "2026-08-13",
+      }),
       projectInquiryInterpretation({ taskText: "who has eggs" }),
       projectStockOutParse({ taskText: "no eggs", listedItems: [] }),
     ];

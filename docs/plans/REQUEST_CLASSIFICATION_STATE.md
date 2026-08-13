@@ -1,10 +1,11 @@
 # Farm Friend — request classification architecture, as of 2026-08-13
 
 Self-contained summary for external architecture review. Written at the end of Phase 1 of the
-refactor described in `REQUEST_CLASSIFICATION_REFACTOR.md`.
+refactor described in `REQUEST_CLASSIFICATION_REFACTOR.md`, and **updated at the end of Phase 2**.
 
-**Status in one line:** the new classifier is fully implemented, tested, and measured, and is
-**not yet wired into production routing**. Production still runs the two legacy seams.
+**Status in one line:** the classifier is implemented, measured, and **wired into routing on
+`f-111-phase-2`**; the two legacy seams are deleted. Not yet deployed — production still serves
+`3f89523`.
 
 ---
 
@@ -446,35 +447,63 @@ were **sabotage-verified** — deliberately broken to confirm they fail.
 
 ---
 
-## 11. Integration status — the critical distinction
+## 11. Integration status — Phase 2 complete on `f-111-phase-2`
 
-### Implemented AND integrated
-**Nothing from this refactor affects production traffic yet.**
+### Wired
+`handleFreeText` (`apps/web/lib/free-text.ts`) is built around the classifier. The order is:
 
-The one change that touches shared code is `PromptFraming` on `ModelSafeContext` plus the
-adapter's framing/system-message branch. It is live in the package but **behaviourally inert for
-every existing seam**: absent framing means extraction framing, pinned byte-for-byte by tests.
+1. deterministic routing steps 1–10 (`routing.ts`, body-only, **untouched**);
+2. the open stock-out clarification (B-065) — now for **any** sender, not just customers;
+3. authority read from `farmer_authorizations`, **not passed to the model**;
+4. one classifier call;
+5. a `switch` over the six categories, each arm handled in code.
 
-### Implemented but NOT integrated
-- `request-classification` seam — six-category enum, `.strict()`, no fallback
-- `acceptance-question` matcher and the classifier-local fast path
-- `farm-bucks-intent` — the VIGA Bucks domain resolver, running ahead of it
-- The classification projection and its declared framing
-- The 53-case live eval fixture
+The composition root, the inbound worker, and both internal routes construct and thread one
+`classifier` where they previously threaded `farmerIntent` and `customerIntent`.
 
-**Verified by inspection:** `createRequestClassificationModel` is referenced **nowhere** in
-`apps/web`. The composition root still constructs only `createFarmerMessageIntentModel` and
-`createCustomerMessageIntentModel`. No production code path can reach the new classifier.
+**Step 11's pre-classification stand binding is deleted.** Stand resolution now runs only inside
+`handleInventoryReport`, below classification — which is what stops an ordinary question
+containing "open" from ever reaching the matcher.
 
-### Planned, not yet implemented (next phases)
-- **Rewire routing** to call the new classifier; delete the pre-classification stand-binding step
-- **The `inventory_report` access fork** (the three-row table in §8) — the design exists, the
-  code does not
-- **Delete** `farmer-message-intent` and `customer-message-intent`
-- **`system_inquiry` handling** — currently there is no such path; this is what closes the
-  original "where's the farm stand map?" defect
-- **Raise the stand-matcher's bar** — see §13
-- `unclear` and outage replies as code-rendered copy
+### Deleted, not left beside the new seam
+`farmer-message-intent.ts`, `customer-message-intent.ts`, their tests, their projections
+(`projectFarmerMessageIntent`, `projectCustomerMessageIntent`), their `SEAM_OUTPUT_SHAPES` and
+`SEAM_OUTPUT_NOTES` entries, and their composition wiring. Their live eval coverage was **merged
+onto the new seam** rather than dropped: the containment fixture and the report-vs-question
+boundary (both sender fixtures, one taxonomy) now run through `request-classification`.
+
+### The arms, as built
+| arm | what code does |
+|---|---|
+| `inventory_report` | the access fork (§8) — resolve stand, then route by `farmer_authorizations` |
+| `search_stands` / `stand_lookup` | the grounded inquiry path, unchanged |
+| `system_inquiry` | `SYSTEM_INQUIRY_REPLY`, whose URL is the shared `PUBLIC_MAP_URL` constant |
+| `chitchat` | `CHITCHAT_REPLY` |
+| `unclear` | `UNCLEAR_REQUEST_REPLY` — *their* message was unhandleable |
+| *call failed* | `CLASSIFIER_UNAVAILABLE_REPLY` — **our** outage, stated as ours (B-049) |
+
+The last two are deliberately different strings, and a test asserts they differ.
+
+### Phase 2b — the matcher's bar, shipped
+`meetsDistinctiveWordBar(matched, distinctive)` in
+`packages/core/src/inquiry/stand-name-match.ts`: matched words must be **at least half** the
+stand's distinctive words. Measured against the real corpus, 14/14 required cases, where three
+other candidate rules each failed at least one. Full table and the accepted cost in
+`REQUEST_CLASSIFICATION_REFACTOR.md` §Phase 2b RESULT.
+
+### Verified
+16 new integration tests against real Postgres cover all three access-fork rows, both defect-B
+defences independently, the three new arms, the failure path, the ordering invariants, and the
+swap test. **Each was sabotage-verified** — the ownership check, the map arm, the outage reply,
+the clarification's placement, and the scoring bar were each broken deliberately and the
+intended test failed.
+
+### Not done
+- **Not deployed.** Production serves `3f89523`; both live defects remain on handsets until this
+  ships.
+- `search_stands` and `stand_lookup` share one code path. The classifier draws the distinction;
+  no consumer acts on it yet. That is the later interpretation stage's job, and Phase 0b's
+  coverage numbers (including the hours caveat) are its input.
 
 ---
 

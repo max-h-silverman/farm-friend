@@ -108,10 +108,8 @@ presentation — a newline and a forged label inside sender text cannot become a
 | Seam | Permitted model input |
 |---|---|
 | request classification (F-111) | the sender's current message alone — **no stand roster, no sender type, no service name**, each excluded on measurement rather than principle |
-| farmer-message intent | the authorized farmer's current message, and nothing else |
 | inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), the current or pending canonical closure instruction for the farmer's own location, the exact current Vashon calendar date, and deterministic closure timing evidence derived by code before the call |
 | stock-out item parsing | the current item text plus public item IDs/names for the code-bound location — its published inventory and its usual offerings, as one flat list carrying no indication of which is which |
-| customer-message intent | the customer's current message alone |
 | inquiry interpretation | the current customer SMS request |
 | grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts (returns selected IDs and, per ID, which of that fact's own item names answered) |
 | offering extraction | one stand's public "generally offers" description, alone |
@@ -206,8 +204,8 @@ flag:
     access → report. The classifier cannot express authority at all.
   - **There is no fallback category.** A provider error or invalid output returns a failure the
     caller renders as an outage reply, rather than reusing a real category as its refusal value the
-    way customer-message intent does — which made an outage indistinguishable from a classification
-    and answered "no current listing" for a corpus nothing had searched.
+    way the two sender-split seams it replaced did — which made an outage indistinguishable from a
+    classification and answered "no current listing" for a corpus nothing had searched.
   - **`unclear` is a real, reachable category**, not that fallback: a message outside what Farm
     Friend does gets an honest answer rather than being forced into product retrieval.
   - **Two code-owned fast paths run before the model**, each a shortcut to a category the model could
@@ -222,19 +220,6 @@ flag:
     Recognising a fixed program of the service is the same act as recognising `MAP`; the
     no-hard-coded-vocabulary rule forbids *farm and food* vocabulary, which changes as stands and
     seasons turn.
-- **farmer-message intent** *(superseded by request classification; deleted in F-111 Phase 2)* —
-  authorized farmer free text → one of three route signals:
-  `inventory_update`, `farm_stand_question`, or `unclear`. Code owns authority, exact stand resolution,
-  inquiry grounding, confirmation, and the clarification text. A classifier error or invalid output
-  becomes `unclear`; it never becomes an inventory write.
-- **customer-message intent** (F-104) *(superseded by request classification; deleted in F-111
-  Phase 2)* — customer free text → `stock_out_report` or
-  `farm_stand_question`. The sibling of farmer-message intent on the other branch, and deliberately
-  NOT a field on inquiry interpretation: every working customer answer flows through that seam, so a
-  new job there risks the whole question path. There is no third `unclear` arm —
-  `farm_stand_question` is both the other answer and the fallback, so a refused or unreachable model
-  leaves the question path exactly as it was. The projection carries the customer's message alone: no
-  stand list, no farm names, no sender hash.
 - **stock-out item parsing** — free text → which item (an item the stand lists, or normalized text for
   one it does not), on both the web/QR surface and the SMS reporting path. The candidate list code
   supplies spans **both** farmer-authored item lists — the stand's published inventory and its usual
@@ -317,9 +302,10 @@ final normalization and segment estimation.
 
 ## Retrieval and ranking (after interpretation, before grounded fact selection)
 
-Deterministic SMS routing runs before every model call. For an authorized farmer's free text, code
-checks live authority, the farmer-message intent seam classifies the route, and only an update then
-resolves an exact stand target. A question enters the same grounded inquiry flow as a customer.
+Deterministic SMS routing runs before every model call. One request classifier then runs for every
+sender, and only `inventory_report` from a farmer holding the resolved stand reaches an exact stand
+target — access is checked in code after the category is known. Every other arm, from either sender,
+enters the same grounded inquiry flow.
 
 The first inquiry call interprets the current request. Code validates that interpretation and then runs
 a **general** retrieval layer: *given items, optional farm scope, and a proposed ranking interpretation

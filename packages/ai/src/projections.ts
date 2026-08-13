@@ -94,15 +94,6 @@ export type ModelSafeContext<T = unknown> = {
  * the same validation and rendering barriers as ever (Golden Rule #6).
  */
 export const SEAM_OUTPUT_SHAPES = {
-  "farmer-message-intent": [
-    '{"kind":"inventory_update"}',
-    '{"kind":"farm_stand_question"}',
-    '{"kind":"unclear"}',
-  ],
-  "customer-message-intent": [
-    '{"kind":"stock_out_report"}',
-    '{"kind":"farm_stand_question"}',
-  ],
   "inventory-extraction": [
     '{"kind":"edits","additions":[{"itemName":"ITEM_NAME","quantity":12,"unit":"UNIT","priceText":"PRICE","approximation":"plentiful"}],"changes":[{"entryId":"ENTRY_ID","quantity":6}],"removals":[{"entryId":"ENTRY_ID"}],"closure":{"result":"close","closureKind":"temporary","startsOn":"START_DATE","closedThrough":"END_DATE"}}',
     '{"kind":"clear_all"}',
@@ -142,25 +133,6 @@ type SeamName = keyof typeof SEAM_OUTPUT_SHAPES;
  * ranking membership, ID membership, and field allow-lists are all re-validated in code.
  */
 const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
-  "farmer-message-intent":
-    "Classify the authorized farmer's message as inventory_update when they are reporting " +
-    "what a stand has, sold out of, or will have - a statement about THEIR OWN stock. " +
-    "Classify it as farm_stand_question when they are asking what a stand has, where a stand " +
-    "is, when it is open, or looking for a product to buy - a request for information. A " +
-    "message that merely names or asks after a product (\"looking for nigella\", \"anyone " +
-    "have plums\", \"nigella?\") is a question, not an update: a farmer also shops at other " +
-    "stands. When you cannot clearly tell, choose farm_stand_question - it answers from real " +
-    "listings and is safe for either sender. Use unclear only as a last resort, when the " +
-    "message says nothing about stock and asks nothing at all. Return only the classification " +
-    "signal. Do not interpret the inventory, choose a stand, or write a reply.",
-  "customer-message-intent":
-    "Classify the customer's message as stock_out_report when they are telling you an item " +
-    "is gone, sold out, empty, or unavailable at a stand they visited - a statement about " +
-    "what they FOUND. Classify it as farm_stand_question when they are asking what a stand " +
-    "has, where a stand is, when it is open, or anything else - a request for information. " +
-    "A message that merely names a product is a question, not a report. When you cannot " +
-    "clearly tell, choose farm_stand_question. Return only the classification signal. Do " +
-    "not name a stand or farm, choose a recipient, interpret the inventory, or write a reply.",
   "inventory-extraction":
     "EVERY independent fact in the farmer message MUST survive in one result. If the message " +
     "contains both inventory and closure facts, return kind edits with the inventory changes " +
@@ -460,46 +432,6 @@ export function projectInventoryExtraction(input: {
 export interface InquiryInterpretationFields {
   /** The current customer's own question, verbatim. */
   readonly taskText: string;
-}
-
-/** The complete permitted input for the authorized-farmer message-intent seam. */
-export interface FarmerMessageIntentFields {
-  /** The authorized farmer's own current message, verbatim. */
-  readonly taskText: string;
-}
-
-/** Project only the authorized farmer's current message for route classification. */
-export function projectFarmerMessageIntent(input: {
-  taskText: string;
-}): ModelSafeContext<FarmerMessageIntentFields> {
-  return {
-    seam: "farmer-message-intent",
-    fields: { taskText: input.taskText },
-    outputInstructions: outputInstructionsFor("farmer-message-intent"),
-  } as ModelSafeContext<FarmerMessageIntentFields>;
-}
-
-/** The complete permitted input for the customer message-intent seam. */
-export interface CustomerMessageIntentFields {
-  /** The customer's own current message, verbatim. */
-  readonly taskText: string;
-}
-
-/**
- * Project only the customer's current message for route classification.
- *
- * Deliberately NO stand list, no farm names, and no sender hash. This call decides whether a
- * message is a report or a question; handing it stands would let it name one, and which stand
- * a report belongs to is code's from the customer's own answer (Golden Rule #1).
- */
-export function projectCustomerMessageIntent(input: {
-  taskText: string;
-}): ModelSafeContext<CustomerMessageIntentFields> {
-  return {
-    seam: "customer-message-intent",
-    fields: { taskText: input.taskText },
-    outputInstructions: outputInstructionsFor("customer-message-intent"),
-  } as ModelSafeContext<CustomerMessageIntentFields>;
 }
 
 /**

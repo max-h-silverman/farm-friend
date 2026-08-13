@@ -1,17 +1,15 @@
 import {
   assertProviderApproved,
   createDeepInfraProvider,
-  createCustomerMessageIntentModel,
-  createFarmerMessageIntentModel,
   createInquiryModel,
   createInventoryInterpreter,
+  createRequestClassificationModel,
   createStockOutModel,
   DEEPINFRA_ATTESTED_DATA_HANDLING,
   DEEPINFRA_THIRD_PARTY_ROUTED_MODEL_PREFIXES,
   StubLLMProvider,
-  type CustomerMessageIntentModel,
-  type FarmerMessageIntentModel,
   type InquiryModel,
+  type RequestClassificationModel,
   type ProviderDataHandling,
   type StockOutModel,
 } from "@farm-friend/ai";
@@ -330,10 +328,12 @@ export interface AppContext {
    * workflow hands it (docs/AI_ARCHITECTURE.md §"The model provider seam").
   */
   interpreter: InventoryInterpreter;
-  /** Classifies an authorized farmer's free text before code resolves an update target. */
-  farmerIntent: FarmerMessageIntentModel;
-  /** Classifies a customer's free text as a question or a stock-out report (F-104). */
-  customerIntent: CustomerMessageIntentModel;
+  /**
+   * The first-pass request classifier (F-111) — one call, one enum, for every sender. It
+   * replaced the two sender-split intent seams, which are deleted: who sent a message is an
+   * access question code answers from `farmer_authorizations`, not a language one.
+   */
+  classifier: RequestClassificationModel;
   /** The customer inquiry seams. Constructed over the provider alone, like every seam. */
   inquiry: InquiryModel;
   /** The stock-out item parser, used by the code-bound web/QR surface and the SMS door. */
@@ -552,8 +552,7 @@ export function createAppContext(env: EnvVars = process.env): AppContext {
       transport,
     }),
     interpreter: createInventoryInterpreter(provider),
-    farmerIntent: createFarmerMessageIntentModel(provider),
-    customerIntent: createCustomerMessageIntentModel(provider),
+    classifier: createRequestClassificationModel(provider),
     inquiry: createInquiryModel(provider),
     stockOut: createStockOutModel(provider),
     close: () => db.close(),

@@ -1116,14 +1116,11 @@ describe("scheduled inventory prompt pass (integration)", () => {
       {
         db: handle(),
         clock: new FixedClock(new Date(DUE.getTime() + 2_000)),
-        farmerIntent: {
-          async classify() { return { kind: "inventory_update" as const }; },
-        },
-        // This is a farmer path; reaching either customer seam would be the defect.
-        customerIntent: {
-          async classify(): Promise<never> {
-            throw new Error("the customer intent seam must not run on a farmer path");
-          },
+        // One classifier for every sender (F-111). `inventory_report` is the category an
+        // update and a report SHARE; that this farmer holds the stand is what sends it to the
+        // publish path, and that is decided in code from `farmer_authorizations`.
+        classifier: {
+          async classify() { return { ok: true as const, kind: "inventory_report" as const }; },
         },
         stockOut: {
           async parseItem(): Promise<never> {

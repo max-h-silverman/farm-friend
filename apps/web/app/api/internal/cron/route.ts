@@ -56,8 +56,7 @@ async function runScheduledWork(): Promise<Response> {
   // latency, never the thing that makes suppression correct.
   const inbound = await runInboundPass({
     db: context.db,
-    farmerIntent: context.farmerIntent,
-    customerIntent: context.customerIntent,
+    classifier: context.classifier,
     stockOut: context.stockOut,
     interpreter: context.interpreter,
     inquiry: context.inquiry,

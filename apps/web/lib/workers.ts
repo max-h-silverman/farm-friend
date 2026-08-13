@@ -1,7 +1,6 @@
 import type { Clock, InventoryInterpreter } from "@farm-friend/core";
 import type {
-  CustomerMessageIntentModel,
-  FarmerMessageIntentModel,
+  RequestClassificationModel,
   InquiryModel,
   StockOutModel,
 } from "@farm-friend/ai";
@@ -34,8 +33,7 @@ import { handleScheduledSame } from "./scheduled-same";
 
 export interface InboundWorkerDeps {
   db: Db;
-  farmerIntent: FarmerMessageIntentModel;
-  customerIntent: CustomerMessageIntentModel;
+  classifier: RequestClassificationModel;
   stockOut: StockOutModel;
   interpreter: InventoryInterpreter;
   inquiry: InquiryModel;
@@ -156,8 +154,7 @@ export async function runInboundPass(
             handleFreeText(
               {
                 db: deps.db,
-                farmerIntent: deps.farmerIntent,
-                customerIntent: deps.customerIntent,
+                classifier: deps.classifier,
                 stockOut: deps.stockOut,
                 interpreter: deps.interpreter,
                 inquiry: deps.inquiry,

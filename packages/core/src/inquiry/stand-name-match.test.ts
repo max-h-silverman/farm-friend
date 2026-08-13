@@ -3,6 +3,7 @@ import {
   editDistanceWithin,
   fuzzyNameAllowance,
   isFuzzyNameMatch,
+  meetsDistinctiveWordBar,
 } from "./stand-name-match";
 
 /*
@@ -100,5 +101,63 @@ describe("editDistanceWithin", () => {
   it("handles the empty string without claiming a match", () => {
     expect(editDistanceWithin("", "pinecone", 2)).toBe(false);
     expect(editDistanceWithin("", "", 0)).toBe(true);
+  });
+});
+
+/*
+  F-111 Phase 2b — the scoring bar.
+
+  The defect: a tier-2 score of 1 counted as identification. "Open Gate Lamb and Grazing"
+  contributes the distinctive word `open`, so ANY message containing that common English word
+  bound to that farm and was answered as a report about it. `GENERIC_NAME_WORDS` cannot help —
+  it strips words common across STAND NAMES, and `open` is common in English, not in the corpus.
+
+  The rule chosen, measured against the real 34-stand corpus in `maps/offerings-proposals.json`
+  plus the two live stands the F-106/B-065 cases name (2026-08-13): matched distinctive words
+  must be **at least half** of the stand's own distinctive words.
+
+  Three rejected alternatives, each failing on the real corpus rather than in the abstract:
+    - "require 2 for a multi-word name" breaks `barts` → Bart's Cart (2 distinctive words).
+    - "keep a score of 1 only when the word is unique corpus-wide" fails outright: `open` IS
+      unique to one stand, which is the whole bug.
+    - adding a minimum word LENGTH to this rule costs nine more real partials at 5 characters
+      and breaks `barts` at 6.
+*/
+describe("distinctive-word scoring bar (F-111 Phase 2b)", () => {
+  it("rejects one word out of a four-word name — the `open` defect", () => {
+    // Open Gate Lamb and Grazing → [open, gate, lamb, grazing]. One matched word is a
+    // coincidence, not a name.
+    expect(meetsDistinctiveWordBar(1, 4)).toBe(false);
+    expect(meetsDistinctiveWordBar(1, 3)).toBe(false);
+  });
+
+  it("accepts a single-word name matched by its one word", () => {
+    // Narwhal Farm → [narwhal]; Holmestead Farms → [holmestead]. The word IS the name.
+    expect(meetsDistinctiveWordBar(1, 1)).toBe(true);
+  });
+
+  it("accepts one word of a two-word name — `barts` must keep resolving", () => {
+    // Bart's Cart → [barts, cart]. F-106's case, and the reason a flat "require 2" was
+    // rejected. Half of two is one.
+    expect(meetsDistinctiveWordBar(1, 2)).toBe(true);
+  });
+
+  it("accepts two words of a four-word name and rejects one of five", () => {
+    expect(meetsDistinctiveWordBar(2, 4)).toBe(true);
+    expect(meetsDistinctiveWordBar(2, 5)).toBe(false);
+    expect(meetsDistinctiveWordBar(3, 5)).toBe(true);
+  });
+
+  it("never accepts a score of zero, whatever the name's length", () => {
+    // A stand that matched nothing is not a candidate at any bar. Guarding here as well as at
+    // the call site keeps the rule true standing alone.
+    expect(meetsDistinctiveWordBar(0, 1)).toBe(false);
+    expect(meetsDistinctiveWordBar(0, 4)).toBe(false);
+  });
+
+  it("treats a name with no distinctive words as unmatchable", () => {
+    // "The Farm Stand" folds to zero distinctive words. Tier 1 compares whole names and still
+    // reaches it; tier 2 must not divide by nothing and call it a match.
+    expect(meetsDistinctiveWordBar(0, 0)).toBe(false);
   });
 });

@@ -515,6 +515,35 @@ resolving (`barts` → Bart's Cart, `pinecome` → Pinecone Gardens under an ope
 `holmstead` still tying and asking). Both directions matter — a bar high enough to reject "open"
 must not also reject "barts".
 
+#### Phase 2b RESULT — measured 2026-08-13. **Rule B ships: 14/14.**
+
+Measured against the real 34-stand corpus in `maps/offerings-proposals.json`, plus the two live
+stands the F-106/B-065 cases name (Pinecone Gardens and Handpicked Homestead are live rows absent
+from that file — measuring the "must keep resolving" half without them measures a different island).
+
+**The rule: matched distinctive words must be at least HALF the stand's distinctive words.**
+`open` is 1 of 4 for "Open Gate Lamb and Grazing", so it binds nothing; `barts` is 1 of 2 for
+"Bart's Cart", so it still does. It lives in `packages/core/src/inquiry/stand-name-match.ts` as
+`meetsDistinctiveWordBar`, beside the fuzzy tier, and the scorer in `free-text.ts` calls it.
+
+| candidate rule | required cases passed | why it lost |
+|---|---|---|
+| current (score ≥ 1) | 9/14 | the defect — the whole "open" family binds |
+| A — ≥ 2 for a multi-word name | 12/14 | breaks `barts` (Bart's Cart has 2 distinctive words) |
+| **B — ≥ half the distinctive words** | **14/14** | **shipped** |
+| C — score 1 only if the word is corpus-unique | 9/14 | does nothing: `open` IS unique to one stand |
+| B + a 5-character floor on a lone word | 14/14 | costs 9 more real partials for two English words |
+| B + a 6-character floor on a lone word | 13/14 | breaks `barts` |
+
+**The cost, accepted by max 2026-08-13:** 33 single-word partials of longer names stop resolving —
+`morgan` no longer reaches Morgan Hill Community Farm Stand, nor `outpost`, `vignes`, `creamery`.
+Those senders are asked which stand they mean. Full names (36/36) and half-names (`morgan hill`)
+are unaffected. Asking is recoverable; binding a stranger's report to the wrong farmer is not.
+
+**What rule B does NOT claim.** A word that is a stand's *entire* distinctive name still binds at
+1 — `green` → Green Ears, `cart` → Bart's Cart, `olive` → Olive Farm Stand. That is identification,
+not coincidence: the sender typed the whole name. The rule targets partial coverage, not vocabulary.
+
 ### Phase 3 — the arms that were missing
 
 - `system_inquiry` answers the map from `PUBLIC_MAP_URL` — the same constant `MAP` uses, stated once.
