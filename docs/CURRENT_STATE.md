@@ -88,15 +88,16 @@
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. `0041` adds
   `pending_stock_out_reports`; its three CHECKs are hand-written, since `drizzle-kit generate` does
   not emit them.
-- Cloud Run web `farm-friend-web-00074-4hk` and worker `farm-friend-worker-00069-bp6` serve
-  immutable digest `sha256:f1f40aae16fd5eb4518943ac33a9da9238b561c7f01df8183990920a3cbaf7ed`,
-  built from `main` `3f89523` and deployed 2026-08-13. The serving digest was read back from both
-  services and matches the build; the migration ledger stands at `0041` and none was owed.
-  **Production carries B-066 and is level with `main` as of that commit.** F-111 Phase 1 changed
-  nothing it serves, and Phase 2 is not deployed — see below.
+- Cloud Run web `farm-friend-web-00075-bfw` and worker `farm-friend-worker-00070-7rw` serve
+  immutable digest `sha256:449e072cb4afdbef88996b382e06ef5c5e3068fb8799af3ced03f9af2c2d62f4`,
+  built from `main` `b187b7e` and deployed 2026-08-13. The serving digest was read back from both
+  services and matches the build, web traffic is 100% on the new revision, and the migration ledger
+  stands at `0041` — **none was owed**. Plan was `0 to add, 2 to change, 0 to destroy` (the two image
+  digests, nothing else); plan assertions 60/60, deploy assertions and served-card assertions passed.
+  **Production carries F-111 Phase 2 and is level with `main`.**
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
-- **F-111 Phase 2 is built on `f-111-phase-2` and NOT DEPLOYED.** `handleFreeText` now runs on the
+- **F-111 Phase 2 is DEPLOYED (`b187b7e`, PR #114).** `handleFreeText` now runs on the
   single request classifier: the open stock-out clarification (B-065) sits above it for **any**
   sender, authority is read from `farmer_authorizations` and **not passed to the model**, one call
   returns one of six categories, and a `switch` hands each arm to code. Routing step 11's
@@ -109,7 +110,7 @@
   farmer **not** holding it → report (B-053). The classifier has no category meaning "this sender
   may publish", so a hostile one cannot reach a publish path — asserted by a swap test over three
   categories.
-- **Both live SMS defects are closed on that branch.** "where's the farm stand map?" now has a
+- **Both live SMS defects are closed in the deployed code, unverified on a handset.** "where's the farm stand map?" now has a
   `system_inquiry` path answering from the same `PUBLIC_MAP_URL` the `MAP` keyword serves, and the
   word `open` no longer binds Open Gate Lamb and Grazing. Defect B has **two independent defences**
   and both are tested separately: classification runs first, so a question never reaches stand
@@ -129,7 +130,7 @@
 
 ## Verification
 
-- `f-111-phase-2`: **2,085 unit tests, 961 local integration tests (63 files)**, typecheck and lint
+- `main` at F-111 Phase 2: **2,085 unit tests, 961 local integration tests (63 files)**, typecheck and lint
   all pass (2026-08-13). Scripted evals: critical 11/11, advisory 4/4, adversarial 29/29. The unit
   count moved with the two deleted seams' own tests; the integration count grew by the 16-case
   `request-classification-routing.integration.test.ts`.
@@ -230,8 +231,14 @@
   confirm it is gone from the map and unreachable by text, and put it back. Both `visibleFarms`
   branches were verified live by stand counts, but no farm was retired at the time, so the
   retirement clause itself is proven only by integration test against production code.
-- **F-111 Phase 2 is built but UNDEPLOYED.** Both live SMS defects stay on handsets until it ships.
-  The branch is `f-111-phase-2`; plan and as-built architecture are in `docs/plans/`.
+- **F-111 Phase 2 is deployed and owes a handset smoke test** (max, 2026-08-13). Thirteen cases
+  agreed in advance, including both closed defects, the three access-fork rows, the two VIGA Bucks
+  shapes, a partial stand name that must clarify, and the new `unclear` reply. Report before Phase 3.
+- **The provider-failure reply is proven by test only, deliberately.** Forcing a real outage in
+  production means every sender loses every answer for as long as it lasts, on VIGA's own API key.
+  An integration test forces `{ok: false}` and asserts the outage copy, sabotage-verified against the
+  `unclear` string. Seeing it on a handset needs a preview deployment with a bad model endpoint —
+  a separate service, never the live one.
 - **`search_stands` and `stand_lookup` share one code path.** The classifier draws the distinction
   and nothing yet acts on it — that is the later interpretation stage's job, and Phase 0b's coverage
   numbers (produce 33/34, payment full, restock 27/34, season 26/34, **hours only 21/34**) are its

@@ -3,9 +3,9 @@
 Self-contained summary for external architecture review. Written at the end of Phase 1 of the
 refactor described in `REQUEST_CLASSIFICATION_REFACTOR.md`, and **updated at the end of Phase 2**.
 
-**Status in one line:** the classifier is implemented, measured, and **wired into routing on
-`f-111-phase-2`**; the two legacy seams are deleted. Not yet deployed — production still serves
-`3f89523`.
+**Status in one line:** the classifier is implemented, measured, wired into routing, and
+**deployed** (`main` `b187b7e`, web `00075-bfw` / worker `00070-7rw`, 2026-08-13); the two legacy
+seams are deleted. A handset smoke test is owed before Phase 3.
 
 ---
 
@@ -499,8 +499,9 @@ the clarification's placement, and the scoring bar were each broken deliberately
 intended test failed.
 
 ### Not done
-- **Not deployed.** Production serves `3f89523`; both live defects remain on handsets until this
-  ships.
+- **Unverified on a handset.** The deploy is verified by effect — both services read back the built
+  digest — but no real SMS has exercised the new arms. Thirteen agreed cases are listed in
+  CURRENT_STATE.md §Open before go-live.
 - `search_stands` and `stand_lookup` share one code path. The classifier draws the distinction;
   no consumer acts on it yet. That is the later interpretation stage's job, and Phase 0b's
   coverage numbers (including the hours caveat) are its input.
