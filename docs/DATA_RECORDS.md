@@ -56,6 +56,14 @@ a stand under a retired farm as off the map — "is this stand served?" is the f
 stand's — but the stand's column stays untouched, so restoring the farm returns exactly the stands it
 was holding down while a stand retired on its own stays retired.
 
+**That OR is enforced in two places, and both are load-bearing** (B-066, which found it enforced in
+neither). Read surfaces get it from `visibleFarms`, the fragment the map, both SMS retrieval queries
+and the public pickers already compose — the farm clause is unconditional there, because
+`?hidden=true` and a listed sender hash grant deliberate sight of *fake* farms, never of a real farm
+VIGA removed. Publication gets its own locked check inside `confirmInventoryPublication`, beside the
+approval it sits with, returning `farm_retired`. Filtering only the stand's column leaves a removed
+farm on the map, reachable by text, and still publishing.
+
 **`farms.test_farm_at` is the same rule applied a second time** (F-074): a farm VIGA marked as fake so
 the whole journey can be walked against real production without an islander seeing it. It is on
 **`farms`**, not `sales_locations`, because the intent is "this whole farm is fake" — one decision
