@@ -42,20 +42,33 @@ import type { Tx } from "./sql";
 //   3. Removal is immediate, because every read filters on `revoked_at is null`.
 
 /**
- * The visibility rule, written ONCE, as a SQL fragment over a `farms` alias.
+ * The farm-level visibility rule, written ONCE, as a SQL fragment over a `farms` alias.
+ *
+ * Two reasons a farm is absent, and they are not the same kind of thing: it is a TEST farm
+ * (fake, and a deliberate viewer may see it), or VIGA REMOVED it (real, and nobody may).
  *
  * `includeTestFarms` is the deliberate-viewer decision already made by the caller — resolved
  * from `?hidden=true` on the web or from the sender's hash over SMS. It is a boolean by the
  * time it arrives here on purpose: this module decides what a test farm IS, and never how
- * someone earned the right to see one.
+ * someone earned the right to see one. It does not widen to removed farms.
  *
  * Returns `true` rather than an empty string in the permitted case, so it is always a legal
  * boolean expression and a caller can drop it into a `where` or a `select` without knowing
  * which branch it took.
  */
 export function visibleFarms(alias: string, includeTestFarms: boolean): string {
-  if (includeTestFarms) return "true";
-  return `${alias}.test_farm_at is null`;
+  // A removed farm is absent from every public surface, and that is NOT covered by the stands'
+  // own `retired_at`: a farm take-down deliberately never writes it, so restoring the farm can
+  // put back exactly the stands it was holding down. The rule therefore has to be stated over
+  // the FARM, and it belongs here for the reason this function exists — four surfaces compose
+  // this fragment, and four hand-written copies is four chances to miss one.
+  //
+  // Unconditional, unlike the test-farm clause: `?hidden=true` and a listed sender hash make a
+  // viewer deliberate about FAKE farms, which hold no real data. Neither is authority to see a
+  // real farm VIGA has taken down.
+  const notRetired = `${alias}.retired_at is null`;
+  if (includeTestFarms) return notRetired;
+  return `${notRetired} and ${alias}.test_farm_at is null`;
 }
 
 /**

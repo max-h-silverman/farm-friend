@@ -11,7 +11,9 @@ import {
   confirmInventoryPublication,
   createDb,
   listStandsForAdministration,
+  restoreFarm,
   restoreStand,
+  retireFarm,
   retireStand,
   type Db,
 } from "./index";
@@ -362,5 +364,44 @@ describe("stand retirement (integration)", () => {
       select count(*)::int as n from audit_events where action = 'stand_restored'
     `;
     expect(audit[0]?.n).toBe(1);
+  });
+
+  it("refuses publication once the whole FARM is taken down, not just a stand", async () => {
+    // The farm-level counterpart of the claim above, and it needs its own test because a farm
+    // take-down deliberately never writes any stand's `retired_at` — so a gate that reads only
+    // the stand's column lets a removed farm keep publishing to the map.
+    //
+    // The stand is live at this point (restored above), and its authorization and approval are
+    // untouched: the farm's removal alone must stop it, at the same seam.
+    expect(
+      await attemptPublication(at(9), "plums"),
+      "the fixture must be publishing before the farm is removed",
+    ).toBe("published");
+
+    const removed = await retireFarm(handle(), {
+      farmId: ids.farm as string,
+      administratorId: ids.administrator as string,
+      occurredAt: at(10),
+    });
+    expect(removed.status).toBe("retired");
+
+    const standRows = await sql()`
+      select retired_at from sales_locations where id = ${ids.location as string}
+    `;
+    expect(
+      standRows[0]?.retired_at,
+      "the farm take-down must not write the stand's own retirement",
+    ).toBeNull();
+
+    expect(await attemptPublication(at(11), "quince")).toBe("farm_retired");
+
+    // And it comes back when the farm does — the same reversibility the stand case proves.
+    const restored = await restoreFarm(handle(), {
+      farmId: ids.farm as string,
+      administratorId: ids.administrator as string,
+      occurredAt: at(12),
+    });
+    expect(restored.status).toBe("restored");
+    expect(await attemptPublication(at(13), "rhubarb")).toBe("published");
   });
 });
