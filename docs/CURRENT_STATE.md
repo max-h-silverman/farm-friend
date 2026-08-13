@@ -90,25 +90,36 @@
   not emit them.
 - Cloud Run web `farm-friend-web-00074-4hk` and worker `farm-friend-worker-00069-bp6` serve
   immutable digest `sha256:f1f40aae16fd5eb4518943ac33a9da9238b561c7f01df8183990920a3cbaf7ed`,
-  built from `main` `3f89523` and deployed 2026-08-13. Plan assertions 60/60 (the only delta was
-  the image digest on both services); deploy and served-card assertions pass. The serving digest
-  was read back from both services and matches the build. No migration was owed — the ledger
-  stands at `0041`. **Production and `main` are level.** This deploy carried B-066, so a removed
-  farm no longer reaches the map, the text answers, the public pickers, or publication.
-  `/api/public/stands` returned 34 stands and 35 under `?hidden=true` immediately after, so both
-  branches of `visibleFarms` are live and neither over-excludes.
+  built from `main` `3f89523` and deployed 2026-08-13. The serving digest was read back from both
+  services and matches the build; the migration ledger stands at `0041` and none was owed.
+  **Production carries B-066 and is level with `main` as of that commit.** F-111 Phase 1 changes
+  nothing it serves — see below.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
+- **F-111 Phase 1 is merged but NOT WIRED — production behaviour is unchanged.** A first-pass
+  request classifier (six categories, one `.strict()` enum) exists in `packages/ai` with two
+  code-owned fast paths ahead of it, and **nothing in `apps/web` calls it**: the composition root
+  still builds `farmer-message-intent` and `customer-message-intent`, and `free-text.ts` still runs
+  the pre-classification stand binding. The one shared change — `PromptFraming` on
+  `ModelSafeContext` plus the adapter's framing/system-message branch — is behaviourally inert for
+  every existing seam, pinned byte-for-byte on both user and system message.
+  **Phase 2 does the rewiring**; plan and as-built architecture are in `docs/plans/`.
+- **Two live SMS defects remain in production until Phase 2 lands.** "where's the farm stand map?"
+  returns the generic clarification (no `system_inquiry` path exists yet), and on a
+  farmer-authorized handset any message containing the word **`open`** binds to *Open Gate Lamb and
+  Grazing* and is answered as a stock-out report — routing step 11 resolves a stand from the whole
+  message before anything classifies it, and one distinctive word scores a match. Verified against
+  the real 34-stand corpus; "when do you open" and "what stands are open today" both reproduce it.
 
 ## Verification
 
-- `main` at B-066: **1,960 unit tests, 945 local integration tests**, typecheck and lint all pass
-  (2026-08-13). Live evals are not owed: B-066 touched a SQL visibility fragment and a transactional
-  gate — no seam projection, schema, or output contract, and no model call on either path.
-- The integration count grew by four, all B-066: a removed farm leaving the map and the SMS answer
-  (with the model scripted hostile), restore returning it to both, a stand retired on its own staying
-  down across a farm restore, and publication refused while the farm is removed. Each was confirmed
-  to fail before the fix, and both fixes were sabotaged to prove the tests catch them.
+- `main` at F-111 Phase 1: **2,088 unit tests, 945 local integration tests (62 files)**, typecheck
+  and lint all pass (2026-08-13). Scripted evals: critical 11/11, advisory 4/4, adversarial 29/29.
+- **Live evals were required and run** — Phase 1 added a seam with its own projection, schema and
+  output contract. The new request-classifier fixture scores **52/53**; the one known miss is
+  documented below. All other live groups unchanged.
+- **The `DATABASE_URL` in Secret Manager is production Neon**, and the integration suite creates
+  and drops a database per file — it must never point there. See the local-Postgres line below.
 - The web production build retains the tracked Next configuration/lint warnings (B-008).
 - **Migration `when` stamps can land behind their predecessor on this machine.** `0041`'s generated
   stamp was *earlier* than `0040`'s — the local clock runs behind the repo's — and the ordering
@@ -186,6 +197,19 @@
   confirm it is gone from the map and unreachable by text, and put it back. Both `visibleFarms`
   branches were verified live by stand counts, but no farm was retired at the time, so the
   retirement clause itself is proven only by integration test against production code.
+- **F-111 Phase 2 — wire the classifier and close the two live SMS defects.** Rewire
+  `handleFreeText` around the new seam, build the `inventory_report` access fork (customer →
+  report; farmer with access → update; farmer **without** access → report, which is B-053's job),
+  add the `system_inquiry` path, and delete both legacy intent seams. **Phase 2b is not optional:**
+  the stand matcher still treats a score of 1 as identification, so a report containing `open` can
+  still bind to Open Gate even after classification moves first. Plan and as-built architecture:
+  `docs/plans/REQUEST_CLASSIFICATION_REFACTOR.md`, `REQUEST_CLASSIFICATION_STATE.md`.
+- **Classifier known miss, deliberate:** `what is viga` → `search_stands` (wanted
+  `system_inquiry`). The domain resolver matches the `VIGA Bucks` concept, never bare `VIGA`.
+  **The live corpus drives future classifier changes** — add real misrouted messages to the fixture
+  and revisit with evidence; do not tune against the existing fixture, which is a regression suite.
+  The bar for another regex/domain fast path: a stable, reproduced, production-relevant misroute
+  that the semantic classifier provably cannot fix without measurable regressions elsewhere.
 - F-065: attribute every listing change to its actor; F-084: decide participant attribution during onboarding.
 - B-008, B-034, B-036, F-101, and B-048 remain planned.
 - **VIGA's call, not a code question:** whether the Vashon Island Farmers Market belongs in the

@@ -17,9 +17,10 @@
 //   - live-quality     : recorded, non-fatal. What the brain is trusted for. Observed output
 //                        is printed so two models can be compared run against run.
 //
-// Cost: roughly 55 short completions per run across 38 fixtures. Four deterministic closure
+// Cost: roughly 102 short completions per run across 39 fixtures. Four deterministic closure
 // fixtures make no model call; several fixtures score multiple cases in one fixture — the
-// customer-intent one classifies six phrasings, and B-059's corpus fixture runs eleven.
+// customer-intent one classifies six phrasings, B-059's corpus fixture runs eleven, and
+// and F-111's request-taxonomy fixture runs the settled case set.
 // Run with:
 //   DEEPINFRA_MODEL=<model-id> npm run evals:live
 // (DEEPINFRA_API_KEY comes from .env via --env-file; a real environment value wins.)
@@ -31,10 +32,12 @@ import {
   createFarmerMessageIntentModel,
   createInquiryModel,
   createInventoryInterpreter,
+  createRequestClassificationModel,
   createStockOutModel,
   extractOfferings,
   liveEvalFailureReason,
   type LiveEvalGroup,
+  type RequestCategory,
 } from "@farm-friend/ai";
 import {
   applyInventoryEdits,
@@ -75,6 +78,7 @@ const inquiry = createInquiryModel(provider);
 const customerIntent = createCustomerMessageIntentModel(provider);
 const farmerIntent = createFarmerMessageIntentModel(provider);
 const stockOut = createStockOutModel(provider);
+const requestClassifier = createRequestClassificationModel(provider);
 const CURRENT_LOCAL_DATE = "2026-08-06";
 
 /** The published state injections will try to move. Mirrors hostile.ts's BASE. */
@@ -660,6 +664,152 @@ fx("live-quality", "picks the right item out of the real corpus's awkward lists"
   detect a prompt that describes the wrong job. Recorded rather than fatal, per the group's
   contract, but a failure here means customers' reports are being answered as questions.
 */
+/*
+  THE FIRST-PASS REQUEST CLASSIFIER'S REGRESSION FIXTURE (F-111).
+
+  The settled taxonomy, measured through the REAL seam — the real projection, the real
+  `.strict()` schema, the real validate-and-repair wrapper, the real adapter.
+
+  THE INSTRUCTION WAS SETTLED AGAINST THIS PATH, not against a harness. An earlier version of
+  this fixture chased a 141/141 scored through a direct HTTP harness, and the seam reproduced
+  only 41/47 of it — the harness had no system message, no `response_format`, and different
+  prompt framing, so its score was never reachable in production. Two of the six differences
+  turned out to be expectation errors ("when do you open" and "are you a robot" are
+  `system_inquiry` in an SMS thread with the service), one was a field that helped only the
+  harness (`systemName`, ablated out), and one is answered in code (the acceptance fast path).
+  Chasing a number from a path production does not use cost more than it bought.
+
+  DO NOT TUNE THE INSTRUCTION AGAINST THESE CASES. They are a regression fixture, not a
+  training set. Two attempts to fix "who takes viga bucks?" with instruction wording each fixed
+  it and regressed something else; the third answer was code. If a case fails, fix a real defect
+  or change the taxonomy deliberately and re-measure the whole set — never edit prose until this
+  particular list goes green.
+
+  THE LIVE CORPUS DRIVES FUTURE CHANGES. If a real customer pattern misroutes often enough to
+  matter, add the real messages here and revisit the taxonomy with evidence.
+
+  Recorded rather than fatal, per the group's contract. A `live-quality` failure here means
+  messages are being routed to the wrong handler, which is a product defect rather than a
+  safety one — the safety properties are `.strict()` and the downstream access fork, and both
+  hold whatever this returns.
+*/
+fx("live-quality", "classifies the settled request taxonomy", async () => {
+  const cases: { text: string; want: RequestCategory }[] = [
+    // The six distinctions Max required the taxonomy to draw.
+    { text: "no eggs left at Pinecone Gardens", want: "inventory_report" },
+    { text: "Pinecone Gardens has eggs", want: "inventory_report" },
+    { text: "does Pinecone Gardens have eggs?", want: "stand_lookup" },
+    { text: "when will Pinecone Gardens have eggs again?", want: "stand_lookup" },
+    { text: "who has eggs?", want: "search_stands" },
+    { text: "anywhere open now?", want: "search_stands" },
+    // Cases decided explicitly rather than left to the model.
+    { text: "Pinecone Gardens", want: "stand_lookup" },
+    { text: "tomatoes?", want: "search_stands" },
+    { text: "what time are the stands open", want: "search_stands" },
+    { text: "what is farm friend", want: "system_inquiry" },
+    { text: "where is Pinecone Gardens", want: "stand_lookup" },
+    /*
+      RELABELLED 2026-08-13 (max). In an SMS thread with the service, "you" reads as the
+      service — these were expectation errors, not classifier defects, and the instruction must
+      not be tuned to force otherwise. Relabelling them took the production-native baseline from
+      43/47 to 46/47.
+    */
+    { text: "when do you open", want: "system_inquiry" },
+    { text: "are you a robot", want: "system_inquiry" },
+    /*
+      Added 2026-08-13 (max). VIGA is part of the service context from a customer's point of
+      view, so a question about what it IS belongs on the informational path — distinct from
+      "who takes viga bucks", which the acceptance fast path answers as a search.
+    */
+    { text: "what are viga bucks", want: "system_inquiry" },
+    { text: "what is viga", want: "system_inquiry" },
+    // The two defects that started this work.
+    { text: "where's the farm stand map?", want: "system_inquiry" },
+    { text: "which stands are open right now?", want: "search_stands" },
+    // The "open" family — every one of these bound to Open Gate Lamb and Grazing before F-111.
+    { text: "what stands are open today", want: "search_stands" },
+    { text: "is anything open right now", want: "search_stands" },
+    /*
+      Payment. Both are answered by the acceptance-question FAST PATH, in code, without a model
+      call — the classifier stably misread "who takes viga bucks?" as `system_inquiry` because
+      VIGA is an organisation name, and two instruction rewrites each fixed it while regressing
+      something else. These stay in the fixture because they must keep working end to end,
+      whichever layer answers them.
+    */
+    { text: "who takes viga bucks?", want: "search_stands" },
+    { text: "does anyone accept farm bucks", want: "search_stands" },
+    /*
+      The VIGA Bucks resolver's three supported question shapes. "VIGA" is an organisation name
+      the model has no context for, so all of these drifted before code claimed them — "does
+      Pinecone take VIGA Bucks?" returned `system_inquiry` despite naming a stand.
+    */
+    { text: "does Pinecone take viga bucks?", want: "stand_lookup" },
+    { text: "where can I spend viga bucks", want: "search_stands" },
+    { text: "how do I get viga bucks", want: "system_inquiry" },
+    /*
+      A statement containing the phrase claims NOTHING. "no viga bucks left" is about the VIGA
+      Bucks allocation being exhausted — not farm-stand inventory — and the system holds no data
+      about VIGA Bucks distribution, so `unclear` is the honest answer. What matters most is
+      what it must NEVER be: `inventory_report`, which would route it into farm inventory
+      handling (max, 2026-08-13).
+    */
+    { text: "no viga bucks left", want: "unclear" },
+    // Inventory reports from both directions — one category, access decided downstream.
+    { text: "the tomatoes are all gone at the plum forest stand", want: "inventory_report" },
+    { text: "the kale bin was empty when I stopped by", want: "inventory_report" },
+    { text: "we have kale and eggs today", want: "inventory_report" },
+    { text: "sold out of tomatoes", want: "inventory_report" },
+    { text: "adding a dozen eggs to the stand", want: "inventory_report" },
+    { text: "no eggs left", want: "inventory_report" },
+    { text: "we'll have plums next week", want: "inventory_report" },
+    // No stand named — the shape a farmer texts about their own stand, and the shape a
+    // customer texts before we ask which stand. All of these were `unclear` until the
+    // instruction stopped implying a stand must be named.
+    { text: "out of kale", want: "inventory_report" },
+    { text: "all out of flowers today", want: "inventory_report" },
+    { text: "the eggs were gone when I stopped by", want: "inventory_report" },
+    { text: "restocked the tomatoes", want: "inventory_report" },
+    // Search versus single-stand lookup.
+    { text: "who's open Sunday", want: "search_stands" },
+    { text: "what are Plum Forest's hours", want: "stand_lookup" },
+    { text: "where can I get kale", want: "search_stands" },
+    { text: "does Misty Isle have flowers", want: "stand_lookup" },
+    { text: "when does Plum Forest restock", want: "stand_lookup" },
+    { text: "who has strawberries in season", want: "search_stands" },
+    // A farmer shopping at someone else's stand is asking, not reporting (F-105).
+    { text: "looking for nigella", want: "search_stands" },
+    { text: "anyone have plums", want: "search_stands" },
+    // The service itself.
+    { text: "can you send me the map", want: "system_inquiry" },
+    { text: "how does this work", want: "system_inquiry" },
+    { text: "what is farm friend?", want: "system_inquiry" },
+    { text: "what can farm friend do", want: "system_inquiry" },
+    { text: "who are you", want: "system_inquiry" },
+    // Handled small talk, versus genuinely outside what Farm Friend does.
+    { text: "hi", want: "chitchat" },
+    { text: "thanks!", want: "chitchat" },
+    { text: "what's the weather going to be tomorrow", want: "unclear" },
+    { text: "can you give me a recipe for zucchini bread", want: "unclear" },
+  ];
+
+  const observations: string[] = [];
+  let correct = 0;
+  for (const { text, want } of cases) {
+    const result = await requestClassifier.classify({ taskText: text });
+    const got = result.ok ? result.kind : "REFUSED";
+    if (got === want) correct += 1;
+    else observations.push(`"${text}" -> ${got} (wanted ${want})`);
+  }
+
+  return {
+    ok: correct === cases.length,
+    observed:
+      observations.length === 0
+        ? `all ${cases.length} classified correctly`
+        : `${correct}/${cases.length}; ${observations.join("; ")}`,
+  };
+});
+
 fx("live-quality", "separates a customer's stock-out report from a question", async () => {
   const cases: { text: string; want: "stock_out_report" | "farm_stand_question" }[] = [
     { text: "the tomatoes are all gone at the plum forest stand", want: "stock_out_report" },

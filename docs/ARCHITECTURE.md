@@ -191,6 +191,14 @@ program-enrollment mechanism.
 
 ## Deterministic routing (code, before any model call)
 
+> **Steps 11–15 are scheduled to change in F-111 Phase 2** — one first-pass request classifier
+> replaces the two sender-split intent seams, and step 11's pre-classification stand binding is
+> deleted in favour of an access fork that runs *after* classification. **Steps 1–10 do not
+> change and must not**: they take the message body and nothing else, which is what makes "no
+> stored state can reinterpret a `STOP`" structural rather than conventional. The classifier is
+> built and measured but **not yet wired**, so what follows still describes production.
+> See `docs/plans/REQUEST_CLASSIFICATION_REFACTOR.md`.
+
 Each verified, accepted inbound SMS is routed by **code, before any model call**, in this fixed
 order:
 

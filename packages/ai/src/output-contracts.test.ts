@@ -7,6 +7,7 @@ import {
   projectInquiryInterpretation,
   projectInventoryExtraction,
   projectOfferingExtraction,
+  projectRequestClassification,
   projectStockOutParse,
   SEAM_OUTPUT_SHAPES,
 } from "./projections";
@@ -15,6 +16,10 @@ import { farmerMessageIntentSchema } from "./farmer-message-intent";
 import { customerMessageIntentSchema } from "./customer-message-intent";
 import { intentSchema, selectionSchema, stockOutSchema } from "./inquiry-seam";
 import { offeringsSchema } from "./offering-seam";
+import {
+  REQUEST_CATEGORIES,
+  requestClassificationSchema,
+} from "./request-classification";
 
 // F-024's first live-model run exposed a defect every scripted suite is structurally blind
 // to: the projections attached SMS-composition guidance ("Write a concise SMS reply...") to
@@ -36,6 +41,7 @@ const SCHEMAS: Record<keyof typeof SEAM_OUTPUT_SHAPES, z.ZodTypeAny> = {
   "grounded-fact-selection": selectionSchema,
   "stock-out-parse": stockOutSchema,
   "offering-extraction": offeringsSchema,
+  "request-classification": requestClassificationSchema,
 };
 
 describe("declared-optional fields accept an explicit null as absence (F-024)", () => {
@@ -128,6 +134,22 @@ describe("seam output contracts (F-024)", () => {
     }
   });
 
+  /**
+   * The same coverage rule for the one seam whose schema is a bare enum rather than a
+   * discriminated union.
+   *
+   * The test above skips non-union schemas, so without this a seventh category could be added
+   * to `REQUEST_CATEGORIES` with no documented example — the model would be unable to use a
+   * value its schema accepts, which is precisely the drift these tests exist to prevent.
+   */
+  it("every request category has a documented example, and vice versa", () => {
+    const schemaKinds = [...REQUEST_CATEGORIES].sort();
+    const exampleKinds = SEAM_OUTPUT_SHAPES["request-classification"]
+      .map((shape) => (JSON.parse(shape) as { kind: string }).kind)
+      .sort();
+    expect(exampleKinds).toEqual(schemaKinds);
+  });
+
   it("each projection hands its seam's shapes to the model, verbatim", () => {
     const contexts = [
       projectFarmerMessageIntent({ taskText: "x" }),
@@ -141,8 +163,9 @@ describe("seam output contracts (F-024)", () => {
       projectFactSelection({ items: ["kale"], ranking: "freshest", facts: [] }),
       projectStockOutParse({ taskText: "x", listedItems: [] }),
       projectOfferingExtraction({ sourceText: "x" }),
+      projectRequestClassification({ taskText: "x" }),
     ];
-    // All six seams, no projection missed.
+    // Every seam, no projection missed.
     expect(contexts.map((ctx) => ctx.seam).sort()).toEqual(
       Object.keys(SEAM_OUTPUT_SHAPES).sort(),
     );

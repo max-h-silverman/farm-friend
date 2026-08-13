@@ -11,7 +11,89 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-13 (latest) — The farm was removed everywhere except where it counted
+## 2026-08-13 (latest) — Two bugs turned out to be one taxonomy, and the harness lied about the score
+
+Max reported two SMS misroutes from his own handset: "where's the farm stand map?" got the generic
+"I did not catch which item or farm you meant", and "which stands are open right now?" got "Thanks
+for letting us know. What was sold out?"
+
+**Neither was a classifier failure, and that was the whole finding.** The map question classified
+correctly (`farm_stand_question`, 8/8 against the live model) and then died in *inquiry
+interpretation*, because the only thing the customer path can look up is a product. The second
+never reached a classifier at all: routing step 11 resolves a stand from **every** farmer message
+before classifying anything, and the tier-2 scorer awards one point per distinctive word — so
+**"Open Gate Lamb and Grazing" contributes the word `open`**. Measured against the real 34-stand
+corpus, five ordinary phrasings all bind to that farm, including "when do you open".
+
+The shared cause: name-matching used as an *intent* signal, run against the whole message before
+intent is known. "Another stand's name appears here" and "this is a report about that stand" are
+different claims, and the code treated them as one. `GENERIC_NAME_WORDS` cannot help — the word is
+generic in *English*, not in the stand corpus, and any future "Fresh …" or "Sunny …" stand
+reintroduces it for a different word.
+
+**What got built (Phase 1 of `docs/plans/REQUEST_CLASSIFICATION_REFACTOR.md`): one first-pass
+classifier, six categories, one enum.** It is implemented, measured and **not yet wired** —
+`apps/web` still runs both legacy seams. Phase 2 is the rewiring.
+
+**`inventory_report` merges what were two arms, and the merge was forced by measurement.** With
+`stock_out_report` and `inventory_update` split by sender, "no eggs left at Pinecone Gardens" from a
+farmer handset classified as *their own update* 3/3 — B-053 reintroduced by taxonomy. Max's call:
+both are one intent (someone asserting a listing needs updating), and **who may act on it is an
+access question decided downstream in code**, not a language question. The classifier now cannot
+express authority at all, which is strictly stronger than a prompt-level split.
+
+**The harness score was not reachable in production, and chasing it cost most of the session.** A
+direct HTTP probe scored the settled instruction 141/141; the real seam reproduced 41/47. The probe
+had no system message, no `response_format`, and different prompt framing. Of the six differences:
+two were *our expectations being wrong* (in an SMS thread with the service, "you" means the service —
+"when do you open" and "are you a robot" are `system_inquiry`), one was a field that helped only the
+harness (`systemName`, ablated out and its removal *improved* the baseline), and one needed code. The
+lesson now in the fixture header: **measure against the path production actually uses.**
+
+**Two things the roster taught us.** Max proposed passing the ~34 stand names as classification
+context — safe, since a one-enum output cannot leak a roster, and my safety objection was wrong.
+Measurement killed it instead: **94%→85% and 87%→63%, on two different taxonomies.** With the roster
+present, bare stand names returned `unclear` every run, as though the model checked the list and
+bailed rather than reading the sentence. Excluding it also means the classifier cannot drift as VIGA
+adds or removes farms.
+
+**Prompt framing became a per-seam property, not a workaround.** "Extraction" had been baked into
+shared plumbing that then had to carry a non-extraction task — `Input (JSON): … Output
+requirements:` buries a classification, and the system message told every seam to "omit" fields that
+a single required enum has no concept of. `ModelSafeContext` now carries an optional `framing`
+declared **by the projection**, never inferred by the adapter from a seam name. Existing seams are
+pinned byte-for-byte, user *and* system message.
+
+**Two code-owned fast paths, both earned by failed prompt attempts.** "who takes viga bucks?" stably
+returned `system_inquiry` — VIGA is an organisation name a general model has no context for. Two
+instruction rewrites each fixed the target case *and regressed another*, because a prompt rule
+mentioning payment gets applied to any message containing the payment word regardless of what is
+asked. So: a **generic acceptance matcher** (subject + acceptance verb + object, no payment or
+organisation vocabulary — "who takes bottle caps" fires), and a **VIGA Bucks domain resolver**
+claiming four shapes and nothing else. The resolver is justified against the no-hard-coded-vocabulary
+rule: that rule forbids *farm and food* vocabulary, which changes as stands and seasons turn; VIGA
+Bucks is a fixed program of the service, already a column pair, in the same class as `MAP`.
+
+**The resolver's `unclear` arm is the subtlest thing here.** "no viga bucks left" is grammatically
+identical to "no eggs left", and the instruction explicitly teaches that shape as `inventory_report`
+— a rule needed for real stock-out reports. The model returned `inventory_report` *correctly
+applying a rule we gave it*; it simply lacks the domain fact that VIGA Bucks are not stand
+inventory. Max's call: the application holds that fact, so the override belongs in code. Narrowing
+the instruction instead would have endangered "no eggs left", a core path.
+
+**Verified:** 2088 unit tests, 945 integration tests (62 files, against local Postgres — the
+`DATABASE_URL` in Secret Manager is **production Neon**, and this suite creates and drops databases
+per file, so it must never point there), typecheck, lint, scripted evals 44/44, live classifier
+fixture **52/53**. Key tests sabotage-verified. The one known miss is `what is viga` →
+`search_stands`: bare `VIGA` is deliberately *not* the concept the resolver matches, and widening it
+to the organisation name would claim a large vaguely-bounded family for one case.
+
+**Owed, and the reason Phase 2 is not optional:** the stand-matcher's score-of-1 defect is still
+live. Moving classification first removes the common case; the scoring bar itself is unfixed.
+
+---
+
+## 2026-08-13 — The farm was removed everywhere except where it counted
 
 VIGA admin reported "farm removal isn't working". Checked both halves as asked: **stand removal
 (F-071) was correct on every surface; farm removal (F-100) worked on none that a customer sees.**
