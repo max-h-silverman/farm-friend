@@ -34,6 +34,7 @@ export * from "./auth/farm-verification";
 export * from "./email/send";
 export * from "./seed/availability";
 export * from "./seed/farm-links";
+export * from "./seed/merged-item-name";
 export * from "./seed/stand-description";
 export * from "./seed/weekly-status";
 export * from "./seed/participants";

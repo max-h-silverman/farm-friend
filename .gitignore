@@ -37,3 +37,4 @@ __pycache__/
 
 # Screenshots max drops in the repo root to show a defect. Working material, not source.
 /*.png
+stand-items-backup-*.json
