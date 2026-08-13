@@ -55,6 +55,16 @@
   inherit it; `confirmInventoryPublication` has its own locked gate returning `farm_retired`. The
   admin console was the only surface that was ever right, which is why F-100's suite stayed green —
   its test asserts through `listStandsForAdministration`.
+- **One `stand_items` row held a whole offerings list as a single item** (B-067, fixed in
+  production 2026-08-13, data-only, no deploy). Asking for `eggs?` returned Morgan Hill with all
+  nine of its offerings printed as one run-on item; the renderer was faithful and the row was
+  wrong. **Measured first: exactly one row in the corpus had that shape**, no other row contains a
+  comma — so it was a guarded repair, not a parser. `splitMergedItemName` decides shape only and
+  holds no food vocabulary; `scripts/split-merged-stand-items.ts` dry-runs by default, fingerprints
+  the database, backs up prior rows and requires a typed phrase. 240 scanned, 1 split into 7 rows
+  plus 2 promoted from uncarried (max chose: the split list is what customers see), verified by
+  reading the rows back. Zero comma-holding rows remain.
+
 - **`pending_result_lists.broad` is written and never read.** The one piece of data in the system
   with no consumer, kept deliberately — dropping it is a migration on live data for no behavioral
   gain. Revisit it whenever that table next needs a migration for another reason.
@@ -130,7 +140,7 @@
 
 ## Verification
 
-- `main` at F-111 Phase 2: **2,085 unit tests, 961 local integration tests (63 files)**, typecheck and lint
+- `main` at B-067: **2,095 unit tests, 961 local integration tests (63 files)**, typecheck and lint
   all pass (2026-08-13). Scripted evals: critical 11/11, advisory 4/4, adversarial 29/29. The unit
   count moved with the two deleted seams' own tests; the integration count grew by the 16-case
   `request-classification-routing.integration.test.ts`.
@@ -231,9 +241,23 @@
   confirm it is gone from the map and unreachable by text, and put it back. Both `visibleFarms`
   branches were verified live by stand counts, but no farm was retired at the time, so the
   retirement clause itself is proven only by integration test against production code.
-- **F-111 Phase 2 is deployed and owes a handset smoke test** (max, 2026-08-13). Thirteen cases
-  agreed in advance, including both closed defects, the three access-fork rows, the two VIGA Bucks
-  shapes, a partial stand name that must clarify, and the new `unclear` reply. Report before Phase 3.
+- **F-111 Phase 2's handset pass is 2 of 13 done, and BOTH cases found defects** (2026-08-13).
+  Neither closed defect has been confirmed on a handset — the map question and the `open` binding
+  are proven by test and by deploy-by-effect only. Still unrun: STOP/START, HELP,
+  `does Pinecone have eggs?`, `no eggs left at Pinecone`, farmer `out of kale`, farmer reporting
+  another stand, both VIGA Bucks shapes, `where's the farm stand map?`, a one-word partial stand
+  name, `what stands are open today`, and the `unclear` reply.
+- **B-068 — a confirmed item answered as "may have"** (high). `cucumber` returned Forest Garden as
+  `May have: cucumbers`, but that stand has Cucumbers as a **published entry** confirmed 24 days
+  before. B-062/B-063 says 4–28 days reads `Last seen (24d ago):`, so the entry was not retrieved
+  at all. **Retrieval question, not rendering** — measure what retrieval returns for that stand and
+  item against production rows before reading any rendering code. Not a Phase 2 regression.
+- **B-069 — an SMS answer takes close to a minute** (high). Measured: the classifier is **not** the
+  bottleneck. Three serial calls, wildly unequal — the classifier emits ~5 tokens, and **grounded
+  fact selection** emits ~18 tokens per selected stand at ~30 tokens/sec. That is the call B-049
+  already raised the timeout to 90s for. Phase 2 added a small call in front of a large slow one;
+  fast-tracking the classifier would save a second or two of sixty. **Do not start there** — the
+  levers are whether selection needs a model at all, and how many candidates it is asked to order.
 - **The provider-failure reply is proven by test only, deliberately.** Forcing a real outage in
   production means every sender loses every answer for as long as it lasts, on VIGA's own API key.
   An integration test forces `{ok: false}` and asserts the outage copy, sabotage-verified against the
