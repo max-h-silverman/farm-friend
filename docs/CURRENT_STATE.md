@@ -179,11 +179,15 @@
   answer "Which stand are you at?" with the name, and confirm the farmer's alert names the **eggs**.
   A second misspelling in the reply should also resolve. Proven by test and against the real corpus,
   unread on a handset.
-- **B-052 owes one live check:** text VIGA from a handset and read the contact-card preview — the
-  bold line must say `viga-farm-friend`, not `contact-card`. The second line (`Contact Card · 153
-  bytes`) is iOS's own and does not change; the host stays the Cloud Run URL until a real domain
-  exists. Both paths verified on the wire in production — 200, byte-identical, CRLF intact — but
-  the preview itself is only readable on a phone, which is how this defect got through.
+- **B-052 is verified on a handset** (max, 2026-08-12): a bare `VIGA` returned the carrier receipt,
+  the offer, and the card previewing as **`viga-farm-friend`**. The same read confirmed the VIGA
+  contact-card fix — that sender received no card at all before. As expected and unchangeable:
+  the second line reads `Contact Card · 153 bytes` (iOS's own label) over the Cloud Run host,
+  which stays until a real domain exists.
+- **Unread on a handset: the card on the ONBOARDING path.** The verified read was a returning
+  sender with no invitation waiting, so no listing-live message was owed and none came. The farmer
+  case — an unredeemed invitation, where the card now arrives beside `renderFarmerOnboardingComplete`
+  — is proven by integration test only. It is the path max's 2026-08-12 decision changed.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
