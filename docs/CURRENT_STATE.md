@@ -188,7 +188,8 @@
   usual-offering record supporting the selected names, so the case renders `Last seen (24d ago)`.
   The focused test failed under the old two-candidate shape, passed after the change, and failed again
   under deliberate sabotage. Unit, affected integration, typecheck, lint, and stub evals pass. The
-  changed model projection still owes the required live eval before review.
+  required live eval passed the new dual-source stand case; totals remain containment 5/5, closure
+  7/7, recall 5/5, and quality 20/21, with only the pre-existing `what is viga` miss.
 - **B-069 — an SMS answer takes close to a minute** (high). Measured: the classifier is **not** the
   bottleneck. Three serial calls, wildly unequal — the classifier emits ~5 tokens, and **grounded
   fact selection** emits ~18 tokens per selected stand at ~30 tokens/sec. That is the call B-049
