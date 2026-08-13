@@ -503,8 +503,13 @@ async function routeCompliance(
       ? [{
           // The one honest thing to say: VIGA has the request and will be in touch. It claims
           // no outcome, which is exactly why this copy already exists — a request grants
-          // nothing. `FARMER_JOIN_INSTRUCTION` is deliberately NOT used here: it says "to get
-          // texts about your farm, reply START" to a sender who just texted START.
+          // nothing.
+          //
+          // AND NOTHING ELSE (max, 2026-08-12). This farmer is waiting on a person, so no
+          // keyword reaches their problem; an instruction here would be an errand that cannot
+          // succeed, handed to someone who already did what the form asked. A second message
+          // naming a word used to ship beside this one — see the note in `onboarding-copy.ts`
+          // where it was deleted (B-043).
           body: FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
           category: "required_reply" as const,
           logicalKey: `farmer-awaiting-${input.providerEventId}`,

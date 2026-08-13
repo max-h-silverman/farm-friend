@@ -37,35 +37,27 @@ export const FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT =
   "VIGA Farm Friend: Thanks - VIGA has your request. They will review it and text you " +
   "when your farm is ready to update. Reply STOP to opt out, HELP for help.";
 
-/**
- * Sent alongside the acknowledgement when a SIGNUP leaves the farmer with no consent basis.
- *
- * **The dead end this closes.** SIGNUP by itself establishes nothing, so
- * `FARMER_AUTHORIZED_NOTIFICATION` — a proactive category — is suppressed at the dispatch
- * claim, and the farmer is authorized in silence with no reason to think the system works.
- * Web onboarding fixes the invited path by collecting an agreement first; this covers the
- * case where that agreement is not available to rest on: **an invitation whose box was never
- * ticked**, redeemed by text anyway.
- *
- * It used to cover a second case, a bare uninvited `SIGNUP`. F-080 removed that keyword
- * entirely, so redemption now requires a token — but this case did NOT collapse with it, as
- * was first assumed. `openFarmerOnboardingRequest` writes no consent when `agreed_to_sms_at`
- * is null, which an un-ticked invitation reaches with a token in hand.
- *
- * **It names `START`, and that changed** (max 2026-08-07). It said `JOIN`, on the reasoning that
- * the sender it reaches has no consent record and `JOIN` is the first-time keyword. That is no
- * longer the whole story: onboarding is completed by matching a bare `START` against the phone
- * the farmer stated on the form, and `JOIN` completes nothing. Telling a farmer to reply `JOIN`
- * would enroll them for messages and still leave them unset-up, with nothing saying why.
- *
- * `START` is also the only word that clears the carrier's own opt-out list (B-011), so it is the
- * right instruction whether or not this handset has a history we cannot see.
- *
- * A farmer who ALREADY has a record is deliberately sent nothing here: they need no instruction.
- */
-export const FARMER_JOIN_INSTRUCTION =
-  "VIGA Farm Friend: To get texts about your farm, reply START. " +
-  "Msg freq may vary. Msg & data rates may apply. Reply STOP to opt out.";
+/*
+  THE JOIN INSTRUCTION IS GONE (B-043, 2026-08-12), and this note is here so it is not rebuilt.
+
+  It said "To get texts about your farm, reply START" and was sent alongside the acknowledgement
+  when a redemption left the farmer with no consent basis. Two things were wrong with it:
+
+    - **No caller could reach it.** `routing.ts` calls `invitedJoinReplyBodies` at one site,
+      guarded by `onboarded` and passing a literal `authorized: true`, which returns before that
+      branch. It had not been deliverable for some time and nothing reported that.
+    - **It named the wrong word, and told the sender to send one they had just sent.** F-100 made
+      `VIGA` the word the onboarding form teaches; this told a farmer who had just texted VIGA to
+      reply START.
+
+  The farmer it was written for — an invitation whose SMS box was never ticked, redeemed by text
+  — is answered by the router's `awaitingCoordinator` branch with the acknowledgement alone. That
+  is max's call (2026-08-12) and it is the honest one: they are waiting on a person, no keyword
+  reaches their problem, and handing them one makes a dead end look like their own typo.
+
+  If a farmer ever needs a recovery keyword after a carrier opt-out, that is a DIFFERENT message
+  for a different reader, and `START`/`VIGA` both clear the block now — not a revival of this one.
+*/
 
 /**
  * Sent only after the pending invitation has redeemed and its listing is actually public.

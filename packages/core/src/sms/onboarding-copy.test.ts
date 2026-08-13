@@ -7,7 +7,6 @@ import {
   renderFarmerOnboardingComplete,
   renderFarmerAuthorizedNotification,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-  FARMER_JOIN_INSTRUCTION,
   FARMER_TAUGHT_KEYWORDS,
   FARMER_UNTAUGHT_KEYWORDS,
   renderFarmerLinkMessage,
@@ -250,22 +249,27 @@ describe("farmer onboarding copy", () => {
     expect(body).not.toContain("STOP");
   });
 
-  it("tells a farmer with no consent basis the one word that establishes it", () => {
-    // The dead end this closes: SIGNUP alone establishes no consent, so the "your farm is
-    // ready" text is suppressed and the farmer is never told. When the web agreement is not
-    // available to lean on — a bare SIGNUP, or an invitation whose box was never ticked —
-    // this is the only route left, and it must name the word that works.
-    const body = FARMER_JOIN_INSTRUCTION;
-    // **START, not JOIN** (max 2026-08-07). Onboarding is completed by matching a bare START
-    // against the phone the farmer stated on the form; JOIN completes nothing, so naming it
-    // would enroll them for messages and still leave them unset-up with nothing saying why.
-    // START is also the only word that clears the carrier's own opt-out list (B-011).
-    expect(body).toContain("START");
-    expect(body).not.toContain("JOIN");
+  it("keeps the acknowledgement free of a keyword the farmer cannot use (B-043)", () => {
+    /*
+      What replaced the JOIN instruction: nothing. It told a farmer with no consent basis to
+      "reply START", was unreachable from any caller, and named the wrong word after `VIGA`
+      became the onboarding keyword — see the note where it used to live in `onboarding-copy.ts`.
+
+      The farmer it was aimed at reads THIS message alone. So this asserts the acknowledgement
+      stays what max chose: a statement that a person has the request, with no errand attached.
+      A keyword here would be an instruction that cannot succeed.
+    */
+    const body = FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT;
+
+    expect(body).not.toMatch(/reply (START|VIGA|JOIN)\b/i);
+    expect(body).not.toMatch(/text (START|VIGA|JOIN)\b/i);
+    // STOP and HELP stay: they are the exits, not errands, and they work from any state.
     expect(body).toContain("STOP");
     // It must not claim the request itself did anything about messaging.
     expect(body.toLowerCase()).not.toContain("you are subscribed");
     expect(body.toLowerCase()).not.toContain("you have agreed");
+    // It says a PERSON will act, which is the only true thing available to it.
+    expect(body).toContain("VIGA has your request");
   });
 
   it("renders a link message carrying the link and nothing invented", () => {
@@ -305,7 +309,7 @@ describe("farmer onboarding copy", () => {
     }
   });
 
-  it("keeps all three OUT of the registered auto-response block", () => {
+  it("keeps both OUT of the registered auto-response block", () => {
     // The tripwire. `auto-responses.test.ts` pins the registered bodies to this file in both
     // directions; if one of these were transcribed in, it would become carrier-registered
     // copy that nobody registered.
@@ -313,7 +317,6 @@ describe("farmer onboarding copy", () => {
     for (const body of [
       FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
       renderFarmerAuthorizedNotification("https://farmfriend.example/stand/" + "4".repeat(64)),
-      FARMER_JOIN_INSTRUCTION,
     ]) {
       expect(registered).not.toContain(body);
     }

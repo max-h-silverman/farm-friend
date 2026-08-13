@@ -4,7 +4,6 @@ import {
   renderContactCardOffer,
   renderFarmerAuthorizedNotification,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-  FARMER_JOIN_INSTRUCTION,
   issueFarmerLinkToken,
   renderFarmerLinkMessage,
 } from "@farm-friend/core";
@@ -31,10 +30,10 @@ describe("onboarding message segments", () => {
     // The customer welcome came BACK to one segment in the same change, having lost the
     // contact-card URL to its own message. It is asserted separately because the estimator
     // also has to confirm the encoding.
-    for (const body of [
-      FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
-      FARMER_JOIN_INSTRUCTION,
-    ]) {
+    // The JOIN instruction left this list with B-043, which deleted it: no caller could reach
+    // it, and it named the wrong keyword. The acknowledgement now stands alone on this path,
+    // which is exactly why its one-segment bound matters more than before.
+    for (const body of [FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT]) {
       const estimate = estimateSmsSegments(body);
       expect(estimate.encoding, body).toBe("GSM-7");
       expect(estimate.segmentCount, body).toBe(1);
