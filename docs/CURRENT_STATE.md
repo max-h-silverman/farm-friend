@@ -182,13 +182,13 @@
   `does Pinecone have eggs?`, `no eggs left at Pinecone`, farmer `out of kale`, farmer reporting
   another stand, both VIGA Bucks shapes, `where's the farm stand map?`, a one-word partial stand
   name, `what stands are open today`, and the `unclear` reply.
-- **B-068 — a confirmed item answered as "may have"** (high). `cucumber` returned Forest Garden as
-  `May have: cucumbers`, but that stand has Cucumbers as a **published entry** confirmed 24 days
-  before. **Max's lead (2026-08-13): a staleness horizon may be suppressing it by design**, in
-  which case the rendering contract is what's out of step, not retrieval. B-062/B-063 set 28 days
-  for dropping a stock claim and 96 hours for `In stock` → `Last seen`; settle whether a 24-day-old
-  entry *should* render `Last seen (24d ago):` **before** writing code — the two readings lead to
-  opposite fixes. Measure against production rows first. Not a Phase 2 regression.
+- **B-068 is fixed locally, not deployed.** Production measurement showed both Forest Garden
+  cucumber records reached selection; the model omitted the 24-day confirmation. Selection now sees
+  one candidate per stand and decides only stand/item relevance; code restores every confirmed and
+  usual-offering record supporting the selected names, so the case renders `Last seen (24d ago)`.
+  The focused test failed under the old two-candidate shape, passed after the change, and failed again
+  under deliberate sabotage. Unit, affected integration, typecheck, lint, and stub evals pass. The
+  changed model projection still owes the required live eval before review.
 - **B-069 — an SMS answer takes close to a minute** (high). Measured: the classifier is **not** the
   bottleneck. Three serial calls, wildly unequal — the classifier emits ~5 tokens, and **grounded
   fact selection** emits ~18 tokens per selected stand at ~30 tokens/sec. That is the call B-049

@@ -117,7 +117,7 @@ void projectFactSelection({
   ranking: "any",
   facts: [
     // @ts-expect-error a retrieved fact carries no contact or recipient data
-    { factId: "f1", farmName: "A", locationName: "B", matchedItemNames: [], ageHours: 1, farmerPhoneHash: "x" },
+    { factId: "f1", farmName: "A", locationName: "B", matchedItemNames: [], farmerPhoneHash: "x" },
   ],
 });
 

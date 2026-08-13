@@ -111,7 +111,7 @@ presentation — a newline and a forged label inside sender text cannot become a
 | inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), the current or pending canonical closure instruction for the farmer's own location, the exact current Vashon calendar date, and deterministic closure timing evidence derived by code before the call |
 | stock-out item parsing | the current item text plus public item IDs/names for the code-bound location — its published inventory and its usual offerings, as one flat list carrying no indication of which is which |
 | inquiry interpretation | the current customer SMS request |
-| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts (returns selected IDs and, per ID, which of that fact's own item names answered) |
+| grounded fact selection | interpreted intent plus one opaque ID and merged public item-name set per stand (returns selected stand IDs and, per ID, which names answered) |
 | offering extraction | one stand's public "generally offers" description, alone |
 
 **Offering extraction is the one seam that does not run on a message.** It reads VIGA's published stand
@@ -249,21 +249,23 @@ flag:
   never-ambiguous** — a property no amount of prompt wording made reliable. The override runs one way
   only: it can turn an ask into an answer, never an answer into an ask, and it holds no food or farm
   vocabulary (it matches grammar, and a leftover content word means the customer named a target).
-- **grounded fact selection** — select and order identifiers from the **retrieved facts only**, and
-  say **which of each selected fact's own item names answered the request** (F-107). Code
+- **grounded fact selection** — select and order identifiers from the **retrieved stands only**, and
+  say **which of each selected stand's own item names answered the request** (F-107). Confirmed
+  inventory and usual offerings are merged into one selectable stand; code retains the separate
+  evidence records and renders every one supporting the selected names (B-068). Code
   validates membership and renders the authoritative, recency-labeled answer; empty retrieval → a
   code-rendered honest "no current listing."
 
   The matched-item names are a **selection over values code already sent**, in the same standing as
-  the identifiers: every name is checked against that fact's own retrieved items and anything else is
+  the identifiers: every name is checked against that stand's own retrieved items and anything else is
   dropped, and code's spelling is what renders, so the model echoing "eggs" cannot restyle a farmer's
   "Eggs". It exists because only the model can see *why* a stand answers a category question ("butter
   lettuce" for leafy greens) — discarding that forced the renderer to print a stand's entire inventory
   as a hedge.
 
-  A **fact identifier is an opaque token the model copies back verbatim, and must carry no structure
+  A **stand identifier is an opaque token the model copies back verbatim, and must carry no structure
   worth reconstructing** (B-049): a live model stripped a meaningful prefix and returned the bare uuid
-  on every attempt. What the two bases *are* travels as the typed `basis` field.
+  on every attempt. Evidence type never crosses the seam; code retains it behind the stand identifier.
 
   **Code renders no claim the retrieved rows do not support.** The answer heading names the requested
   item only where a selected row actually carries it: the item list falls back to a stand's full
@@ -310,10 +312,10 @@ enters the same grounded inquiry flow.
 The first inquiry call interprets the current request. Code validates that interpretation and then runs
 a **general** retrieval layer: *given items, optional farm scope, and a proposed ranking interpretation
 → candidate locations with recency.* Intersection, coverage, and freshest-N are **expressible
-interpretations**, not an enumerated architecture constant. Only retrieved rows reach the
-grounded-selection call. The model returns selected and ordered identifiers, plus which of each
-fact's own item names answered; code verifies that every identifier belongs to the retrieved set and
-every item name to that fact's own items, dereferences the authoritative values, and renders the
+interpretations**, not an enumerated architecture constant. Code groups each location's retrieved
+rows into one selectable stand before the grounded-selection call. The model returns selected and
+ordered stand identifiers, plus which of each stand's own item names answered; code verifies every
+identifier and item name against that set, restores every supporting evidence row, and renders the
 factual answer and recency. Empty retrieval is code-rendered without a grounded-selection call. Model-supplied
 values or prose are not accepted as evidence.
 

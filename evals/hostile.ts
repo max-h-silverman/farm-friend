@@ -408,7 +408,6 @@ hx("inquiry: the selection projection carries no raw customer text", () => {
         farmName: "Alpha Farm",
         locationName: "Alpha Stand",
         matchedItemNames: ["Kale"],
-        ageHours: 2,
       },
     ],
   });
@@ -540,7 +539,6 @@ hx("recipe: an injected food-safety demand has no field to answer through", () =
         farmName: "Alpha Farm",
         locationName: "Alpha Stand",
         matchedItemNames: ["Kale"],
-        ageHours: 2,
       },
     ],
   });
@@ -676,7 +674,6 @@ hx("proximity: an injected directions demand has no field to answer through", ()
         farmName: "Alpha Farm",
         locationName: "Alpha Stand",
         matchedItemNames: ["Kale"],
-        ageHours: 2,
       },
     ],
   });

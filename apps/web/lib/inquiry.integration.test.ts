@@ -13,7 +13,7 @@ import {
 import { FixedClock, PUBLIC_MAP_URL } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { containsRawPhone } from "@farm-friend/sms";
-import { answerInquiry, offeringFactId } from "./inquiry";
+import { answerInquiry } from "./inquiry";
 import { recordStockOutReport } from "./stockout";
 
 // F-013 — customer inquiry and code-bound stock-out reporting, end to end against real
@@ -310,6 +310,95 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
 
   // ------------------------------------------------------------------ F-045: offerings
 
+  it("asks the model about one stand and preserves every matching evidence type (B-068)", async () => {
+    // Production shape: Forest Garden had the same cucumber in a 24-day-old confirmation
+    // and in its standing offerings. The model chose only the offering candidate, so the
+    // customer lost the stronger dated evidence and saw only "May have".
+    await publish(
+      ids.alphaLocation!,
+      ids.alphaFarm!,
+      ["Cucumbers", "Kale"],
+      hoursAgo(24 * 24),
+    );
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, 'cucumbers', true, 0),
+             (${ids.alphaLocation!}, 'eggs', true, 1)
+    `;
+
+    const { provider, deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["cucumbers"],
+        ranking: "any",
+      }),
+      // One selectable identifier represents the stand. The model decides relevance; code
+      // decides which of that stand's authoritative evidence supports the selected item.
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [ids.alphaLocation],
+        matchedItems: { [ids.alphaLocation!]: ["Cucumbers"] },
+      }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "cucumber",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    const ctx = provider.contextFor("grounded-fact-selection");
+    expect(ctx).toBeDefined();
+    const fields = ctx!.fields as {
+      facts: { factId: string; matchedItemNames: string[] }[];
+    };
+    expect(fields.facts).toEqual([
+      expect.objectContaining({
+        factId: ids.alphaLocation,
+        matchedItemNames: ["Cucumbers"],
+      }),
+    ]);
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("Last seen (24d ago): Cucumbers");
+    expect(result.body).not.toContain("May have: cucumbers");
+  });
+
+  it("preserves only the evidence records supporting the model's matched item", async () => {
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(24));
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, 'eggs', true, 0)
+    `;
+
+    const { deps } = inquiryDeps({
+      "inquiry-interpretation": JSON.stringify({
+        kind: "lookup",
+        items: ["breakfast food"],
+        ranking: "any",
+      }),
+      "grounded-fact-selection": JSON.stringify({
+        kind: "selection",
+        factIds: [ids.alphaLocation],
+        matchedItems: { [ids.alphaLocation!]: ["eggs"] },
+      }),
+    });
+
+    const result = await answerInquiry(deps, {
+      taskText: "where can I get breakfast food?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("May have: eggs");
+    expect(result.body).not.toContain("Kale");
+    expect(result.body).not.toMatch(/In stock|Last seen/);
+  });
+
   it("retrieves offerings when nothing is confirmed, and shows the model both", async () => {
     // The exact production shape behind max's screenshot on 2026-07-30: 212 offering tags,
     // ZERO inventory revisions. Retrieval read only inventory, so every question answered
@@ -328,7 +417,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       }),
       "grounded-fact-selection": JSON.stringify({
         kind: "selection",
-        factIds: [offeringFactId(ids.alphaLocation!)],
+        factIds: [ids.alphaLocation],
       }),
     });
 
@@ -346,13 +435,12 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // No confirmation happened, so no elapsed phrase may appear anywhere in the answer.
     expect(result.body).not.toMatch(/ago\)/);
 
-    // The selection seam actually ran, and saw the offering as an offering.
+    // The selection seam actually ran, but evidence type remains code's concern.
     const ctx = provider.contextFor("grounded-fact-selection");
     expect(ctx).toBeDefined();
-    const fields = ctx!.fields as { facts: { basis: string; ageHours?: number }[] };
-    expect(fields.facts[0]!.basis).toBe("offering");
-    // An offering has no age. A zero would read as "confirmed just now".
-    expect(fields.facts[0]!.ageHours).toBeUndefined();
+    const fields = ctx!.fields as { facts: Record<string, unknown>[] };
+    expect(fields.facts[0]).not.toHaveProperty("basis");
+    expect(fields.facts[0]).not.toHaveProperty("ageHours");
   });
 
   it("shows the model candidates whose item names match no requested word", async () => {
@@ -372,7 +460,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       }),
       "grounded-fact-selection": JSON.stringify({
         kind: "selection",
-        factIds: [offeringFactId(ids.alphaLocation!)],
+        factIds: [ids.alphaLocation],
       }),
     });
 
@@ -409,7 +497,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       // The model may return them in any order; grouping is code's.
       "grounded-fact-selection": JSON.stringify({
         kind: "selection",
-        factIds: [offeringFactId(ids.betaLocation!), ids.alphaLocation!],
+        factIds: [ids.betaLocation, ids.alphaLocation!],
       }),
     });
 
@@ -434,10 +522,9 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   // identifiers were this one mistake, and every one cost the customer a real answer, because
   // 33 of the 48 candidates are offering-only stands.
   //
-  // A fact identifier is an OPAQUE TOKEN the model copies back, so it must carry no structure
-  // worth reconstructing. `basis` already travels as its own typed field, so the prefix was
-  // redundant as well as fragile.
-  it("identifies every retrieved fact by an opaque token carrying no structure", async () => {
+  // A stand identifier is an OPAQUE TOKEN the model copies back, so it must carry no
+  // structure worth reconstructing. Evidence type stays entirely behind this boundary.
+  it("identifies every selectable stand by an opaque token carrying no structure", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Lamb"], hoursAgo(26));
     await client()`
       insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
@@ -457,16 +544,19 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
 
     const ctx = provider.contextFor("grounded-fact-selection");
     expect(ctx).toBeDefined();
-    const fields = ctx!.fields as { facts: { factId: string; basis: string }[] };
-    // Both voices are present, so this covers the offering case specifically.
-    expect(fields.facts.map((f) => f.basis).sort()).toEqual(["confirmed", "offering"]);
+    const fields = ctx!.fields as { facts: { factId: string }[] };
+    // One confirmed stand and one offering-only stand are each represented once; evidence
+    // type is code's concern and no longer travels to the model.
+    expect(fields.facts.map((f) => f.factId).sort()).toEqual(
+      [ids.alphaLocation, ids.betaLocation].sort(),
+    );
     for (const fact of fields.facts) {
       // No composite the model could half-reproduce: no embedded basis, no separator-joined
       // pair. A bare UUID is fine; `offering-<uuid>` is exactly the failure being removed.
       expect(fact.factId).not.toMatch(/offering/i);
       expect(fact.factId).not.toMatch(/confirmed/i);
     }
-    // Distinct tokens: one location can appear on BOTH bases and they must not collide.
+    // Distinct tokens: each real location appears once.
     expect(new Set(fields.facts.map((f) => f.factId)).size).toBe(fields.facts.length);
   });
 
@@ -523,7 +613,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       }),
       "grounded-fact-selection": JSON.stringify({
         kind: "selection",
-        factIds: [offeringFactId(ids.betaLocation!)],
+        factIds: [ids.betaLocation],
       }),
     });
 

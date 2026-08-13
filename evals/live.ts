@@ -86,7 +86,7 @@ const BASE: PublishedSnapshot = {
   ],
 };
 
-/** Retrieved facts for the selection fixtures: same items, very different recency. */
+/** Retrieved facts for code-rendered selection fixtures. */
 const RETRIEVED: RetrievedFact[] = [
   {
     factId: "loc-1",
@@ -107,13 +107,11 @@ const RETRIEVED: RetrievedFact[] = [
     basis: "confirmed",
   },
 ];
-const SELECTION_FACTS = RETRIEVED.map((fact, index) => ({
+const SELECTION_FACTS = RETRIEVED.map((fact) => ({
   factId: fact.factId,
   farmName: fact.farmName,
   locationName: fact.locationName,
   matchedItemNames: fact.matchedItems.map((item) => item.itemName),
-  ageHours: index === 0 ? 2 : 98,
-  basis: "confirmed" as const,
 }));
 
 /**
@@ -134,28 +132,24 @@ const RECALL_FACTS = [
     farmName: "Fruits Des Vignes",
     locationName: "Fruits Des Vignes Stand",
     matchedItemNames: ["butter lettuce", "lettuce mix", "chard"],
-    basis: "offering" as const,
   },
   {
     factId: "rc-roots",
     farmName: "Twisting Tree Farm",
     locationName: "Twisting Tree Stand",
     matchedItemNames: ["beets", "carrots", "potatoes"],
-    basis: "offering" as const,
   },
   {
     factId: "rc-lamb",
     farmName: "Littlest Bird Farm",
     locationName: "Littlest Bird Stand",
     matchedItemNames: ["frozen lamb", "pork", "eggs"],
-    basis: "offering" as const,
   },
   {
     factId: "rc-flowers",
     farmName: "Sweet Alyssum",
     locationName: "Sweet Alyssum Stand",
     matchedItemNames: ["cut flowers", "dahlias"],
-    basis: "offering" as const,
   },
 ];
 
@@ -1113,7 +1107,7 @@ fx("live-quality", "marks a broad availability question for first-page selection
   };
 });
 
-fx("live-quality", "orders a freshest-first selection with the fresh fact first", async () => {
+fx("live-quality", "preserves code-ranked order for equally matching stands", async () => {
   const result = await inquiry.select({
     items: ["bok choy"],
     ranking: "freshest",
@@ -1325,34 +1319,31 @@ fx("live-quality", "reads a broad availability question however it is worded", a
   };
 });
 
-fx("live-recall", "prefers a confirmed listing over a typical offering for the same item", async () => {
-  // Both answer the question; the confirmed one is the better answer, and the renderer
-  // leads with it. This measures whether the model uses `basis` as intended.
+fx("live-recall", "selects a dual-source stand once and leaves evidence choice to code", async () => {
   const result = await inquiry.select({
     items: ["lamb"],
     ranking: "any",
     facts: [
       {
-        factId: "rc-lamb-offering",
+        factId: "rc-lamb",
         farmName: "Littlest Bird Farm",
         locationName: "Littlest Bird Stand",
-        matchedItemNames: ["frozen lamb"],
-        basis: "offering" as const,
+        matchedItemNames: ["lamb", "frozen lamb"],
       },
       {
-        factId: "rc-lamb-confirmed",
-        farmName: "Holmestead Farms",
-        locationName: "Holmestead Stand",
-        matchedItemNames: ["lamb"],
-        ageHours: 20,
-        basis: "confirmed" as const,
+        factId: "rc-flowers",
+        farmName: "Flower Farm",
+        locationName: "Flower Stand",
+        matchedItemNames: ["dahlias"],
       },
     ],
   });
   const observed = JSON.stringify(result);
   if (result.kind !== "selection") return { ok: false, observed };
-  // Both are legitimate answers, so both may appear; the confirmed one must come first.
-  const ok = result.factIds[0] === "rc-lamb-confirmed";
+  const ok =
+    result.factIds.length === 1 &&
+    result.factIds[0] === "rc-lamb" &&
+    (result.matchedItems?.["rc-lamb"]?.length ?? 0) > 0;
   return { ok, observed };
 });
 

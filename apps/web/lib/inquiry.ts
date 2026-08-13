@@ -103,8 +103,8 @@ export type InquiryOutcome =
  * to the same row; collision-free against the bare id; and `assertOpaqueId`-shaped — while
  * leaving nothing a model would think to normalize away.
  *
- * `basis` is unaffected: it already travels to the model as its own typed field, which is
- * what made the prefix redundant as well as fragile.
+ * `basis` never belongs in the token: code retains evidence type behind the stand-level
+ * selection boundary and uses it only when rendering.
  */
 const OFFERING_VARIANT_NIBBLE: Record<string, string> = {
   "8": "c",
@@ -141,6 +141,53 @@ export function standKeyOfFactId(factId: string): string {
   const nibble = CONFIRMED_VARIANT_NIBBLE[factId[19] ?? ""];
   if (nibble === undefined) return factId;
   return `${factId.slice(0, 19)}${nibble}${factId.slice(20)}`;
+}
+
+interface SelectableStand {
+  /** The real location id: one token for the model, regardless of evidence count. */
+  fact: RetrievedFact;
+  /** Separate authoritative voices retained for code-owned rendering. */
+  evidence: RetrievedFact[];
+}
+
+/**
+ * Collapse confirmed inventory and standing offerings into one model decision per stand.
+ *
+ * Relevance is a question about the stand and item, not about which evidence type code should
+ * disclose. B-068 proved the distinction: the model selected Forest Garden's usual cucumber
+ * offering but omitted its 24-day-old confirmed cucumber, so code rendered less than it knew.
+ * The model now selects the stand once; code retains every selected item's supporting voice.
+ */
+function groupSelectableStands(facts: RetrievedFact[]): SelectableStand[] {
+  const groups: SelectableStand[] = [];
+  const byStandId = new Map<string, SelectableStand>();
+
+  for (const evidence of facts) {
+    const standId = standKeyOfFactId(evidence.factId);
+    let group = byStandId.get(standId);
+    if (group === undefined) {
+      group = {
+        fact: { ...evidence, factId: standId, matchedItems: [] },
+        evidence: [],
+      };
+      byStandId.set(standId, group);
+      groups.push(group);
+    }
+    group.evidence.push(evidence);
+
+    const existing = new Set(
+      group.fact.matchedItems.map((item) => item.itemName.trim().toLowerCase()),
+    );
+    for (const item of evidence.matchedItems) {
+      const key = item.itemName.trim().toLowerCase();
+      if (!existing.has(key)) {
+        group.fact.matchedItems.push(item);
+        existing.add(key);
+      }
+    }
+  }
+
+  return groups;
 }
 
 export interface LocationRow {
@@ -504,12 +551,16 @@ export async function answerInquiry(
   // Step 3 — CODE retrieves, then ranks by the validated interpretation.
   const now = deps.clock.now();
   const listings = await retrieveCurrentListings(deps.db, now, input.scope);
-  const candidates: InquiryCandidate[] = listings.map((row) => ({
-    factId: row.factId,
-    farmName: row.farmName,
-    locationName: row.locationName,
-    matchedItemNames: row.items.map((item) => item.itemName),
-    asOf: row.asOf,
+  const itemsRequested = interpreted.items;
+  const selectableStands = groupSelectableStands(
+    listings.map((row) => toPageableFact(row, itemsRequested)),
+  );
+  const candidates: InquiryCandidate[] = selectableStands.map(({ fact }) => ({
+    factId: fact.factId,
+    farmName: fact.farmName,
+    locationName: fact.locationName,
+    matchedItemNames: fact.matchedItems.map((item) => item.itemName),
+    asOf: fact.asOf,
   }));
 
   const ranked = rankCandidates(candidates, {
@@ -534,30 +585,25 @@ export async function answerInquiry(
     };
   }
 
-  // Every published item reaches the selection seam, not just exact string matches
+  // Every potentially relevant published item reaches the selection seam, not just exact
+  // string matches. Each stand reaches it ONCE, however many evidence types support it.
   // (F-045). Narrowing the RETRIEVED SET by name equality is what made "leafy greens"
   // invisible to a stand publishing "butter lettuce": the model cannot select what it was
   // never shown. Rendering narrows separately — that rule lives in `toPageableFact`, once,
   // because a later MORE page of this same answer must obey it too.
-  const itemsRequested = interpreted.items;
-  const byId = new Map(listings.map((row) => [row.factId, row]));
-  const retrieved: RetrievedFact[] = ranked.map((candidate) =>
-    toPageableFact(byId.get(candidate.factId)!, itemsRequested),
-  );
+  const standById = new Map(selectableStands.map((stand) => [stand.fact.factId, stand]));
+  const rankedStands = ranked.map((candidate) => standById.get(candidate.factId)!);
+  const retrieved = rankedStands.flatMap((stand) => stand.evidence);
 
   // A general "what is available" request includes every retrieved fact by definition.
   // The deterministic ranking and display grouping already order that complete answer, so
   // the model only needs to reproduce the first page. Named-item and category questions stay
   // on the full selection path: only the model can judge their semantic matches (B-050).
-  const displayOrdered = [
-    ...retrieved.filter((fact) => fact.basis === "confirmed"),
-    ...retrieved.filter((fact) => fact.basis === "offering"),
-  ];
   const selectionCandidates = interpreted.broad
-    ? displayOrdered.slice(0, PAGE_SIZE)
-    : retrieved;
+    ? rankedStands.slice(0, PAGE_SIZE).map((stand) => stand.fact)
+    : rankedStands.map((stand) => stand.fact);
 
-  // Step 4 — select. This call sees the retrieved facts and NOT the raw question.
+  // Step 4 — select. This call sees one public candidate per stand and NOT the raw question.
   const rawSelection = await deps.model.select({
     items: interpreted.items,
     ranking: interpreted.ranking,
@@ -566,17 +612,6 @@ export async function answerInquiry(
       farmName: fact.farmName,
       locationName: fact.locationName,
       matchedItemNames: fact.matchedItems.map((item) => item.itemName),
-      // An offering has no age to report: nobody confirmed it. Sending one would let the
-      // model treat a standing description as a fresh confirmation.
-      ...(fact.basis === "confirmed"
-        ? {
-            ageHours: Math.max(
-              0,
-              Math.floor((now.getTime() - fact.asOf.getTime()) / 3_600_000),
-            ),
-          }
-        : {}),
-      basis: fact.basis,
     })),
   });
 
@@ -616,14 +651,14 @@ export async function answerInquiry(
     //
     // Not a retry: a second model call would spend the customer's latency on a path where code
     // already knows the answer. Grounding is untouched, because the model's selection is
-    // discarded ENTIRELY rather than repaired — every fact below comes from `displayOrdered`,
+    // discarded ENTIRELY rather than repaired — every fact below comes from `retrieved`,
     // which code built and ranked.
     if (selection.failure !== "duplicate_id") {
       return { outcome: "rejected", reason: selection.reason };
     }
 
     return await deliverPage(deps, {
-      facts: displayOrdered,
+      facts: retrieved,
       itemsRequested,
       broad: interpreted.broad === true,
       senderHash: input.senderHash,
@@ -648,29 +683,33 @@ export async function answerInquiry(
   // Ordering here is the RENDERER's rule, not a second ranking: confirmed stock leads and is
   // never paged away, because it is what the customer actually asked for. The model's order
   // is preserved within each group.
-  const selectedFactIds = selection.value.factIds;
-  const answerFactIds = interpreted.broad
-    ? [...selectedFactIds, ...displayOrdered.slice(PAGE_SIZE).map((fact) => fact.factId)]
-    : selectedFactIds;
+  const selectedStandIds = selection.value.factIds;
+  const answerStandIds = interpreted.broad
+    ? [
+        ...selectedStandIds,
+        ...rankedStands.slice(PAGE_SIZE).map((stand) => stand.fact.factId),
+      ]
+    : selectedStandIds;
   // F-107 — re-narrow each fact to the items the MODEL said answered the request, where it
   // said. Built from `listings` rather than `retrieved` so the full published list is in hand:
   // `toPageableFact` already narrowed once on string match, and narrowing a narrowed list
   // would silently drop a category answer the model correctly identified.
   const modelMatched = selection.value.matchedItems ?? {};
   const rowByFactId = new Map(listings.map((row) => [row.factId, row]));
-  const byFactId = new Map(
-    retrieved.map((fact) => {
-      const row = rowByFactId.get(fact.factId);
-      const claimed = modelMatched[fact.factId];
-      return [
-        fact.factId,
-        row !== undefined && claimed !== undefined
-          ? toPageableFact(row, itemsRequested, claimed)
-          : fact,
-      ];
-    }),
-  );
-  const selected = answerFactIds.map((factId) => byFactId.get(factId)!);
+  const selected = answerStandIds.flatMap((standId) => {
+    const stand = standById.get(standId)!;
+    const claimed = modelMatched[standId];
+    return stand.evidence.flatMap((fact) => {
+      const row = rowByFactId.get(fact.factId)!;
+      if (claimed === undefined) return [fact];
+
+      const claimedNames = new Set(claimed.map((name) => name.trim().toLowerCase()));
+      const supportsClaim = row.items.some((item) =>
+        claimedNames.has(item.itemName.trim().toLowerCase()),
+      );
+      return supportsClaim ? [toPageableFact(row, itemsRequested, claimed)] : [];
+    });
+  });
   const ordered = [
     ...selected.filter((fact) => fact.basis === "confirmed"),
     ...selected.filter((fact) => fact.basis === "offering"),

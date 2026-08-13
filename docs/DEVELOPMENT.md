@@ -59,7 +59,7 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   failure is a lead, never a finding. The tell that it is the harness and not the brain: the failure
   rate moves with something the instruction never mentions — here, a trailing proper noun.
 - **A new query/list:** after any approved semantic interpretation, run retrieval in code before
-  grounded fact selection; label recency; carry stable fact identifiers; accept only selected IDs from
+  grounded stand selection; label recency; carry stable stand identifiers; accept only selected IDs from
   the retrieved set; render factual text in code.
 - **Anything privacy-relevant:** phones hashed, never logged raw, never in model context. The guarantee
   is **code, not the prompt** — task-specific projections make other actors' private data unavailable

@@ -216,7 +216,7 @@ describe("SMS result paging end to end (integration)", () => {
     items: string[],
     senderHash: string,
     occurredAt: Date,
-    factIds: string[] = locationIds.map((id) => offeringFactId(id)),
+    factIds: string[] = locationIds,
   ) {
     const provider = new ScriptedProvider({
       "inquiry-interpretation": JSON.stringify({
@@ -245,7 +245,7 @@ describe("SMS result paging end to end (integration)", () => {
   async function askForEggs(
     senderHash: string,
     occurredAt: Date,
-    factIds: string[] = locationIds.map((id) => offeringFactId(id)),
+    factIds: string[] = locationIds,
   ) {
     return askFor(["eggs"], senderHash, occurredAt, factIds);
   }
@@ -378,8 +378,8 @@ describe("SMS result paging end to end (integration)", () => {
       await alsoUsuallySells(i, "kale");
     }
 
-    const both = [0, 1, 2].flatMap((i) => [locationIds[i]!, offeringFactId(locationIds[i]!)]);
-    const answer = await askFor(["eggs", "kale"], customerHash, T0, both);
+    const selectedStands = [0, 1, 2].map((i) => locationIds[i]!);
+    const answer = await askFor(["eggs", "kale"], customerHash, T0, selectedStands);
 
     expect(answer.outcome).toBe("answered");
     if (answer.outcome !== "answered") return;
@@ -409,11 +409,8 @@ describe("SMS result paging end to end (integration)", () => {
       await alsoUsuallySells(i, "kale");
     }
 
-    const both = [0, 1, 2, 3].flatMap((i) => [
-      locationIds[i]!,
-      offeringFactId(locationIds[i]!),
-    ]);
-    const answer = await askFor(["eggs", "kale"], customerHash, T0, both);
+    const selectedStands = [0, 1, 2, 3].map((i) => locationIds[i]!);
+    const answer = await askFor(["eggs", "kale"], customerHash, T0, selectedStands);
 
     expect(answer.outcome).toBe("answered");
     if (answer.outcome !== "answered") return;
@@ -498,7 +495,7 @@ describe("SMS result paging end to end (integration)", () => {
     const answer = await askForEggs(
       customerHash,
       T0,
-      locationIds.slice(0, 3).map((id) => offeringFactId(id)),
+      locationIds.slice(0, 3),
     );
 
     expect(answer.outcome).toBe("answered");
@@ -576,7 +573,7 @@ describe("SMS result paging end to end (integration)", () => {
     // pull confirmed facts forward, that stand would land on page three.
     await publishEggs(8);
     const factIds = [
-      ...locationIds.slice(0, 8).map((id) => offeringFactId(id)),
+      ...locationIds.slice(0, 8),
       locationIds[8]!,
     ];
     const answer = await askForEggs(customerHash, T0, factIds);
@@ -608,7 +605,7 @@ describe("SMS result paging end to end (integration)", () => {
     await askForEggs(
       customerHash,
       at(5),
-      locationIds.slice(5, 9).map((id) => offeringFactId(id)),
+      locationIds.slice(5, 9),
     );
 
     const rows = await client()`
