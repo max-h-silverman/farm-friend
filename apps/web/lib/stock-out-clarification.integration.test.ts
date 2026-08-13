@@ -5,7 +5,8 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FixedClock, type InventoryInterpreter } from "@farm-friend/core";
 import type {
-  CustomerMessageIntentModel,
+  RequestCategory,
+  RequestClassificationModel,
   InquiryModel,
   StockOutModel,
 } from "@farm-friend/ai";
@@ -144,17 +145,23 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     };
   }
 
-  /** The customer route signal, scripted per message text. */
-  function customerIntent(
-    byText: Record<string, "stock_out_report" | "farm_stand_question">,
-  ): CustomerMessageIntentModel {
+  /**
+   * The first-pass classifier, scripted per message text (F-111).
+   *
+   * Deliberately still scripted per phrase: these tests assert that a HELD clarification
+   * rescues a message the classifier gets legitimately "wrong" — a bare stand name really is a
+   * lookup — so the classifier's verdict must be pinned rather than inferred.
+   */
+  function classifier(
+    byText: Record<string, RequestCategory>,
+  ): RequestClassificationModel {
     return {
       async classify({ taskText }) {
         const kind = byText[taskText];
         if (kind === undefined) {
-          throw new Error(`unscripted customer intent for ${JSON.stringify(taskText)}`);
+          throw new Error(`unscripted classification for ${JSON.stringify(taskText)}`);
         }
-        return { kind };
+        return { ok: true, kind };
       },
     };
   }
@@ -172,7 +179,7 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     };
   }
 
-  function deps(intent: CustomerMessageIntentModel, stockOut = stockOutSeam()) {
+  function deps(intent: RequestClassificationModel, stockOut = stockOutSeam()) {
     return {
       db: database(),
       interpreter: {
@@ -181,12 +188,7 @@ describe("B-065 stock-out clarification memory (integration)", () => {
         },
       } as unknown as InventoryInterpreter,
       inquiry: forbiddenInquiry(),
-      farmerIntent: {
-        classify: async () => {
-          throw new Error("the farmer intent seam must not run for a customer");
-        },
-      },
-      customerIntent: intent,
+      classifier: intent,
       stockOut,
       clock: new FixedClock(T0),
     };
@@ -220,9 +222,9 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     // The exact filed transcript. The second message names no item, so the intent seam calls
     // it a question — as it correctly does live — and the pending report is what rescues it.
     const d = deps(
-      customerIntent({
-        "Pinecome is out of eggs": "stock_out_report",
-        Pinecone: "farm_stand_question",
+      classifier({
+        "Pinecome is out of eggs": "inventory_report",
+        Pinecone: "stand_lookup",
       }),
     );
 
@@ -253,9 +255,9 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     // The case that motivated the fuzzy tier (max, 2026-08-12): a reply moments after the
     // question is a retry at the name, not a new topic. Remembering alone would drop this.
     const d = deps(
-      customerIntent({
-        "Pinecome is out of eggs": "stock_out_report",
-        Pinecomb: "farm_stand_question",
+      classifier({
+        "Pinecome is out of eggs": "inventory_report",
+        Pinecomb: "stand_lookup",
       }),
     );
 
@@ -270,9 +272,9 @@ describe("B-065 stock-out clarification memory (integration)", () => {
   it("completes the report when the customer answers WHAT was sold out", async () => {
     // The other arm: the stand resolved, the item did not. The held row carries the stand.
     const d = deps(
-      customerIntent({
-        "something is out at Pinecone Gardens": "stock_out_report",
-        eggs: "farm_stand_question",
+      classifier({
+        "something is out at Pinecone Gardens": "inventory_report",
+        eggs: "search_stands",
       }),
     );
 
@@ -297,9 +299,9 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     const inquiry = vi.fn(async () => ({ kind: "clarification" as const, question: "q" }));
     const d = {
       ...deps(
-        customerIntent({
-          "Pinecome is out of eggs": "stock_out_report",
-          "who has kale": "farm_stand_question",
+        classifier({
+          "Pinecome is out of eggs": "inventory_report",
+          "who has kale": "search_stands",
         }),
       ),
       inquiry: {
@@ -325,9 +327,9 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     const inquiry = vi.fn(async () => ({ kind: "clarification" as const, question: "q" }));
     const d = {
       ...deps(
-        customerIntent({
-          "Pinecome is out of eggs": "stock_out_report",
-          Pinecone: "farm_stand_question",
+        classifier({
+          "Pinecome is out of eggs": "inventory_report",
+          Pinecone: "stand_lookup",
         }),
       ),
       inquiry: {
@@ -348,7 +350,7 @@ describe("B-065 stock-out clarification memory (integration)", () => {
   it("does not fuzzy-match a stand on a COLD message", async () => {
     // The fuzzy tier is confined to an open clarification. A misspelled report with nothing
     // held must still ask, or max's 2026-08-11 ruling is quietly reversed for every message.
-    const d = deps(customerIntent({ "Pinecome is out of eggs": "stock_out_report" }));
+    const d = deps(classifier({ "Pinecome is out of eggs": "inventory_report" }));
 
     const only = await send(d, "Pinecome is out of eggs", T0, "evt-1");
     expect(only.replies[0]?.body).toBe(STOCK_OUT_STAND_QUESTION);
@@ -359,9 +361,9 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     // A second unfinished report replaces the first. The unique index is the arbiter, so the
     // answer can never be ambiguous about which report it completes.
     const d = deps(
-      customerIntent({
-        "Pinecome is out of eggs": "stock_out_report",
-        "Bartz is out of plums": "stock_out_report",
+      classifier({
+        "Pinecome is out of eggs": "inventory_report",
+        "Bartz is out of plums": "inventory_report",
       }),
     );
 

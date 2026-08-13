@@ -6,7 +6,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
 import {
-  createFarmerMessageIntentModel,
+  createRequestClassificationModel,
   createInquiryModel,
   createInventoryInterpreter,
 } from "@farm-friend/ai";
@@ -355,12 +355,7 @@ describe("inbound reply latency (integration)", () => {
     const provider = new ForbiddenProvider();
     await runInboundPass({
       db: database(),
-      farmerIntent: createFarmerMessageIntentModel(provider),
-      customerIntent: {
-            classify: async () => {
-              throw new Error("the customer intent seam must not run on this path");
-            },
-          },
+      classifier: createRequestClassificationModel(provider),
       stockOut: {
             parseItem: async () => {
               throw new Error("the stock-out seam must not run on this path");
@@ -480,12 +475,7 @@ describe("inbound reply latency (integration)", () => {
       const context = asContext(outboundContext());
       const deps = {
         db: database(),
-        farmerIntent: createFarmerMessageIntentModel(provider),
-        customerIntent: {
-            classify: async () => {
-              throw new Error("the customer intent seam must not run on this path");
-            },
-          },
+        classifier: createRequestClassificationModel(provider),
         stockOut: {
             parseItem: async () => {
               throw new Error("the stock-out seam must not run on this path");
@@ -560,12 +550,7 @@ describe("inbound reply latency (integration)", () => {
       const context = asContext(outboundContext());
       const deps = {
         db: database(),
-        farmerIntent: createFarmerMessageIntentModel(provider),
-        customerIntent: {
-            classify: async () => {
-              throw new Error("the customer intent seam must not run on this path");
-            },
-          },
+        classifier: createRequestClassificationModel(provider),
         stockOut: {
             parseItem: async () => {
               throw new Error("the stock-out seam must not run on this path");

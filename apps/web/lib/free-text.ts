@@ -1,13 +1,14 @@
 import {
   isFuzzyNameMatch,
+  meetsDistinctiveWordBar,
   renderClarificationRequest,
+  PUBLIC_MAP_URL,
   type Clock,
   type InventoryInterpreter,
 } from "@farm-friend/core";
 import type {
-  CustomerMessageIntentModel,
-  FarmerMessageIntentModel,
   InquiryModel,
+  RequestClassificationModel,
   StockOutModel,
 } from "@farm-friend/ai";
 import {
@@ -27,27 +28,34 @@ import type { RoutedReply } from "./routing";
 
 // The free-text branch of inbound routing (F-023) — the ONE path a model may run on.
 //
-// Deterministic parsing has already completed and found no keyword or token. What remains
-// is sender-dependent, and WHO the sender is decides which seam sees the message:
+// Deterministic parsing has already completed and found no keyword or token. What remains is
+// classified ONCE, by shape, and then handled by code per arm (F-111).
 //
-//   - an authorized farmer → finite intent classification → inventory proposal or inquiry
-//   - anyone else          → customer inquiry → grounded answer
+//   deterministic routing steps 1–10   (body only — see routing.ts)
+//     → open stock-out clarification   (B-065, code, below the deterministic steps)
+//       → REQUEST CLASSIFIER           (one call, one enum out)
+//         → per-arm handling; a stand is resolved only where an arm needs one
 //
-// That resolution is CODE's, from `farmer_authorizations`, and never a model's: letting a
-// model decide "this looks like a farmer" would let a customer's text publish inventory,
-// which is Golden Rule #1's exact failure mode.
+// **WHO the sender is no longer picks the classifier.** Two seams split by sender used to ask
+// the same question in two taxonomies, and the split leaked into language: a farmer reporting
+// ANOTHER stand's stock-out classified as their own inventory update (measured 3/3), which is
+// B-053 reintroduced. One taxonomy now asks what the message IS; code asks separately, from
+// `farmer_authorizations`, what the sender may DO about it.
 //
-// Both branches queue replies rather than sending. Nothing here sends an SMS.
+// **Authority stays code-owned and absent from the model's input.** The classifier receives the
+// message text and nothing else — no sender type, no stand roster — so there is no field
+// through which a manipulated model could claim a sender may publish. Golden Rules #1 and #3.
+//
+// Every branch queues replies rather than sending. Nothing here sends an SMS.
 
 export interface FreeTextDeps {
   db: Db;
-  farmerIntent: FarmerMessageIntentModel;
   /**
-   * The customer-side route signal (F-104): is this a question, or is someone telling us
-   * something sold out? A sibling of `farmerIntent`, in the same position on the other
-   * branch — not a field on the inquiry seam, which every working answer depends on.
+   * The first-pass request classifier (F-111) — one call, one enum, above everything else that
+   * interprets an inbound message. It replaced `farmer-message-intent` and
+   * `customer-message-intent`, which are deleted rather than left beside it.
    */
-  customerIntent: CustomerMessageIntentModel;
+  classifier: RequestClassificationModel;
   /** Reads a report's free text into an item reference, once a stand is bound in code. */
   stockOut: StockOutModel;
   interpreter: InventoryInterpreter;
@@ -93,8 +101,58 @@ export const STOCK_OUT_UNCLEAR_ITEM =
  */
 export const STOCK_OUT_THANKS = "Thanks, we'll let the farmer know.";
 
-export const FARMER_INTENT_CLARIFICATION =
-  "Are you updating your inventory or asking what a farm stand has? Reply UPDATE or QUESTION.";
+/**
+ * The reply to a message Farm Friend genuinely cannot handle (F-111, the `unclear` arm).
+ *
+ * **This blames nothing and claims nothing.** It does not say "no stand has that", which would
+ * be a factual claim about a corpus nothing searched, and it does not offer a keyword the
+ * sender did not ask about. It states the scope and points at the map, which is true whatever
+ * the message was.
+ */
+export const UNCLEAR_REQUEST_REPLY =
+  "Sorry, I did not catch that. Ask what a farm stand has, or tell us something is sold out. " +
+  `The map at ${PUBLIC_MAP_URL} lists every stand.`;
+
+/**
+ * The reply when the classifier could not be reached or returned nothing usable (F-111).
+ *
+ * **A DIFFERENT message from `UNCLEAR_REQUEST_REPLY`, and the difference is the point.** That
+ * one says the sender's message was unhandleable; this one says OUR side failed. Telling a
+ * customer whose question was never classified that we did not catch it blames their wording
+ * for our outage and asks them to retype something that was already fine — B-049 established
+ * exactly this for the interpreter, and this extends that one pattern rather than adding a
+ * concept.
+ *
+ * It claims nothing about any stand, and points at the map, which does not depend on the model
+ * being up.
+ */
+export const CLASSIFIER_UNAVAILABLE_REPLY =
+  "Sorry, we ran into an issue handling your message. Please try again in a minute. " +
+  `The map at ${PUBLIC_MAP_URL} is always up to date.`;
+
+/**
+ * The answer to "where's the farm stand map?" (F-111, the `system_inquiry` arm).
+ *
+ * `MAP` has always worked as a bare keyword; no free-text phrasing of the same question reached
+ * it, so "where's the farm stand map?" fell through to the generic clarification. This arm is
+ * that phrasing's home.
+ *
+ * The URL comes from the SAME `PUBLIC_MAP_URL` constant the `MAP` keyword's reply is validated
+ * against — stated once, so the two answers cannot drift apart.
+ */
+export const SYSTEM_INQUIRY_REPLY =
+  "Farm Friend keeps Vashon farm-stand listings current. " +
+  `Ask what a stand has, or tell us something is sold out. The map: ${PUBLIC_MAP_URL}`;
+
+/**
+ * The reply to a greeting (F-111, the `chitchat` arm).
+ *
+ * Answers the person and says what the service is for, in one line. A greeting that fell into
+ * product retrieval used to be answered "no stand has a current listing for hi", which is a
+ * claim about the corpus in reply to a message that was never about the corpus.
+ */
+export const CHITCHAT_REPLY =
+  "Hi! Ask me what a Vashon farm stand has, or tell us if something is sold out.";
 
 async function handleCustomerInquiry(
   deps: FreeTextDeps,
@@ -306,8 +364,17 @@ async function resolveStandByDistinctiveWords(
     let best: { id: string; score: number } | null = null;
     let bestIsTied = false;
     for (const stand of stands) {
-      const value = score(distinctiveWords(stand as Record<string, unknown>));
+      const words = distinctiveWords(stand as Record<string, unknown>);
+      const value = score(words);
       if (value === 0) continue;
+      /*
+        F-111 Phase 2b — the bar. A score of 1 used to count as identification, so the word
+        `open` inside "Open Gate Lamb and Grazing" bound every message containing that ordinary
+        English word to that farm. The rule and the corpus measurement behind it live with the
+        other name-matching logic in `stand-name-match.ts`; scoring stays here because it needs
+        the rows.
+      */
+      if (!meetsDistinctiveWordBar(value, words.length)) continue;
       if (best === null || value > best.score) {
         best = { id: stand.id as string, score: value };
         bestIsTied = false;
@@ -578,109 +645,26 @@ async function resolveClarification(
 }
 
 /**
- * Handle a message that is not a deterministic command.
+ * A farmer updating a stand they hold — the publish path.
  *
- * The farmer branch opens or revises the sender's ONE pending proposal and returns the
- * confirmation prompt for the outbox. The proposal is activated by the outbound worker once
- * Telnyx accepts that prompt — until then no token can consume it, which is what makes
- * "a token predating its prompt cannot commit" true.
+ * Opens or revises the sender's ONE pending proposal and returns the confirmation prompt for
+ * the outbox. The proposal is activated by the outbound worker once Telnyx accepts that
+ * prompt — until then no token can consume it, which is what makes "a token predating its
+ * prompt cannot commit" true.
+ *
+ * **Reached only through the access fork**, and only where `farmer_authorizations` already
+ * said this sender holds a live target. Nothing a model returns can reach it directly: the
+ * classifier's `inventory_report` is one arm for everyone, and code decides who may publish.
  */
-export async function handleFreeText(
+async function handleFarmerInventoryUpdate(
   deps: FreeTextDeps,
   input: {
     senderHash: string;
     taskText: string;
     providerEventId: string;
-    inboxEventId: string;
-    /** The inbound message's own time — what a saved result list's expiry runs from (F-046). */
     occurredAt: Date;
   },
 ): Promise<FreeTextResult> {
-  if (input.taskText.trim() === "") {
-    // Nothing to interpret. Silence is the honest response to an empty body.
-    return { replies: [], handled: "none" };
-  }
-
-  // Authority is code-owned and checked before the classifier. A customer must never be
-  // able to steer a model into the farmer path, and an authorized farmer's question must not
-  // create a stand-selection menu before we know it is an update.
-  const isFarmer = await hasLiveFarmerAuthorization(deps.db, {
-    senderHash: input.senderHash,
-    occurredAt: input.occurredAt,
-  });
-
-  /*
-    A farmer naming SOMEONE ELSE'S stand is reporting a stock-out, not updating their listing
-    (max, 2026-08-11). Found live: "no eggs left at Pinecone Gardens" from a farmer handset
-    returned the farmer stand-menu, because authority alone decided the branch.
-
-    **The discriminator is whose stand was named, and it is resolved in CODE.** Ownership comes
-    from `farmer_authorizations`, and the stand from the same unique-substring match the
-    customer path uses — so no model decides whether a message is about the sender's own farm.
-    That keeps Golden Rule #1 intact: this can only ever move a farmer's message AWAY from
-    publishing their inventory, never toward publishing someone else's.
-
-    Deliberately narrow. Naming no stand, or naming their own, leaves the farmer path exactly
-    as it was — an ambiguous or unnamed message is still an update, which is the common case.
-  */
-  const namedStand = isFarmer
-    ? await resolveReportedStand(deps.db, input.taskText, false)
-    : null;
-  const namedSomeoneElsesStand =
-    namedStand !== null &&
-    !(await standBelongsToSender(deps.db, {
-      senderHash: input.senderHash,
-      salesLocationId: namedStand.id,
-      occurredAt: input.occurredAt,
-    }));
-
-  if (namedSomeoneElsesStand) {
-    return handleCustomerStockOut(deps, input);
-  }
-
-  if (!isFarmer) {
-    /*
-      B-065 — a clarifying question Farm Friend asked, and the answer to it.
-
-      This runs BEFORE the intent seam on purpose. The reply to "Which stand are you at?" is
-      a bare stand name: it states nothing about stock and names no item, so the classifier
-      correctly calls it a question (measured 3/3 against the live model) and the report is
-      lost. The pending row is what makes it an answer instead.
-
-      It runs BELOW all of deterministic routing, which is the load-bearing placement. STOP,
-      HELP, FLAG and the confirmation tokens are decided by `parseCommand` from the body
-      alone, so no held context can reinterpret one (Golden Rule #2).
-    */
-    const resolved = await resolveClarification(deps, input);
-    if (resolved !== null) return resolved;
-
-    // F-104 — the customer branch now has a route signal of its own. `farm_stand_question`
-    // is both the other arm and the fallback, so an unreachable or refused model leaves this
-    // path exactly as it was before the seam existed.
-    const customerIntent = await deps.customerIntent.classify({
-      taskText: input.taskText,
-    });
-    if (customerIntent.kind === "stock_out_report") {
-      return handleCustomerStockOut(deps, input);
-    }
-    return handleCustomerInquiry(deps, input);
-  }
-
-  const intent = await deps.farmerIntent.classify({ taskText: input.taskText });
-  if (intent.kind === "farm_stand_question") {
-    return handleCustomerInquiry(deps, input);
-  }
-  if (intent.kind === "unclear") {
-    return {
-      replies: [{
-        body: FARMER_INTENT_CLARIFICATION,
-        category: "inquiry_reply",
-        logicalKey: `farmer-intent-clarify-${input.providerEventId}`,
-      }],
-      handled: "none",
-    };
-  }
-
   // The exact authorization+location pair is code-owned durable context. Resolution
   // revalidates both rows on every message; the model receives neither the menu nor any
   // choice of target. One live target auto-selects, several without a selection issue the
@@ -760,4 +744,186 @@ export async function handleFreeText(
   // Authority can be revoked between the identity check and target resolution. Fail toward
   // the read-only inquiry path; never interpret or persist an update without a live target.
   return handleCustomerInquiry(deps, input);
+}
+
+/**
+ * The `inventory_report` access fork — where B-053 lives now (F-111).
+ *
+ * The classifier says only that SOMEONE asserted a stand's inventory needs updating. Who may
+ * act on that is an **access** question, and it is answered here in code, from
+ * `farmer_authorizations`:
+ *
+ * | sender | access to the resolved stand | flow |
+ * |---|---|---|
+ * | customer | — | customer-style report; private signal to that stand's farmer |
+ * | farmer | **has** access | direct inventory update flow (proposal + confirmation) |
+ * | farmer | **no** access | customer-style report — B-053's case |
+ *
+ * **Why this is code and not a classifier arm.** A prompt-level split was measured and failed:
+ * "no eggs left at Pinecone Gardens" from a farmer handset classified as the farmer's OWN
+ * update 3/3, which would route a stranger's stock-out into that farmer's publish path. A
+ * hostile classifier cannot reach around this, because there is no category meaning "this
+ * sender may publish" for it to return.
+ *
+ * **A stand resolves here and not before.** Resolution runs on the message text, so it must sit
+ * below classification — running it first is what let the word `open` inside "Open Gate Lamb
+ * and Grazing" bind an ordinary question to a farm.
+ *
+ * No stand resolved → the existing B-065 clarification, unchanged: hold the report and ask.
+ */
+async function handleInventoryReport(
+  deps: FreeTextDeps,
+  input: {
+    senderHash: string;
+    taskText: string;
+    providerEventId: string;
+    occurredAt: Date;
+  },
+  isFarmer: boolean,
+): Promise<FreeTextResult> {
+  // A customer's report never consults ownership — every stand is someone else's — so the
+  // lookup runs only for a farmer. `handleCustomerStockOut` resolves the stand again for
+  // itself, including the no-match clarification this deliberately does not duplicate.
+  if (!isFarmer) return handleCustomerStockOut(deps, input);
+
+  const stand = await resolveReportedStand(deps.db, input.taskText, false);
+  if (stand === null) {
+    /*
+      A farmer whose message names no stand is updating their OWN listing — the common case,
+      and the one the farmer path has always served. There is nothing to check access against
+      and nothing ambiguous about it: their authorization names the target.
+    */
+    return handleFarmerInventoryUpdate(deps, input);
+  }
+
+  const ownsIt = await standBelongsToSender(deps.db, {
+    senderHash: input.senderHash,
+    salesLocationId: stand.id,
+    occurredAt: input.occurredAt,
+  });
+
+  // Their own stand → publish path. Someone else's → they are a reporter like anyone else,
+  // and this can only ever move a farmer's message AWAY from publishing, never toward
+  // publishing someone else's (Golden Rule #1).
+  return ownsIt
+    ? handleFarmerInventoryUpdate(deps, input)
+    : handleCustomerStockOut(deps, input);
+}
+
+/**
+ * Handle a message that is not a deterministic command.
+ *
+ * Classification happens ONCE, here, and selects a code path. See the file header for the
+ * ordering and why each step sits where it does.
+ */
+export async function handleFreeText(
+  deps: FreeTextDeps,
+  input: {
+    senderHash: string;
+    taskText: string;
+    providerEventId: string;
+    inboxEventId: string;
+    /** The inbound message's own time — what a saved result list's expiry runs from (F-046). */
+    occurredAt: Date;
+  },
+): Promise<FreeTextResult> {
+  if (input.taskText.trim() === "") {
+    // Nothing to interpret. Silence is the honest response to an empty body.
+    return { replies: [], handled: "none" };
+  }
+
+  /*
+    B-065 — a clarifying question Farm Friend asked, and the answer to it.
+
+    This runs ABOVE classification on purpose. The reply to "Which stand are you at?" is a bare
+    stand name: it states nothing about stock and names no item, so a classifier correctly calls
+    it a lookup and the report is lost. The pending row is what makes it an answer instead.
+
+    It runs BELOW all of deterministic routing, which is the load-bearing placement. STOP, HELP,
+    FLAG and the confirmation tokens are decided by `parseCommand` from the body alone, so no
+    held context can reinterpret one (Golden Rule #2).
+
+    It applies to any sender. A farmer standing at someone else's stand can answer a
+    clarification too, and the held row carries the report either way.
+  */
+  const resolved = await resolveClarification(deps, input);
+  if (resolved !== null) return resolved;
+
+  /*
+    Authority is code-owned and resolved from `farmer_authorizations` BEFORE the model runs —
+    and it is deliberately NOT sent to it. The classifier's projection carries the message text
+    and nothing else, so there is no field through which a manipulated model could assert that a
+    sender may publish. It is read here, and used only by the access fork below.
+  */
+  const isFarmer = await hasLiveFarmerAuthorization(deps.db, {
+    senderHash: input.senderHash,
+    occurredAt: input.occurredAt,
+  });
+
+  const classification = await deps.classifier.classify({ taskText: input.taskText });
+
+  if (!classification.ok) {
+    /*
+      The model could not be reached, or returned nothing valid. There is deliberately NO
+      fallback arm: guessing one would either blame the sender's wording for our outage
+      (`unclear`) or answer "no stand has a current listing" — a claim about a corpus nothing
+      searched. We say what happened instead.
+    */
+    return {
+      replies: [{
+        body: CLASSIFIER_UNAVAILABLE_REPLY,
+        category: "inquiry_reply",
+        logicalKey: `classify-unavailable-${input.providerEventId}`,
+      }],
+      handled: "none",
+    };
+  }
+
+  switch (classification.kind) {
+    case "inventory_report":
+      return handleInventoryReport(deps, input, isFarmer);
+
+    /*
+      Both retrieval arms answer through the same grounded inquiry path. The classifier
+      distinguishes "one specific stand" from "stands generally" for a LATER stage to act on;
+      it is not a difference this pass renders, and inventing two code paths for a distinction
+      nothing yet consumes would be two ways to do one thing.
+    */
+    case "search_stands":
+    case "stand_lookup":
+      return handleCustomerInquiry(deps, input);
+
+    case "system_inquiry":
+      // The map, answered from the same constant the MAP keyword's URL is validated against.
+      return {
+        replies: [{
+          body: SYSTEM_INQUIRY_REPLY,
+          category: "inquiry_reply",
+          logicalKey: `system-inquiry-${input.providerEventId}`,
+        }],
+        handled: "customer",
+      };
+
+    case "chitchat":
+      return {
+        replies: [{
+          body: CHITCHAT_REPLY,
+          category: "inquiry_reply",
+          logicalKey: `chitchat-${input.providerEventId}`,
+        }],
+        handled: "customer",
+      };
+
+    case "unclear":
+      // Their message, honestly unhandled — a different fact from the outage reply above, and
+      // different words for it.
+      return {
+        replies: [{
+          body: UNCLEAR_REQUEST_REPLY,
+          category: "inquiry_reply",
+          logicalKey: `unclear-${input.providerEventId}`,
+        }],
+        handled: "customer",
+      };
+  }
 }

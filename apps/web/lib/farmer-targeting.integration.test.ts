@@ -4,9 +4,13 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FixedClock, type InventoryInterpreter } from "@farm-friend/core";
-import type { FarmerMessageIntentModel, InquiryModel } from "@farm-friend/ai";
+import type {
+  InquiryModel,
+  RequestCategory,
+  RequestClassificationModel,
+} from "@farm-friend/ai";
 import { resolveFarmerLink, type Db, type Sql } from "@farm-friend/db";
-import { handleFreeText } from "./free-text";
+import { handleFreeText, UNCLEAR_REQUEST_REPLY } from "./free-text";
 import { handleFarmerTarget, handleStandSelection } from "./farmer-targeting";
 
 const T0 = new Date(Date.now() - 60_000);
@@ -58,9 +62,14 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     };
   }
 
-  function farmerIntent(kind: "inventory_update" | "farm_stand_question" | "unclear"):
-    FarmerMessageIntentModel {
-    return { async classify() { return { kind }; } };
+  /**
+   * The first-pass classifier, pinned to one category (F-111).
+   *
+   * One seam for both senders now: what a message IS no longer depends on who sent it, and who
+   * may act on it is decided in code from `farmer_authorizations`.
+   */
+  function classifier(kind: RequestCategory): RequestClassificationModel {
+    return { async classify() { return { ok: true, kind }; } };
   }
 
   async function authorize(senderHash: string, names: string[]) {
@@ -166,12 +175,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret },
         inquiry: forbiddenInquiry(),
-        farmerIntent: farmerIntent("inventory_update"),
-        customerIntent: {
-            classify: async () => {
-              throw new Error("the customer intent seam must not run on this path");
-            },
-          },
+        classifier: classifier("inventory_report"),
         stockOut: {
             parseItem: async () => {
               throw new Error("the stock-out seam must not run on this path");
@@ -198,7 +202,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
   it("routes a farmer's general stand question before requiring a stand target", async () => {
     const senderHash = "q".repeat(64);
     await authorize(senderHash, ["North Stand", "South Stand"]);
-    const classify = vi.fn(async () => ({ kind: "farm_stand_question" as const }));
+    const classify = vi.fn(async () => ({ ok: true as const, kind: "search_stands" as const }));
     const interpret = vi.fn(async () => ({
       kind: "lookup" as const,
       items: ["kale"],
@@ -215,12 +219,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret, select },
-        farmerIntent: { classify },
-        customerIntent: {
-            classify: async () => {
-              throw new Error("the customer intent seam must not run on this path");
-            },
-          },
+        classifier: { classify },
         stockOut: {
             parseItem: async () => {
               throw new Error("the stock-out seam must not run on this path");
@@ -247,7 +246,16 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(await client()`select menu_issued_at from farmer_target_contexts`).toHaveLength(0);
   });
 
-  it("asks a code-owned update-or-question clarification before stand targeting", async () => {
+  /*
+    F-111 replaced the UPDATE-or-QUESTION round trip. `unclear` used to be the farmer seam's
+    FALLBACK as well as an arm, so an unreachable model asked a farmer to pick a keyword — a
+    round trip that buys nothing (DEVELOPMENT.md's warning about exactly this seam). It is now a
+    real category with an honest code-rendered answer, and an outage is a DIFFERENT reply.
+
+    What this test still guards is the load-bearing half: an unclear message opens no proposal,
+    reaches no interpreter, and issues no stand menu.
+  */
+  it("answers an unclear farmer message without proposing or targeting anything", async () => {
     const senderHash = "u".repeat(64);
     await authorize(senderHash, ["North Stand", "South Stand"]);
     const inventory = vi.fn(async () => ({
@@ -263,12 +271,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: inventory },
         inquiry,
-        farmerIntent: farmerIntent("unclear"),
-        customerIntent: {
-            classify: async () => {
-              throw new Error("the customer intent seam must not run on this path");
-            },
-          },
+        classifier: classifier("unclear"),
         stockOut: {
             parseItem: async () => {
               throw new Error("the stock-out seam must not run on this path");
@@ -285,10 +288,9 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       },
     );
 
-    expect(result.handled).toBe("none");
-    expect(result.replies[0]?.body).toBe(
-      "Are you updating your inventory or asking what a farm stand has? Reply UPDATE or QUESTION.",
-    );
+    expect(result.replies[0]?.body).toBe(UNCLEAR_REQUEST_REPLY);
+    // It offers no keyword and makes no claim about any stand.
+    expect(result.replies[0]?.body).not.toContain("UPDATE");
     expect(inventory).not.toHaveBeenCalled();
     expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
     expect(await client()`select menu_issued_at from farmer_target_contexts`).toHaveLength(0);
@@ -322,12 +324,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret },
         inquiry: forbiddenInquiry(),
-        farmerIntent: farmerIntent("inventory_update"),
-        customerIntent: {
-            classify: async () => {
-              throw new Error("the customer intent seam must not run on this path");
-            },
-          },
+        classifier: classifier("inventory_report"),
         stockOut: {
             parseItem: async () => {
               throw new Error("the stock-out seam must not run on this path");
@@ -403,8 +400,8 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
   it("asks which stand a customer is at rather than guessing one", async () => {
     const senderHash = "c".repeat(64);
     await otherFarmersStand("Plum Forest Stand");
-    const classifyCustomer = vi.fn(async () => ({ kind: "stock_out_report" as const }));
-    const customerIntent = { classify: classifyCustomer };
+    const classifyCustomer = vi.fn(async () => ({ ok: true as const, kind: "inventory_report" as const }));
+    const customerClassifier = { classify: classifyCustomer };
     const inquiry = {
       interpret: vi.fn(async () => {
         throw new Error("a report must not reach the inquiry seam");
@@ -417,8 +414,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: inquiry as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent,
+        classifier: customerClassifier,
         stockOut: { parseItem: vi.fn() },
         clock: new FixedClock(T0),
       },
@@ -442,7 +438,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
   it("records the report and alerts the farmer when the customer names the stand", async () => {
     const senderHash = "g".repeat(64);
     const locationId = await otherFarmersStand("Plum Forest Stand");
-    const classifyCustomer = vi.fn(async () => ({ kind: "stock_out_report" as const }));
+    const classifyCustomer = vi.fn(async () => ({ ok: true as const, kind: "inventory_report" as const }));
     // The item seam runs only AFTER code has bound the stand, and never sees the location.
     // Typed to the seam's real input so the projection assertion below inspects what was
     // actually passed rather than an untyped `undefined`.
@@ -463,8 +459,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
           }),
           select: vi.fn(),
         } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: { classify: classifyCustomer },
+        classifier: { classify: classifyCustomer },
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -519,10 +514,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -566,10 +558,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -616,10 +605,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -676,10 +662,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -699,12 +682,24 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
   });
 
+  /*
+    The tie rule, re-measured under Phase 2b's bar (F-111).
+
+    This pair used to tie: "Vashon Garlic" and "Vashon Island Farmers Market" share their first
+    distinctive word, both scored 1, and a tie asks. Under the coverage bar they no longer score
+    alike — `vashon` is the WHOLE of Vashon Garlic's distinctive name but one word of four for
+    the Market, which the bar rejects. So "vashon" now names Vashon Garlic, and that is correct:
+    typing a stand's entire distinctive name is identification, not coincidence.
+
+    The tie rule itself is unchanged and still asks; it is asserted here on a pair that still
+    ties under the bar — two stands each named by half of what was typed.
+  */
   it("asks when two stands score equally on a partial name", async () => {
     const senderHash = "t".repeat(64);
-    // The real production pair: "Vashon Garlic" and "Vashon Island Farmers Market" share
-    // their only distinctive first word, so "vashon" alone cannot choose between them.
-    await otherFarmersStand("Vashon Garlic");
-    await otherFarmersStand("Vashon Island Farmers Market", {
+    // Both are two distinctive words, both matched once by "hill farm" -> each 1 of 2, which
+    // clears the bar and ties.
+    await otherFarmersStand("Flora Hill Farm");
+    await otherFarmersStand("Lavender Hill Farm", {
       phone: "+12065550196",
       hash: "6".repeat(64),
     });
@@ -717,16 +712,13 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
       {
         senderHash,
-        taskText: "nothing at vashon",
+        taskText: "nothing at hill",
         occurredAt: T0,
         providerEventId: "stockout-partial-ambiguous-1",
         inboxEventId: "cccccccc-cccc-cccc-cccc-cccccccccccc",
@@ -750,10 +742,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -787,10 +776,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -825,10 +811,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -866,7 +849,9 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         listedItems: readonly { entryId: string; itemName: string }[];
       }) => ({ kind: "unlisted" as const, itemText: "eggs" }),
     );
-    const farmerClassify = vi.fn();
+    // The classifier IS consulted now, and returns the one category every inventory statement
+    // gets. Access -- not the category -- is what sends this to the report flow.
+    const farmerClassify = vi.fn(async () => ({ ok: true as const, kind: "inventory_report" as const }));
 
     const result = await handleFreeText(
       {
@@ -877,12 +862,14 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
           }),
         } as unknown as InventoryInterpreter,
         inquiry: forbiddenInquiry(),
-        // The farmer intent seam must not even be consulted: the stand is not theirs, so
-        // "update or question" is the wrong question to ask.
-        farmerIntent: { classify: farmerClassify } as unknown as FarmerMessageIntentModel,
-        customerIntent: {
-          classify: async () => ({ kind: "stock_out_report" as const }),
-        },
+        /*
+          B-053, now enforced by the ACCESS FORK rather than by a classifier arm (F-111). The
+          classifier says only "someone asserted a stand's inventory needs updating" — the same
+          category a customer's report gets. That the stand is not this farmer's is decided in
+          CODE from `farmer_authorizations`, which is why a hostile classifier cannot route a
+          stranger's report into anyone's publish path.
+        */
+        classifier: { classify: farmerClassify },
         stockOut: { parseItem },
         clock: new FixedClock(T0),
       },
@@ -928,12 +915,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret },
         inquiry: forbiddenInquiry(),
-        farmerIntent: farmerIntent("inventory_update"),
-        customerIntent: {
-          classify: async (): Promise<never> => {
-            throw new Error("a farmer's own-stand update must not reach the customer seam");
-          },
-        },
+        classifier: classifier("inventory_report"),
         stockOut: {
           parseItem: async (): Promise<never> => {
             throw new Error("a farmer's own-stand update must not reach the stock-out seam");
@@ -959,8 +941,8 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
 
   it("keeps an ordinary customer question on the inquiry path", async () => {
     const senderHash = "e".repeat(64);
-    const classifyCustomer = vi.fn(async () => ({ kind: "farm_stand_question" as const }));
-    const customerIntent = { classify: classifyCustomer };
+    const classifyCustomer = vi.fn(async () => ({ ok: true as const, kind: "search_stands" as const }));
+    const customerClassifier = { classify: classifyCustomer };
     const interpret = vi.fn(async () => ({
       kind: "lookup" as const,
       items: ["kale"],
@@ -974,8 +956,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
         db: database(),
         interpreter: { interpret: vi.fn() },
         inquiry: { interpret, select: vi.fn() },
-        farmerIntent: { classify: vi.fn() } as unknown as FarmerMessageIntentModel,
-        customerIntent,
+        classifier: customerClassifier,
         stockOut: { parseItem: vi.fn() },
         clock: new FixedClock(T0),
       },

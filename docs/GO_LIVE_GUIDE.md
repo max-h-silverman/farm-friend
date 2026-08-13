@@ -87,8 +87,8 @@ Should a web reporting surface ever be wanted:
 - Provide honest success, malformed-input, throttled, and unavailable states without revealing private
   farmer information.
 
-What shipped instead: a customer texts that something is sold out, a `customer-message-intent` seam
-classifies report-vs-question, and code resolves which stand from the customer's own words. The stand
+What shipped instead: a customer texts that something is sold out, the request classifier reads it as
+an inventory report, and code resolves which stand from the customer's own words. The stand
 match is against real rows and must be UNAMBIGUOUS — no match, or two stands matching equally, both
 produce "Which stand are you at?" rather than a guess, because a customer has no farm affiliation to
 disambiguate against and a wrong guess texts an unrelated farmer. ARCHITECTURE.md §routing owns the

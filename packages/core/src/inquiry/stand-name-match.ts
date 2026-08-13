@@ -70,3 +70,46 @@ export function isFuzzyNameMatch(typed: string, standWord: string): boolean {
   const budget = Math.min(fuzzyNameAllowance(typed), fuzzyNameAllowance(standWord));
   return editDistanceWithin(typed, standWord, budget);
 }
+
+/**
+ * Whether a distinctive-word score is enough to call a stand IDENTIFIED (F-111 Phase 2b).
+ *
+ * **The bug this closes.** A score of 1 used to count. "Open Gate Lamb and Grazing" contributes
+ * the distinctive word `open`, so every message containing that ordinary English word bound to
+ * that farm — "when do you open", "what stands are open today" — and was handled as a report
+ * about it. `GENERIC_NAME_WORDS` cannot prevent this: it strips words common across STAND
+ * NAMES, and `open` is common in English, not in the corpus. Any future stand named "Fresh …",
+ * "Sunny …" or "Corner …" would reintroduce it for a different word.
+ *
+ * **The rule: matched words must be at least HALF the stand's distinctive words.** It asks how
+ * much of the name the sender actually typed, which is the question a coincidence fails and a
+ * partial name passes. One word of four is a coincidence; one word of two is half a short name.
+ *
+ * Measured against the real 34-stand corpus (`maps/offerings-proposals.json`) plus the two live
+ * stands the F-106/B-065 cases name, 2026-08-13 — 14/14 required cases, where three other
+ * candidate rules each failed at least one:
+ *
+ *   - "require 2 matched words for a multi-word name" breaks `barts` → Bart's Cart.
+ *   - "keep a score of 1 when the word is unique corpus-wide" does nothing at all: `open` IS
+ *     unique to one stand, which is precisely the defect.
+ *   - a minimum matched-word LENGTH on top of this rule costs nine further real partials at 5
+ *     characters and breaks `barts` at 6.
+ *
+ * **Known and accepted cost** (max, 2026-08-13): 33 single-word partials of longer names stop
+ * resolving — "morgan" no longer reaches Morgan Hill Community Farm Stand. Those senders are
+ * asked which stand they mean, which is recoverable; binding a stranger's report to the wrong
+ * farmer is not.
+ *
+ * Takes counts rather than the words themselves: the rule is about coverage, and passing the
+ * strings would invite a caller to add vocabulary to a comparison that must stay about shape.
+ */
+export function meetsDistinctiveWordBar(
+  matchedWords: number,
+  standDistinctiveWords: number,
+): boolean {
+  // A stand that matched nothing is never a candidate — asserted here as well as at the call
+  // site so the rule is true standing alone, and so a name with no distinctive words at all
+  // (0 of 0) cannot pass by vacuous arithmetic.
+  if (matchedWords <= 0) return false;
+  return matchedWords * 2 >= standDistinctiveWords;
+}

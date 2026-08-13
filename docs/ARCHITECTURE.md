@@ -250,18 +250,58 @@ order:
    code-rendered refusal, never free text.
 9. **Active conversation state** routes the message to its in-flight flow.
 10. **Authority and consent gates** determine what the sender may do.
-11. **Whose stand was named decides the branch before authority does** (B-053). Code resolves any
-    stand named in the message and checks ownership against `farmer_authorizations`. A sender naming
-    a stand that is *not theirs* — authorized farmer or not — is reporting a stock-out, not updating
-    a listing. Naming no stand, or naming their own, leaves the branches below unchanged. This can
-    only move a message AWAY from publishing inventory, never toward publishing someone else's.
+11. **An open stock-out clarification is offered the message first** (B-065), for any sender.
+    Farm Friend asks "Which stand are you at?" or "What was sold out?" and holds the original
+    report; the next message from that sender completes it. This must run here and not in
+    deterministic routing: steps 1–10 take the body and nothing else, which is what makes "no
+    stored state can reinterpret a STOP" structural rather than conventional (Golden Rule #2).
 
-    **Resolution is a ladder, entirely in code** (F-106). First a unique substring match of
-    a stand's whole name, with both sides folded to lowercase letters, digits and single spaces so
+    The check is needed because the answer is *correctly* classified as a lookup — a bare stand
+    name states nothing about stock and names no item — so without the held report it routes to
+    inquiry, finds no item, and dead-ends. **A reply that resolves no stand at all releases the
+    held report** and is handled as an ordinary new message: releasing is recoverable, capturing a
+    real question is another dead end.
+12. **One first-pass request classifier** (F-111) returns exactly one of six categories:
+    `search_stands`, `stand_lookup`, `inventory_report`, `system_inquiry`, `chitchat`, `unclear`.
+    One taxonomy for every sender — **who sent the message is not an input**, so there is no field
+    through which a manipulated model could claim a sender may publish. Two code-owned fast paths
+    run inside the seam ahead of the model; see AI_ARCHITECTURE.md §the seam catalog.
+
+    **There is no fallback category.** A provider error or invalid output produces no category at
+    all and a code-rendered outage reply that blames nobody's wording — a *different* message from
+    the `unclear` reply, which says the sender's own message was unhandleable (B-049's precedent).
+13. **Each category selects a code path, and code owns every consequence.**
+    `search_stands`/`stand_lookup` use grounded inquiry; `system_inquiry` answers from constants,
+    including the map from the same `PUBLIC_MAP_URL` the `MAP` keyword serves; `chitchat` and
+    `unclear` are code-rendered. No classification outcome publishes inventory.
+14. **`inventory_report` forks on ACCESS, decided in code from `farmer_authorizations`** — this is
+    where B-053 lives. A customer's report, and a farmer's report about a stand they do **not**
+    hold, both take the customer-style report flow: a private signal that prompts that stand's own
+    farmer and never mutates published state (Golden Rule #1). A farmer reporting a stand they
+    **do** hold — or naming no stand at all, which means their own listing — takes the proposal and
+    confirmation flow.
+
+    **Authority was never in the classifier's output.** There is no category meaning "this sender
+    may publish", so a hostile classifier cannot route a stranger's report into anyone's publish
+    path. A prompt-level split was measured and failed: "no eggs left at Pinecone Gardens" from a
+    farmer handset classified as that farmer's *own* update 3/3.
+15. **Stand resolution runs only inside the arms that need one**, below classification. Running it
+    above was one defect with two faces: an ordinary question containing a word that happens to sit
+    inside a stand's name bound to that farm before anything knew what the message was.
+
+    **Resolution is a ladder, entirely in code** (F-106). First a unique substring match of a
+    stand's whole name, with both sides folded to lowercase letters, digits and single spaces so
     punctuation cannot defeat it. Failing that, each stand is scored by how many of its own
     *distinctive* words (excluding corpus-generic ones like "farm") appear in the message, and the
     single highest scorer wins. **Zero matches, or any tie at the top score, asks "Which stand are
     you at?" rather than guessing.** No model participates at any tier.
+
+    **A score must cover at least half the stand's distinctive words** (F-111). One matched word
+    out of a multi-word name is a coincidence, not a name: "Open Gate Lamb and Grazing" contributes
+    the ordinary English word `open`, and a score of 1 used to count. The corpus-generic stop-list
+    cannot help, because the word is generic in *English*, not in the stand corpus. Measured
+    against the real corpus before choosing; a word that is a stand's *entire* distinctive name
+    still binds, because typing the whole name is identification.
 
     **A cold message is matched exactly**, so a misspelled name asks. The one exception is the reply
     to that question (B-065): there a third, edit-distance tier runs, because Farm Friend has already
@@ -271,28 +311,8 @@ order:
     two turned "barts" from an exact match into a three-way tie with Bananas Barn and Green Ears.
     The exact tier's verdict is final whenever it matched anything, *including a tie*; a looser
     comparison may never overturn a stricter one's ambiguity. A fuzzy tie still asks.
-12. For authorized farmer free text about their own stands, the **farmer-message intent seam** returns
-    only `inventory_update`, `farm_stand_question`, or `unclear`. It runs before stand targeting so a
-    general question does not create a target menu.
-13. `inventory_update` continues through exact stand targeting and the existing proposal flow;
-    `farm_stand_question` uses grounded inquiry; `unclear` gets a code-rendered clarification. No
-    classification outcome publishes inventory.
-14. For everyone else, an **open stock-out clarification is offered the message first** (B-065),
-    before the intent seam. Farm Friend asks "Which stand are you at?" or "What was sold out?" and
-    holds the original report; the next message from that sender completes it. This must run here
-    and not in deterministic routing: steps 1–8 take the body and nothing else, which is what makes
-    "no stored state can reinterpret a STOP" structural rather than conventional (Golden Rule #2).
 
-    The check is needed because the answer is *correctly* classified as a question — a bare stand
-    name states nothing about stock and names no item — so without the held report the intent seam
-    routes it to inquiry, which finds no item and dead-ends. **A reply that resolves no stand at all
-    releases the held report** and is handled as an ordinary new message: releasing is recoverable,
-    capturing a real question is another dead end.
-15. Otherwise the **customer-message intent seam** returns `stock_out_report` or
-    `farm_stand_question` (also its fallback). A report records a private signal and prompts the
-    stand's own farmer; it never mutates published state — Golden Rule #1.
-
-Farmer update text resolves the sender's durable exact target in code after intent classification.
+Farmer update text resolves the sender's durable exact target in code after classification.
 One live target is selected automatically; several with no selection issue the same numbered menu.
 Every use revalidates the authorization and location under the shared sender → location →
 authorization lock order. Neither the classifier nor the inventory interpreter receives a target list

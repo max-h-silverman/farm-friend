@@ -92,36 +92,65 @@
   immutable digest `sha256:f1f40aae16fd5eb4518943ac33a9da9238b561c7f01df8183990920a3cbaf7ed`,
   built from `main` `3f89523` and deployed 2026-08-13. The serving digest was read back from both
   services and matches the build; the migration ledger stands at `0041` and none was owed.
-  **Production carries B-066 and is level with `main` as of that commit.** F-111 Phase 1 changes
-  nothing it serves — see below.
+  **Production carries B-066 and is level with `main` as of that commit.** F-111 Phase 1 changed
+  nothing it serves, and Phase 2 is not deployed — see below.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
-- **F-111 Phase 1 is merged but NOT WIRED — production behaviour is unchanged.** A first-pass
-  request classifier (six categories, one `.strict()` enum) exists in `packages/ai` with two
-  code-owned fast paths ahead of it, and **nothing in `apps/web` calls it**: the composition root
-  still builds `farmer-message-intent` and `customer-message-intent`, and `free-text.ts` still runs
-  the pre-classification stand binding. The one shared change — `PromptFraming` on
-  `ModelSafeContext` plus the adapter's framing/system-message branch — is behaviourally inert for
-  every existing seam, pinned byte-for-byte on both user and system message.
-  **Phase 2 does the rewiring**; plan and as-built architecture are in `docs/plans/`.
-  **No deploy was owed for Phase 1** (merged `24bd55e`): nothing in `apps/web` references the new
-  modules — verified by grep on merged `main` — and the adapter's framing branch is unreachable
-  without a projection declaring `classification`, which no live seam does. Production still
-  serves `3f89523`, and the next deploy should carry Phase 2.
-- **Two live SMS defects remain in production until Phase 2 lands.** "where's the farm stand map?"
-  returns the generic clarification (no `system_inquiry` path exists yet), and on a
-  farmer-authorized handset any message containing the word **`open`** binds to *Open Gate Lamb and
-  Grazing* and is answered as a stock-out report — routing step 11 resolves a stand from the whole
-  message before anything classifies it, and one distinctive word scores a match. Verified against
-  the real 34-stand corpus; "when do you open" and "what stands are open today" both reproduce it.
+- **F-111 Phase 2 is built on `f-111-phase-2` and NOT DEPLOYED.** `handleFreeText` now runs on the
+  single request classifier: the open stock-out clarification (B-065) sits above it for **any**
+  sender, authority is read from `farmer_authorizations` and **not passed to the model**, one call
+  returns one of six categories, and a `switch` hands each arm to code. Routing step 11's
+  pre-classification stand binding is **deleted** — a stand resolves only inside the arms that need
+  one. `farmer-message-intent` and `customer-message-intent` are deleted outright, along with their
+  projections, registry entries, tests and composition wiring; their live eval coverage was merged
+  onto the new seam rather than dropped.
+- **The `inventory_report` access fork decides who may publish, in code.** Customer → report;
+  farmer holding the resolved stand (or naming none, which means their own) → the proposal flow;
+  farmer **not** holding it → report (B-053). The classifier has no category meaning "this sender
+  may publish", so a hostile one cannot reach a publish path — asserted by a swap test over three
+  categories.
+- **Both live SMS defects are closed on that branch.** "where's the farm stand map?" now has a
+  `system_inquiry` path answering from the same `PUBLIC_MAP_URL` the `MAP` keyword serves, and the
+  word `open` no longer binds Open Gate Lamb and Grazing. Defect B has **two independent defences**
+  and both are tested separately: classification runs first, so a question never reaches stand
+  matching, and the matcher's bar now rejects one distinctive word out of four even when it is
+  reached.
+- **`unclear` and the outage reply are different messages, deliberately.** `unclear` says the
+  sender's message was unhandleable; a failed classifier call says our side failed and blames
+  nobody's wording (B-049's precedent). There is no fallback category, so an outage stops answering
+  and says so rather than claiming "no stand has a current listing" about a corpus nothing searched.
+- **Phase 2b shipped: a stand name must be at least half-covered to bind.**
+  `meetsDistinctiveWordBar` in `packages/core/src/inquiry/stand-name-match.ts`. Measured against the
+  real 34-stand corpus plus the two live stands the F-106/B-065 cases name: **14/14 required cases**,
+  where "require 2 words" breaks `barts`, "corpus-unique word" does nothing (`open` IS unique), and
+  a length floor costs nine more partials or breaks `barts`. **Accepted cost** (max, 2026-08-13):
+  33 single-word partials of longer names stop resolving — `morgan` no longer reaches Morgan Hill
+  Community Farm Stand — and those senders are asked which stand instead. Full names are unaffected.
 
 ## Verification
 
-- `main` at F-111 Phase 1: **2,088 unit tests, 945 local integration tests (62 files)**, typecheck
-  and lint all pass (2026-08-13). Scripted evals: critical 11/11, advisory 4/4, adversarial 29/29.
-- **Live evals were required and run** — Phase 1 added a seam with its own projection, schema and
-  output contract. The new request-classifier fixture scores **52/53**; the one known miss is
-  documented below. All other live groups unchanged.
+- `f-111-phase-2`: **2,085 unit tests, 961 local integration tests (63 files)**, typecheck and lint
+  all pass (2026-08-13). Scripted evals: critical 11/11, advisory 4/4, adversarial 29/29. The unit
+  count moved with the two deleted seams' own tests; the integration count grew by the 16-case
+  `request-classification-routing.integration.test.ts`.
+- **Each new test was sabotage-verified.** The ownership check, the map arm, the outage reply, the
+  clarification's placement above classification, and the scoring bar were each broken deliberately
+  and the intended test failed. Dropping the bar reproduces the original production defect exactly.
+- **One unit run showed a single failure that did not recur** and named no test in captured output;
+  a clean rerun of the same tree passed 2,085. Treated as environmental per DEVELOPMENT.md, not as a
+  defect — no code changed between the two runs.
+- **Live evals were required and run for Phase 2** (2026-08-13): containment **5/5** including the
+  new request-classifier fixture, closure 7/7, recall 5/5, quality 20/21. The classifier fixture
+  holds at **52/53** — the one miss is the documented `what is viga` case below, unchanged from
+  Phase 1.
+- **The two deleted seams' live coverage carried over, not dropped.** Their containment fixture and
+  both report-vs-question quality fixtures were merged onto `request-classification`; the merged
+  fixture scores **12/12**, including "looking for nigella" (the farmer seam's live misfire) and
+  every phrasing the customer fixture carried.
+- **One live run in three still shows a provider error scored as a FAILURE on purpose** — the first
+  Phase 2 run failed containment 4/5 that way and a clean rerun of the same tree passed 5/5. The
+  seam returns the same shape for "unreachable" and "declined", so accepting either would let an
+  unreachable model read as correct.
 - **The `DATABASE_URL` in Secret Manager is production Neon**, and the integration suite creates
   and drops a database per file — it must never point there. See the local-Postgres line below.
 - The web production build retains the tracked Next configuration/lint warnings (B-008).
@@ -201,13 +230,12 @@
   confirm it is gone from the map and unreachable by text, and put it back. Both `visibleFarms`
   branches were verified live by stand counts, but no farm was retired at the time, so the
   retirement clause itself is proven only by integration test against production code.
-- **F-111 Phase 2 — wire the classifier and close the two live SMS defects.** Rewire
-  `handleFreeText` around the new seam, build the `inventory_report` access fork (customer →
-  report; farmer with access → update; farmer **without** access → report, which is B-053's job),
-  add the `system_inquiry` path, and delete both legacy intent seams. **Phase 2b is not optional:**
-  the stand matcher still treats a score of 1 as identification, so a report containing `open` can
-  still bind to Open Gate even after classification moves first. Plan and as-built architecture:
-  `docs/plans/REQUEST_CLASSIFICATION_REFACTOR.md`, `REQUEST_CLASSIFICATION_STATE.md`.
+- **F-111 Phase 2 is built but UNDEPLOYED.** Both live SMS defects stay on handsets until it ships.
+  The branch is `f-111-phase-2`; plan and as-built architecture are in `docs/plans/`.
+- **`search_stands` and `stand_lookup` share one code path.** The classifier draws the distinction
+  and nothing yet acts on it — that is the later interpretation stage's job, and Phase 0b's coverage
+  numbers (produce 33/34, payment full, restock 27/34, season 26/34, **hours only 21/34**) are its
+  input. The hours caveat stands wherever hours get answered.
 - **Classifier known miss, deliberate:** `what is viga` → `search_stands` (wanted
   `system_inquiry`). The domain resolver matches the `VIGA Bucks` concept, never bare `VIGA`.
   **The live corpus drives future classifier changes** — add real misrouted messages to the fixture

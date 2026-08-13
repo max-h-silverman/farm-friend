@@ -1,9 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-  projectCustomerMessageIntent,
   projectFactSelection,
-  projectFarmerMessageIntent,
   projectInquiryInterpretation,
   projectInventoryExtraction,
   projectOfferingExtraction,
@@ -12,8 +10,6 @@ import {
   SEAM_OUTPUT_SHAPES,
 } from "./projections";
 import { interpretationSchema } from "./inventory-seam";
-import { farmerMessageIntentSchema } from "./farmer-message-intent";
-import { customerMessageIntentSchema } from "./customer-message-intent";
 import { intentSchema, selectionSchema, stockOutSchema } from "./inquiry-seam";
 import { offeringsSchema } from "./offering-seam";
 import {
@@ -34,8 +30,6 @@ import {
 // enforcement: a model that ignores them meets the same validation barriers as ever.
 
 const SCHEMAS: Record<keyof typeof SEAM_OUTPUT_SHAPES, z.ZodTypeAny> = {
-  "farmer-message-intent": farmerMessageIntentSchema,
-  "customer-message-intent": customerMessageIntentSchema,
   "inventory-extraction": interpretationSchema,
   "inquiry-interpretation": intentSchema,
   "grounded-fact-selection": selectionSchema,
@@ -152,8 +146,6 @@ describe("seam output contracts (F-024)", () => {
 
   it("each projection hands its seam's shapes to the model, verbatim", () => {
     const contexts = [
-      projectFarmerMessageIntent({ taskText: "x" }),
-      projectCustomerMessageIntent({ taskText: "x" }),
       projectInventoryExtraction({
         taskText: "x",
         currentEntries: [],

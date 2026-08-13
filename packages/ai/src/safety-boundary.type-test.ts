@@ -10,7 +10,7 @@
 import * as ai from "./index";
 import {
   projectFactSelection,
-  projectFarmerMessageIntent,
+  projectRequestClassification,
   projectInquiryInterpretation,
   projectInventoryExtraction,
   projectOfferingExtraction,
@@ -90,9 +90,11 @@ void projectInquiryInterpretation({
   facts: [{ factId: "f1" }],
 });
 
-// Farmer-message classification receives the farmer's current text only. It cannot be handed
-// a stand target or any authority state; code resolves those after the route signal.
-void projectFarmerMessageIntent({
+// First-pass request classification receives the sender's current text only (F-111). It cannot
+// be handed a stand target, a sender type, or any authority state: who may act on a message is
+// an ACCESS question code answers from `farmer_authorizations` after the category is known, and
+// a field for it here is a field a manipulated model could reason around.
+void projectRequestClassification({
   taskText: "what does the stand have?",
   // @ts-expect-error classification cannot receive target or authorization context
   salesLocationId: "loc-1",
