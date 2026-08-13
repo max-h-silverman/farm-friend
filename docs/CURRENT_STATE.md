@@ -104,6 +104,10 @@
   `ModelSafeContext` plus the adapter's framing/system-message branch — is behaviourally inert for
   every existing seam, pinned byte-for-byte on both user and system message.
   **Phase 2 does the rewiring**; plan and as-built architecture are in `docs/plans/`.
+  **No deploy was owed for Phase 1** (merged `24bd55e`): nothing in `apps/web` references the new
+  modules — verified by grep on merged `main` — and the adapter's framing branch is unreachable
+  without a projection declaring `classification`, which no live seam does. Production still
+  serves `3f89523`, and the next deploy should carry Phase 2.
 - **Two live SMS defects remain in production until Phase 2 lands.** "where's the farm stand map?"
   returns the generic clarification (no `system_inquiry` path exists yet), and on a
   farmer-authorized handset any message containing the word **`open`** binds to *Open Gate Lamb and
