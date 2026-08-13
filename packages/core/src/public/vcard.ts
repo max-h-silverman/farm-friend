@@ -76,8 +76,25 @@ export const CONTACT_CARD_FILENAME = "viga-farm-friend.vcf";
  * Where the card is served. Stated once here so the route's location and every tap target on
  * the public surfaces are derived from the same string — a route moved without updating a
  * hand-written href is a dead link on the map, and nothing would report it.
+ *
+ * ## The path IS the label (B-052)
+ *
+ * iOS titles a shared-file preview from the URL's **last path segment**. It reads neither
+ * `Content-Disposition` nor the vCard's own `FN`, both of which have always said "VIGA Farm
+ * Friend" — which is why the preview still read `contact-card`, an implementation name, on a
+ * card that was internally correct. So this string is not an address; it is copy a farmer
+ * reads, and it is chosen accordingly.
+ *
+ * What the preview still shows and we do NOT control: `Contact Card · 153 bytes` is iOS's own
+ * label for the media type and the payload size, and the host beneath it is whatever domain
+ * serves the app.
+ *
+ * The ORIGINAL path, `/api/public/contact-card`, is still served — cards already texted point
+ * there and those threads cannot be edited — but it is deliberately not a constant here. It has
+ * exactly one consumer, its own route file, and nothing new may link to it; exporting it beside
+ * this one would offer a future caller two paths to choose between when only this is correct.
  */
-export const CONTACT_CARD_PATH = "/api/public/contact-card";
+export const CONTACT_CARD_PATH = "/viga-farm-friend";
 
 /**
  * Exact E.164, the same form the send path requires.

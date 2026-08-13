@@ -24,7 +24,8 @@ const CONFIGURED = "+12068645326";
 const OTHER = "+12065550123";
 
 const repositoryRoot = new URL("../../../", import.meta.url);
-const ROUTE_FILE = "apps/web/app/api/public/contact-card/route.ts";
+const ROUTE_FILE = "apps/web/app/viga-farm-friend/route.ts";
+const LEGACY_ROUTE_FILE = "apps/web/app/api/public/contact-card/route.ts";
 
 function readSource(relativePath: string): string {
   return readFileSync(new URL(relativePath, repositoryRoot), "utf8");
@@ -100,22 +101,23 @@ describe("the contact-card route is a config-only public surface", () => {
     // DISCUSSES the composition root it must not import, so a naive `not.toContain` would
     // force the explanation out of the file to keep the test green. Stripping comments makes
     // the assertion about the CODE, which is what it claims to be about.
-    const route = readSource(ROUTE_FILE);
-    const stripped = route
-      .replace(/\/\*[\s\S]*?\*\//g, "")
-      .replace(/^\s*\/\/.*$/gm, "")
-      .replace(/^\s*(?:import|export \{)[^;]*;/gm, "");
+    // BOTH doors. The legacy path is still a live public surface, so the boundary it must
+    // hold is the same one — a database import added there is the same defect.
+    for (const file of [ROUTE_FILE, LEGACY_ROUTE_FILE]) {
+      const stripped = readSource(file)
+        .replace(/\/\*[\s\S]*?\*\//g, "")
+        .replace(/^\s*\/\/.*$/gm, "")
+        .replace(/^\s*(?:import|export \{)[^;]*;/gm, "");
 
-    for (const forbidden of [
-      "appContext",
-      "publicReadContext",
-      "sharedDb",
-      "createDb",
-      "publicActionThrottle",
-    ]) {
-      expect(stripped, `${ROUTE_FILE} must not reference ${forbidden}`).not.toContain(
-        forbidden,
-      );
+      for (const forbidden of [
+        "appContext",
+        "publicReadContext",
+        "sharedDb",
+        "createDb",
+        "publicActionThrottle",
+      ]) {
+        expect(stripped, `${file} must not reference ${forbidden}`).not.toContain(forbidden);
+      }
     }
 
     // The handler's dependency set IS the boundary. Widening it must change this line.
@@ -129,13 +131,61 @@ describe("the contact-card route is a config-only public surface", () => {
     // One constant, two consumers: the route's directory and every tap target. A route moved
     // without updating the constant, or vice versa, is a dead link on the map — so the path
     // is derived from the same string in both places and pinned here.
-    expect(CONTACT_CARD_PATH).toBe("/api/public/contact-card");
+    expect(CONTACT_CARD_PATH).toBe("/viga-farm-friend");
     expect(ROUTE_FILE).toBe(`apps/web/app${CONTACT_CARD_PATH}/route.ts`);
+  });
+
+  it("names the contact in the URL, because that is what the iOS preview titles (B-052)", () => {
+    /*
+      WHAT iOS ACTUALLY READS. The message preview is titled from the URL's LAST PATH SEGMENT —
+      not `Content-Disposition`, not the vCard's `FN`, both of which were already correct while
+      the preview read `contact-card`. So the fix is the path or it is nothing.
+
+      Anchored to the segment rather than the whole string: what a farmer reads is the last
+      component, and a future move that keeps the name readable should not fail this.
+    */
+    const segment = CONTACT_CARD_PATH.split("/").filter(Boolean).at(-1) ?? "";
+
+    // The defect verbatim: an implementation name where the contact's name belongs.
+    expect(segment).not.toBe("contact-card");
+    // No plumbing vocabulary — the preview is read by a farmer, not an operator.
+    expect(CONTACT_CARD_PATH).not.toMatch(/\bapi\b|\bpublic\b|\bendpoint\b/);
+    // It names the thing being saved.
+    expect(segment).toBe("viga-farm-friend");
+  });
+
+  it("keeps serving the original path, because sent links live in people's threads", () => {
+    /*
+      Every contact card Farm Friend has already texted points at `/api/public/contact-card`.
+      Those messages cannot be edited or recalled, so the old path is a PERMANENT obligation —
+      removing it turns a tap in an old thread into a 404 for someone who was told to tap it.
+
+      Pinned as a literal on purpose. The old path is frozen history, so deriving it from
+      `CONTACT_CARD_PATH` would let a future rename silently retire it — which is the one
+      thing this test exists to prevent.
+    */
+    expect(LEGACY_ROUTE_FILE).toBe("apps/web/app/api/public/contact-card/route.ts");
+    readSource(LEGACY_ROUTE_FILE);
+  });
+
+  it("serves a byte-identical card from both paths", async () => {
+    // Same card, two doors. If the legacy route ever renders independently it can drift, and
+    // the drift would be invisible: both taps still open an add-contact sheet.
+    const canonical = await (
+      await handleContactCardRequest({ phoneNumber: CONFIGURED })
+    ).text();
+    const legacySource = readSource(LEGACY_ROUTE_FILE);
+
+    // The legacy route must DELEGATE, not re-render — asserted against its source because a
+    // second renderer is exactly what a later reader would add.
+    expect(legacySource).toContain("handleContactCardRequest");
+    expect(legacySource).not.toContain("BEGIN:VCARD");
+    expect(canonical).toContain("BEGIN:VCARD");
   });
 
   it("contains no phone-number literal in the route or the handler", () => {
     // The defect this whole item guards against, asserted over source rather than output.
-    for (const file of [ROUTE_FILE, "apps/web/lib/contact-card.ts"]) {
+    for (const file of [ROUTE_FILE, LEGACY_ROUTE_FILE, "apps/web/lib/contact-card.ts"]) {
       const source = readSource(file);
       const found = [...source.matchAll(/\+1\d{10}|\b\d{10}\b/g)].map((m) => m[0]);
       expect(found, `${file} must contain no phone-number literal`).toEqual([]);

@@ -3,32 +3,29 @@ import {
   handleContactCardRequest,
 } from "../../../../lib/contact-card";
 
-// One-tap "add Farm Friend to contacts" (F-039) — the served vCard.
+// The contact card's ORIGINAL path (F-039), kept serving permanently (B-052).
 //
-// Every SMS journey in this product starts with a number the person does not have saved: they
-// read ten digits off a sign, a poster, or the map and type them in. This route removes that
-// step. Served as `text/vcard`, it opens the native add-contact sheet on iOS and Android.
+// The card now lives at `/viga-farm-friend`, because iOS titles a message preview from the
+// URL's last path segment and this one published `contact-card` — an implementation name — into
+// farmers' threads. See `app/viga-farm-friend/route.ts` for that reasoning.
 //
-// It is the THINNEST public route in the app, and deliberately so — configuration in, static
-// text out:
+// ## Why this file did not move
 //
-//   - **No database.** It imports neither `appContext` nor `publicReadContext`. There is
-//     nothing to read; opening a connection pool to serve a constant would be waste, and
-//     importing the full context would drag the model package into a public route's module
-//     graph (F-019, policed by `lib/public-surface-model-free.test.ts`).
-//   - **No model, no throttle.** Nothing here is expensive or consequential. The reasoning for
-//     both is written out in `lib/contact-card.ts`.
-//   - **No consent implication.** Saving a contact is device-local; it grants nothing and
-//     records nothing, and is emphatically not `JOIN`.
+// Every card Farm Friend has already texted points here, in messages nobody can edit or recall.
+// A farmer scrolling back to a text they were told to tap must still get a working card, so
+// this path is a permanent obligation rather than a deprecation with a sunset.
 //
-// The handler lives in lib/ because Next.js permits only its own fields as route exports; this
-// file is the thin binding from configuration to that handler, matching `stands/` and
-// `stock-out/`.
+// **It serves rather than redirects.** A redirect adds a hop that some message clients follow
+// badly when the destination is a file download, and the failure mode is the silent one this
+// whole feature exists to avoid — a tap that appears to do nothing. Serving directly costs one
+// binding and cannot regress.
 //
-// `force-dynamic` because the card is built from an environment variable read at request time.
-// A statically-optimized response would bake in whatever the number was at BUILD time, which is
-// precisely the drift this item exists to prevent — and it would be invisible, since the card
-// would still download and still open the sheet.
+// It stays a delegation, never a second renderer: same `handleContactCardRequest`, same
+// configuration, byte-identical card. A card that drifted between the two doors would be
+// invisible — both taps still open an add-contact sheet.
+//
+// Nothing new should link here. `CONTACT_CARD_PATH` is what every surface derives its tap
+// target from, and it points at the readable path.
 
 export const dynamic = "force-dynamic";
 

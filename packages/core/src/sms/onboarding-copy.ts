@@ -1,3 +1,5 @@
+import { CONTACT_CARD_PATH } from "../public/vcard";
+
 // What Farm Friend says to a farmer during onboarding (F-040).
 //
 // **These are ORDINARY code-rendered copy, not registered carrier auto-responses.** The three
@@ -259,9 +261,15 @@ export function renderContactCardOffer(publicBaseUrl: string): string {
   ].join("\n");
 }
 
-/** The served contact card's address (F-039), built from the same base every reply uses. */
+/**
+ * The served contact card's address (F-039), built from the same base every reply uses.
+ *
+ * The path comes from `CONTACT_CARD_PATH` rather than a literal: it is the string iOS titles
+ * the message preview with (B-052), so a copy of it here would let the texted link and the
+ * served route drift into two different names for one card.
+ */
 export function contactCardUrl(publicBaseUrl: string): string {
-  return `${publicBaseUrl.replace(/\/+$/, "")}/api/public/contact-card`;
+  return `${publicBaseUrl.replace(/\/+$/, "")}${CONTACT_CARD_PATH}`;
 }
 
 /**

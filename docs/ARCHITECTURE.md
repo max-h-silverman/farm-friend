@@ -522,12 +522,12 @@ distributed guessing. Only salted opaque hashes are stored. Success clears the a
 client's row, while other client failures survive. Expired rows are deleted in the existing bounded
 retention pass.
 
-The public routes are `GET /api/public/stands` (model-free, unthrottled), `GET
-/api/public/contact-card` (model-free and database-free, unthrottled), `POST /api/public/stock-out`
+The public routes are `GET /api/public/stands` (model-free, unthrottled), `GET /viga-farm-friend`
+(model-free and database-free, unthrottled), `POST /api/public/stock-out`
 (throttled), and `POST /api/auth/login` (throttled); handlers live in `apps/web/lib/` because Next.js
 permits only its own fields as route exports.
 
-`GET /api/public/contact-card` (F-039) serves a `text/vcard` contact card so a customer can save the
+`GET /viga-farm-friend` (F-039) serves a `text/vcard` contact card so a customer can save the
 SMS number by tapping rather than transcribing it off a sign. It renders ~150 bytes from
 **`TELNYX_FROM_NUMBER`** — the same variable the send path reads, never a literal, so the saved
 contact cannot drift from the number that actually sends. Its lines **must** be CRLF-delimited
@@ -540,9 +540,16 @@ every caller, so there is nothing metered to exhaust or enumerate. **Saving a co
 consent** — it is device-local, records nothing, and is emphatically not `JOIN`; the card carries no
 `NOTE` and the copy names no keyword.
 
-The card is reached from **two** surfaces: a link on the public map, and the SMS welcome that a
-first-time `JOIN` or a restoring `START` queues (`renderCustomerWelcome`). Because it records nothing,
-offering it in a reply asks for nothing and changes no consent rule.
+The card is reached from **two** surfaces: a link on the public map, and its own SMS message,
+queued for every keyword that establishes messaging — `JOIN`, `START`, and `VIGA`. Because it records
+nothing, offering it in a reply asks for nothing and changes no consent rule.
+
+**The path is copy, not an address** (B-052). iOS titles a message preview from the URL's last path
+segment — it reads neither `Content-Disposition` nor the vCard's `FN`, so a card that was internally
+correct still previewed as `contact-card`. The route therefore sits at the top level and names the
+contact. `CONTACT_CARD_PATH` states it once and every tap target derives from it. The original
+`/api/public/contact-card` is served permanently by a second binding to the same handler: cards
+already texted point there, and those threads cannot be edited. Nothing new links to it.
 
 ## Invariants (must be enforced in code and proven by tests)
 

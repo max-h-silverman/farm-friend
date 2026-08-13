@@ -15,6 +15,8 @@ import {
   renderFarmerAuthorizedNotification,
   renderFarmerOnboardingComplete,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
+  CONTACT_CARD_PATH,
+  CUSTOMER_WELCOME,
   FixedClock,
   hashPhone,
 } from "@farm-friend/core";
@@ -527,11 +529,14 @@ describe("inbound routing end to end (integration)", () => {
     });
 
     it("offers a joining customer the contact card, so the number is not a stranger", async () => {
-      // F-039 built `/api/public/contact-card` and linked it from the PUBLIC WEB MAP only. A
-      // customer who arrived by text — which is the product — was never told it existed, so
-      // every later message came from an unnamed number. Asserted at the queued body a real
-      // handset receives, not against the copy constant, so a welcome that stopped being sent
-      // fails here too.
+      // F-039 built the card and linked it from the PUBLIC WEB MAP only. A customer who
+      // arrived by text — which is the product — was never told it existed, so every later
+      // message came from an unnamed number. Asserted at the queued body a real handset
+      // receives, not against the copy constant, so a welcome that stopped being sent fails
+      // here too.
+      //
+      // The path comes from `CONTACT_CARD_PATH`, never a literal: B-052 moved it, and a
+      // hardcoded old path here would have gone on passing while the texted link rotted.
       await deliverInbound({ fromPhone: customerPhone, text: "JOIN" });
       await runPassWithForbiddenModel();
 
@@ -539,8 +544,36 @@ describe("inbound routing end to end (integration)", () => {
         select body from outbox_work where recipient_hash = ${customerHash}
       `;
       const bodies = queued.map((row) => row.body as string);
-      expect(bodies.some((body) => body.includes("/api/public/contact-card"))).toBe(true);
+      expect(bodies.some((body) => body.includes(CONTACT_CARD_PATH))).toBe(true);
     });
+
+    it.each(["JOIN", "START", "VIGA"])(
+      "offers the contact card to a sender who establishes messaging with %s",
+      async (keyword) => {
+        /*
+          EVERY word that turns messaging on, not the two that happened to exist first.
+
+          F-100 made VIGA the word the onboarding form tells a farmer to text, and taught it to
+          the redemption branch — but not to the contact-card condition. So the sender with the
+          most use for a saved number, the farmer who will get scheduled prompts and stock-out
+          alerts for months, was the only one never offered it.
+
+          Parameterised over the keyword so adding a fourth opt-in word without teaching it here
+          fails, rather than repeating the defect for the next one.
+        */
+        await deliverInbound({ fromPhone: customerPhone, text: keyword });
+        await runPassWithForbiddenModel();
+
+        const queued = await client()`
+          select body from outbox_work where recipient_hash = ${customerHash}
+        `;
+        const bodies = queued.map((row) => row.body as string);
+        expect(
+          bodies.some((body) => body.includes(CONTACT_CARD_PATH)),
+          `${keyword} establishes messaging and must offer the contact card`,
+        ).toBe(true);
+      },
+    );
 
     it("START restores consent with its own distinct capture source", async () => {
       await deliverInbound({ fromPhone: customerPhone, text: "START" });
@@ -689,9 +722,30 @@ describe("inbound routing end to end (integration)", () => {
         where recipient_hash = ${farmerHash}
         order by logical_key
       `;
-      // Telnyx sends the phone-confirmation receipt. Farm Friend sends exactly one distinct
-      // listing-live completion after the transaction succeeds — no customer welcome or card.
-      expect(work.map((row) => row.message_category)).toEqual(["inventory_prompt"]);
+      /*
+        Telnyx sends the phone-confirmation receipt. Farm Friend sends the distinct
+        listing-live completion, and the contact-card offer beside it.
+
+        **The card is here by decision** (max, 2026-08-12). This used to assert
+        `["inventory_prompt"]` alone — "no customer welcome or card" — and that suppressed the
+        offer for the one sender with the most use for it: the farmer about to receive
+        scheduled prompts and stock-out alerts from this number for months, who otherwise has
+        it saved nowhere. A customer who texts JOIN was offered the card and the farmer was not.
+
+        What must still NOT appear is the CUSTOMER WELCOME, which points at the public map when
+        the farmer's next step is their own stand. That claim is asserted below on the body.
+      */
+      expect(work.map((row) => row.message_category)).toEqual([
+        "inquiry_reply",
+        "inventory_prompt",
+      ]);
+      expect(work.map((row) => row.body)).not.toContain(CUSTOMER_WELCOME);
+      // The offer, identified by the link a farmer actually taps.
+      expect(
+        (work.map((row) => row.body) as string[]).some((body) =>
+          body.includes(CONTACT_CARD_PATH),
+        ),
+      ).toBe(true);
 
       /*
         F-094 — the setup message. This fixture's invitation names a farm with NO stand: it
@@ -702,7 +756,11 @@ describe("inbound routing end to end (integration)", () => {
         The link-carrying branch is proven where a stand actually exists —
         `farmer-authorization.integration.test.ts`, against `farmWithStand`.
       */
-      const setupBody = work[0]?.body as string;
+      // Selected by CATEGORY, not by position: the contact card shares this queue and the
+      // order is `logical_key`'s, so an index here would silently start asserting the wrong
+      // message the next time either key changes.
+      const setupBody = work.find((row) => row.message_category === "inventory_prompt")
+        ?.body as string;
       expect(setupBody).toBe(renderFarmerOnboardingComplete(null));
       /*
         The farmer is taught the recovery word (F-093) and gets no footer competing with it

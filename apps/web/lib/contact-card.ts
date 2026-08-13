@@ -4,7 +4,7 @@ import {
   renderContactCard,
 } from "@farm-friend/core";
 
-// The served contact card (F-039) — `GET /api/public/contact-card`.
+// The served contact card (F-039) — `GET /viga-farm-friend`.
 //
 // The whole surface is: read one environment variable, render a vCard, set two headers. There
 // is no database read, no model seam, no session, and no request body — a customer taps a link
@@ -12,6 +12,11 @@ import {
 //
 // The handler lives in lib/ because Next.js permits only its own fields as route exports; the
 // route file is the thin binding, matching `stands/` and `stock-out/`.
+//
+// TWO route files bind to this one handler. `/viga-farm-friend` is where the card lives and
+// what every surface links to; `/api/public/contact-card` is the original path, kept serving
+// because cards already texted point at it (B-052). Both call this function, so the card
+// cannot differ between them.
 //
 // ## Why it is NOT wired through the composition root
 //

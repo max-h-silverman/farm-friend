@@ -456,7 +456,8 @@ meaning in `packages/core/src/sms/consent.ts` — never adding a second consent 
 new category defaults to nothing: the predicate must be extended deliberately.
 
 Built public routes (F-019): `GET /api/public/stands` (model-free, uncapped), `GET
-/api/public/contact-card` (F-039 — model-free and database-free, uncapped; rendered from
+/viga-farm-friend` (F-039 — model-free and database-free, uncapped; the legacy
+`/api/public/contact-card` still serves the same handler for already-texted links, B-052; rendered from
 `TELNYX_FROM_NUMBER`, never a literal, so it cannot drift from the sending number; saving a contact is
 **not** `JOIN` and the copy must not imply it is), and `POST /api/public/stock-out` (throttled; body
 carries the QR-bound `salesLocationId` UUID and `taskText`). The throttle budget is set in the

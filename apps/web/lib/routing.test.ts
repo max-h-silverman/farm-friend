@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { FixedClock } from "@farm-friend/core";
+import { FixedClock, CUSTOMER_WELCOME, CONTACT_CARD_PATH } from "@farm-friend/core";
 import type { Db } from "@farm-friend/db";
 import { routeInboundMessage, type RouteDeps } from "./routing";
 
@@ -154,7 +154,27 @@ describe("VIGA onboarding confirmation (F-103)", () => {
       kind: "consent",
       transition: "start",
     });
-    expect(result.replies).toEqual([]);
+
+    /*
+      The claim is the CUSTOMER WELCOME's absence, which is what the name says. It used to be
+      asserted as "no replies at all" — strictly stronger than the contract, and it froze a
+      defect in place: VIGA was the one opt-in word that offered no contact card (B-052), and
+      this line would have failed the fix.
+
+      So it names the thing that must not appear. The welcome points a farmer at the public
+      map when their next step is their own stand.
+    */
+    const bodies = result.replies.map((reply) => reply.body);
+    expect(bodies).not.toContain(CUSTOMER_WELCOME);
+    expect(result.replies.map((reply) => reply.category)).not.toContain("required_reply");
+  });
+
+  it("offers the contact card, because the farmer gets months of texts from this number", async () => {
+    // The sender with the most use for a saved number was the only one never offered it.
+    const result = await routeInboundMessage(deps(), event("VIGA"));
+    const bodies = result.replies.map((reply) => reply.body);
+
+    expect(bodies.some((body) => body.includes(CONTACT_CARD_PATH))).toBe(true);
   });
 });
 

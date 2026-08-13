@@ -527,12 +527,19 @@ async function routeCompliance(
     alike. The farmer needs it more, if anything: the scheduled prompts and stock-out alerts
     they will get for months all arrive from an unnamed number otherwise.
 
-    An `inquiry_reply`, riding on the sender's own inbound JOIN/START — it creates no consent
-    and asks for nothing, and saving a contact is device-local. STOP still suppresses it, which
-    is correct: someone opting out has no use for our number.
+    An `inquiry_reply`, riding on the sender's own inbound JOIN/START/VIGA — it creates no
+    consent and asks for nothing, and saving a contact is device-local. STOP still suppresses
+    it, which is correct: someone opting out has no use for our number.
+
+    **VIGA belongs here and was missing.** F-100 made VIGA the word the onboarding form tells a
+    farmer to text, and taught it to the redemption branch above — but not to this condition,
+    which still listed the two words that predated it. So the farmer with the MOST use for a
+    saved contact, the one about to receive scheduled prompts and stock-out alerts for months,
+    was the only sender who never got the offer. Every keyword that establishes messaging must
+    appear here.
   */
   const contactCardReply =
-    (keyword === "JOIN" || keyword === "START") && applied.applied
+    (keyword === "JOIN" || keyword === "START" || keyword === "VIGA") && applied.applied
       ? [{
           body: renderContactCardOffer(deps.publicBaseUrl),
           category: "inquiry_reply" as const,
