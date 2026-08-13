@@ -10,61 +10,40 @@
   handsets: a report can name a published item **or** one of the stand's usual offerings (B-057,
   verified in production by effect), and a clarifying question now completes the report rather
   than dropping it (B-065).
-- **The public map link carries a `#map` anchor** (F-110), so a customer texting `MAP` lands on
-  VIGA's embed rather than above it. The destination is stated in two places — the `PUBLIC_MAP_URL`
-  env var and the core constant customer copy embeds — and `resolvePublicMapUrl` **refuses to
-  start** a non-local deployment where they disagree. `infra/terraform.tfvars` is gitignored, so
-  another checkout lacks the value; the guard turns that into a failed startup, not a stale link.
-- The SMS answer is the one B-062/B-063 rebuilt (PR #107): one entry per stand,
+- **The public map link carries a `#map` anchor** (F-110). The destination is stated twice — the
+  `PUBLIC_MAP_URL` env var and the core constant customer copy embeds — and `resolvePublicMapUrl`
+  **refuses to start** a non-local deployment where they disagree. `infra/terraform.tfvars` is
+  gitignored, so another checkout lacks the value and gets a failed startup, not a stale link.
+- **The SMS answer format is B-062/B-063's** (PR #107): one entry per stand,
   **name → claims → address**, `In stock (3h ago):` / `May also have:` — `May have:` with no stock
   line above it — a bare `Map:` closing the last page, `Last seen (6d ago)` past the freshness
-  threshold, and the stock claim dropped entirely past 28 days. The header states only the count and
-  window (`9 matching stands (1-3 of 9)`) and echoes no search term, so a named and a broad request
-  over the same facts render byte-identical pages.
-- **Stand cards lead with availability.** The card's inventory section always opens with an
-  "In stock" heading — confirmed items under it when there are any, "Nothing confirmed recently"
-  when there are not — and Typical Offerings always follows. The map search placeholder reads
-  `e.g. “eggs”, “flowers”, stand name…`, naming both halves of what the field actually matches.
-- **Code owns closure timing outright; a volunteered closure cannot cost a farmer their update**
-  (B-058, `e982cf0`, deployed 2026-08-12). Where the message carries no closure evidence, the
-  model's `closure` field is stripped before schema validation and dropped from the result — it
-  was discarding correct inventory edits three different ways. `kind: "closure"` still clarifies on
-  mismatch, since there the closure is the whole payload. Omitted `additions`/`changes` arrays read
-  as empty rather than failing the parse.
-- **The contact card is served at `/viga-farm-friend`** (B-052). iOS titles a message preview from
-  the URL's last path segment — not `Content-Disposition`, not the vCard's `FN`, both of which were
-  already correct — so the path is copy, stated once in `CONTACT_CARD_PATH` and derived by every tap
-  target. `/api/public/contact-card` binds to the same handler **permanently**: cards already texted
-  point there and those threads cannot be edited. Both verified byte-identical in production.
-- **Every keyword that establishes messaging now offers the card** — `JOIN`, `START`, and `VIGA`.
-  F-100 made VIGA the onboarding word and taught it to the redemption branch but not to this
-  condition, so the farmer, who gets months of prompts and alerts from this number, was the only
-  sender never offered it. A farmer finishing onboarding gets the card beside their listing-live
-  message (max, 2026-08-12); the test is parameterised over the keywords so a fourth cannot repeat it.
-- **The farmer join instruction is deleted, not reworded** (B-043). It said "reply START", could not
-  be reached by any caller (`routing.ts` passes a literal `authorized: true`, which returns first),
-  and named the wrong word after VIGA became the onboarding keyword. A farmer whose SMS box was never
-  ticked reads the acknowledgement alone — they wait on a person, and no keyword reaches that.
-  Recovery after a carrier opt-out is unaffected: `ALREADY_JOINED_RESPONSE` owns it and names START.
-- **Removing a farm now removes it from what customers see** (B-066, deployed 2026-08-13).
-  `retireFarm` always wrote `farms.retired_at` correctly, but every public reader
-  filtered the *stand's* `retired_at`, which a farm take-down deliberately never writes — so a
-  removed farm stayed on the map, reachable by text, in the public pickers, and still publishing.
-  `visibleFarms` now carries the farm clause **unconditionally** (`?hidden=true` and listed sender
-  hashes grant sight of *fake* farms, never of a removed real one), and all four read surfaces
-  inherit it; `confirmInventoryPublication` has its own locked gate returning `farm_retired`. The
-  admin console was the only surface that was ever right, which is why F-100's suite stayed green —
-  its test asserts through `listStandsForAdministration`.
-- **One `stand_items` row held a whole offerings list as a single item** (B-067, fixed in
-  production 2026-08-13, data-only, no deploy). Asking for `eggs?` returned Morgan Hill with all
-  nine of its offerings printed as one run-on item; the renderer was faithful and the row was
-  wrong. **Measured first: exactly one row in the corpus had that shape**, no other row contains a
-  comma — so it was a guarded repair, not a parser. `splitMergedItemName` decides shape only and
-  holds no food vocabulary; `scripts/split-merged-stand-items.ts` dry-runs by default, fingerprints
-  the database, backs up prior rows and requires a typed phrase. 240 scanned, 1 split into 7 rows
-  plus 2 promoted from uncarried (max chose: the split list is what customers see), verified by
-  reading the rows back. Zero comma-holding rows remain.
-
+  threshold, and the stock claim dropped entirely past 28 days. The header states only count and
+  window and echoes no search term, so a named and a broad request over the same facts render
+  byte-identical pages.
+- **Stand cards lead with availability.** The inventory section always opens with an "In stock"
+  heading — confirmed items under it, or "Nothing confirmed recently" — and Typical Offerings
+  always follows.
+- **Code owns closure timing outright** (B-058). Where a message carries no closure evidence the
+  model's `closure` field is stripped before validation; `kind: "closure"` still clarifies on
+  mismatch. Omitted `additions`/`changes` arrays read as empty rather than failing the parse.
+- **The contact card is served at `/viga-farm-friend`** (B-052) — iOS titles a message preview from
+  the URL's last path segment, so the path is copy, stated once in `CONTACT_CARD_PATH`.
+  `/api/public/contact-card` binds to the same handler **permanently**: cards already texted point
+  there and those threads cannot be edited.
+- **Every keyword that establishes messaging offers the card** — `JOIN`, `START`, `VIGA` — and a
+  farmer finishing onboarding gets it beside their listing-live message (max, 2026-08-12). The test
+  is parameterised over the keywords so a fourth cannot regress it.
+- **A farmer whose SMS box was never ticked reads the acknowledgement alone** (B-043) — no keyword
+  reaches that; they wait on a person. Carrier-opt-out recovery is separate:
+  `ALREADY_JOINED_RESPONSE` owns it and names START.
+- **A removed farm leaves every public surface** (B-066). `visibleFarms` carries the farm clause
+  **unconditionally** — `?hidden=true` and listed sender hashes grant sight of *fake* farms, never
+  of a removed real one — and all four read surfaces inherit it; `confirmInventoryPublication` has
+  its own locked gate returning `farm_retired`.
+- **`stand_items` holds one item per row, corpus-wide** (B-067, fixed in production 2026-08-13,
+  data-only). One row had held a whole nine-item offerings list as a single string. Zero
+  comma-holding rows remain; `scripts/split-merged-stand-items.ts` finds the shape if an ingest
+  reintroduces it.
 - **`pending_result_lists.broad` is written and never read.** The one piece of data in the system
   with no consumer, kept deliberately — dropping it is a migration on live data for no behavioral
   gain. Revisit it whenever that table next needs a migration for another reason.
@@ -100,43 +79,26 @@
   not emit them.
 - Cloud Run web `farm-friend-web-00075-bfw` and worker `farm-friend-worker-00070-7rw` serve
   immutable digest `sha256:449e072cb4afdbef88996b382e06ef5c5e3068fb8799af3ced03f9af2c2d62f4`,
-  built from `main` `b187b7e` and deployed 2026-08-13. The serving digest was read back from both
-  services and matches the build, web traffic is 100% on the new revision, and the migration ledger
-  stands at `0041` — **none was owed**. Plan was `0 to add, 2 to change, 0 to destroy` (the two image
-  digests, nothing else); plan assertions 60/60, deploy assertions and served-card assertions passed.
+  built from `main` `b187b7e` and deployed 2026-08-13. Serving digests were read back from both
+  services and match the build; migration ledger stands at `0041` and none was owed.
   **Production carries F-111 Phase 2 and is level with `main`.**
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
-- **F-111 Phase 2 is DEPLOYED (`b187b7e`, PR #114).** `handleFreeText` now runs on the
-  single request classifier: the open stock-out clarification (B-065) sits above it for **any**
-  sender, authority is read from `farmer_authorizations` and **not passed to the model**, one call
-  returns one of six categories, and a `switch` hands each arm to code. Routing step 11's
-  pre-classification stand binding is **deleted** — a stand resolves only inside the arms that need
-  one. `farmer-message-intent` and `customer-message-intent` are deleted outright, along with their
-  projections, registry entries, tests and composition wiring; their live eval coverage was merged
-  onto the new seam rather than dropped.
-- **The `inventory_report` access fork decides who may publish, in code.** Customer → report;
-  farmer holding the resolved stand (or naming none, which means their own) → the proposal flow;
-  farmer **not** holding it → report (B-053). The classifier has no category meaning "this sender
-  may publish", so a hostile one cannot reach a publish path — asserted by a swap test over three
-  categories.
-- **Both live SMS defects are closed in the deployed code, unverified on a handset.** "where's the farm stand map?" now has a
-  `system_inquiry` path answering from the same `PUBLIC_MAP_URL` the `MAP` keyword serves, and the
-  word `open` no longer binds Open Gate Lamb and Grazing. Defect B has **two independent defences**
-  and both are tested separately: classification runs first, so a question never reaches stand
-  matching, and the matcher's bar now rejects one distinctive word out of four even when it is
-  reached.
-- **`unclear` and the outage reply are different messages, deliberately.** `unclear` says the
+- **F-111 Phase 2 is live.** One request classifier replaces the two sender-split intent seams,
+  which are deleted. Order: deterministic routing 1–10 → the open stock-out clarification (B-065,
+  now for **any** sender) → authority read from `farmer_authorizations` and **not** given to the
+  model → one classifier call → a switch over six categories. A stand resolves only inside the arms
+  that need one; step 11's pre-classification binding is gone. **Who may publish is the access fork
+  in code** — customer → report, farmer holding the stand (or naming none) → publish, farmer
+  without access → report (B-053) — and no enum value can express authority.
+- **A stand name must be at least half-covered to bind** (Phase 2b, `meetsDistinctiveWordBar` in
+  `packages/core/src/inquiry/stand-name-match.ts`). Closes the `open` → Open Gate defect at the
+  matcher. **Known cost:** 33 single-word partials of longer names now ask which stand instead of
+  binding — `morgan` no longer reaches Morgan Hill. Full names are unaffected.
+- **`unclear` and the outage reply are different messages**, and must stay so: `unclear` says the
   sender's message was unhandleable; a failed classifier call says our side failed and blames
-  nobody's wording (B-049's precedent). There is no fallback category, so an outage stops answering
-  and says so rather than claiming "no stand has a current listing" about a corpus nothing searched.
-- **Phase 2b shipped: a stand name must be at least half-covered to bind.**
-  `meetsDistinctiveWordBar` in `packages/core/src/inquiry/stand-name-match.ts`. Measured against the
-  real 34-stand corpus plus the two live stands the F-106/B-065 cases name: **14/14 required cases**,
-  where "require 2 words" breaks `barts`, "corpus-unique word" does nothing (`open` IS unique), and
-  a length floor costs nine more partials or breaks `barts`. **Accepted cost** (max, 2026-08-13):
-  33 single-word partials of longer names stop resolving — `morgan` no longer reaches Morgan Hill
-  Community Farm Stand — and those senders are asked which stand instead. Full names are unaffected.
+  nobody's wording (B-049). There is no fallback category.
+- **Both closed SMS defects are unverified on a handset** — see Open before go-live.
 
 ## Verification
 
@@ -144,24 +106,8 @@
   all pass (2026-08-13). Scripted evals: critical 11/11, advisory 4/4, adversarial 29/29. The unit
   count moved with the two deleted seams' own tests; the integration count grew by the 16-case
   `request-classification-routing.integration.test.ts`.
-- **Each new test was sabotage-verified.** The ownership check, the map arm, the outage reply, the
-  clarification's placement above classification, and the scoring bar were each broken deliberately
-  and the intended test failed. Dropping the bar reproduces the original production defect exactly.
-- **One unit run showed a single failure that did not recur** and named no test in captured output;
-  a clean rerun of the same tree passed 2,085. Treated as environmental per DEVELOPMENT.md, not as a
-  defect — no code changed between the two runs.
-- **Live evals were required and run for Phase 2** (2026-08-13): containment **5/5** including the
-  new request-classifier fixture, closure 7/7, recall 5/5, quality 20/21. The classifier fixture
-  holds at **52/53** — the one miss is the documented `what is viga` case below, unchanged from
-  Phase 1.
-- **The two deleted seams' live coverage carried over, not dropped.** Their containment fixture and
-  both report-vs-question quality fixtures were merged onto `request-classification`; the merged
-  fixture scores **12/12**, including "looking for nigella" (the farmer seam's live misfire) and
-  every phrasing the customer fixture carried.
-- **One live run in three still shows a provider error scored as a FAILURE on purpose** — the first
-  Phase 2 run failed containment 4/5 that way and a clean rerun of the same tree passed 5/5. The
-  seam returns the same shape for "unreachable" and "declined", so accepting either would let an
-  unreachable model read as correct.
+- **Live evals are required for any seam change and were run** (2026-08-13): containment **5/5**,
+  closure 7/7, recall 5/5, quality 20/21 — the one miss is the documented `what is viga` case.
 - **The `DATABASE_URL` in Secret Manager is production Neon**, and the integration suite creates
   and drops a database per file — it must never point there. See the local-Postgres line below.
 - The web production build retains the tracked Next configuration/lint warnings (B-008).
@@ -193,24 +139,13 @@
   run in three shows a provider error, labelled `[provider error, not a verdict — rerun]` and scored
   as a FAILURE on purpose: the seam returns the same `clarification` shape for "unreachable model"
   and "model declined", so accepting any clarification let an unreachable model read as correct.
-- **The stock-out seam is measured on the real corpus** (B-059). `evals/live.ts` carries an
-  eleven-case fixture built from production rows, covering the corpus's near-duplicates and split
-  comma lists; **11/11 on four consecutive runs**. Where the corpus genuinely admits two answers
-  the fixture accepts either. Build any future case from live rows — the ticket's cited examples
-  were stale. The score measures the **current** model and expires when it is swapped.
-- **B-062 and B-063 are verified on a handset** (max, 2026-08-12): a stand confirmed past the
-  freshness threshold reads `Last seen`, the header counts stands rather than rows, it echoes no
-  search term, and a stand with no stock line reads `May have`.
-- **B-065 is verified on a handset** (max, 2026-08-12): a stock-out misspelling the stand asked
-  which stand, the answer completed the report, and the farmer's alert named the item. The held
-  clarification survives the round trip on real handsets, not only in test.
-- **F-109 is verified on a handset** (max, 2026-08-12): a real scheduled reminder read with the
-  stand named in the heading and `(updated Xd ago)` matching the listing's age.
-- **B-052 is verified on a handset** (max, 2026-08-12): a bare `VIGA` returned the carrier receipt,
-  the offer, and the card previewing as **`viga-farm-friend`**. The same read confirmed the VIGA
-  contact-card fix — that sender received no card at all before. As expected and unchangeable:
-  the second line reads `Contact Card · 153 bytes` (iOS's own label) over the Cloud Run host,
-  which stays until a real domain exists.
+- **The stock-out seam is measured on the real corpus** (B-059) — an eleven-case `evals/live.ts`
+  fixture built from production rows. Build any future case from live rows; a ticket's cited
+  examples go stale. The score measures the **current** model and expires when it is swapped.
+- **Verified on real handsets (max, 2026-08-12):** B-062/B-063's answer format, B-065's held
+  clarification surviving the round trip, F-109's scheduled reminder, and B-052's contact card
+  previewing as `viga-farm-friend`. One unchangeable cosmetic: the card's second line reads
+  `Contact Card · 153 bytes` (iOS's own label) over the Cloud Run host until a real domain exists.
 - Deployment assertions confirm both revisions are newer than every mounted secret; the served contact card
   has the expected E.164 suffix, 153 bytes, CRLF-only lines, and all seven required properties.
 
@@ -249,9 +184,11 @@
   name, `what stands are open today`, and the `unclear` reply.
 - **B-068 — a confirmed item answered as "may have"** (high). `cucumber` returned Forest Garden as
   `May have: cucumbers`, but that stand has Cucumbers as a **published entry** confirmed 24 days
-  before. B-062/B-063 says 4–28 days reads `Last seen (24d ago):`, so the entry was not retrieved
-  at all. **Retrieval question, not rendering** — measure what retrieval returns for that stand and
-  item against production rows before reading any rendering code. Not a Phase 2 regression.
+  before. **Max's lead (2026-08-13): a staleness horizon may be suppressing it by design**, in
+  which case the rendering contract is what's out of step, not retrieval. B-062/B-063 set 28 days
+  for dropping a stock claim and 96 hours for `In stock` → `Last seen`; settle whether a 24-day-old
+  entry *should* render `Last seen (24d ago):` **before** writing code — the two readings lead to
+  opposite fixes. Measure against production rows first. Not a Phase 2 regression.
 - **B-069 — an SMS answer takes close to a minute** (high). Measured: the classifier is **not** the
   bottleneck. Three serial calls, wildly unequal — the classifier emits ~5 tokens, and **grounded
   fact selection** emits ~18 tokens per selected stand at ~30 tokens/sec. That is the call B-049

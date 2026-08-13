@@ -11,7 +11,68 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-13 (latest) — Two bugs turned out to be one taxonomy, and the harness lied about the score
+## 2026-08-13 (latest) — Phase 2 shipped, and the first two handset messages found two more bugs
+
+F-111 Phase 2: the classifier is wired, both legacy seams are deleted, and it is **deployed**
+(`b187b7e`, PR #114, web `00075-bfw` / worker `00070-7rw`). Then two SMS messages from a real
+handset surfaced three problems, none of them a Phase 2 regression.
+
+**The rewiring, and what moved.** `handleFreeText` now runs: deterministic routing steps 1–10
+(untouched, body-only) → the open stock-out clarification, **now offered to any sender** rather
+than customers only → authority read from `farmer_authorizations` and deliberately *not* passed to
+the model → one classifier call → a switch over six categories. Routing step 11's
+pre-classification stand binding is deleted; a stand resolves only inside the arms that need one.
+
+**The `inventory_report` access fork is the whole B-053 story, now in code.** Customer → report;
+farmer holding the resolved stand (or naming none, which means their own listing) → the publish
+path; farmer without access → report. The classifier returns the *same category* in all three
+cases — there is no enum value meaning "this sender may publish", so a hostile classifier cannot
+reach a publish path. The swap test asserts that across three categories.
+
+**Phase 2b, and why the obvious rules lost.** A distinctive-word score must now cover **at least
+half** a stand's distinctive words. Measured against the real corpus plus the two live stands the
+F-106/B-065 cases name — 14/14 required cases, where three plausible alternatives each failed:
+requiring two matched words breaks `barts` (Bart's Cart has exactly two distinctive words); keeping
+a score of 1 when the word is corpus-*unique* does nothing at all, because `open` **is** unique to
+one stand; and a minimum word length costs nine more real partials at 5 characters or breaks
+`barts` at 6. **Accepted cost (max):** 33 single-word partials of longer names stop resolving —
+`morgan` no longer reaches Morgan Hill — and those senders are asked which stand instead.
+
+**A test that could not fail, caught by sabotage.** The new split rule carries the house
+"no food vocabulary in the source" assertion. The first version stripped comments *before*
+searching the remainder, so it passed with `eggs` planted in the file — the strip removed the very
+text the assertion looked for. The fixed version anchors to executable code only, first proving the
+extraction sees the code at all, and now passes on a comment and fails on a branch.
+
+**Then the handset, and the correction worth carrying.** Two messages, three findings:
+
+- **B-067 (fixed, data-only).** `eggs?` returned Morgan Hill with its entire nine-item offerings
+  list printed as one run-on item. One `stand_items` row held all nine names as a 115-character
+  string. **Measured before writing: exactly one row in the corpus had that shape** — no other row
+  contains a comma — so this was a guarded repair, not a parser. Where a split part already existed
+  but sat uncarried (`duck eggs`, `flowers`), max chose to promote rather than skip, so the stand
+  shows nine rather than seven.
+- **B-068 (open).** `cucumber` returned Forest Garden as `May have: cucumbers`, but that stand has
+  Cucumbers as a **published entry** confirmed 24 days earlier, which B-062/B-063 says must read
+  `Last seen (24d ago):`. The entry was never retrieved — a retrieval question, not a rendering one.
+- **B-069 (open), and my wrong first answer.** Replies took close to a minute. I suggested
+  fast-tracking the classifier; **that was wrong, and measuring afterward showed why.** Three
+  serial calls, wildly unequal: the classifier emits ~5 tokens, while grounded fact selection emits
+  ~18 per selected stand at ~30 tokens/sec — the call B-049 already raised the timeout to 90s for.
+  Phase 2 added a small call in front of a large slow one. The lever is selection, not the
+  classifier, and the item says so explicitly so the next session doesn't chase it.
+
+**Deliberately not manufactured: a provider failure in production.** Every practical lever (revoking
+the key, pointing at a dead host) is a real outage for every sender on VIGA's own account. The
+outage reply is proven by an integration test forcing `{ok: false}`, sabotage-verified against the
+`unclear` string; seeing it on a handset needs a preview service with a bad endpoint.
+
+**Owed:** 11 of 13 handset cases are unrun, including both defects Phase 2 was built to close.
+Neither has been confirmed on a real phone.
+
+---
+
+## 2026-08-13 — Two bugs turned out to be one taxonomy, and the harness lied about the score
 
 Max reported two SMS misroutes from his own handset: "where's the farm stand map?" got the generic
 "I did not catch which item or farm you meant", and "which stands are open right now?" got "Thanks
