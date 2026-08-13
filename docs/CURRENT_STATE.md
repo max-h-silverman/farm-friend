@@ -31,6 +31,21 @@
   was discarding correct inventory edits three different ways. `kind: "closure"` still clarifies on
   mismatch, since there the closure is the whole payload. Omitted `additions`/`changes` arrays read
   as empty rather than failing the parse.
+- **The contact card is served at `/viga-farm-friend`** (B-052). iOS titles a message preview from
+  the URL's last path segment — not `Content-Disposition`, not the vCard's `FN`, both of which were
+  already correct — so the path is copy, stated once in `CONTACT_CARD_PATH` and derived by every tap
+  target. `/api/public/contact-card` binds to the same handler **permanently**: cards already texted
+  point there and those threads cannot be edited. Both verified byte-identical in production.
+- **Every keyword that establishes messaging now offers the card** — `JOIN`, `START`, and `VIGA`.
+  F-100 made VIGA the onboarding word and taught it to the redemption branch but not to this
+  condition, so the farmer, who gets months of prompts and alerts from this number, was the only
+  sender never offered it. A farmer finishing onboarding gets the card beside their listing-live
+  message (max, 2026-08-12); the test is parameterised over the keywords so a fourth cannot repeat it.
+- **The farmer join instruction is deleted, not reworded** (B-043). It said "reply START", could not
+  be reached by any caller (`routing.ts` passes a literal `authorized: true`, which returns first),
+  and named the wrong word after VIGA became the onboarding keyword. A farmer whose SMS box was never
+  ticked reads the acknowledgement alone — they wait on a person, and no keyword reaches that.
+  Recovery after a carrier opt-out is unaffected: `ALREADY_JOINED_RESPONSE` owns it and names START.
 - **`pending_result_lists.broad` is written and never read.** The one piece of data in the system
   with no consumer, kept deliberately — dropping it is a migration on live data for no behavioral
   gain. Revisit it whenever that table next needs a migration for another reason.
@@ -64,21 +79,26 @@
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. `0041` adds
   `pending_stock_out_reports`; its three CHECKs are hand-written, since `drizzle-kit generate` does
   not emit them.
-- Cloud Run web `farm-friend-web-00072-jvd` and worker `farm-friend-worker-00067-7zf` serve
-  immutable digest `sha256:6a6b40afe084682bdac1dd71a72c3c254e3d11974714e3bb6979fd6eaab871ce`,
-  built from `main` `99e63dd` and deployed 2026-08-12. Plan assertions 60/60 (the only delta was
+- Cloud Run web `farm-friend-web-00073-7qz` and worker `farm-friend-worker-00068-l52` serve
+  immutable digest `sha256:b4325bb5db6e3e56c6dd867bd99fdd99e299daa5756b807eb5173e74dd340d21`,
+  built from `main` `bd40629` and deployed 2026-08-12. Plan assertions 60/60 (the only delta was
   the image digest on both services); deploy and served-card assertions pass. The serving digest
-  was read back from both services. Migration `0041` applied first and verified by schema effect.
-  **`main` is one merge ahead of production** (`e982cf0`, B-058/B-059): the serving revisions still
-  discard a farmer's inventory update when the model volunteers a closure, which the corpus makes
-  likeliest on a message naming the stand. No migration is owed with it.
+  was read back from both services. No migration was owed — the ledger stands at `0041`.
+  **Production and `main` are level.** This deploy carried B-058/B-059 (`e982cf0`, merged earlier
+  and previously unshipped), plus B-052 and B-043; the closure defect that discarded a farmer's
+  inventory update is no longer serving.
 - **This repo has no CI.** There are no workflow files and `gh pr checks` reports none, so a green PR
   page means nothing on its own: the local suites are the only gate before a merge.
 
 ## Verification
 
-- `main` at `e982cf0`: **1,958 unit tests, 938 local integration tests**, typecheck, lint, stub
-  evals, and live evals all pass (2026-08-12).
+- `main` at `bd40629`: **1,959 unit tests, 941 local integration tests**, typecheck, lint, and stub
+  evals all pass (2026-08-12). Live evals were last run at `e982cf0` and are not owed here: this
+  change touched a route path, a routing condition, and dead copy — no seam projection, schema, or
+  output contract.
+- The unit count fell by three against `e982cf0` while coverage grew: B-043 deleted a constant and
+  the three dead branches that read it, replacing seven thin cases with five that pin what is
+  actually reachable.
 - The web production build retains the tracked Next configuration/lint warnings (B-008).
 - **Migration `when` stamps can land behind their predecessor on this machine.** `0041`'s generated
   stamp was *earlier* than `0040`'s — the local clock runs behind the repo's — and the ordering
@@ -159,9 +179,11 @@
   answer "Which stand are you at?" with the name, and confirm the farmer's alert names the **eggs**.
   A second misspelling in the reply should also resolve. Proven by test and against the real corpus,
   unread on a handset.
-- **B-058/B-059 owe a deploy** (`e982cf0`, merged and unshipped by choice). No migration; the
-  web/worker deploy is the whole of it. Until then production still drops a farmer's inventory
-  update when the model volunteers a closure.
+- **B-052 owes one live check:** text VIGA from a handset and read the contact-card preview — the
+  bold line must say `viga-farm-friend`, not `contact-card`. The second line (`Contact Card · 153
+  bytes`) is iOS's own and does not change; the host stays the Cloud Run URL until a real domain
+  exists. Both paths verified on the wire in production — 200, byte-identical, CRLF intact — but
+  the preview itself is only readable on a phone, which is how this defect got through.
 
 **Unverified at phone width** — jsdom reports every element as zero-sized, so these are covered by
 tests but not by eye: the farmer agreement step, F-067's onboarding listing form and its map,
