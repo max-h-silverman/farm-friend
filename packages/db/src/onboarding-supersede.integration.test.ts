@@ -173,4 +173,95 @@ describe("onboarding redemption over an existing current revision (integration)"
     expect(superseded[0]?.source).toBe("viga");
     expect(superseded[0]?.superseded_at).not.toBeNull();
   });
+
+  /*
+    B-070, second defect. Production ordering (Provo Farms): the farmer completed onboarding and
+    texted `VIGA` 47 seconds later, and a SECOND onboarding pass created another invitation for
+    the same handset 12.5 hours afterwards. `order by created_at desc` then selected the invitation
+    that did not exist when the message was sent, and stamping the message time onto it violated
+    `farmer_invitations_valid_redemption` (`redeemed_at >= created_at`).
+
+    Asserting WHICH invitation was redeemed, not merely that redemption succeeded: bounding the
+    query to invitations that already existed is the whole fix, and a status-only assertion would
+    pass just as well against a query that redeemed the wrong one.
+  */
+  it("redeems the invitation that existed when the message was sent, not a later one", async () => {
+    const farms = await sql()`insert into farms (name) values ('Late Invite Farm') returning id`;
+    const lateFarmId = farms[0]?.id as string;
+
+    const phone = "+12065550200";
+    const phoneHash = hashPhone(phone, "test-phone-salt");
+    await sql()`insert into contacts (phone_e164, phone_hash) values (${phone}, ${phoneHash})`;
+
+    const textedAt = new Date(now.getTime() + 60_000);
+
+    // The invitation the farmer was actually answering: created just before they texted.
+    const answered = await createFarmerInvitation(database(), {
+      farmId: lateFarmId,
+      channel: "email",
+      administratorId,
+      occurredAt: new Date(textedAt.getTime() - 45_000),
+    });
+    if (answered.status !== "created") throw new Error("invitation fixture was not created");
+    await recordFarmerInvitationSmsAgreement(database(), {
+      token: answered.token,
+      occurredAt: new Date(textedAt.getTime() - 44_000),
+    });
+    await recordFarmerInvitationPendingPhone(database(), {
+      token: answered.token,
+      phoneE164: phone,
+      phoneHash,
+      occurredAt: new Date(textedAt.getTime() - 43_000),
+    });
+
+    // A second onboarding pass, created AFTER the farmer's text. Their earlier message cannot
+    // be a response to this.
+    const later = await createFarmerInvitation(database(), {
+      farmId: lateFarmId,
+      channel: "sms",
+      administratorId,
+      occurredAt: new Date(textedAt.getTime() + 12 * 60 * 60 * 1000),
+    });
+    if (later.status !== "created") throw new Error("later invitation fixture was not created");
+    await recordFarmerInvitationSmsAgreement(database(), {
+      token: later.token,
+      occurredAt: new Date(textedAt.getTime() + 12 * 60 * 60 * 1000 + 1_000),
+    });
+    await recordFarmerInvitationPendingPhone(database(), {
+      token: later.token,
+      phoneE164: phone,
+      phoneHash,
+      occurredAt: new Date(textedAt.getTime() + 12 * 60 * 60 * 1000 + 2_000),
+    });
+
+    const opened = await openFarmerOnboardingRequest(database(), {
+      contactHash: phoneHash,
+      pendingPhoneHash: phoneHash,
+      occurredAt: textedAt,
+      publicBaseUrl: "https://farmfriend.test",
+    });
+
+    expect(opened.status).toBe("opened");
+
+    const redeemed = await sql()`
+      select channel, created_at, redeemed_at from farmer_invitations
+      where pending_phone_hash = ${phoneHash} and redeemed_at is not null
+    `;
+    expect(redeemed.length).toBe(1);
+    // The one that already existed when the message was sent — identified by channel, and by
+    // the property the constraint actually enforces.
+    expect(redeemed[0]?.channel).toBe("email");
+    expect((redeemed[0]?.created_at as Date).getTime()).toBeLessThanOrEqual(textedAt.getTime());
+    expect((redeemed[0]?.redeemed_at as Date).getTime()).toBeGreaterThanOrEqual(
+      (redeemed[0]?.created_at as Date).getTime(),
+    );
+
+    // The later invitation is left redeemable for the farmer's next text rather than consumed
+    // by a message that predates it.
+    const stillOpen = await sql()`
+      select channel from farmer_invitations
+      where pending_phone_hash = ${phoneHash} and redeemed_at is null
+    `;
+    expect(stillOpen.map((row) => row.channel)).toEqual(["sms"]);
+  });
 });

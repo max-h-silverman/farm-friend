@@ -1051,6 +1051,18 @@ export async function openFarmerOnboardingRequest(
         unique), and the NEWEST is the one the farmer just filled in — an older unredeemed
         invitation for the same handset is the abandoned one. `limit 1` also means a second
         `START` finds the next one rather than nothing, which is the retry a farmer expects.
+
+        **Newest AMONG THOSE THAT ALREADY EXISTED** (B-070). "Newest" alone selected invitations
+        created after the message was sent: a farmer who onboards, texts, and is then put through
+        a second onboarding pass has a newer unredeemed invitation that their earlier text was
+        plainly not a response to. Stamping `redeemed_at` (the message time) onto it violates
+        `farmer_invitations_valid_redemption` (`redeemed_at >= created_at`), and the throw
+        rolled back the whole redemption on every retry, forever.
+
+        Bounding by `created_at` keeps the intent — the farmer's most recent stated intent at the
+        moment they texted — and makes the constraint unreachable rather than merely unlikely.
+        A later invitation is not skipped, only deferred: the farmer's next `START` postdates it
+        and redeems it normally.
       */
       const invitations =
         invitationToken !== undefined
@@ -1070,6 +1082,7 @@ export async function openFarmerOnboardingRequest(
               where pending_phone_hash = ${pendingPhoneHash!}
                 and redeemed_at is null
                 and expires_at > ${input.occurredAt.toISOString()}
+                and created_at <= ${input.occurredAt.toISOString()}
               order by created_at desc
               limit 1
               for update
