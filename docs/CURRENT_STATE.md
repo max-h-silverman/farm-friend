@@ -87,9 +87,9 @@
 
 - **2,055 unit tests pass; 7 corpus-only tests skip.** **963 integration tests across 64 files pass**
   against disposable local Postgres databases (2026-08-14).
-- The map still loads inside VIGA's iframe after the `frame-ancestors` header shipped — confirmed in
-  a browser by max, 2026-08-14. That was the one real risk in the header change: a policy that named
-  the wrong host would have blanked the embed rather than failing loudly.
+- The map loads inside VIGA's iframe on the custom domain — confirmed in a browser by max,
+  2026-08-14, and VIGA's live page read back serving the new `src`. `frame-ancestors` needed no
+  change: it already permitted `'self'`, which the custom host becomes.
 - Typecheck, lint, production web build, and scripted evals pass: critical 11/11, advisory 4/4,
   adversarial 19/19. The build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
@@ -155,6 +155,14 @@
 
 - RUNBOOK owns migration generation/order, production fingerprinting, seeding, secret rotation,
   immutable-image deployment, and Neon reachability. DEVELOPMENT owns codebase/test gotchas.
+- **A domain mapping reports `Ready: True` before TLS serves.** It ran ~6 minutes ahead on F-113, and
+  a request in that window fails certificate verification — inside an iframe that is a silent blank.
+  Poll the real request for a 200; never cut an embed over on the mapping's status.
+- **Every plan shows two spurious `scaling` updates** (B-073) — a provider artifact, not the
+  container template. Real diffs still have to be read; do not learn to skim "2 to change".
+- **`npm run test:integration` needs `DATABASE_URL` exported** or all 64 files fail instantly with
+  no tests run. That is the suite failing loudly by design, not a defect — RUNBOOK §top has the two
+  export lines.
 - **One emoji doubles a message's cost.** A single non-GSM-7 character re-encodes the WHOLE body to
   UCS-2, dropping per-segment capacity from 153 to 67 — the greeting billed two segments for 73
   characters. It is an encoding effect, not a length effect, and invisible by inspection because the
