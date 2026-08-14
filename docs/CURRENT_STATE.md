@@ -34,8 +34,10 @@
 - **Code owns closure timing and consequential output.** Models select bounded values; they do not
   write public claims, authorize publication, resolve mutable open-now state, or choose evidence.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. This release adds no migration.
-- Cloud Run web and worker serve the same immutable image digest built from merged `main`; deployment,
-  mounted-secret freshness, public API, health, and served-card assertions pass.
+- Cloud Run web `farm-friend-web-00076-nn4` and worker `farm-friend-worker-00071-m2q` serve digest
+  `sha256:03dd49d94130cbd7d247b68bf1ef2425decde4dc330706a6ac87f152f75616f5`, built from merged
+  `main` `a636cbe` and deployed 2026-08-13. Mounted-secret freshness, public API, health, protected
+  routes, and served-card assertions pass; neither revision has an error-level log.
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
 ## Verification
