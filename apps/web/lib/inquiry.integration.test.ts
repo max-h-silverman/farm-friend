@@ -519,6 +519,102 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     });
   });
 
+  /*
+    B-071 — a stand-scoped question never lets the matcher decide what the customer sees.
+
+    Measured against Provo Farms' real catalog, the live matcher dropped a confirmed item in 3
+    of 8 runs for a question naming no product, so the SMS answer listed four items where the
+    farmer had published six and the map showed all six. The listing is now rendered by code
+    from the stand's own rows, and the matcher only decides which item the yes/no answers.
+
+    Asserting the ITEMS in the body, not merely that an answer came back: a scripted matcher
+    returns whatever the test tells it to, so an outcome-only assertion would pass just as well
+    against the narrowing this exists to remove.
+  */
+  it("answers a stand product question yes/no and still lists the whole stand", async () => {
+    await client()`
+      update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}
+    `;
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale", "Peaches"], hoursAgo(2));
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, 'Garlic', true, 0)
+    `;
+
+    const { deps } = inquiryDeps({
+      "catalog-match": JSON.stringify({ matches: ["Peaches"] }),
+    });
+
+    const result = await answerInquiry(deps, {
+      mode: "stand_lookup",
+      request: { operation: "inventory" },
+      taskText: "does Pinecone Gardens have peaches?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    // The yes/no the customer asked for, stamped with the confirmation's age.
+    expect(result.body).toMatch(/^Yes: Peaches \(2h ago\)/);
+    // ...and the whole listing beneath it, including the item nobody asked about.
+    expect(result.body).toContain("In stock: Kale, Peaches");
+    expect(result.body).toContain("Usually sells: Garlic");
+  });
+
+  it("says so when the asked-for item is not one the stand lists", async () => {
+    await client()`
+      update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}
+    `;
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    // The stand carries no durian, so the matcher can select nothing.
+    const { deps } = inquiryDeps({ "catalog-match": JSON.stringify({ matches: [] }) });
+
+    const result = await answerInquiry(deps, {
+      mode: "stand_lookup",
+      request: { operation: "inventory" },
+      taskText: "does Pinecone Gardens have durian?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("Not listed at this stand");
+    // Still the useful part: what the stand DOES have.
+    expect(result.body).toContain("In stock: Kale");
+  });
+
+  it("renders a whole-stand question from code without calling the matcher", async () => {
+    await client()`
+      update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}
+    `;
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale", "Peaches"], hoursAgo(2));
+    // Another stand's produce must not appear in a question about this one.
+    await publish(ids.betaLocation!, ids.betaFarm!, ["Rhubarb"], hoursAgo(2));
+
+    const { provider, deps } = inquiryDeps({});
+
+    const result = await answerInquiry(deps, {
+      mode: "stand_lookup",
+      request: { operation: "overview" },
+      taskText: "what's in stock at Pinecone Gardens?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    // No seam at all: the model cannot shorten what it is never asked about.
+    expect(provider.seen).toEqual([]);
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).toContain("In stock: Kale, Peaches");
+    expect(result.body).not.toContain("Rhubarb");
+  });
+
   it("refuses a matcher value that code did not place in the public catalog", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
     const { deps } = inquiryDeps({
