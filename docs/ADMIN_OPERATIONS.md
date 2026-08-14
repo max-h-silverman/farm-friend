@@ -222,7 +222,7 @@ Paste this into a Squarespace **code block** on the administrator page:
 ```html
 <iframe
   id="farm-friend-admin"
-  src="https://farm-friend-web-p5mfxfp5za-uw.a.run.app/admin"
+  src="https://farmfriend.vigavashon.org/admin"
   title="VIGA Farm Friend administration"
   style="width:100%;border:0;display:block"
   height="1100"
@@ -231,7 +231,7 @@ Paste this into a Squarespace **code block** on the administrator page:
 <script>
   (function () {
     var frame = document.getElementById("farm-friend-admin");
-    var appOrigin = "https://farm-friend-web-p5mfxfp5za-uw.a.run.app";
+    var appOrigin = "https://farmfriend.vigavashon.org";
 
     window.addEventListener("message", function (event) {
       if (event.origin !== appOrigin) return;
@@ -247,7 +247,7 @@ Paste this into a Squarespace **code block** on the administrator page:
 
 <p>
   <a
-    href="https://farm-friend-web-p5mfxfp5za-uw.a.run.app/admin"
+    href="https://farmfriend.vigavashon.org/admin"
     target="_blank"
     rel="noopener noreferrer"
   >Open admin in a separate window</a>
@@ -270,7 +270,7 @@ sent away to. Paste this into a Squarespace **code block** where the Google My M
 ```html
 <iframe
   id="farm-friend-map"
-  src="https://farm-friend-web-p5mfxfp5za-uw.a.run.app/"
+  src="https://farmfriend.vigavashon.org/"
   title="Vashon farm stands, updated by the farmers themselves"
   style="width:100%;border:0;display:block"
   height="900"
@@ -279,7 +279,7 @@ sent away to. Paste this into a Squarespace **code block** where the Google My M
 <script>
   (function () {
     var frame = document.getElementById("farm-friend-map");
-    var appOrigin = "https://farm-friend-web-p5mfxfp5za-uw.a.run.app";
+    var appOrigin = "https://farmfriend.vigavashon.org";
 
     window.addEventListener("message", function (event) {
       if (event.origin !== appOrigin) return;
