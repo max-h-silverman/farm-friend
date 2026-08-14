@@ -37,3 +37,16 @@ mount_gmail_delivery = true
 # TRUE since 2026-08-07: all three versions exist, and `EMAIL_HASH_SALT` is the exact value the
 # roster ingest used — verified by effect, by matching stored hashes through the shipped lookup.
 mount_email_verification = true
+
+# F-113 — the custom domain every public and SMS link is built from.
+#
+# HERE rather than in `terraform.tfvars`, which is gitignored: a value that lives on one machine
+# is not configuration. An apply from another checkout would omit it, `PUBLIC_BASE_URL` would
+# fall back to the `*.run.app` host, and the domain mapping would be DESTROYED — reverting the
+# antivirus/carrier-filter fix while reporting success. That is the same failure that produced
+# this file.
+#
+# The CNAME (`farmfriend` -> `ghs.googlehosted.com`) is added by hand at VIGA's nameserver
+# provider; Terraform holds no credential for that zone. Domain ownership is verified in Google
+# Search Console by the account that runs the apply.
+public_host = "farmfriend.vigavashon.org"

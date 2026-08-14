@@ -26,7 +26,20 @@ locals {
   # for the life of the project — Cloud Run derives it per project+region — and if it were ever
   # wrong, the assertions fail at plan time instead of the fast path silently 404ing forever.
   worker_url = "https://farm-friend-worker-${var.cloud_run_host_suffix}.a.run.app"
-  web_url    = "https://farm-friend-web-${var.cloud_run_host_suffix}.a.run.app"
+
+  # The service's own `*.run.app` URL. Cloud Tasks and Cloud Scheduler keep calling this
+  # regardless of any custom domain — internal callers have no reason to traverse a public
+  # hostname, and a domain mapping cannot serve them before its certificate is issued.
+  web_run_app_url = "https://farm-friend-web-${var.cloud_run_host_suffix}.a.run.app"
+
+  # PUBLIC_BASE_URL — the custom domain when one is configured, else the `*.run.app` host.
+  #
+  # This is the value every PUBLIC link is built from: the onboarding invitation, the standing
+  # farmer link, the settings view, and the contact card. Changing it changes what farmers are
+  # texted, so it is deliberately a single switch rather than a per-surface choice.
+  #
+  # Links already sent keep working: the `*.run.app` host stays live and serves the same routes.
+  web_url = var.public_host == "" ? local.web_run_app_url : "https://${var.public_host}"
 
   # Configuration shared by both roles. Non-secret values only; the five sensitive ones are
   # mounted from Secret Manager below.
@@ -350,4 +363,37 @@ resource "google_cloud_run_v2_service" "worker" {
     google_project_service.required,
     google_secret_manager_secret_iam_member.runtime_reads,
   ]
+}
+
+# ---------------------------------------------------------------------------
+# Custom domain (F-113)
+# ---------------------------------------------------------------------------
+# Maps `var.public_host` onto the web service. Created only when a host is configured, so an
+# empty `public_host` leaves the system exactly as it was.
+#
+# THE DNS RECORD IS NOT MANAGED HERE. `vigavashon.org` is VIGA's domain, its records live with
+# a third-party nameserver provider, and Terraform holds no credential for it — so the CNAME is
+# added by hand and this resource only claims the host on Cloud Run's side. The mapping stays in
+# a pending state until that record resolves, then Google issues the certificate.
+#
+# Ownership of `vigavashon.org` must be verified in Google Search Console by the account that
+# runs this apply, or the mapping is rejected outright.
+#
+# `google_cloud_run_domain_mapping` is the v1 resource on purpose: there is no v2 equivalent,
+# and it maps a v2 service by name without issue.
+resource "google_cloud_run_domain_mapping" "web" {
+  count = var.public_host == "" ? 0 : 1
+
+  name     = var.public_host
+  location = var.region
+
+  metadata {
+    namespace = var.project_id
+  }
+
+  spec {
+    route_name = google_cloud_run_v2_service.web.name
+  }
+
+  depends_on = [google_project_service.required]
 }

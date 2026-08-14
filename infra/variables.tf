@@ -273,6 +273,30 @@ variable "cloud_run_host_suffix" {
   type        = string
 }
 
+variable "public_host" {
+  description = <<-EOT
+    The custom domain the web service is reached at, e.g. `farmfriend.vigavashon.org`. Empty
+    string means "no custom domain" — `PUBLIC_BASE_URL` then falls back to the `*.run.app` URL.
+
+    An INPUT for the same reason as `cloud_run_host_suffix`: reading the mapping's own hostname
+    back into `PUBLIC_BASE_URL` would make every service depend on a resource that does not
+    exist until after the first apply.
+
+    Why a custom domain at all (F-113): VIGA's page iframes the raw `*.run.app` host, and a
+    farmer's antivirus flagged it as phishing on 2026-08-14. The same host is in every SMS link
+    we send — onboarding invitations and standing farmer links — where an unfamiliar hostname
+    wrapped around a 64-character token is the shape carrier filters block outright. A subdomain
+    of the domain already in the 10DLC campaign registration is what fixes both.
+  EOT
+  type        = string
+  default     = ""
+
+  validation {
+    condition     = var.public_host == "" || can(regex("^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$", var.public_host))
+    error_message = "public_host must be a bare hostname with no scheme, port, path, or trailing dot — e.g. farmfriend.vigavashon.org."
+  }
+}
+
 variable "mount_geocoding_key" {
   description = <<-EOT
     Whether the WEB service mounts `GEOCODING_API_KEY` (F-069).

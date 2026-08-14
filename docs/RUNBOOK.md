@@ -128,7 +128,7 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `DEPLOYMENT_ROLE` | `web` (default) or `worker`; invalid values fail startup. The web role refuses `/api/internal/*` |
 | `CLOUD_TASKS_*` | Five variables, all or none. Omit all for local scheduled-pass-only operation |
 | `ADMIN_PASSWORD_HASH` | Required Argon2id verifier on the `web` role only; never log or pass as a command argument |
-| `PUBLIC_BASE_URL` | Required absolute origin. HTTPS except localhost; never derived from request headers |
+| `PUBLIC_BASE_URL` | Required absolute origin. HTTPS except localhost; never derived from request headers. In production it is the custom domain `https://farmfriend.vigavashon.org`, set from `public_host` in **tracked** `infra/production.tfvars` — an apply that omits it falls back to `*.run.app` AND destroys the domain mapping, reverting F-113 while reporting success. Every texted farmer link is built from this value |
 | `PUBLIC_MAP_URL` | Required canonical map page. HTTPS except localhost; returned unchanged for the deterministic `MAP` SMS command. **Must equal `PUBLIC_MAP_URL` in `packages/core/src/inquiry/answer.ts`** (the value customer copy embeds) or a non-local deployment refuses to start — changing the link means changing both, and the `#map` anchor is part of it (F-110). Local dev is exempt |
 | `SMS_PROVIDER` | Required `simulator` or `telnyx`; no default |
 | `TELNYX_API_KEY`, `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY` | All required with Telnyx; the public key verifies webhook signatures |

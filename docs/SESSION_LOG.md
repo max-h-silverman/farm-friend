@@ -11,7 +11,69 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-14 (latest) — The first real farmer onboarded, and two silent failures came with them
+## 2026-08-14 (latest) — A custom domain for every public link, and an SPF record that had been failing all along
+
+max got DNS access to `vigavashon.org` and asked what, beyond a CNAME for the map, was worth adding.
+The question turned out to be scoped too narrowly in two directions.
+
+**The reputation problem was never map-only.** `PUBLIC_BASE_URL` is one value feeding the entire web
+service, and enumerating what SMS actually emits found three of four links on the raw `*.run.app`
+host: the onboarding invitation, the standing farmer link, and the contact card. Only the `Map:` line
+was already on VIGA's domain — which is why nobody had reported *that* one being blocked. Two of the
+three wrap a 64-character random token, and an unfamiliar host around an opaque token is the shape
+carrier filters penalise; VIGA's 10DLC campaign is registered against `vigavashon.org`, so an
+unrelated host is a campaign mismatch too. So this was never a `map.` subdomain — it is one hostname
+for the whole service, and `farmfriend.vigavashon.org` is what it became.
+
+max twice proposed something shorter on SMS-length grounds — `ff.vigavashon.org`, then a separately
+registered `frmfnd.us` for about $7/yr. **Measuring settled it**: the tokens are 32 random bytes as
+hex, so the longest link runs 130 characters on the old host and 116 on the new one. Every option is
+multi-segment regardless, and no hostname choice moves a segment boundary. The 8 characters `ff.`
+would save are noise against a 64-character token, and a brand-new vowel-dropped domain on a cheap
+TLD reintroduces exactly the unfamiliarity being fixed — domain age is what reputation systems score,
+and a subdomain borrows the parent's. The lever, if length ever matters, is the token, not the host.
+
+**The DNS dump surfaced a live bug nobody was looking for.** `vigavashon.org` publishes Google
+Workspace MX records, and its SPF record was
+`v=spf1 include:spf.mandrillapp.com include:sendgrid.net ~all` — Google absent entirely. Every message
+Farm Friend sent as `board@` had been failing SPF; DKIM was present and often carried it, which is
+precisely the half-configured shape that looks fine. Fixed, and a monitor-only `_dmarc` added (there
+was none). This is likely part of VIGA's separate newsletter-deliverability complaint, and worth
+knowing that the domain may publish only ONE `v=spf1` record — a second one for a newsletter provider
+would break Farm Friend's mail too, so those senders must merge into the single record.
+
+**Verification notes worth keeping.** The Squarespace panel accepts DNS edits while showing "you're
+using custom nameservers", so saving there proves nothing — `dig` against both NS1 and Squarespace
+nameservers confirmed they serve identical records. Google Search Console had no `vigavashon.org`
+property under `board@`, so the existing `google-site-verification` TXT belongs to some other account;
+the GCP account self-verified as a Domain property instead. And **the domain mapping reported
+`Ready: True` about six minutes before TLS actually served** — a request in that window fails
+certificate verification, which inside an iframe is a silent blank. Polled the real request until it
+returned 200 before telling max to touch the embed.
+
+Shipped as configuration only: same image digest, new revisions `web-00082-2pl` /
+`worker-00077-rxp`. Internal Cloud Tasks/Scheduler traffic stays on `*.run.app`, which also keeps
+already-texted links working. The new plan assertion (61/61) fails a mapping created without the
+`PUBLIC_BASE_URL` cutover — the one shape that would apply green while every SMS still sent the
+blocked host; proven by sabotaging three configurations.
+
+`public_host` is in **tracked** `production.tfvars`, not the gitignored `terraform.tfvars`. Setting it
+in the latter would have left it on one machine, and the next apply from another checkout would
+destroy the mapping and revert the fix while reporting success — the same failure that created
+`production.tfvars`.
+
+Filed as **F-113**. It was worked most of the session under the label "B-072", which is a *different*
+open bug (classifier scoping); the ID was corrected across the commits, infra comments, docs, and the
+branch before merge.
+
+**Open:** the antivirus verdict itself is unconfirmed — nothing re-tested against Webroot, and
+reputation systems hold stale verdicts. Whether carrier filtering ever affected the SMS links was
+never measured, so that half is reasoned, not observed. No SMS built from the new host has been read
+on a handset.
+
+---
+
+## 2026-08-14 — The first real farmer onboarded, and two silent failures came with them
 
 Provo Farms completed onboarding, texted `VIGA`, sent stock updates — and appeared nowhere. Their pin
 was on the map, admin showed "current stock", and nothing anywhere reported a problem. Two separate
