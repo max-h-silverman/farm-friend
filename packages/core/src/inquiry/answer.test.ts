@@ -10,6 +10,9 @@ import {
   renderRecency,
   NO_RECENT_UPDATE,
   NO_RECENT_UPDATE_AFTER_DAYS,
+  EXACT_AGE_UNTIL_DAYS,
+  OVER_A_WEEK_AGO,
+  renderStockAge,
   STALE_AFTER_HOURS,
 } from "./answer";
 
@@ -45,6 +48,35 @@ describe("recency rendering — code states how fresh a fact is", () => {
       morning. 48 hours marked ordinary weekend listings as suspect.
     */
     expect(STALE_AFTER_HOURS).toBe(96);
+  });
+
+  it("counts an exact age up to a week, then says it in words", () => {
+    // The boundary: six days still counts, seven stops counting.
+    expect(renderStockAge(hoursAgo(24 * 6), NOW)).toBe("6d ago");
+    expect(renderStockAge(hoursAgo(24 * 7), NOW)).toBe(OVER_A_WEEK_AGO);
+    expect(renderStockAge(hoursAgo(24 * 16), NOW)).toBe(OVER_A_WEEK_AGO);
+    // Below the boundary it is exactly `renderShortElapsed` — one arithmetic, not two.
+    expect(renderStockAge(hoursAgo(2), NOW)).toBe("2h ago");
+    expect(renderStockAge(hoursAgo(0.2), NOW)).toBe("now");
+  });
+
+  it("holds the wording threshold at one week (max, 2026-08-14)", () => {
+    // Pinned as a VALUE, like the staleness threshold above and for the same reason: the
+    // boundary test passes at any number.
+    expect(EXACT_AGE_UNTIL_DAYS).toBe(7);
+  });
+
+  it("keeps the wording threshold clear of the two ageing thresholds", () => {
+    /*
+      THREE numbers now, doing three different jobs, and the order between them is the product
+      rule: a confirmation stops leading the page (4 days), then stops being counted in days
+      (1 week), then stops being shown at all (4 weeks).
+
+      Crossing any pair would produce a contradiction a customer can see — an exact age on a
+      claim that has already been dropped, or a vague age on one still ranked as fresh.
+    */
+    expect(STALE_AFTER_HOURS).toBeLessThan(EXACT_AGE_UNTIL_DAYS * 24);
+    expect(EXACT_AGE_UNTIL_DAYS).toBeLessThan(NO_RECENT_UPDATE_AFTER_DAYS);
   });
 
   it("keeps the two ageing thresholds distinct and correctly ordered", () => {

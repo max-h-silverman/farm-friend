@@ -19,7 +19,7 @@ import {
   PUBLIC_MAP_URL,
   renderItem,
   renderNoCurrentListing,
-  renderShortElapsed,
+  renderStockAge,
   type RetrievedFact,
 } from "./answer";
 
@@ -325,17 +325,17 @@ export function renderResultPage(input: {
       // nothing else in the entry. The "May also have" line below carries no time because
       // nobody confirmed it, and one timestamp above both would silently vouch for both.
       //
-      // B-063 — the LABEL carries the staleness, not a suffix. Found on a handset:
-      // "IN STOCK (16d ago)" put a present-tense claim and a fortnight-old timestamp in one
-      // line, and the label is what a customer reads first. F-107 had dropped the explicit
-      // "- may be out of date" because twenty characters per entry pushed an all-stale page
-      // over its segment ceiling; swapping the label instead costs nothing, because it
-      // REPLACES rather than appends. "Last seen" is honest at any age.
+      // B-063 — "IN STOCK (16d ago)" was found on a handset: a present-tense claim beside a
+      // fortnight-old timestamp. That was first fixed by swapping the LABEL to "Last seen"
+      // past the staleness threshold; max's call (2026-08-14) is that the label never changes
+      // — a customer learns one vocabulary — and the PARENTHESIS carries the warning instead.
       //
-      // The threshold is the map's own `isStale`, from the same function, so one row cannot
-      // read as current stock over SMS and as stale on the web.
-      const label = isStale(entry.confirmed.asOf, now) ? "Last seen" : "In stock";
-      lines.push(`${label} (${renderShortElapsed(entry.confirmed.asOf, now)}): ${items}`);
+      // "over a week ago" rather than "16d ago" is the actual defence: an exact count asks the
+      // reader to judge whether sixteen days is a lot, and the phrase has already judged. One
+      // week is `EXACT_AGE_UNTIL_DAYS`, and it governs wording only — `isStale` (4 days) still
+      // decides ranking above, and the map's warning, so a row cannot read as fresh here and
+      // stale on the web.
+      lines.push(`In stock (${renderStockAge(entry.confirmed.asOf, now)}): ${items}`);
     }
     if (entry.offering !== undefined) {
       // A confirmation outranks a standing description of the SAME item. Both rows exist for

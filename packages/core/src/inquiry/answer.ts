@@ -134,6 +134,38 @@ export const NO_RECENT_UPDATE_AFTER_DAYS = 28;
 export const NO_RECENT_UPDATE = "No recent update";
 
 /**
+ * When an SMS stock line stops printing an exact age and says the age in words (max,
+ * 2026-08-14).
+ *
+ * ONE WEEK, and it governs WORDING ONLY — never ranking, never the map's warning, never
+ * whether the claim is shown. `STALE_AFTER_HOURS` (96h) still decides all three of those, and
+ * the two thresholds are deliberately different jobs: at four days a confirmation stops
+ * leading the page, and at a week it stops being worth counting in days.
+ *
+ * B-063 was a present-tense IN STOCK over a 16-day-old confirmation. The fix there swapped the
+ * LABEL; max's call is that the label should never change — a customer learns one vocabulary —
+ * and that the parenthesis carries the warning instead, in words a customer reads rather than
+ * a number they have to judge. "9d ago" asks the reader to decide whether nine days is a lot;
+ * "over a week ago" has already decided.
+ */
+export const EXACT_AGE_UNTIL_DAYS = 7;
+
+/** What the SMS stock line says in place of an exact age once a confirmation is over a week old. */
+export const OVER_A_WEEK_AGO = "over a week ago";
+
+/**
+ * The parenthesised age on an SMS stock line — "(2h ago)", "(over a week ago)".
+ *
+ * Shared by the single-stand listing, the item verdict, and the multi-stand page, so one
+ * confirmation cannot be described three ways across three routes. The exact-age half is
+ * `renderShortElapsed`; this adds only the point at which counting stops.
+ */
+export function renderStockAge(asOf: Date, now: Date): string {
+  const days = Math.floor(Math.max(0, now.getTime() - asOf.getTime()) / 86_400_000);
+  return days >= EXACT_AGE_UNTIL_DAYS ? OVER_A_WEEK_AGO : renderShortElapsed(asOf, now);
+}
+
+/**
  * The public card's recency phrase — "Last updated 3 days ago", or the no-date sentence.
  *
  * **Separate from `renderElapsed` because the two surfaces answer different questions.** An
