@@ -603,6 +603,34 @@ async function publishPendingStockIn(
   const farmApprovalId = approvals[0]?.id as string | undefined;
   if (farmApprovalId === undefined) return;
 
+  /*
+    SUPERSEDE FIRST (B-070). `inventory_revisions_one_current_per_location` allows exactly one
+    current revision per stand, so inserting without retiring the incumbent throws — and this
+    ran inside the redemption transaction, so the throw rolled back the authorization, the
+    approval and the consent alongside the stock, leaving the farmer's inbound event to be
+    retried forever behind `runInboundPass`'s catch.
+
+    The farm that hits this is the ORDINARY one at launch, not an exotic case: VIGA seeded
+    every imported farm's offerings as a `viga` revision, so a stand already holds a current
+    revision before its farmer ever texts.
+
+    `for update` for the reason `activateWebProposal` locks the same row: two redemptions must
+    never both read the same incumbent as current and both insert a successor.
+  */
+  const current = await tx`
+    select id from inventory_revisions
+    where sales_location_id = ${salesLocationId} and is_current
+    for update
+  `;
+  const currentRevisionId = current[0]?.id as string | undefined;
+  if (currentRevisionId !== undefined) {
+    await tx`
+      update inventory_revisions
+      set is_current = false, superseded_at = ${input.occurredAt.toISOString()}
+      where id = ${currentRevisionId}
+    `;
+  }
+
   const revisions = await tx`
     insert into inventory_revisions (
       farm_id, sales_location_id, proposal_id, published_by_authorization_id,
