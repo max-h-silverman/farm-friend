@@ -30,9 +30,10 @@ the pre-existing `what is viga` miss; any new miss fails the gate. `when do you 
 inquiry, while `do you have eggs?` remains stand inventory and VIGA Bucks keeps its deterministic path.
 
 Verified before release: 2,036 unit tests, 953 integration tests, typecheck, lint, production build,
-scripted evals, and the paid live suites. Merged to `main` and deployed as one immutable image to both
-Cloud Run services with no migration; deploy and served-card assertions passed. Handset confirmation
-of B-068/B-069 remains part of the pre-go-live pass.
+scripted evals, and the paid live suites. PR #115 merged as `a636cbe`; web `00076-nn4` and worker
+`00071-m2q` serve the same immutable digest with no migration. Plan assertions passed 60/60, deploy
+and served-card assertions passed, and neither revision logged an error. Handset confirmation of
+B-068/B-069 remains part of the pre-go-live pass.
 
 ## 2026-08-13 — Phase 2 shipped, and the first two handset messages found two more bugs
 
