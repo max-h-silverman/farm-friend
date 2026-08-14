@@ -7,8 +7,10 @@ import {
   type InventoryInterpreter,
 } from "@farm-friend/core";
 import type {
-  InquiryModel,
+  CatalogMatcher,
   RequestClassificationModel,
+  SearchStandRequest,
+  StandLookupRequest,
   StockOutModel,
 } from "@farm-friend/ai";
 import {
@@ -59,7 +61,7 @@ export interface FreeTextDeps {
   /** Reads a report's free text into an item reference, once a stand is bound in code. */
   stockOut: StockOutModel;
   interpreter: InventoryInterpreter;
-  inquiry: InquiryModel;
+  catalogMatcher: CatalogMatcher;
   clock: Clock;
 }
 
@@ -145,6 +147,15 @@ export const SYSTEM_INQUIRY_REPLY =
   `Ask what a stand has, or tell us something is sold out. The map: ${PUBLIC_MAP_URL}`;
 
 /**
+ * VIGA owns the changing distribution details; Farm Friend links to their live answer rather
+ * than copying pickup locations that can drift. Source reviewed 2026-08-13:
+ * https://www.vigavashon.org/food-access-partnership
+ */
+export const VIGA_BUCKS_INQUIRY_REPLY =
+  "VIGA Farm Bucks help islanders buy fresh local food. No application is required. " +
+  "Current pickup options: https://www.vigavashon.org/food-access-partnership";
+
+/**
  * The reply to a greeting (F-111, the `chitchat` arm).
  *
  * Answers the person and says what the service is for, in one line. A greeting that fell into
@@ -152,11 +163,22 @@ export const SYSTEM_INQUIRY_REPLY =
  * claim about the corpus in reply to a message that was never about the corpus.
  */
 export const CHITCHAT_REPLY =
-  "Hi! Ask me what a Vashon farm stand has, or tell us if something is sold out.";
+  "Ask me what a Vashon farm stand has, or tell us if something is sold out. 🌱";
 
 async function handleCustomerInquiry(
   deps: FreeTextDeps,
   input: {
+    mode: "search_stands";
+    request: SearchStandRequest;
+    topic?: "viga_bucks";
+    senderHash: string;
+    taskText: string;
+    providerEventId: string;
+    occurredAt: Date;
+  } | {
+    mode: "stand_lookup";
+    request: StandLookupRequest;
+    topic?: "viga_bucks";
     senderHash: string;
     taskText: string;
     providerEventId: string;
@@ -176,18 +198,25 @@ async function handleCustomerInquiry(
 
   // Not an authorized farmer, or an authorized farmer who explicitly asked a question.
   // Every factual word of the reply is rendered by code from retrieved rows; the model only
-  // interprets and orders identifiers.
-  const answer = await answerInquiry(
-    { db: deps.db, model: deps.inquiry, clock: deps.clock },
-    {
-      taskText: input.taskText,
-      // F-046: an answer too long for one message saves its remainder against this sender,
-      // and the expiry runs from the message's own time rather than the pass's.
-      senderHash: input.senderHash,
-      occurredAt: input.occurredAt,
-      scope: { includeTestFarms },
-    },
-  );
+  // receives the fixed operation and, only for inventory/payment, selects public catalog values.
+  const common = {
+    ...(input.topic !== undefined ? { topic: input.topic } : {}),
+    taskText: input.taskText,
+    // F-046: an answer too long for one message saves its remainder against this sender,
+    // and the expiry runs from the message's own time rather than the pass's.
+    senderHash: input.senderHash,
+    occurredAt: input.occurredAt,
+    scope: { includeTestFarms },
+  };
+  const answer = input.mode === "search_stands"
+    ? await answerInquiry(
+        { db: deps.db, matcher: deps.catalogMatcher, clock: deps.clock },
+        { ...common, mode: "search_stands", request: input.request },
+      )
+    : await answerInquiry(
+        { db: deps.db, matcher: deps.catalogMatcher, clock: deps.clock },
+        { ...common, mode: "stand_lookup", request: input.request },
+      );
 
   if (answer.outcome === "answered") {
     return {
@@ -743,7 +772,11 @@ async function handleFarmerInventoryUpdate(
   }
   // Authority can be revoked between the identity check and target resolution. Fail toward
   // the read-only inquiry path; never interpret or persist an update without a live target.
-  return handleCustomerInquiry(deps, input);
+  return handleCustomerInquiry(deps, {
+    ...input,
+    mode: "search_stands",
+    request: { operation: "inventory" },
+  });
 }
 
 /**
@@ -883,21 +916,30 @@ export async function handleFreeText(
     case "inventory_report":
       return handleInventoryReport(deps, input, isFarmer);
 
-    /*
-      Both retrieval arms answer through the same grounded inquiry path. The classifier
-      distinguishes "one specific stand" from "stands generally" for a LATER stage to act on;
-      it is not a difference this pass renders, and inventing two code paths for a distinction
-      nothing yet consumes would be two ways to do one thing.
-    */
     case "search_stands":
+      return handleCustomerInquiry(deps, {
+        ...input,
+        mode: "search_stands",
+        request: classification.request,
+        ...(classification.topic !== undefined ? { topic: classification.topic } : {}),
+      });
+
     case "stand_lookup":
-      return handleCustomerInquiry(deps, input);
+      return handleCustomerInquiry(deps, {
+        ...input,
+        mode: "stand_lookup",
+        request: classification.request,
+        ...(classification.topic !== undefined ? { topic: classification.topic } : {}),
+      });
 
     case "system_inquiry":
       // The map, answered from the same constant the MAP keyword's URL is validated against.
       return {
         replies: [{
-          body: SYSTEM_INQUIRY_REPLY,
+          body:
+            classification.topic === "viga_bucks"
+              ? VIGA_BUCKS_INQUIRY_REPLY
+              : SYSTEM_INQUIRY_REPLY,
           category: "inquiry_reply",
           logicalKey: `system-inquiry-${input.providerEventId}`,
         }],

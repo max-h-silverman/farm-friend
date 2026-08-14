@@ -414,7 +414,7 @@ Every workflow has **one authoritative core use case and one durable path**:
 | Inventory publishing | Maintain one open proposal per sender; after its current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
 | Participant display | Let the location owner save the complete active **Also selling here** name list as structured public metadata; validate names with the shared public-string guard, retire omissions without deletion, expose no item provenance or edit access |
 | Customer stock-out | Accept a code-bound location, store a private report, resolve the authorized farmer in code, optionally ask for current inventory; a reply uses the ordinary inventory flow; free-text customer SMS cannot queue an alert; never alter public inventory |
-| Customer inquiry | After deterministic routing, obtain model interpretation; code validates it and retrieves typed current facts; for non-empty retrieval the model selects/orders fact IDs; code validates membership, renders the factual reply, and queues it; the direct response creates no later proactive subscription |
+| Customer inquiry | After deterministic routing, obtain model interpretation; code validates it and retrieves typed current facts; code groups each stand's evidence, the model selects/orders stand IDs, and code validates membership, restores every supporting evidence row, renders the factual reply, and queues it; the direct response creates no later proactive subscription |
 | Launch SMS consent | Maintain one launch-program consent state with provenance; `START`, `VIGA`, and documented farmer onboarding establish or restore it, `JOIN` establishes it for first-time senders only (B-011); message categories do not have separate enrollment |
 | STOP / START / VIGA / JOIN / HELP | Apply deterministic consent behavior before any other interpretation; universal STOP applies across all Farm Friend messaging; order start-operation commands on their separate provider-time watermark, with STOP winning an exact tie |
 | FLAG | Store the concern and expose it to the single-level admin queue |
@@ -587,7 +587,7 @@ already texted point there, and those threads cannot be edited. Nothing new link
    against start-operation commands; no passive customer follow-up or scoped MUTE; exactly one open
    inventory confirmation per sender, context-bound, version-bound, exactly-once, and expiring.
 3. The model proposes; code commits. Publication is confirmation-gated.
-4. Grounded, recency-labeled answers — the model selects/orders retrieved fact IDs and code renders
+4. Grounded, recency-labeled answers — the model selects/orders retrieved stand IDs and code renders
    authoritative factual text; unrestricted model prose is not treated as deterministically verifiable.
 5. Privacy at the data layer — phones hashed, raw never logged, never in model context.
 6. Safety enforced by a static provenance barrier plus runtime enforcement, never the system prompt;

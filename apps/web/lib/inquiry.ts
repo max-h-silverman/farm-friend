@@ -1,53 +1,68 @@
 import {
   factsPerPage,
   groupFactsByStand,
-  isBroadAvailabilityRequest,
+  openNow,
   rankCandidates,
   renderClarificationRequest,
   renderInterpreterUnavailable,
   renderNoCurrentListing,
   renderResultPage,
-  validateFactSelection,
-  validateInterpretedIntent,
+  renderStandFactPage,
   ORIGIN_LIMITATION_STATEMENT,
   PAGE_SIZE,
+  PUBLIC_MAP_URL,
   RECIPE_SCOPE_STATEMENT,
+  resolveStandName,
+  timeZoneOffsetMinutes,
+  VASHON_TIME_ZONE,
   type Clock,
   type FactBasis,
-  type InquiryCandidate,
-  type InterpretedIntent,
   type PageableFact,
   type RetrievedFact,
 } from "@farm-friend/core";
-import type { InquiryModel } from "@farm-friend/ai";
+import type {
+  CatalogMatcher,
+  SearchStandRequest,
+  StandLookupRequest,
+} from "@farm-friend/ai";
 import { savePendingResultList, visibleFarms, type Db } from "@farm-friend/db";
 import { readPublicClosure } from "./closure-projection";
+import { listPublicStands, type PublicStand } from "./public-listing";
 
 // Customer inquiry: question → code-rendered grounded answer.
 //
 // The sequence is fixed and code-owned (docs/AI_ARCHITECTURE.md §"Retrieval and ranking"):
 //
 //   1. deterministic routing has already run (compliance/confirmation never reach here)
-//   2. MODEL interprets the question — what to look up, and how to order it
-//   3. CODE validates that interpretation and retrieves authoritative facts
-//   4. MODEL selects and orders identifiers from exactly those facts
-//   5. CODE validates membership, dereferences values, and renders the answer
-//
-// Empty retrieval short-circuits at step 3: with nothing to select from, a model call could
-// only invent, so the honest "no current listing" is rendered without one.
+//   2. the top-level MODEL call has already fixed route and operation without catalog access
+//   3. CODE resolves a named stand and builds unique public item/payment catalogs
+//   4. for inventory/payment only, MODEL selects catalog values in one bounded call
+//   5. CODE validates membership, expands names to stands, orders, pages, and renders
 //
 // ## Paging (F-046)
 //
-// Step 5 renders at most `PAGE_SIZE` stands. When the selection is longer than that, the
+// Step 4 renders at most `PAGE_SIZE` stands. When the selection is longer than that, the
 // ORDERED IDENTIFIERS are saved as the sender's pending list and `MORE` walks it — see
 // `paging.ts`. Nothing about steps 2-4 changes: paging is a property of how the answer is
-// delivered, not of how it is decided, and a `MORE` re-enters at step 5 alone.
+// delivered, not of how it is decided, and a `MORE` re-enters at step 4 alone.
 
 export interface InquiryDeps {
   db: Db;
-  model: InquiryModel;
+  matcher: CatalogMatcher;
   clock: Clock;
 }
+
+export type ClassifiedInquiry =
+  | { mode: "search_stands"; request: SearchStandRequest }
+  | { mode: "stand_lookup"; request: StandLookupRequest };
+
+type InquiryRequestContext = ClassifiedInquiry & {
+  topic?: "viga_bucks";
+  taskText: string;
+  senderHash: string;
+  occurredAt: Date;
+  scope: SmsViewerScope;
+};
 
 /**
  * Whether this SENDER may see test farms (F-074).
@@ -84,27 +99,10 @@ export type InquiryOutcome =
   | { outcome: "rejected"; reason: string };
 
 /**
- * Derive the offering candidate's identifier for a location.
+ * Derive the code-owned paging identifier for a location's standing offering.
  *
- * One location can be a candidate on BOTH bases — confirmed stock and a standing offering —
- * and the model hands back identifiers, so the two must not collide. The confirmed fact keeps
- * the bare location id; this derives the offering's.
- *
- * **It must carry no structure the model could try to reconstruct (B-049).** The previous
- * scheme was `offering-<locationId>`, and measured against the live model and the production
- * corpus the model dropped the prefix and returned the bare uuid — 11 of 11 invalid
- * identifiers in that run were this single mistake. Code refused each one correctly, so
- * nothing false was ever rendered, but the customer lost a real answer every time, and 33 of
- * 48 candidates are offering-only stands, so most questions were exposed to it.
- *
- * A fact identifier is an OPAQUE TOKEN to copy back verbatim, and an opaque token with a
- * meaningful prefix invites exactly the editing that broke this. Flipping the uuid's variant
- * nibble keeps every property that matters — deterministic, so a `MORE` replay dereferences
- * to the same row; collision-free against the bare id; and `assertOpaqueId`-shaped — while
- * leaving nothing a model would think to normalize away.
- *
- * `basis` is unaffected: it already travels to the model as its own typed field, which is
- * what made the prefix redundant as well as fragile.
+ * One location can contribute both a confirmed-stock row and a standing-offering row, so the
+ * saved identifiers must not collide. The model never receives either identifier.
  */
 const OFFERING_VARIANT_NIBBLE: Record<string, string> = {
   "8": "c",
@@ -141,6 +139,74 @@ export function standKeyOfFactId(factId: string): string {
   const nibble = CONFIRMED_VARIANT_NIBBLE[factId[19] ?? ""];
   if (nibble === undefined) return factId;
   return `${factId.slice(0, 19)}${nibble}${factId.slice(20)}`;
+}
+
+export type PagedStandFactKind = "payment" | "farm_bucks" | "open_now";
+const PAGED_STAND_FACT_PREFIX = "stand-fact:";
+
+/** Keep a non-inventory page typed while the pending-list table treats every id as opaque. */
+export function pagedStandFactId(kind: PagedStandFactKind, standId: string): string {
+  return `${PAGED_STAND_FACT_PREFIX}${kind}:${standId}`;
+}
+
+export function parsePagedStandFactId(
+  value: string,
+): { kind: PagedStandFactKind; standId: string } | undefined {
+  if (!value.startsWith(PAGED_STAND_FACT_PREFIX)) return undefined;
+  const rest = value.slice(PAGED_STAND_FACT_PREFIX.length);
+  const split = rest.indexOf(":");
+  if (split < 1) return undefined;
+  const kind = rest.slice(0, split);
+  if (kind !== "payment" && kind !== "farm_bucks" && kind !== "open_now") return undefined;
+  const standId = rest.slice(split + 1);
+  return standId === "" ? undefined : { kind, standId };
+}
+
+interface SelectableStand {
+  /** The real location id used for deterministic ordering and paging. */
+  fact: RetrievedFact;
+  /** Separate authoritative voices retained for code-owned rendering. */
+  evidence: RetrievedFact[];
+}
+
+/**
+ * Collapse confirmed inventory and standing offerings into one result entry per stand.
+ *
+ * Relevance is a question about the stand and item, not about which evidence type code should
+ * disclose. B-068 proved the distinction: the old model selected Forest Garden's usual
+ * cucumber offering but omitted its confirmed cucumber. Code now retains both evidence voices
+ * whenever their shared catalog name was selected.
+ */
+function groupSelectableStands(facts: RetrievedFact[]): SelectableStand[] {
+  const groups: SelectableStand[] = [];
+  const byStandId = new Map<string, SelectableStand>();
+
+  for (const evidence of facts) {
+    const standId = standKeyOfFactId(evidence.factId);
+    let group = byStandId.get(standId);
+    if (group === undefined) {
+      group = {
+        fact: { ...evidence, factId: standId, matchedItems: [] },
+        evidence: [],
+      };
+      byStandId.set(standId, group);
+      groups.push(group);
+    }
+    group.evidence.push(evidence);
+
+    const existing = new Set(
+      group.fact.matchedItems.map((item) => item.itemName.trim().toLowerCase()),
+    );
+    for (const item of evidence.matchedItems) {
+      const key = item.itemName.trim().toLowerCase();
+      if (!existing.has(key)) {
+        group.fact.matchedItems.push(item);
+        existing.add(key);
+      }
+    }
+  }
+
+  return groups;
 }
 
 export interface LocationRow {
@@ -371,49 +437,27 @@ export async function dereferenceFacts(
  *
  * **The narrowing rule lives here, once, because both pages of one answer must obey it.**
  * What the model may CONSIDER is deliberately broad — every published item reaches the
- * selection seam, or "leafy greens" could never find "butter lettuce" (F-045). What a
+ * catalog-matching seam, or "leafy greens" could never find "butter lettuce" (F-045). What a
  * customer READS about a stand should stay on topic: an answer about kale should not recite
  * the eggs.
  *
- * Three sources, in descending order of precision (F-107):
- *
- *   1. `modelMatched` — the items the MODEL says answered the request for this fact. The only
- *      source that can resolve a category question, because "butter lettuce" answers "leafy
- *      greens" by a relationship code cannot see. Already validated against this row's real
- *      item names by `validateFactSelection`, so nothing invented reaches here.
- *   2. exact name match against the requested words — what code can prove on its own.
- *   3. every item the stand publishes.
- *
- * Source 3 is the honest floor rather than a good answer: listing nothing under a stand the
- * model chose would render an empty claim. It is reached when the model said nothing and no
- * name matched — the category case on a MORE page, where the model's matches were never
- * saved. Keeping the rule in ONE function is what stops page 1 and page 2 of the same answer
- * from narrowing differently.
+ * The selected catalog names are saved with the pending list, so page 1 and every MORE page
+ * apply the same exact narrowing without another model call.
  */
 function toPageableFact(
   row: LocationRow,
   itemsRequested: string[],
-  modelMatched?: readonly string[],
 ): PageableFact {
   const wanted = new Set(itemsRequested.map((item) => item.trim().toLowerCase()));
   const named = row.items.filter((item) =>
     wanted.has(item.itemName.trim().toLowerCase()),
   );
-  const claimed =
-    modelMatched === undefined
-      ? []
-      : row.items.filter((item) =>
-          modelMatched.some(
-            (name) => name.trim().toLowerCase() === item.itemName.trim().toLowerCase(),
-          ),
-        );
   return {
     factId: row.factId,
     farmName: row.farmName,
     locationName: row.locationName,
     publicAddress: row.publicAddress,
-    matchedItems:
-      claimed.length > 0 ? claimed : named.length > 0 ? named : row.items,
+    matchedItems: named,
     asOf: row.asOf,
     basis: row.basis,
   };
@@ -421,265 +465,380 @@ function toPageableFact(
 
 /**
  * Answer a customer inquiry. Every factual word returned is rendered by code from typed
- * authoritative values; the model contributes interpretation and ordering only.
+ * authoritative values; the operation is already fixed and the matcher selects catalog values only.
  */
 export async function answerInquiry(
   deps: InquiryDeps,
+  input: InquiryRequestContext,
+): Promise<InquiryOutcome> {
+  return answerResolvedInquiry(deps, input);
+}
+
+const WEEKDAYS = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+] as const;
+
+function formatClockMinutes(minutes: number): string {
+  const hour = Math.floor(minutes / 60) % 24;
+  const minute = minutes % 60;
+  const suffix = hour < 12 ? "am" : "pm";
+  const clockHour = hour % 12 || 12;
+  return `${clockHour}${minute === 0 ? "" : `:${String(minute).padStart(2, "0")}`}${suffix}`;
+}
+
+function formatDays(days: readonly number[]): string | undefined {
+  const valid = [...new Set(days)].filter((day) => day >= 0 && day <= 6).sort((a, b) => a - b);
+  if (valid.length === 0) return undefined;
+  const consecutive = valid.every((day, index) => index === 0 || day === valid[index - 1]! + 1);
+  if (consecutive && valid.length >= 3) {
+    return `${WEEKDAYS[valid[0]!]!}-${WEEKDAYS[valid[valid.length - 1]!]!}`;
+  }
+  return valid.map((day) => WEEKDAYS[day]).join(", ");
+}
+
+function scheduleLines(stand: PublicStand): string[] {
+  const lines: string[] = [];
+  const hours = stand.availability.hours;
+  if (hours !== undefined) {
+    const value =
+      hours.kind === "clock_range"
+        ? `${formatClockMinutes(hours.fromMinutes)}-${formatClockMinutes(hours.untilMinutes)}`
+        : hours.kind === "until_dusk"
+          ? `${formatClockMinutes(hours.fromMinutes)} until dusk`
+          : hours.kind === "dawn_to_dusk"
+            ? "dawn to dusk"
+            : hours.kind === "daylight_hours"
+              ? "daylight hours"
+              : hours.kind === "all_day"
+                ? "all day"
+                : "by appointment";
+    lines.push(`Hours: ${value}`);
+  }
+  const days = formatDays(stand.availability.days ?? []);
+  if (days !== undefined) lines.push(`Days: ${days}`);
+  const season = stand.availability.season;
+  if (season !== undefined) {
+    const value =
+      season.kind === "year_round"
+        ? "year-round"
+        : season.kind === "named_season"
+          ? season.names.join(", ")
+          : season.kind === "date_range"
+            ? `${season.startMonth}/${season.startDay}-${season.endMonth}/${season.endDay}`
+            : `from ${season.startMonth}/${season.startDay}`;
+    lines.push(`Season: ${value}`);
+  }
+  if (stand.availability.hoursText !== undefined) {
+    lines.push(`Note: ${stand.availability.hoursText}`);
+  }
+  return lines.length === 0 ? ["Hours not listed"] : lines;
+}
+
+async function deliverStandFactPage(
+  deps: InquiryDeps,
   input: {
-    taskText: string;
-    /**
-     * Who asked. A result set longer than one page is saved against this hash so `MORE` can
-     * continue it (F-046); a set that fits saves nothing.
-     */
+    stands: PublicStand[];
+    kind: PagedStandFactKind;
+    selectedValues: string[];
+    detailLines: (stand: PublicStand) => string[];
     senderHash: string;
-    /** The inbound message's own time — what the saved list's expiry is measured from. */
     occurredAt: Date;
-    /** F-074 — whether this sender may see test farms. Code's decision, never the model's. */
-    scope: SmsViewerScope;
   },
 ): Promise<InquiryOutcome> {
-  // Step 2 — interpret. This call sees the question and no facts.
-  const rawIntent = await deps.model.interpret({ taskText: input.taskText });
-
-  // B-049 — no model saw the question, so the reply must not blame the customer's wording.
-  // Checked before validation because "unavailable" is code's own observation about the
-  // transport, never a shape a model returned, and so has no interpretation to validate.
-  if (rawIntent.kind === "unavailable") {
-    return { outcome: "clarification", question: renderInterpreterUnavailable() };
+  const first = input.stands.slice(0, PAGE_SIZE);
+  const page = renderStandFactPage({
+    entries: first.map((stand) => ({
+      locationName: stand.locationName,
+      ...(stand.publicAddress !== undefined ? { publicAddress: stand.publicAddress } : {}),
+      detailLines: input.detailLines(stand),
+    })),
+    offset: 0,
+    total: input.stands.length,
+  });
+  if (page.hasMore) {
+    await savePendingResultList(deps.db, {
+      senderHash: input.senderHash,
+      factIds: input.stands.map((stand) => pagedStandFactId(input.kind, stand.factId)),
+      itemsRequested: input.selectedValues,
+      broad: false,
+      shown: first.length,
+      standTotal: input.stands.length,
+      standsShown: first.length,
+      occurredAt: input.occurredAt,
+      ttlMinutes: PENDING_LIST_TTL_MINUTES,
+    });
   }
+  return {
+    outcome: "answered",
+    body: page.body,
+    selectedFactIds: input.stands.map((stand) => stand.factId),
+  };
+}
 
-  const intent = validateInterpretedIntent(rawIntent);
-  if (!intent.ok) {
-    return { outcome: "rejected", reason: intent.reason };
-  }
-  // B-061 defect 4 — a customer asking what there is to buy must be answered, whichever model
-  // is installed. Measured live: "what do you have" came back `ambiguous` 10 runs out of 10
-  // while that exact phrase sat in the instruction as never-ambiguous, and three earlier
-  // instruction edits each moved which phrasings passed while regressing others. The model
-  // matches the instruction's vocabulary rather than its concept, so this is a code guarantee
-  // (`isBroadAvailabilityRequest`, grammar only, no food or farm words) rather than prose.
-  //
-  // It overrides ONLY toward answering, and only over `ambiguous`: a model that produced a
-  // lookup keeps its own interpretation. The substituted intent is the same one the model
-  // returns for a broad request, so the whole downstream path is unchanged — and `broad` means
-  // code pages its own ranked set rather than asking the model to reproduce identifiers.
-  const broadOverride =
-    intent.value.kind === "ambiguous" && isBroadAvailabilityRequest(input.taskText);
-
-  const interpreted: InterpretedIntent = broadOverride
-    ? {
-        kind: "lookup",
-        items: ["produce"],
-        ranking: "any",
-        broad: true,
-        outOfScopeRequest: false,
-        originDependent: false,
-      }
-    : intent.value;
-
-  if (interpreted.kind === "ambiguous") {
-    // The model signalled; the words are code's.
+/** B-069's operation-specific workflow after top-level classification. */
+async function answerResolvedInquiry(
+  deps: InquiryDeps,
+  input: InquiryRequestContext,
+): Promise<InquiryOutcome> {
+  if (input.request.operation === "clarification") {
     return { outcome: "clarification", question: renderClarificationRequest() };
   }
 
-  // The two launch boundaries a request can cross, handled by one mechanism.
-  //
-  // F-018 — the request also asked for a recipe, cooking/preservation instructions, or
-  // food-safety guidance.
-  // F-017 — the request needs the customer's own position ("which stand is closest?"), which
-  // launch does not resolve over SMS.
-  //
-  // In both cases the model contributes a BOOLEAN and code contributes every word. Farm
-  // Friend still answers the grounded availability half from typed facts and then states the
-  // boundary; it never fabricates the part it cannot support, and never returns an unranked
-  // list as though it had answered "which is closest?".
-  const notes = [
-    interpreted.outOfScopeRequest ? RECIPE_SCOPE_STATEMENT : undefined,
-    interpreted.originDependent ? ORIGIN_LIMITATION_STATEMENT : undefined,
-  ].filter((note): note is string => note !== undefined);
+  const publicStands = await listPublicStands(
+    { db: deps.db, clock: deps.clock },
+    input.scope,
+  );
+  const listings = await retrieveCurrentListings(deps.db, deps.clock.now(), input.scope);
+  let resolvedStand: PublicStand | undefined;
+  const candidateStands =
+    input.mode === "stand_lookup"
+      ? (() => {
+          const resolution = resolveStandName(
+            input.taskText,
+            publicStands.map((stand) => ({ id: stand.factId, name: stand.locationName })),
+          );
+          if (resolution.kind !== "match") return [];
+          resolvedStand = publicStands.find((stand) => stand.factId === resolution.id);
+          return resolvedStand === undefined ? [] : [resolvedStand];
+        })()
+      : publicStands;
 
+  if (input.mode === "stand_lookup" && resolvedStand === undefined) {
+    return { outcome: "clarification", question: renderClarificationRequest() };
+  }
+
+  if (input.topic === "viga_bucks") {
+    if (resolvedStand !== undefined) {
+      const status =
+        resolvedStand.farmBucksAccepted === true
+          ? "Accepts VIGA Farm Bucks"
+          : resolvedStand.farmBucksAccepted === false
+            ? "Does not accept VIGA Farm Bucks"
+            : "VIGA Farm Bucks acceptance not listed";
+      return {
+        outcome: "answered",
+        body: [resolvedStand.locationName, status, "", `Map: ${PUBLIC_MAP_URL}`].join("\n"),
+        selectedFactIds: [resolvedStand.factId],
+      };
+    }
+    const matching = publicStands.filter((stand) => stand.farmBucksAccepted === true);
+    if (matching.length === 0) {
+      return {
+        outcome: "answered",
+        body: `No public stand currently lists VIGA Farm Bucks acceptance.\n\nMap: ${PUBLIC_MAP_URL}`,
+        selectedFactIds: [],
+      };
+    }
+    return deliverStandFactPage(deps, {
+      stands: matching,
+      kind: "farm_bucks",
+      selectedValues: [],
+      detailLines: () => ["Accepts VIGA Farm Bucks"],
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+    });
+  }
+
+  const catalog = new Map<string, string>();
+  const paymentCatalog = new Map<string, string>();
+  for (const stand of candidateStands) {
+    for (const item of [...stand.items, ...stand.usualOfferings]) {
+      const key = item.itemName.trim().toLowerCase();
+      if (key !== "" && !catalog.has(key)) catalog.set(key, item.itemName.trim());
+    }
+    for (const method of stand.paymentMethods) {
+      const key = method.trim().toLowerCase();
+      if (key !== "" && !paymentCatalog.has(key)) paymentCatalog.set(key, method.trim());
+    }
+  }
+
+  if (input.request.operation === "location" && resolvedStand !== undefined) {
+    return {
+      outcome: "answered",
+      body: [
+        resolvedStand.locationName,
+        resolvedStand.publicAddress ?? "address not listed",
+        "",
+        `Map: ${PUBLIC_MAP_URL}`,
+      ].join("\n"),
+      selectedFactIds: [resolvedStand.factId],
+    };
+  }
+
+  if (input.request.operation === "hours" && resolvedStand !== undefined) {
+    return {
+      outcome: "answered",
+      body: [resolvedStand.locationName, ...scheduleLines(resolvedStand), "", `Map: ${PUBLIC_MAP_URL}`].join("\n"),
+      selectedFactIds: [resolvedStand.factId],
+    };
+  }
+
+  if (input.request.operation === "hours") {
+    const now = deps.clock.now();
+    const utcOffsetMinutes = timeZoneOffsetMinutes(now, VASHON_TIME_ZONE);
+    const matching = publicStands.filter(
+      (stand) =>
+        openNow({
+          availability: stand.availability,
+          ...(stand.closure !== undefined ? { closure: stand.closure } : {}),
+          at: now,
+          utcOffsetMinutes,
+          ...(stand.latitude !== undefined ? { latitude: stand.latitude } : {}),
+          ...(stand.longitude !== undefined ? { longitude: stand.longitude } : {}),
+        }).state === "open",
+    );
+    if (matching.length === 0) {
+      return {
+        outcome: "answered",
+        body: `No public stand is confirmed open right now.\n\nMap: ${PUBLIC_MAP_URL}`,
+        selectedFactIds: [],
+      };
+    }
+    return deliverStandFactPage(deps, {
+      stands: matching,
+      kind: "open_now",
+      selectedValues: [],
+      detailLines: () => ["Open now"],
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+    });
+  }
+
+  if (input.request.operation === "overview" && resolvedStand !== undefined) {
+    const lines = [resolvedStand.locationName];
+    if (resolvedStand.items.length > 0) {
+      lines.push(`In stock: ${resolvedStand.items.map((item) => item.itemName).join(", ")}`);
+    }
+    if (resolvedStand.usualOfferings.length > 0) {
+      lines.push(`Usually sells: ${resolvedStand.usualOfferings.map((item) => item.itemName).join(", ")}`);
+    }
+    if (resolvedStand.paymentMethods.length > 0) {
+      lines.push(`Payments: ${resolvedStand.paymentMethods.join(", ")}`);
+    }
+    lines.push(...scheduleLines(resolvedStand));
+    lines.push(resolvedStand.publicAddress ?? "address not listed", "", `Map: ${PUBLIC_MAP_URL}`);
+    return {
+      outcome: "answered",
+      body: lines.join("\n"),
+      selectedFactIds: [resolvedStand.factId],
+    };
+  }
+
+  if (input.request.operation === "payment") {
+    const match = await deps.matcher.match({
+      taskText: input.taskText,
+      catalogType: "payment",
+      values: [...paymentCatalog.values()],
+    });
+    if (!match.ok) {
+      return match.reason === "provider_error"
+        ? { outcome: "clarification", question: renderInterpreterUnavailable() }
+        : { outcome: "rejected", reason: "catalog matcher carries only public catalog values" };
+    }
+    const selectedMethods: string[] = [];
+    for (const method of match.matches) {
+      const ours = paymentCatalog.get(method.trim().toLowerCase());
+      if (ours === undefined) {
+        return { outcome: "rejected", reason: `payment method ${method} is not part of the public catalog` };
+      }
+      if (!selectedMethods.includes(ours)) selectedMethods.push(ours);
+    }
+    const selectedKeys = new Set(selectedMethods.map((method) => method.toLowerCase()));
+    const matching = candidateStands.filter((stand) =>
+      stand.paymentMethods.some((method) => selectedKeys.has(method.trim().toLowerCase())),
+    );
+    if (matching.length === 0) {
+      return {
+        outcome: "answered",
+        body: `No public stand lists ${selectedMethods.join(" or ") || "that"} as a payment method.\n\nMap: ${PUBLIC_MAP_URL}`,
+        selectedFactIds: [],
+      };
+    }
+    return deliverStandFactPage(deps, {
+      stands: matching,
+      kind: "payment",
+      selectedValues: selectedMethods,
+      detailLines: (stand) => [
+        `Payment listed: ${stand.paymentMethods.filter((method) => selectedKeys.has(method.trim().toLowerCase())).join(", ")}`,
+      ],
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+    });
+  }
+
+  const notes = [
+    "outOfScopeRequest" in input.request && input.request.outOfScopeRequest === true
+      ? RECIPE_SCOPE_STATEMENT
+      : undefined,
+    "originDependent" in input.request && input.request.originDependent === true
+      ? ORIGIN_LIMITATION_STATEMENT
+      : undefined,
+  ].filter((note): note is string => note !== undefined);
   const withScope = (body: string): string =>
     notes.length === 0 ? body : [body, ...notes].join("\n\n");
 
-  // Step 3 — CODE retrieves, then ranks by the validated interpretation.
-  const now = deps.clock.now();
-  const listings = await retrieveCurrentListings(deps.db, now, input.scope);
-  const candidates: InquiryCandidate[] = listings.map((row) => ({
-    factId: row.factId,
-    farmName: row.farmName,
-    locationName: row.locationName,
-    matchedItemNames: row.items.map((item) => item.itemName),
-    asOf: row.asOf,
-  }));
-
-  const ranked = rankCandidates(candidates, {
-    ranking: interpreted.ranking,
-    items: interpreted.items,
-    ...(interpreted.farmScope !== undefined
-      ? { farmScope: interpreted.farmScope }
-      : {}),
-  });
-
-  if (ranked.length === 0) {
-    // No grounded-selection call: there is nothing to select from, so asking a model could
-    // only produce invention. The honest answer is code's.
-    //
-    // A recipe request with nothing available still lands here, and still gets only the
-    // code-rendered "no current listing" plus the scope statement — never a model-authored
-    // substitute offered in place of the facts we do not have.
-    return {
-      outcome: "answered",
-      body: withScope(renderNoCurrentListing(interpreted.items)),
-      selectedFactIds: [],
-    };
-  }
-
-  // Every published item reaches the selection seam, not just exact string matches
-  // (F-045). Narrowing the RETRIEVED SET by name equality is what made "leafy greens"
-  // invisible to a stand publishing "butter lettuce": the model cannot select what it was
-  // never shown. Rendering narrows separately — that rule lives in `toPageableFact`, once,
-  // because a later MORE page of this same answer must obey it too.
-  const itemsRequested = interpreted.items;
-  const byId = new Map(listings.map((row) => [row.factId, row]));
-  const retrieved: RetrievedFact[] = ranked.map((candidate) =>
-    toPageableFact(byId.get(candidate.factId)!, itemsRequested),
-  );
-
-  // A general "what is available" request includes every retrieved fact by definition.
-  // The deterministic ranking and display grouping already order that complete answer, so
-  // the model only needs to reproduce the first page. Named-item and category questions stay
-  // on the full selection path: only the model can judge their semantic matches (B-050).
-  const displayOrdered = [
-    ...retrieved.filter((fact) => fact.basis === "confirmed"),
-    ...retrieved.filter((fact) => fact.basis === "offering"),
-  ];
-  const selectionCandidates = interpreted.broad
-    ? displayOrdered.slice(0, PAGE_SIZE)
-    : retrieved;
-
-  // Step 4 — select. This call sees the retrieved facts and NOT the raw question.
-  const rawSelection = await deps.model.select({
-    items: interpreted.items,
-    ranking: interpreted.ranking,
-    facts: selectionCandidates.map((fact) => ({
-      factId: fact.factId,
-      farmName: fact.farmName,
-      locationName: fact.locationName,
-      matchedItemNames: fact.matchedItems.map((item) => item.itemName),
-      // An offering has no age to report: nobody confirmed it. Sending one would let the
-      // model treat a standing description as a fresh confirmation.
-      ...(fact.basis === "confirmed"
-        ? {
-            ageHours: Math.max(
-              0,
-              Math.floor((now.getTime() - fact.asOf.getTime()) / 3_600_000),
-            ),
-          }
-        : {}),
-      basis: fact.basis,
-    })),
-  });
-
-  // Step 5 — CODE validates membership and renders.
-  if ("kind" in rawSelection && rawSelection.kind === "refused") {
-    // The seam refused the model's shape. A rejected shape (typically a smuggled factual
-    // string) is reported as such so an attack is observable; a transient provider error
-    // asks the customer, because "no current listing" would be a factual claim we cannot
-    // support from a failed call.
-    //
-    // B-049 — and the two failures say DIFFERENT things, exactly as on the interpretation
-    // seam above. Measured live, "who has eggs" interpreted correctly and then timed out
-    // here at 20.0s; telling that customer we did not catch which item they meant is both
-    // false and useless, since retrieval had already found the eggs.
-    return rawSelection.reason === "invalid_output"
-      ? { outcome: "rejected", reason: "selection carries only ordered fact identifiers" }
-      : {
-          outcome: "clarification",
-          question: renderInterpreterUnavailable(),
-        };
-  }
-
-  const selection = validateFactSelection(rawSelection, selectionCandidates);
-  if (!selection.ok) {
-    // B-061 — a MALFORMED selection must not throw away a retrieval that already succeeded.
-    //
-    // Found live: "got any peppers" and "eggz" both had their selection refused, and both
-    // customers were told "Sorry, I did not catch which item or farm you meant" — false, since
-    // code had already retrieved the peppers and the eggs. The wording blames the customer for
-    // the model's bad reply.
-    //
-    // The distinction is what the failure REVEALS, and it is narrow on purpose. A duplicate id
-    // is a model that repeated itself: it names nothing it was not shown, so there is nothing
-    // to report and code's own ranking already holds a correct answer. Every other failure —
-    // an invented identifier, a smuggled `answerText`, a malformed shape — is a claim about
-    // facts the model was never given, and stays `rejected` so an attack remains observable.
-    //
-    // Not a retry: a second model call would spend the customer's latency on a path where code
-    // already knows the answer. Grounding is untouched, because the model's selection is
-    // discarded ENTIRELY rather than repaired — every fact below comes from `displayOrdered`,
-    // which code built and ranked.
-    if (selection.failure !== "duplicate_id") {
-      return { outcome: "rejected", reason: selection.reason };
-    }
-
-    return await deliverPage(deps, {
-      facts: displayOrdered,
-      itemsRequested,
-      broad: interpreted.broad === true,
-      senderHash: input.senderHash,
-      occurredAt: input.occurredAt,
-      withScope,
+  let selectedNames: string[];
+  if (input.request.operation === "inventory") {
+    const match = await deps.matcher.match({
+      taskText: input.taskText,
+      catalogType: "inventory",
+      values: [...catalog.values()],
     });
+    if (!match.ok) {
+      return match.reason === "provider_error"
+        ? { outcome: "clarification", question: renderInterpreterUnavailable() }
+        : { outcome: "rejected", reason: "catalog matcher carries only public catalog values" };
+    }
+    selectedNames = [];
+    for (const name of match.matches) {
+      const ours = catalog.get(name.trim().toLowerCase());
+      if (ours === undefined) {
+        return { outcome: "rejected", reason: `item ${name} is not part of the public catalog` };
+      }
+      if (!selectedNames.includes(ours)) selectedNames.push(ours);
+    }
+    if (selectedNames.length === 0) {
+      return {
+        outcome: "answered",
+        body: withScope(renderNoCurrentListing([])),
+        selectedFactIds: [],
+      };
+    }
+  } else if (input.request.operation === "broad") {
+    selectedNames = [...catalog.values()];
+  } else {
+    return { outcome: "rejected", reason: `unsupported ${input.request.operation} inquiry operation` };
   }
-  if (selection.value.kind === "clarification") {
-    return { outcome: "clarification", question: renderClarificationRequest() };
-  }
-  if (selection.value.factIds.length === 0) {
+
+  const selectedKeys = new Set(selectedNames.map((name) => name.trim().toLowerCase()));
+  const matching = listings
+    .filter((row) => resolvedStand === undefined || standKeyOfFactId(row.factId) === resolvedStand.factId)
+    .filter((row) => row.items.some((item) => selectedKeys.has(item.itemName.trim().toLowerCase())))
+    .map((row) => toPageableFact(row, selectedNames));
+
+  if (matching.length === 0) {
     return {
       outcome: "answered",
-      body: withScope(renderNoCurrentListing(interpreted.items)),
+      body: withScope(renderNoCurrentListing(selectedNames)),
       selectedFactIds: [],
     };
   }
 
-  // Step 5, paged (F-046). The model chose and ordered; code decides how much of that fits in
-  // one message and remembers the rest.
-  //
-  // Ordering here is the RENDERER's rule, not a second ranking: confirmed stock leads and is
-  // never paged away, because it is what the customer actually asked for. The model's order
-  // is preserved within each group.
-  const selectedFactIds = selection.value.factIds;
-  const answerFactIds = interpreted.broad
-    ? [...selectedFactIds, ...displayOrdered.slice(PAGE_SIZE).map((fact) => fact.factId)]
-    : selectedFactIds;
-  // F-107 — re-narrow each fact to the items the MODEL said answered the request, where it
-  // said. Built from `listings` rather than `retrieved` so the full published list is in hand:
-  // `toPageableFact` already narrowed once on string match, and narrowing a narrowed list
-  // would silently drop a category answer the model correctly identified.
-  const modelMatched = selection.value.matchedItems ?? {};
-  const rowByFactId = new Map(listings.map((row) => [row.factId, row]));
-  const byFactId = new Map(
-    retrieved.map((fact) => {
-      const row = rowByFactId.get(fact.factId);
-      const claimed = modelMatched[fact.factId];
-      return [
-        fact.factId,
-        row !== undefined && claimed !== undefined
-          ? toPageableFact(row, itemsRequested, claimed)
-          : fact,
-      ];
-    }),
+  const grouped = groupSelectableStands(matching);
+  const ranked = rankCandidates(
+    grouped.map(({ fact }) => ({
+      factId: fact.factId,
+      locationName: fact.locationName,
+      asOf: fact.asOf,
+    })),
   );
-  const selected = answerFactIds.map((factId) => byFactId.get(factId)!);
-  const ordered = [
-    ...selected.filter((fact) => fact.basis === "confirmed"),
-    ...selected.filter((fact) => fact.basis === "offering"),
-  ];
+  const byStand = new Map(grouped.map((stand) => [stand.fact.factId, stand]));
+  const facts = ranked.flatMap((candidate) => byStand.get(candidate.factId)!.evidence);
 
-  return await deliverPage(deps, {
-    facts: ordered,
-    itemsRequested,
-    broad: interpreted.broad === true,
+  return deliverPage(deps, {
+    facts,
+    itemsRequested: selectedNames,
+    broad: input.request.operation === "broad",
     senderHash: input.senderHash,
     occurredAt: input.occurredAt,
     withScope,

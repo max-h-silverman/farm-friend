@@ -1,7 +1,7 @@
 import type { Clock, InventoryInterpreter } from "@farm-friend/core";
 import type {
+  CatalogMatcher,
   RequestClassificationModel,
-  InquiryModel,
   StockOutModel,
 } from "@farm-friend/ai";
 import {
@@ -36,7 +36,7 @@ export interface InboundWorkerDeps {
   classifier: RequestClassificationModel;
   stockOut: StockOutModel;
   interpreter: InventoryInterpreter;
-  inquiry: InquiryModel;
+  catalogMatcher: CatalogMatcher;
   clock: Clock;
   /**
    * The CONFIGURED public origin a farmer's standing link is built against (F-040). Passed
@@ -157,7 +157,7 @@ export async function runInboundPass(
                 classifier: deps.classifier,
                 stockOut: deps.stockOut,
                 interpreter: deps.interpreter,
-                inquiry: deps.inquiry,
+                catalogMatcher: deps.catalogMatcher,
                 clock: deps.clock,
               },
               input,

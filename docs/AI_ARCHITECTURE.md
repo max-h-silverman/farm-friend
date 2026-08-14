@@ -46,17 +46,17 @@ hard-coded foods, farm names, semantic categories, or a brittle catalog of reque
 Actual farms, foods, and listing details are **data**. Fixed compliance and authority controls — STOP,
 START, HELP, authentication, confirmation — remain **deterministic**.
 
-Code provides: an allowed task-specific context; general retrieval operations; authoritative records;
-constrained action options; typed retrieved facts with stable identifiers and `asOf` values;
-selected-ID validation; and deterministic rendering before any consequence. The model may propose a
-search or ranking **interpretation** and select or order identifiers from the retrieved set. Code
-executes only permitted operations, rejects identifiers outside that set, and renders authoritative
-factual text from the retrieved values.
+Code provides: an allowed task-specific context; authoritative records; deduplicated public catalogs;
+constrained action options; typed facts with stable identifiers and `asOf` values; catalog-membership
+validation; and deterministic rendering before any consequence. For customer inquiry, a classifier
+first fixes the operation without seeing a catalog; only inventory/payment then lets a matcher select
+public catalog values. Code expands those selections to every supporting stand and evidence row,
+orders them, and renders authoritative factual text.
 
 Farm Friend does not attempt to decompose and deterministically verify unrestricted natural-language
 prose. Comparative text is rendered only when code can derive the stated comparison from typed facts.
-Ranking intent is an **open interpretation the model proposes and code validates and executes**, never
-a constant baked into the architecture.
+Semantic matching stays open-ended: the model can relate "leafy greens" to farmer-authored names such
+as "kale" and "lettuce" without a food taxonomy in code.
 
 ## The model-vs-code line (the model proposes; code commits)
 
@@ -64,10 +64,10 @@ a constant baked into the architecture.
 |---|---|
 | interpret language; infer search intent | identity and authority |
 | propose inventory or closure changes | launch-program consent and universal STOP |
-| select and rank identifiers from retrieved options | recipient selection |
+| select public catalog names or typed options | recipient selection |
 | draft non-authoritative language where a seam permits | commitments, transactions, durable writes, publication |
 | suggest escalation | idempotency, retention, provider operations |
-| | validation of selected identifiers against retrieved facts |
+| | validation of selected values against code-supplied options |
 | | rendering of authoritative customer-facing factual text |
 
 The model **never** writes durable state, chooses recipients, decides consent, invents availability, or
@@ -107,11 +107,10 @@ presentation — a newline and a forged label inside sender text cannot become a
 
 | Seam | Permitted model input |
 |---|---|
-| request classification (F-111) | the sender's current message alone — **no stand roster, no sender type, no service name**, each excluded on measurement rather than principle |
+| request classification (F-111/B-069) | the sender's current message alone; a strict route-specific result fixes search/lookup operation and applicable flags — **no catalog, stand data, payment values, factual context, sender type, or service name** |
 | inventory extraction | the current farmer message, opaque published or code-issued draft entry IDs and public item names from the sender's complete pending inventory when open (otherwise current published inventory), the current or pending canonical closure instruction for the farmer's own location, the exact current Vashon calendar date, and deterministic closure timing evidence derived by code before the call |
 | stock-out item parsing | the current item text plus public item IDs/names for the code-bound location — its published inventory and its usual offerings, as one flat list carrying no indication of which is which |
-| inquiry interpretation | the current customer SMS request |
-| grounded fact selection | interpreted intent plus opaque IDs and typed public retrieved facts (returns selected IDs and, per ID, which of that fact's own item names answered) |
+| catalog matching (B-069) | the current customer SMS request, catalog type, and unique public item or payment values — **no route choice, stand IDs, names, associations, evidence type, or factual prose** |
 | offering extraction | one stand's public "generally offers" description, alone |
 
 **Offering extraction is the one seam that does not run on a message.** It reads VIGA's published stand
@@ -127,12 +126,10 @@ every `inventory_revisions` row must declare a `source` (F-063). It is reachable
 script and from a farmer editing their **own** listing; it is never reachable from anonymous public
 discovery, which stays model-free (policed by `apps/web/lib/public-surface-model-free.test.ts`).
 
-**The two inquiry projections are deliberately disjoint, and this is load-bearing.** Interpretation
-receives the customer's question and **no retrieved facts**: it decides what to look up, and handing it
-the answer set would invite it to answer from context. Grounded selection receives the retrieved facts
-and **not the raw question**: it orders what code already found, and the raw request is where a prompt
-injection would live. Each split is a compile error to violate
-(`packages/ai/src/safety-boundary.type-test.ts`).
+**The inquiry projection carries meanings without stand associations.** Each unique public item and
+payment name appears once. The model can decide that "leafy greens" matches "Kale" and "Lettuce", but
+cannot include one stand and omit another carrying the same selected name, choose confirmed versus
+usual evidence, or spend output reproducing stand identifiers. Code owns all expansion and ordering.
 
 **Opaque identifiers are checked for shape, not scanned as content.** The named raw-phone rule applies
 to human-readable retrieved text (names, item labels). Applying it to an identifier is a false positive
@@ -234,88 +231,79 @@ flag:
   (B-053). Model-derived item text for an *unlisted* report is stored but never spoken: the farmer's
   alert names the stand and, for a listed entry, the stand's own item name — a code-rendered message
   from typed facts, never a reporter's or a model's prose.
-- **inquiry interpretation** — question → open intent: item(s), optional farm scope, a **proposed
-  selection/ranking interpretation**, an `outOfScopeRequest` **boolean**, an `originDependent`
-  **boolean**, or a bare "ambiguous → ask" signal. **Never privileges one reading** of a multi-item
-  request, and is not restricted to a fixed strategy enum. Launch does not resolve an arbitrary SMS
-  origin.
+- **request classification** (B-069) — the existing top-level call now returns a strict discriminated
+  union. `search_stands` permits inventory, broad, payment, hours, or clarification;
+  `stand_lookup` permits inventory, payment, hours, location, overview, or clarification. Applicable
+  `outOfScopeRequest` and `originDependent` flags live on the relevant request variants. Non-inquiry
+  kinds carry no inquiry fields, and the call sees the current message only.
 
-  The `ambiguous` signal is **advisory, and code may override it toward answering** (B-061). A message
-  with shopping grammar that names no product — "what do you have", "what's for sale" — is read as a
-  broad request by `isBroadAvailabilityRequest` in core, whatever the model said. This is the trust
-  contract working as designed rather than an exception to it: asking what there is to buy is the
-  product's central question, so answering it must survive a model swap. Measured, the installed model
-  returns `ambiguous` for that phrase **even when the phrase itself is written into the instruction as
-  never-ambiguous** — a property no amount of prompt wording made reliable. The override runs one way
-  only: it can turn an ask into an answer, never an answer into an ask, and it holds no food or farm
-  vocabulary (it matches grammar, and a leftover content word means the customer named a target).
-- **grounded fact selection** — select and order identifiers from the **retrieved facts only**, and
-  say **which of each selected fact's own item names answered the request** (F-107). Code
-  validates membership and renders the authoritative, recency-labeled answer; empty retrieval → a
-  code-rendered honest "no current listing."
+- **catalog matching** (B-069) — inventory and payment alone make a second bounded call after the
+  operation is fixed. It receives one deduplicated value list and returns only `{matches:[...]}`.
+  A valid empty list means the request was understood but nothing matched; provider/schema failure is
+  a separate result. The schema has no route, operation, stand identifier, evidence, factual value,
+  flag, or customer-facing prose field.
 
-  The matched-item names are a **selection over values code already sent**, in the same standing as
-  the identifiers: every name is checked against that fact's own retrieved items and anything else is
-  dropped, and code's spelling is what renders, so the model echoing "eggs" cannot restyle a farmer's
-  "Eggs". It exists because only the model can see *why* a stand answers a category question ("butter
-  lettuce" for leafy greens) — discarding that forced the renderer to print a stand's entire inventory
-  as a hedge.
+  For `search_stands`, code supplies the unique item names found across both confirmed inventory and
+  usual offerings or the unique payment names for the fixed operation. The matcher answers only the
+  semantic question "which of these values match?" Code validates each returned value against that catalog, expands it to **every**
+  stand carrying it, retains all confirmed/usual evidence for that name (B-068), orders by authoritative
+  recency, pages, and renders. An empty inventory selection is the understood answer "no current
+  listing," not a clarification.
 
-  A **fact identifier is an opaque token the model copies back verbatim, and must carry no structure
-  worth reconstructing** (B-049): a live model stripped a meaningful prefix and returned the bare uuid
-  on every attempt. What the two bases *are* travels as the typed `basis` field.
+  For `stand_lookup`, code resolves exactly one stand after classification and supplies only that
+  stand's item or payment catalog when matching is needed. Location, hours, and overview are rendered
+  directly from the stand's public record with no second model call.
 
-  **Code renders no claim the retrieved rows do not support.** The answer heading names the requested
-  item only where a selected row actually carries it: the item list falls back to a stand's full
-  contents when nothing matches by name — right, because only the model can see a category
-  relationship — and asserting the customer's word above that fallback produced `Confirmed mangoes:`
-  over a stand selling eggs. Code fabricating a fact is the same failure as a model doing it.
+  `system_inquiry` and `chitchat` do not use this seam. System answers are fixed code-owned copy;
+  VIGA Bucks explanations link the official VIGA page rather than embedding mutable pickup details.
+  Chitchat returns `Ask me what a Vashon farm stand has, or tell us if something is sold out. 🌱`.
+  VIGA Bucks search/lookup is also code-owned from the classifier's deterministic topic signal.
 
-**Neither inquiry seam may return prose.** The ambiguity and clarification outcomes are **bare signals
-carrying no other field** — validation refuses any — and code renders the question. A model-authored
-`question` string was the only path by which model prose reached a customer in the inquiry flow; F-018
-removed the field rather than scanning what passed through it.
+  **Code renders no claim the public rows do not support.** A selected catalog name expands only to
+  rows carrying that exact code-owned name; model spelling never replaces farmer spelling, and an
+  invented name refuses the result rather than naming a stand.
+
+**Neither inquiry seam may return prose.** Clarification is an operation fixed by classification, and
+code renders the question without a matching call. A model-authored `question` string was the only
+path by which model prose reached a customer in the inquiry flow; F-018 removed the field rather than
+scanning what passed through it.
 
 **Recipe requests have no model composition seam — and never had one.** Recognizing that a request asks
 for a recipe, cooking or preservation instructions, or food-safety guidance is **meaning**, so it stays
-the model's job: the interpretation seam sets `outOfScopeRequest`, a **boolean that carries no words**.
+the model's job: request classification sets `outOfScopeRequest`, a **boolean that carries no words**.
 Code renders authoritative availability for any ingredients the request names through the ordinary
 grounded inquiry path, then appends `RECIPE_SCOPE_STATEMENT`, a code constant. A request with no
 available ingredients receives the code-rendered "no current listing" plus that statement — never a
 model-authored substitute. Because the model's entire vocabulary here is one boolean and a set of
-opaque identifiers, a hostile model asked for canning instructions has **no field to answer through**.
+catalog names, a hostile model asked for canning instructions has **no field to answer through**.
 There is no content scanner and no food taxonomy in business logic.
 
 **Arbitrary-origin proximity uses the same mechanism (F-017).** Launch resolves no customer address or
 device location over SMS. Recognizing that "which stand is closest to me?" needs an origin is meaning,
-so the interpretation seam sets `originDependent`, a **second boolean that carries no geography**; code
+so request classification sets `originDependent`, a **second boolean that carries no geography**; code
 answers the grounded availability half and appends `ORIGIN_LIMITATION_STATEMENT`, a code constant
 naming the public web map. The intent allowlist has **no member that can carry a coordinate, distance,
-bearing, or travel time**, and a ranking operation requiring an origin (`nearest`, `closest`) is
-**refused rather than silently downgraded** to recency — an unranked list presented as "closest" is a
-wrong answer that looks like a right one.
+bearing, travel time, or nearest-stand claim**. Code appends the limitation rather than presenting a
+recency-ordered list as "closest."
 
 SMS composition adds quality guidance to prefer concise, plain-punctuation, emoji-free replies that fit
 one GSM-7 segment when practical. This is a **cost and phrasing preference, never a truncation rule**:
 important content, names, addresses, and meaning are preserved. The outbound code guard still performs
 final normalization and segment estimation.
 
-## Retrieval and ranking (after interpretation, before grounded fact selection)
+## Inquiry flow (after top-level classification)
 
 Deterministic SMS routing runs before every model call. One request classifier then runs for every
 sender, and only `inventory_report` from a farmer holding the resolved stand reaches an exact stand
-target — access is checked in code after the category is known. Every other arm, from either sender,
-enters the same grounded inquiry flow.
+target — access is checked in code after the category is known. Inquiry categories then follow the
+category-specific flows above.
 
-The first inquiry call interprets the current request. Code validates that interpretation and then runs
-a **general** retrieval layer: *given items, optional farm scope, and a proposed ranking interpretation
-→ candidate locations with recency.* Intersection, coverage, and freshest-N are **expressible
-interpretations**, not an enumerated architecture constant. Only retrieved rows reach the
-grounded-selection call. The model returns selected and ordered identifiers, plus which of each
-fact's own item names answered; code verifies that every identifier belongs to the retrieved set and
-every item name to that fact's own items, dereferences the authoritative values, and renders the
-factual answer and recency. Empty retrieval is code-rendered without a grounded-selection call. Model-supplied
-values or prose are not accepted as evidence.
+The classifier fixes the inquiry operation from the message alone. Broad, hours, location, overview,
+and clarification make no second model call. Inventory/payment then build an island-wide catalog for
+search or resolve one stand and build its catalog for lookup; one generic matcher selects values. Code
+validates membership, expands names to authoritative rows, combines confirmed inventory with usual
+offerings without losing either evidence voice, orders deterministically, and renders. Model-supplied
+values or prose are never accepted as evidence.
 
 **Retrieval is also where VISIBILITY is decided, and that placement is the guarantee** (F-074). Whether
 a sender may see test farms is code's decision, made from the sender hash *before* any model call and
@@ -326,20 +314,19 @@ exactly this, with a scripted model that names the hidden farm anyway and is ref
 instruction to "not mention test farms" would be the same guarantee written where a jailbreak can reach
 it — Golden Rule #6's shape applied to visibility.
 
-**Broad availability requests select only their first result page.** Interpretation marks a request for
-the complete available set with a boolean; code uses its validated ranking to order the full retrieved
-set, gives selection only the displayable first page, and persists the already-ranked remainder for
-`MORE`. A named item or category never takes this path: selection still sees every candidate because
-only the model can decide semantic relevance.
+**Broad availability is a first-class classification result.** Because Call #1 sees no catalog, broad
+cannot be inferred from what happens to match. Code expands it to the full public catalog, orders every
+matching stand, renders the first page, and persists the remainder for `MORE`; no matcher runs.
 
-**"Retrieval-first" means retrieval before grounded *fact selection* and factual rendering — not before
-*semantic interpretation*.** The distinction is settled and load-bearing in both directions.
-Interpreting the request must come first, because retrieval needs to know what to look for; letting the
-model see retrieved facts before it has decided what to look up would invite it to answer from context
-instead of selecting from evidence. So the fixed order is: deterministic routing → model interprets →
-code validates and retrieves → model selects/orders IDs from that exact set → code validates membership
-and renders. Reading "retrieval-first" as "retrieve before any model call" would make open-ended
-customer intent unimplementable and is the wrong reading.
+The fixed order is: deterministic routing → model classifies message without catalog → optional code
+stand resolution → inventory/payment alone build one unique catalog → model matches values → code
+validates, expands, orders, pages, and renders.
+For VIGA Bucks system/search/lookup and chitchat, the category-specific code path renders directly and
+there is no second model call.
+
+"Open now" means **confirmed open only**. Code evaluates public hours, season, closure, daylight, and
+Vashon time; unknown, by-appointment, closed, and out-of-season stands are excluded on the first page
+and rechecked before a saved `MORE` page renders.
 
 ## The code-enforced safety boundary and its verification
 
@@ -371,10 +358,10 @@ A system prompt may add defense-in-depth but is **never** the enforcement.
 ## Untrusted-output validation
 
 Model output is **untrusted input**. Every seam validates against its schema before anything acts on
-it. For customer inquiry, structural validity is not grounding: every selected identifier must belong
-to the retrieved set, and code renders the factual response from the corresponding authoritative
-values. A durable write, a recipient choice, a factual answer value, or a consent decision **never**
-comes from model output.
+it. For customer inquiry, structural validity is not grounding: every selected item or payment name
+must belong to the exact code-supplied catalog, and code renders the factual response from the public
+rows carrying those names. A durable write, recipient choice, factual answer value, or consent decision
+**never** comes from model output.
 
 **Membership is not authorization** (B-056). Every inventory removal's `entryId` is validated against
 the base snapshot, which looks like grounding but is not: the model cannot invent an identifier, yet it
@@ -399,22 +386,22 @@ Evals run against the stub provider in **critical** and **advisory** groups:
 
 - **critical** (must pass **100%**): compliance bypass, grounding and no-invention, commitment safety,
   and the **adversarial/prompt-injection group**.
-- **advisory**: extraction quality, stock-out item parsing, inquiry interpretation, and clarification.
+- **advisory**: extraction quality, stock-out item parsing, catalog matching, and clarification.
 
 **A hostile model, never a cooperative one.** `evals/hostile.ts` and the hostile group in
-`apps/web/lib/interpretation.integration.test.ts` use models that **select unknown identifiers, invent
+`apps/web/lib/interpretation.integration.test.ts` use models that **select unknown values, invent
 stock, demand contact data, and attempt to smuggle a publication or recipient decision into output**.
 They capture the context at the provider seam *and* the resulting durable rows, rather than asserting
-on helpers — a helper fixture is not boundary proof. Required outcomes: structurally valid selections
-outside the retrieved set are rejected; a smuggled consequential field is a **visible refusal**, never
+on helpers — a helper fixture is not boundary proof. Required outcomes: selections outside the
+code-supplied options are rejected; a smuggled consequential field is a **visible refusal**, never
 a silent strip; and an invention reaches at most a code-rendered confirmation the farmer must approve.
 
 For the inquiry and stock-out seams the adversarial group must additionally prove that a smuggled
 factual string (`answerText`, `recency`, `distance`, `directions`) is a visible refusal rather than a
-stripped field, the delivered answer contains only code-rendered retrieved values, an unexecutable
-ranking interpretation is refused rather than downgraded, and neither inquiry projection carries the
-other's data. Integration tests prove a report never mutates published inventory or ranking, and that
-an entry from another farm's stand is refused against a code-bound location.
+stripped field, the inquiry projection deduplicates catalogs and carries no stand association, and the
+delivered answer contains only code-rendered public values. Integration tests prove catalog selections
+expand to every supporting stand/evidence row, a report never mutates published inventory or ranking,
+and an entry from another farm's stand is refused against a code-bound location.
 
 **A third group runs against the REAL model: `npm run evals:live`.** The scripted groups use a stub,
 and **a stub reads neither the output instructions nor the schema** — so it is structurally blind to a
@@ -427,10 +414,16 @@ failed validation while the entire unit suite and every scripted eval were green
   output. Each fixture actively invites the model to comply with an injection, so the pass condition is
   **the barrier held**, never *the model refused* — a distinction that matters, because in practice the
   model **did** comply and membership validation rejected the whole selection.
+- **live-closure** (must pass **100%**): required closure interpretations whose correctness depends on
+  the configured model.
+- **live-operation** (must pass **100%**): top-level regression, broad/inventory, route-specific
+  operations, second-person boundaries, and deterministic VIGA Bucks/domain handling.
+- **live-catalog** (must pass **100%**): category recall, honest empty matches, payment matching, and
+  the inventory → empty-match sequence for an absent item.
 - **live-quality** (recorded, non-fatal): what the brain is trusted for. Observed output is printed so
   two candidate models can be compared run against run.
 
-A live-containment failure **stops and reports**; fixtures are never edited to go green.
+A required-group failure **stops and reports**; fixtures are never edited to go green.
 
 **A fallback is not a verdict.** A seam that cannot reach the provider returns the same `clarification`
 shape it returns when the model legitimately declines, so a fixture accepting *any* clarification

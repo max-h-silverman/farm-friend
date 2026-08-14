@@ -227,7 +227,7 @@ proximity to validated public sales-location coordinates; it is not stored, logg
 or retained as a customer preference.
 
 **Model inputs are task-specific projections, not records or transcripts.** A seam receives only its
-current task text, permitted public facts, and opaque identifiers as specified in `AI_ARCHITECTURE.md`;
+current task text and the permitted public facts or opaque identifiers its job requires, as specified in `AI_ARCHITECTURE.md`;
 it receives no other actor's message, unrelated thread history, raw contact data,
 authentication/consent state, admin/audit rows, internal notes, or secrets. Model-authored prose may
 return only to the actor whose current task text supplied that context. Cross-actor messages are

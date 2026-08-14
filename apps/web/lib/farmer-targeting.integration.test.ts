@@ -5,7 +5,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FixedClock, type InventoryInterpreter } from "@farm-friend/core";
 import type {
-  InquiryModel,
+  CatalogMatcher,
   RequestCategory,
   RequestClassificationModel,
 } from "@farm-friend/ai";
@@ -55,10 +55,9 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     return { sql: client(), orm: {}, close: async () => {} } as unknown as Db;
   }
 
-  function forbiddenInquiry(): InquiryModel {
+  function forbiddenInquiry(): CatalogMatcher {
     return {
-      async interpret() { throw new Error("customer inquiry model reached for a farmer"); },
-      async select() { throw new Error("customer selection model reached for a farmer"); },
+      async match() { throw new Error("catalog matcher reached for a farmer"); },
     };
   }
 
@@ -69,7 +68,13 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
    * may act on it is decided in code from `farmer_authorizations`.
    */
   function classifier(kind: RequestCategory): RequestClassificationModel {
-    return { async classify() { return { ok: true, kind }; } };
+    return {
+      async classify() {
+        if (kind === "search_stands") return { ok: true, kind, request: { operation: "inventory" } };
+        if (kind === "stand_lookup") return { ok: true, kind, request: { operation: "overview" } };
+        return { ok: true, kind };
+      },
+    };
   }
 
   async function authorize(senderHash: string, names: string[]) {
@@ -174,7 +179,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret },
-        inquiry: forbiddenInquiry(),
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: {
             parseItem: async () => {
@@ -202,23 +207,18 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
   it("routes a farmer's general stand question before requiring a stand target", async () => {
     const senderHash = "q".repeat(64);
     await authorize(senderHash, ["North Stand", "South Stand"]);
-    const classify = vi.fn(async () => ({ ok: true as const, kind: "search_stands" as const }));
-    const interpret = vi.fn(async () => ({
-      kind: "lookup" as const,
-      items: ["kale"],
-      ranking: "any" as const,
-      outOfScopeRequest: false,
-      originDependent: false,
+    const classify = vi.fn(async () => ({
+      ok: true as const,
+      kind: "search_stands" as const,
+      request: { operation: "inventory" as const },
     }));
-    const select = vi.fn(async () => {
-      throw new Error("selection should not run when no listings exist");
-    });
+    const match = vi.fn(async () => ({ ok: true as const, matches: [] }));
 
     const result = await handleFreeText(
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret, select },
+        catalogMatcher: { match },
         classifier: { classify },
         stockOut: {
             parseItem: async () => {
@@ -237,9 +237,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     );
 
     expect(classify).toHaveBeenCalledOnce();
-    expect(interpret).toHaveBeenCalledWith({
-      taskText: "What does the north stand have today?",
-    });
+    expect(match).toHaveBeenCalledOnce();
     expect(result.handled).toBe("customer");
     expect(result.replies[0]?.body).toMatch(/no stand has a current listing/i);
     expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
@@ -264,13 +262,13 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       changes: [],
       removals: [],
     }));
-    const inquiry = forbiddenInquiry();
+    const catalogMatcher = forbiddenInquiry();
 
     const result = await handleFreeText(
       {
         db: database(),
         interpreter: { interpret: inventory },
-        inquiry,
+        catalogMatcher,
         classifier: classifier("unclear"),
         stockOut: {
             parseItem: async () => {
@@ -323,7 +321,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret },
-        inquiry: forbiddenInquiry(),
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: {
             parseItem: async () => {
@@ -403,17 +401,16 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     const classifyCustomer = vi.fn(async () => ({ ok: true as const, kind: "inventory_report" as const }));
     const customerClassifier = { classify: classifyCustomer };
     const inquiry = {
-      interpret: vi.fn(async () => {
+      match: vi.fn(async () => {
         throw new Error("a report must not reach the inquiry seam");
       }),
-      select: vi.fn(),
     };
 
     const result = await handleFreeText(
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: inquiry as unknown as InquiryModel,
+        catalogMatcher: inquiry as unknown as CatalogMatcher,
         classifier: customerClassifier,
         stockOut: { parseItem: vi.fn() },
         clock: new FixedClock(T0),
@@ -453,12 +450,11 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: {
-          interpret: vi.fn(async () => {
+        catalogMatcher: {
+          match: vi.fn(async () => {
             throw new Error("a report must not reach the inquiry seam");
           }),
-          select: vi.fn(),
-        } as unknown as InquiryModel,
+        } as unknown as CatalogMatcher,
         classifier: { classify: classifyCustomer },
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -513,7 +509,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -557,7 +553,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -604,7 +600,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -661,7 +657,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -711,7 +707,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -741,7 +737,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -775,7 +771,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -810,7 +806,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret: vi.fn(), select: vi.fn() } as unknown as InquiryModel,
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: { parseItem },
         clock: new FixedClock(T0),
@@ -861,7 +857,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
             throw new Error("a report must not open an inventory proposal");
           }),
         } as unknown as InventoryInterpreter,
-        inquiry: forbiddenInquiry(),
+        catalogMatcher: forbiddenInquiry(),
         /*
           B-053, now enforced by the ACCESS FORK rather than by a classifier arm (F-111). The
           classifier says only "someone asserted a stand's inventory needs updating" — the same
@@ -914,7 +910,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       {
         db: database(),
         interpreter: { interpret },
-        inquiry: forbiddenInquiry(),
+        catalogMatcher: forbiddenInquiry(),
         classifier: classifier("inventory_report"),
         stockOut: {
           parseItem: async (): Promise<never> => {
@@ -941,21 +937,19 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
 
   it("keeps an ordinary customer question on the inquiry path", async () => {
     const senderHash = "e".repeat(64);
-    const classifyCustomer = vi.fn(async () => ({ ok: true as const, kind: "search_stands" as const }));
-    const customerClassifier = { classify: classifyCustomer };
-    const interpret = vi.fn(async () => ({
-      kind: "lookup" as const,
-      items: ["kale"],
-      ranking: "any" as const,
-      outOfScopeRequest: false,
-      originDependent: false,
+    const classifyCustomer = vi.fn(async () => ({
+      ok: true as const,
+      kind: "search_stands" as const,
+      request: { operation: "inventory" as const },
     }));
+    const customerClassifier = { classify: classifyCustomer };
+    const match = vi.fn(async () => ({ ok: true as const, matches: [] }));
 
     const result = await handleFreeText(
       {
         db: database(),
         interpreter: { interpret: vi.fn() },
-        inquiry: { interpret, select: vi.fn() },
+        catalogMatcher: { match },
         classifier: customerClassifier,
         stockOut: { parseItem: vi.fn() },
         clock: new FixedClock(T0),
@@ -970,7 +964,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     );
 
     // The whole reason this is a separate seam: the question path is untouched.
-    expect(interpret).toHaveBeenCalledOnce();
+    expect(match).toHaveBeenCalledOnce();
     expect(result.handled).toBe("customer");
     expect(await client()`select id from stock_out_reports`).toHaveLength(0);
   });

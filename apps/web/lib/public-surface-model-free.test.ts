@@ -100,7 +100,7 @@ describe("the public read surface is model-free (F-019, preserved by F-017)", ()
     // These are the constructors and types that exist today; naming any of them on the
     // public read path is the change this test exists to stop.
     const forbidden = [
-      "createInquiryModel",
+      "createCatalogMatcher",
       "createStockOutModel",
       "createInventoryInterpreter",
       "generateValidated",

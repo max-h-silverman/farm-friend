@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  createInquiryModel,
+  createCatalogMatcher,
   createInventoryInterpreter,
   type LLMProvider,
   type ModelSafeContext,
@@ -268,16 +268,12 @@ describe("one closure projection across public discovery and customer SMS (integ
     await publishClosure({ result: "close", closureKind: "temporary", startsOn: localDate(-1) });
     const closedProvider = new ScriptedProvider([
       JSON.stringify({
-        kind: "lookup",
-        items: ["eggs"],
-        ranking: "any",
-        outOfScopeRequest: false,
-        originDependent: false,
+        matches: [],
       }),
     ]);
     const closedAnswer = await answerInquiry(
-      { db: database(), model: createInquiryModel(closedProvider), clock: new FixedClock(T0) },
-      { taskText: "eggs?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
+      { db: database(), matcher: createCatalogMatcher(closedProvider), clock: new FixedClock(T0) },
+      { mode: "search_stands", request: { operation: "inventory" }, taskText: "eggs?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
     );
     expect(closedAnswer.outcome).toBe("answered");
     if (closedAnswer.outcome === "answered") expect(closedAnswer.body).toMatch(/no stand has a current listing/i);
@@ -287,20 +283,15 @@ describe("one closure projection across public discovery and customer SMS (integ
     await publishClosure({ result: "close", closureKind: "temporary", startsOn: localDate(1) });
     const upcomingProvider = new ScriptedProvider([
       JSON.stringify({
-        kind: "lookup",
-        items: ["eggs"],
-        ranking: "any",
-        outOfScopeRequest: false,
-        originDependent: false,
+        matches: ["eggs"],
       }),
-      JSON.stringify({ kind: "selection", factIds: [ids.location] }),
     ]);
     const upcomingAnswer = await answerInquiry(
-      { db: database(), model: createInquiryModel(upcomingProvider), clock: new FixedClock(T0) },
-      { taskText: "eggs?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
+      { db: database(), matcher: createCatalogMatcher(upcomingProvider), clock: new FixedClock(T0) },
+      { mode: "search_stands", request: { operation: "inventory" }, taskText: "eggs?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
     );
     expect(upcomingAnswer.outcome).toBe("answered");
     if (upcomingAnswer.outcome === "answered") expect(upcomingAnswer.body).toContain("Reader Stand");
-    expect(upcomingProvider.calls).toBe(2);
+    expect(upcomingProvider.calls).toBe(1);
   });
 });

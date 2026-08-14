@@ -1,80 +1,19 @@
-// The customer inquiry seams: interpretation, then grounded fact selection.
-//
-// Two calls with a code-owned retrieval step between them (docs/AI_ARCHITECTURE.md
-// §"Retrieval and ranking"). The order is load-bearing:
-//
-//   deterministic routing → interpret(question) → CODE retrieves → select(facts) → CODE renders
-//
-// The first call decides *what to look up* and never sees a fact. The second orders *what code
-// found* and never sees the raw question. Neither authors a word the customer reads: selection
-// returns identifiers, and the renderer in `@farm-friend/core` dereferences authoritative
-// values. A model that wants to invent availability has nowhere to put it.
+// Customer inquiry model seams after operation classification.
+// The catalog matcher selects unique public values; code validates membership, resolves
+// stands, orders authoritative values, pages them, and renders every word customers read.
 
 import { z } from "zod";
-import { generateValidated, nullAsAbsent, type LLMProvider } from "./index";
+import { generateValidated, type LLMProvider } from "./index";
 import {
-  projectFactSelection,
-  projectInquiryInterpretation,
+  projectCatalogMatch,
   projectStockOutParse,
-  type RetrievedFactRef,
+  type CatalogType,
   type ListedItemRef,
 } from "./projections";
 
 // Strict everywhere: a smuggled `answerText` or `recipient` must be a visible refusal, not a
-// silently stripped field. Ranking is validated again in core against what code can execute.
-// The three schemas are exported for output-contracts.test.ts, which proves the documented
+// silently stripped field. The schemas are exported for output-contracts.test.ts, which proves the documented
 // example shapes in projections.ts validate against them. Not part of the seams' runtime API.
-export const intentSchema = z.discriminatedUnion("kind", [
-  z
-    .object({
-      kind: z.literal("lookup"),
-      items: z.array(z.string().min(1)).min(1),
-      farmScope: nullAsAbsent(z.string().min(1)),
-      ranking: z.string().min(1),
-      // A boolean, never a product category. The model identifies a request for the whole
-      // available set; code can then page its already-ranked tail without asking the model
-      // to reproduce every opaque identifier (B-050).
-      broad: nullAsAbsent(z.boolean()),
-      // A boolean, never a message. The model may recognize a recipe/food-safety request;
-      // code renders the scope statement (F-018).
-      outOfScopeRequest: nullAsAbsent(z.boolean()),
-      // Likewise a boolean (F-017). The model may recognize that the request needs the
-      // customer's position; launch resolves no arbitrary origin over SMS, so code renders
-      // the limitation and the public-map link. `.strict()` below is what makes a smuggled
-      // `latitude`, `distanceMiles`, or `nearest` a visible refusal rather than a stripped
-      // field — the model has no way to supply geography at all.
-      originDependent: nullAsAbsent(z.boolean()),
-    })
-    .strict(),
-  // A bare signal. `question` was removed in F-018: it was the one field through which
-  // model prose reached a customer verbatim. Code renders the clarification.
-  z.object({ kind: z.literal("ambiguous") }).strict(),
-]);
-
-export const selectionSchema = z.discriminatedUnion("kind", [
-  // Identifiers only. There is deliberately no field here that could carry prose.
-  //
-  // F-107 — `matchedItems` looks like an exception and is not. Every string in it must be one
-  // of the item names code ALREADY SENT for that fact; `validateFactSelection` drops anything
-  // else, exactly as it refuses an invented factId. So this is a SELECTION over values code
-  // supplied, in the same standing as `factIds`, and not a channel for model prose. It exists
-  // because the model is the only party that can see WHY a stand answers a category question
-  // ("leafy greens" → "butter lettuce"), and discarding that forced the renderer to print a
-  // stand's entire inventory as a hedge.
-  //
-  // Optional so a model that omits it is not a refusal: code falls back to the item names that
-  // match the request by string, which is what it did before this field existed.
-  z
-    .object({
-      kind: z.literal("selection"),
-      factIds: z.array(z.string()),
-      matchedItems: z.record(z.string(), z.array(z.string())).optional(),
-    })
-    .strict(),
-  // Likewise a bare signal (F-018) — code renders the question.
-  z.object({ kind: z.literal("clarification") }).strict(),
-]);
-
 export const stockOutSchema = z.discriminatedUnion("kind", [
   // A listed item, chosen by opaque ID from the code-bound location's entries.
   z.object({ kind: z.literal("listed"), entryId: z.string().min(1) }).strict(),
@@ -84,88 +23,43 @@ export const stockOutSchema = z.discriminatedUnion("kind", [
 ]);
 
 /**
- * The interpretation seam could not reach a model at all (B-049).
+ * One bounded match after the top-level classifier fixed the operation (B-069).
  *
- * Deliberately NOT part of `intentSchema`: it is a transport outcome code observed, never a
- * shape a model may claim. Keeping it outside the schema means no model output can ever
- * produce it, so it cannot be used to steer the reply.
+ * No operation field exists, so seeing the catalog cannot change broad into inventory or an
+ * understood no-match into clarification. There is no stand identifier or factual prose field.
  */
-export type InterpretationUnavailable = { kind: "unavailable" };
+export const catalogMatchSchema = z.object({ matches: z.array(z.string()) }).strict();
 
-export type InterpretedIntentOutput =
-  | z.infer<typeof intentSchema>
-  | InterpretationUnavailable;
-/** The seam refused the model's output. `invalid_output` means the shape was rejected. */
-export type SeamRefusal = { kind: "refused"; reason: "invalid_output" | "provider_error" };
-export type FactSelectionOutput = z.infer<typeof selectionSchema> | SeamRefusal;
+export type CatalogMatchResult =
+  | { ok: true; matches: string[] }
+  | { ok: false; reason: "invalid_output" | "provider_error" };
 export type StockOutParseOutput = z.infer<typeof stockOutSchema>;
 
-/** The inquiry seams, as the workflow consumes them. */
-export interface InquiryModel {
-  interpret(input: { taskText: string }): Promise<InterpretedIntentOutput>;
-  select(input: {
-    items: readonly string[];
-    ranking: string;
-    facts: readonly RetrievedFactRef[];
-  }): Promise<FactSelectionOutput>;
+/** The only model capability customer inquiry handling needs after classification. */
+export interface CatalogMatcher {
+  match(input: {
+    taskText: string;
+    catalogType: CatalogType;
+    values: readonly string[];
+  }): Promise<CatalogMatchResult>;
 }
 
 /**
- * Build the live inquiry seams over a configured provider.
+ * Build the live inquiry seam over a configured provider.
  *
- * Both calls fail toward asking rather than guessing: an unrepairable or erroring model
- * yields a clarification, never a fabricated lookup or an empty selection that would read as
- * "nobody has this."
+ * Invalid output is refused visibly; provider failure remains distinct so the workflow can
+ * report an outage rather than blame the customer's wording.
  */
-export function createInquiryModel(provider: LLMProvider): InquiryModel {
+export function createCatalogMatcher(provider: LLMProvider): CatalogMatcher {
   return {
-    async interpret(input) {
-      const ctx = projectInquiryInterpretation({ taskText: input.taskText });
+    async match(input) {
       const result = await generateValidated(
         provider,
-        ctx,
-        intentSchema,
+        projectCatalogMatch(input),
+        catalogMatchSchema,
       );
-      if (!result.ok) {
-        // Fail toward asking rather than guessing — but say WHICH failure it was (B-049).
-        //
-        // Both outcomes ask the customer something; they must not ask the same thing. An
-        // `invalid_output` means a model looked at the message and could not produce an
-        // interpretable request, so "tell me what you're looking for" is the honest reply. A
-        // `provider_error` means no model saw it at all — measured live, that was a 20-second
-        // timeout on roughly one reply in six — and telling that customer to rephrase blames
-        // their wording for our outage and invites them to retype a perfectly good question.
-        //
-        // Distinguished here rather than at the caller for the same reason `select` does it:
-        // the seam is what knows, and a caller cannot recover the difference afterwards.
-        return result.reason === "provider_error"
-          ? { kind: "unavailable" as const }
-          : { kind: "ambiguous" as const };
-      }
-      return result.value;
-    },
-
-    async select(input) {
-      const ctx = projectFactSelection({
-        items: input.items,
-        ranking: input.ranking,
-        facts: input.facts,
-      });
-      const result = await generateValidated(
-        provider,
-        ctx,
-        selectionSchema,
-      );
-      if (!result.ok) {
-        // Distinguish the two failures rather than collapsing them. A provider error is a
-        // transient malfunction the customer should be asked about; INVALID OUTPUT means the
-        // model returned a shape this seam refuses — typically a smuggled factual string —
-        // and the workflow must be able to reject that visibly rather than see a polite
-        // clarification. Either way no invented text is deliverable; the difference is
-        // whether an attack is observable.
-        return { kind: "refused" as const, reason: result.reason };
-      }
-      return result.value;
+      if (!result.ok) return { ok: false as const, reason: result.reason };
+      return { ok: true as const, matches: result.value.matches };
     },
   };
 }

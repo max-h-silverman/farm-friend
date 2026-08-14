@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
 import {
   createRequestClassificationModel,
-  createInquiryModel,
+  createCatalogMatcher,
   createInventoryInterpreter,
 } from "@farm-friend/ai";
 import { SystemClock, hashPhone } from "@farm-friend/core";
@@ -362,7 +362,7 @@ describe("inbound reply latency (integration)", () => {
             },
           },
       interpreter: createInventoryInterpreter(provider),
-      inquiry: createInquiryModel(provider),
+      catalogMatcher: createCatalogMatcher(provider),
       clock: new SystemClock(),
       // F-040: configured origin for a farmer standing link. Never a request header.
       publicBaseUrl: "https://farmfriend.example",
@@ -482,7 +482,7 @@ describe("inbound reply latency (integration)", () => {
             },
           },
         interpreter: createInventoryInterpreter(provider),
-        inquiry: createInquiryModel(provider),
+        catalogMatcher: createCatalogMatcher(provider),
         clock: new SystemClock(),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
@@ -557,7 +557,7 @@ describe("inbound reply latency (integration)", () => {
             },
           },
         interpreter: createInventoryInterpreter(provider),
-        inquiry: createInquiryModel(provider),
+        catalogMatcher: createCatalogMatcher(provider),
         clock: new SystemClock(),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",

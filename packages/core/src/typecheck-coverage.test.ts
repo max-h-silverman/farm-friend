@@ -61,6 +61,13 @@ describe("the root typecheck covers the web workspace", () => {
     expect(web).toMatch(/--workspace\s+@farm-friend\/web\b/);
   });
 
+  it("makes the root typecheck cover the evaluation programs", () => {
+    const root = rootManifest.scripts?.typecheck ?? "";
+    const evals = rootManifest.scripts?.["typecheck:evals"] ?? "";
+    expect(root).toContain("typecheck:evals");
+    expect(evals).toMatch(/tsc\s+-p\s+tsconfig\.evals\.json\s+--noEmit\b/);
+  });
+
   it("still builds the package project graph, and fails if EITHER half fails", () => {
     // `&&` rather than `;` or `&`: a chain that swallows the first command's exit status would
     // report success whenever the LAST step passed, which is how a two-part check quietly
@@ -68,7 +75,9 @@ describe("the root typecheck covers the web workspace", () => {
     const root = rootManifest.scripts?.typecheck ?? "";
     expect(rootManifest.scripts?.["typecheck:packages"]).toMatch(/tsc\s+-b\b/);
     expect(root).toContain("typecheck:packages");
-    expect(root).toMatch(/typecheck:packages\s*&&\s*npm run typecheck:web/);
+    expect(root).toMatch(
+      /typecheck:packages\s*&&\s*npm run typecheck:web\s*&&\s*npm run typecheck:evals/,
+    );
   });
 
   it("checks every declared workspace between the two halves", () => {

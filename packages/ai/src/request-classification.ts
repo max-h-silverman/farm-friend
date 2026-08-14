@@ -14,7 +14,7 @@
 // merely notifies is decided downstream from `farmer_authorizations`.
 
 import { z } from "zod";
-import { generateValidated, type LLMProvider } from "./index";
+import { generateValidated, nullAsAbsent, type LLMProvider } from "./index";
 import { projectRequestClassification } from "./projections";
 import { isAcceptanceQuestion } from "./acceptance-question";
 import { farmBucksIntent } from "./farm-bucks-intent";
@@ -56,17 +56,47 @@ export const REQUEST_CATEGORIES = [
 
 export type RequestCategory = (typeof REQUEST_CATEGORIES)[number];
 
-/**
- * Exactly one required field, `.strict()`.
- *
- * The single field is the containment: no attribute, no stand, no sender type, no prose, and
- * nothing optional or nullable through which a second fact could arrive. A model returning
- * anything else fails validation and the seam reports failure rather than salvaging a partial
- * answer.
- */
-export const requestClassificationSchema = z
-  .object({ kind: z.enum(REQUEST_CATEGORIES) })
+const inventoryRequestSchema = z
+  .object({
+    operation: z.literal("inventory"),
+    originDependent: nullAsAbsent(z.boolean()),
+    outOfScopeRequest: nullAsAbsent(z.boolean()),
+  })
   .strict();
+
+const searchRequestSchema = z.discriminatedUnion("operation", [
+  inventoryRequestSchema,
+  z.object({
+    operation: z.literal("broad"),
+    originDependent: nullAsAbsent(z.boolean()),
+  }).strict(),
+  z.object({ operation: z.literal("payment") }).strict(),
+  z.object({ operation: z.literal("hours") }).strict(),
+  z.object({ operation: z.literal("clarification") }).strict(),
+]);
+
+const lookupRequestSchema = z.discriminatedUnion("operation", [
+  inventoryRequestSchema,
+  z.object({ operation: z.literal("payment") }).strict(),
+  z.object({ operation: z.literal("hours") }).strict(),
+  z.object({ operation: z.literal("location") }).strict(),
+  z.object({ operation: z.literal("overview") }).strict(),
+  z.object({ operation: z.literal("clarification") }).strict(),
+]);
+
+/** Strict at both discriminators: route/operation combinations cannot be represented. */
+export const requestClassificationSchema = z.discriminatedUnion("kind", [
+  z.object({ kind: z.literal("search_stands"), request: searchRequestSchema }).strict(),
+  z.object({ kind: z.literal("stand_lookup"), request: lookupRequestSchema }).strict(),
+  z.object({ kind: z.literal("inventory_report") }).strict(),
+  z.object({ kind: z.literal("system_inquiry") }).strict(),
+  z.object({ kind: z.literal("chitchat") }).strict(),
+  z.object({ kind: z.literal("unclear") }).strict(),
+]);
+
+export type RequestClassificationValue = z.infer<typeof requestClassificationSchema>;
+export type SearchStandRequest = z.infer<typeof searchRequestSchema>;
+export type StandLookupRequest = z.infer<typeof lookupRequestSchema>;
 
 /**
  * The classifier's result.
@@ -78,7 +108,7 @@ export const requestClassificationSchema = z
  * the caller renders an outage reply that blames nobody's wording (B-049's precedent).
  */
 export type RequestClassification =
-  | { ok: true; kind: RequestCategory }
+  | ({ ok: true; topic?: "viga_bucks" } & RequestClassificationValue)
   | { ok: false };
 
 export interface RequestClassificationModel {
@@ -129,7 +159,15 @@ export function createRequestClassificationModel(
               : farmBucks === "unsupported_statement"
                 ? "unclear"
                 : "search_stands";
-        return { ok: true, kind };
+        if (kind === "search_stands" || kind === "stand_lookup") {
+          return {
+            ok: true,
+            kind,
+            request: { operation: "payment" },
+            topic: "viga_bucks",
+          };
+        }
+        return { ok: true, kind, topic: "viga_bucks" };
       }
 
       /*
@@ -139,7 +177,7 @@ export function createRequestClassificationModel(
         `system_inquiry` for the other two shapes. See `acceptance-question.ts`.
       */
       if (isAcceptanceQuestion(input.taskText)) {
-        return { ok: true, kind: "search_stands" };
+        return { ok: true, kind: "search_stands", request: { operation: "payment" } };
       }
 
       const result = await generateValidated(
@@ -151,7 +189,7 @@ export function createRequestClassificationModel(
       // `invalid_output` differ in cause but not in what the sender is owed: we could not
       // classify their message, and saying so honestly is the whole of the response.
       if (!result.ok) return { ok: false };
-      return { ok: true, kind: result.value.kind };
+      return { ok: true, ...result.value };
     },
   };
 }

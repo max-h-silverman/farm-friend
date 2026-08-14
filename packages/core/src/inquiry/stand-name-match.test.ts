@@ -4,6 +4,7 @@ import {
   fuzzyNameAllowance,
   isFuzzyNameMatch,
   meetsDistinctiveWordBar,
+  resolveStandName,
 } from "./stand-name-match";
 
 /*
@@ -68,6 +69,35 @@ describe("fuzzy stand-name allowance", () => {
     // budget, so this pair CANNOT be separated by distance — it must tie and ask instead.
     // Asserted here so a future widening of the allowance does not silently start guessing.
     expect(isFuzzyNameMatch("homestead", "holmestead")).toBe(true);
+  });
+});
+
+describe("cold stand-name resolution", () => {
+  const stands = [
+    { id: "pinecone", name: "Pinecone Gardens" },
+    { id: "open-gate", name: "Open Gate Lamb and Grazing" },
+    { id: "barts", name: "Bart's Cart" },
+  ];
+
+  it("resolves the one public stand the customer named", () => {
+    expect(resolveStandName("where is Pinecone Gardens?", stands)).toEqual({
+      kind: "match",
+      id: "pinecone",
+    });
+    expect(resolveStandName("does barts have eggs?", stands)).toEqual({
+      kind: "match",
+      id: "barts",
+    });
+  });
+
+  it("does not treat an ordinary word as a partial stand name", () => {
+    expect(resolveStandName("what stands are open today?", stands)).toEqual({ kind: "none" });
+  });
+
+  it("asks when two complete names are present", () => {
+    expect(resolveStandName("Pinecone Gardens or Bart's Cart?", stands)).toEqual({
+      kind: "ambiguous",
+    });
   });
 });
 
