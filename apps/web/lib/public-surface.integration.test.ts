@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  createInquiryModel,
+  createCatalogMatcher,
   createStockOutModel,
   type LLMProvider,
   type ModelSafeContext,
@@ -640,15 +640,14 @@ describe("public web surface boundary (integration)", () => {
       const answer = await answerInquiry(
         {
           db: db!,
-          model: createInquiryModel(
+          matcher: createCatalogMatcher(
             new ScriptedProvider(
-              JSON.stringify({ kind: "lookup", items: ["kale"], ranking: "freshest" }),
-              JSON.stringify({ kind: "selection", factIds: [ids.location] }),
+              JSON.stringify({ matches: ["kale"] }),
             ),
           ),
           clock,
         },
-        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
+        { mode: "search_stands", request: { operation: "inventory" }, taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
       );
 
       expect(answer.outcome).toBe("answered");
@@ -720,15 +719,14 @@ describe("public web surface boundary (integration)", () => {
       const answer = await answerInquiry(
         {
           db: db!,
-          model: createInquiryModel(
+          matcher: createCatalogMatcher(
             new ScriptedProvider(
-              JSON.stringify({ kind: "lookup", items: ["kale"], ranking: "freshest" }),
-              JSON.stringify({ kind: "selection", factIds: [ids.location] }),
+              JSON.stringify({ matches: [] }),
             ),
           ),
           clock,
         },
-        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
+        { mode: "search_stands", request: { operation: "inventory" }, taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
       );
       // The honest reply is still `answered` — an empty retrieval short-circuits to a
       // code-rendered "no current listing" (Golden Rule #4), which is the right answer rather
@@ -779,15 +777,14 @@ describe("public web surface boundary (integration)", () => {
       const answer = await answerInquiry(
         {
           db: db!,
-          model: createInquiryModel(
+          matcher: createCatalogMatcher(
             new ScriptedProvider(
-              JSON.stringify({ kind: "lookup", items: ["kale"], ranking: "freshest" }),
-              JSON.stringify({ kind: "selection", factIds: [ids.location] }),
+              JSON.stringify({ matches: [] }),
             ),
           ),
           clock,
         },
-        { taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
+        { mode: "search_stands", request: { operation: "inventory" }, taskText: "who has kale?", senderHash: "4".repeat(64), occurredAt: T0, scope: { includeTestFarms: false } },
       );
       expect(answer.outcome).toBe("answered");
       if (answer.outcome !== "answered") throw new Error("expected an answer");
@@ -892,15 +889,16 @@ describe("public web surface boundary (integration)", () => {
         answerInquiry(
           {
             db: db!,
-            model: createInquiryModel(
+            matcher: createCatalogMatcher(
               new ScriptedProvider(
-                JSON.stringify({ kind: "lookup", items: ["kale"], ranking: "freshest" }),
-                JSON.stringify({ kind: "selection", factIds: [ids.location] }),
+                JSON.stringify({ matches: ["kale"] }),
               ),
             ),
             clock,
           },
           {
+            mode: "search_stands",
+      request: { operation: "inventory" },
             taskText: "who has kale?",
             senderHash: "4".repeat(64),
             occurredAt: T0,
@@ -909,11 +907,10 @@ describe("public web surface boundary (integration)", () => {
         );
 
       const hidden = await ask(false);
-      expect(hidden.outcome).toBe("answered");
-      if (hidden.outcome !== "answered") throw new Error("expected an answer");
-      expect(hidden.selectedFactIds).toEqual([]);
-      expect(hidden.body).not.toContain("Provo Stand");
-      expect(hidden.body).not.toContain("Provo Farms");
+      expect(hidden.outcome).toBe("rejected");
+      if (hidden.outcome !== "rejected") throw new Error("expected a refusal");
+      expect(hidden.reason).not.toContain("Provo Stand");
+      expect(hidden.reason).not.toContain("Provo Farms");
 
       const shown = await ask(true);
       expect(shown.outcome).toBe("answered");
@@ -962,18 +959,16 @@ describe("public web surface boundary (integration)", () => {
         answerInquiry(
           {
             db: db!,
-            model: createInquiryModel(
+            matcher: createCatalogMatcher(
               new ScriptedProvider(
-                JSON.stringify({ kind: "lookup", items: ["rhubarb"], ranking: "any" }),
-                JSON.stringify({
-                  kind: "selection",
-                  factIds: [quietLocationId],
-                }),
+                JSON.stringify({ matches: ["Rhubarb"] }),
               ),
             ),
             clock: new FixedClock(T0),
           },
           {
+            mode: "search_stands",
+      request: { operation: "inventory" },
             taskText: "anyone got rhubarb?",
             senderHash: "4".repeat(64),
             occurredAt: T0,

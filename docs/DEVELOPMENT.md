@@ -58,9 +58,9 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   output three different ways over a field the model volunteered. A ticket's hypothesis about its own
   failure is a lead, never a finding. The tell that it is the harness and not the brain: the failure
   rate moves with something the instruction never mentions — here, a trailing proper noun.
-- **A new query/list:** after any approved semantic interpretation, run retrieval in code before
-  grounded stand selection; label recency; carry stable stand identifiers; accept only selected IDs from
-  the retrieved set; render factual text in code.
+- **A new query/list:** expose only deduplicated public catalog names to semantic interpretation;
+  validate every selected name; expand it to all supporting records in code; label recency; carry
+  stable identifiers only in code-owned paging; render factual text in code.
 - **Anything privacy-relevant:** phones hashed, never logged raw, never in model context. The guarantee
   is **code, not the prompt** — task-specific projections make other actors' private data unavailable
   before the call, the outbound guard blocks raw phones after, and consequential / cross-actor replies

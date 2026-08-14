@@ -1,11 +1,16 @@
 import {
   PAGE_SIZE,
+  openNow,
   renderNoPendingList,
   renderResultPage,
+  renderStandFactPage,
+  timeZoneOffsetMinutes,
+  VASHON_TIME_ZONE,
   type Clock,
 } from "@farm-friend/core";
 import { isPrivilegedSender, takeNextResultPage, type Db } from "@farm-friend/db";
-import { dereferenceFacts, standKeyOfFactId } from "./inquiry";
+import { dereferenceFacts, parsePagedStandFactId, standKeyOfFactId } from "./inquiry";
+import { listPublicStands } from "./public-listing";
 
 // The MORE branch of inbound routing (F-046 part 3).
 //
@@ -94,14 +99,68 @@ export async function handleNextPage(
       return { body: renderNoPendingList(), status: "no_pending_list" };
     }
 
+    const standFacts = claimed.factIds.map(parsePagedStandFactId);
+    if (standFacts.every((fact) => fact !== undefined)) {
+      const kind = standFacts[0]!.kind;
+      if (!standFacts.every((fact) => fact!.kind === kind)) {
+        continue;
+      }
+      const publicStands = await listPublicStands(
+        { db: deps.db, clock: deps.clock },
+        scope,
+      );
+      const byId = new Map(publicStands.map((stand) => [stand.factId, stand]));
+      const selected = new Set(claimed.itemsRequested.map((value) => value.toLowerCase()));
+      const now = deps.clock.now();
+      const utcOffsetMinutes = timeZoneOffsetMinutes(now, VASHON_TIME_ZONE);
+      const stands = standFacts
+        .map((fact) => byId.get(fact!.standId))
+        .filter((stand) => stand !== undefined)
+        .filter((stand) =>
+          kind === "payment"
+            ? stand.paymentMethods.some((method) => selected.has(method.toLowerCase()))
+            : kind === "farm_bucks"
+              ? stand.farmBucksAccepted === true
+              : openNow({
+                  availability: stand.availability,
+                  ...(stand.closure !== undefined ? { closure: stand.closure } : {}),
+                  at: now,
+                  utcOffsetMinutes,
+                  ...(stand.latitude !== undefined ? { latitude: stand.latitude } : {}),
+                  ...(stand.longitude !== undefined ? { longitude: stand.longitude } : {}),
+                }).state === "open",
+        );
+      if (stands.length === 0) continue;
+
+      const page = renderStandFactPage({
+        entries: stands.map((stand) => ({
+          locationName: stand.locationName,
+          ...(stand.publicAddress !== undefined ? { publicAddress: stand.publicAddress } : {}),
+          detailLines:
+            kind === "open_now"
+              ? ["Open now"]
+              : kind === "farm_bucks"
+              ? ["Accepts VIGA Farm Bucks"]
+              : [
+                  `Payment listed: ${stand.paymentMethods
+                    .filter((method) => selected.has(method.toLowerCase()))
+                    .join(", ")}`,
+                ],
+        })),
+        offset: claimed.offset,
+        total: claimed.total,
+      });
+      return { body: page.body, status: "paged" };
+    }
+
     // The `facts.length === 0` branch below handles a page that empties out, so a sender whose
     // privilege was revoked mid-list walks off the end honestly rather than erroring.
-    const facts = await dereferenceFacts(deps.db, {
+    const facts = (await dereferenceFacts(deps.db, {
       factIds: claimed.factIds,
       itemsRequested: claimed.itemsRequested,
       at: deps.clock.now(),
       scope,
-    });
+    })).filter((fact) => fact.matchedItems.length > 0);
 
     if (facts.length === 0) {
       // Every stand on this page has gone unpublished since the question. Rendering the page

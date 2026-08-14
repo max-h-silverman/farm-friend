@@ -76,7 +76,7 @@ export async function POST(req: Request): Promise<Response> {
               classifier: context.classifier,
               stockOut: context.stockOut,
               interpreter: context.interpreter,
-              inquiry: context.inquiry,
+              catalogMatcher: context.catalogMatcher,
               clock: context.clock,
               publicBaseUrl: context.config.publicBaseUrl,
               publicMapUrl: context.config.publicMapUrl,

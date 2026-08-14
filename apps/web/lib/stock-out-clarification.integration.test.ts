@@ -7,7 +7,7 @@ import { FixedClock, type InventoryInterpreter } from "@farm-friend/core";
 import type {
   RequestCategory,
   RequestClassificationModel,
-  InquiryModel,
+  CatalogMatcher,
   StockOutModel,
 } from "@farm-friend/ai";
 import type { Db, Sql } from "@farm-friend/db";
@@ -134,13 +134,10 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     return locationId;
   }
 
-  function forbiddenInquiry(): InquiryModel {
+  function forbiddenInquiry(): CatalogMatcher {
     return {
-      async interpret() {
-        throw new Error("the inquiry model must not run once a clarification resolves");
-      },
-      async select() {
-        throw new Error("the inquiry selection model must not run here");
+      async match() {
+        throw new Error("the catalog matcher must not run once a clarification resolves");
       },
     };
   }
@@ -161,6 +158,8 @@ describe("B-065 stock-out clarification memory (integration)", () => {
         if (kind === undefined) {
           throw new Error(`unscripted classification for ${JSON.stringify(taskText)}`);
         }
+        if (kind === "search_stands") return { ok: true, kind, request: { operation: "inventory" } };
+        if (kind === "stand_lookup") return { ok: true, kind, request: { operation: "overview" } };
         return { ok: true, kind };
       },
     };
@@ -187,7 +186,7 @@ describe("B-065 stock-out clarification memory (integration)", () => {
           throw new Error("the farmer interpreter must not run for a customer");
         },
       } as unknown as InventoryInterpreter,
-      inquiry: forbiddenInquiry(),
+      catalogMatcher: forbiddenInquiry(),
       classifier: intent,
       stockOut,
       clock: new FixedClock(T0),
@@ -296,7 +295,7 @@ describe("B-065 stock-out clarification memory (integration)", () => {
   it("releases the held report when the reply is plainly a new question", async () => {
     // A customer who moved on must still get a real answer. "kale" names no stand, so the
     // pending row is dropped and the message goes to the ordinary inquiry path.
-    const inquiry = vi.fn(async () => ({ kind: "clarification" as const, question: "q" }));
+    const inquiry = vi.fn(async () => ({ ok: true as const, matches: [] }));
     const d = {
       ...deps(
         classifier({
@@ -304,12 +303,9 @@ describe("B-065 stock-out clarification memory (integration)", () => {
           "who has kale": "search_stands",
         }),
       ),
-      inquiry: {
-        interpret: inquiry,
-        select: async () => {
-          throw new Error("selection not reached");
-        },
-      } as unknown as InquiryModel,
+      catalogMatcher: {
+        match: inquiry,
+      },
     };
 
     await send(d, "Pinecome is out of eggs", T0, "evt-1");
@@ -324,7 +320,7 @@ describe("B-065 stock-out clarification memory (integration)", () => {
   it("ignores a held report once it has expired", async () => {
     // Judged by the MESSAGE's clock. An answer an hour later is a new conversation, and the
     // stand name alone is then just a question — exactly the behavior that predates B-065.
-    const inquiry = vi.fn(async () => ({ kind: "clarification" as const, question: "q" }));
+    const inquiry = vi.fn(async () => ({ ok: true as const, matches: [] }));
     const d = {
       ...deps(
         classifier({
@@ -332,19 +328,16 @@ describe("B-065 stock-out clarification memory (integration)", () => {
           Pinecone: "stand_lookup",
         }),
       ),
-      inquiry: {
-        interpret: inquiry,
-        select: async () => {
-          throw new Error("selection not reached");
-        },
-      } as unknown as InquiryModel,
+      catalogMatcher: {
+        match: inquiry,
+      },
     };
 
     await send(d, "Pinecome is out of eggs", T0, "evt-1");
     await send(d, "Pinecone", minutesAfter(60), "evt-2");
 
     expect(await alertBodies()).toHaveLength(0);
-    expect(inquiry).toHaveBeenCalled();
+    expect(inquiry).not.toHaveBeenCalled();
   });
 
   it("does not fuzzy-match a stand on a COLD message", async () => {

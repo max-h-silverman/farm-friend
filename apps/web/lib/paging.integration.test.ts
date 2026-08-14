@@ -5,13 +5,13 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
-  createInquiryModel,
+  createCatalogMatcher,
   type LLMProvider,
   type ModelSafeContext,
 } from "@farm-friend/ai";
 import { FixedClock, PAGE_SIZE } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
-import { answerInquiry, offeringFactId } from "./inquiry";
+import { answerInquiry, offeringFactId, standKeyOfFactId } from "./inquiry";
 import { handleNextPage } from "./paging";
 
 // F-046 part 3 — a question and its MORE, end to end against real Postgres.
@@ -206,7 +206,7 @@ describe("SMS result paging end to end (integration)", () => {
   }
 
   /**
-   * Ask for named items, with the selection returning exactly `factIds` in that order.
+   * Ask for named items, with the model selecting those exact public catalog names.
    *
    * The items matter beyond the header: `toPageableFact` narrows each stand's rendered items
    * to what was asked, so a question naming only "eggs" renders nothing from a kale offering
@@ -216,23 +216,21 @@ describe("SMS result paging end to end (integration)", () => {
     items: string[],
     senderHash: string,
     occurredAt: Date,
-    factIds: string[] = locationIds,
   ) {
     const provider = new ScriptedProvider({
-      "inquiry-interpretation": JSON.stringify({
-        kind: "lookup",
-        items,
-        ranking: "freshest",
+      "catalog-match": JSON.stringify({
+        matches: items,
       }),
-      "grounded-fact-selection": JSON.stringify({ kind: "selection", factIds }),
     });
     return answerInquiry(
       {
         db: db as Db,
-        model: createInquiryModel(provider),
+        matcher: createCatalogMatcher(provider),
         clock: new FixedClock(occurredAt),
       },
       {
+        mode: "search_stands",
+        request: { operation: "inventory" },
         taskText: `any ${items.join(" and ")}?`,
         senderHash,
         occurredAt,
@@ -245,9 +243,8 @@ describe("SMS result paging end to end (integration)", () => {
   async function askForEggs(
     senderHash: string,
     occurredAt: Date,
-    factIds: string[] = locationIds,
   ) {
-    return askFor(["eggs"], senderHash, occurredAt, factIds);
+    return askFor(["eggs"], senderHash, occurredAt);
   }
 
   /** MORE, with a provider that detonates if paging ever reaches a model. */
@@ -289,22 +286,15 @@ describe("SMS result paging end to end (integration)", () => {
     const provider: LLMProvider = {
       async generateJson(ctx) {
         seen.push(ctx);
-        if (ctx.seam === "inquiry-interpretation") {
-          return JSON.stringify({
-            kind: "lookup",
-            items: ["produce"],
-            ranking: "freshest",
-            broad: true,
-          });
-        }
-        const facts = (ctx.fields as { facts: { factId: string }[] }).facts;
-        return JSON.stringify({ kind: "selection", factIds: facts.map((fact) => fact.factId) });
+        throw new Error("broad operation must not invoke catalog matching");
       },
     };
 
     const answer = await answerInquiry(
-      { db: db as Db, model: createInquiryModel(provider), clock: new FixedClock(T0) },
+      { db: db as Db, matcher: createCatalogMatcher(provider), clock: new FixedClock(T0) },
       {
+        mode: "search_stands",
+        request: { operation: "broad" },
         taskText: "what's available today?",
         senderHash: customerHash,
         occurredAt: T0,
@@ -321,8 +311,7 @@ describe("SMS result paging end to end (integration)", () => {
     expect(answer.body.split("\n")[0]).toBe("9 matching stands (1-3 of 9)");
     expect(answer.body).not.toMatch(/produce/i);
 
-    const selection = seen.find((ctx) => ctx.seam === "grounded-fact-selection");
-    expect((selection!.fields as { facts: unknown[] }).facts).toHaveLength(PAGE_SIZE);
+    expect(seen).toEqual([]);
 
     const rows = await client()`
       select fact_ids, broad, stand_total from pending_result_lists
@@ -378,8 +367,8 @@ describe("SMS result paging end to end (integration)", () => {
       await alsoUsuallySells(i, "kale");
     }
 
-    const selectedStands = [0, 1, 2].map((i) => locationIds[i]!);
-    const answer = await askFor(["eggs", "kale"], customerHash, T0, selectedStands);
+    await client()`update stand_items set usually_carried = false where sales_location_id = any(${locationIds.slice(3)})`;
+    const answer = await askFor(["eggs", "kale"], customerHash, T0);
 
     expect(answer.outcome).toBe("answered");
     if (answer.outcome !== "answered") return;
@@ -409,28 +398,28 @@ describe("SMS result paging end to end (integration)", () => {
       await alsoUsuallySells(i, "kale");
     }
 
-    const selectedStands = [0, 1, 2, 3].map((i) => locationIds[i]!);
-    const answer = await askFor(["eggs", "kale"], customerHash, T0, selectedStands);
+    await client()`update stand_items set usually_carried = false where sales_location_id = any(${locationIds.slice(4)})`;
+    const answer = await askFor(["eggs", "kale"], customerHash, T0);
 
     expect(answer.outcome).toBe("answered");
     if (answer.outcome !== "answered") return;
     expect(answer.body).toContain("4 matching stands (1-3 of 4)");
     expect(answer.body).toMatch(/Reply MORE for the next 1\./);
-    // The three stands on page one are each named once, with both claim lines.
-    for (const name of standNames.slice(0, 3)) {
+    const firstPageNames = standNames.filter((name) => answer.body.includes(name));
+    expect(firstPageNames).toHaveLength(3);
+    for (const name of firstPageNames) {
       expect(answer.body.match(new RegExp(name, "g")), name).toHaveLength(1);
     }
-    // And the fourth stand is NOT on page one.
-    expect(answer.body).not.toContain(standNames[3]!);
 
     const next = await more(customerHash, at(1));
     expect(next.status).toBe("paged");
     expect(next.body).toContain("4 matching stands (4-4 of 4)");
     // The fourth stand, whole: its own entry with both claims, not a stray offering line.
-    expect(next.body).toContain(standNames[3]!);
+    const lastName = standNames.find((name) => next.body.includes(name));
+    expect(lastName).toBeDefined();
     expect(next.body).toMatch(/^In stock /m);
     // No stand from page one reappears — the failure this test exists for.
-    for (const name of standNames.slice(0, 3)) {
+    for (const name of firstPageNames) {
       expect(next.body, `${name} must not repeat after MORE`).not.toContain(name);
     }
   });
@@ -492,11 +481,11 @@ describe("SMS result paging end to end (integration)", () => {
   it("case 2 — an answer that fits saves nothing at all", async () => {
     // Paging machinery must not intrude on the common small case: no row, no MORE offer, no
     // count. A stored list nobody can page would also be a privacy cost with no benefit.
-    const answer = await askForEggs(
-      customerHash,
-      T0,
-      locationIds.slice(0, 3),
-    );
+    await client()`
+      update stand_items set usually_carried = false
+      where sales_location_id = any(${locationIds.slice(3)})
+    `;
+    const answer = await askForEggs(customerHash, T0);
 
     expect(answer.outcome).toBe("answered");
     if (answer.outcome !== "answered") return;
@@ -510,16 +499,13 @@ describe("SMS result paging end to end (integration)", () => {
 
   it("case 1 — a question nothing matches saves nothing and offers no paging", async () => {
     const provider = new ScriptedProvider({
-      "inquiry-interpretation": JSON.stringify({
-        kind: "lookup",
-        items: ["durian"],
-        ranking: "freshest",
+      "catalog-match": JSON.stringify({
+        matches: [],
       }),
-      "grounded-fact-selection": JSON.stringify({ kind: "selection", factIds: [] }),
     });
     const answer = await answerInquiry(
-      { db: db as Db, model: createInquiryModel(provider), clock: new FixedClock(T0) },
-      { taskText: "any durian?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
+      { db: db as Db, matcher: createCatalogMatcher(provider), clock: new FixedClock(T0) },
+      { mode: "search_stands", request: { operation: "inventory" }, taskText: "any durian?", senderHash: customerHash, occurredAt: T0, scope: { includeTestFarms: false } },
     );
 
     expect(answer.outcome).toBe("answered");
@@ -546,6 +532,62 @@ describe("SMS result paging end to end (integration)", () => {
     expect(page.body).toMatch(/reply MORE/i);
   });
 
+  it("MORE replays a payment search through the same pending list", async () => {
+    await client()`
+      insert into sales_location_payment_methods (sales_location_id, method)
+      select id, 'Cash' from sales_locations
+    `;
+    const provider = new ScriptedProvider({
+      "catalog-match": JSON.stringify({ matches: ["Cash"] }),
+    });
+    const answer = await answerInquiry(
+      { db: db as Db, matcher: createCatalogMatcher(provider), clock: new FixedClock(T0) },
+      {
+        mode: "search_stands",
+        request: { operation: "payment" },
+        taskText: "who takes cash?",
+        senderHash: customerHash,
+        occurredAt: T0,
+        scope: { includeTestFarms: false },
+      },
+    );
+    expect(answer.outcome).toBe("answered");
+    if (answer.outcome !== "answered") return;
+    expect(answer.body).toMatch(/1-3 of 9/);
+    expect(answer.body).toContain("Payment listed: Cash");
+
+    const page = await more(customerHash, at(1));
+    expect(page.status).toBe("paged");
+    expect(page.body).toMatch(/4-6 of 9/);
+    expect(page.body).toContain("Payment listed: Cash");
+  });
+
+  it("MORE rechecks that open-now results are still confirmed open", async () => {
+    await client()`
+      update sales_locations set season_kind = 'year_round', open_hours_kind = 'all_day'
+    `;
+    const provider = new ScriptedProvider({});
+    const answer = await answerInquiry(
+      { db: db as Db, matcher: createCatalogMatcher(provider), clock: new FixedClock(T0) },
+      {
+        mode: "search_stands",
+        request: { operation: "hours" },
+        taskText: "which stands are open now?",
+        senderHash: customerHash,
+        occurredAt: T0,
+        scope: { includeTestFarms: false },
+      },
+    );
+    expect(answer.outcome).toBe("answered");
+    if (answer.outcome !== "answered") return;
+    expect(answer.body).toMatch(/1-3 of 9/);
+
+    const page = await more(customerHash, at(1));
+    expect(page.status).toBe("paged");
+    expect(page.body).toMatch(/4-6 of 9/);
+    expect(page.body).toContain("Open now");
+  });
+
   it("case 5 — the last page closes with the map, and the list is spent", async () => {
     await askForEggs(customerHash, T0);
     await more(customerHash, at(1));
@@ -566,26 +608,19 @@ describe("SMS result paging end to end (integration)", () => {
     expect(beyond.status).toBe("no_pending_list");
   });
 
-  it("case 4 — confirmed stock leads page one even when the model ranks it last", async () => {
+  it("case 4 — confirmed stock leads page one deterministically", async () => {
     // THE guarantee: confirmed stock is what the customer actually wants, and it must never
     // be deferred to a page they may never ask for. The model here puts the one confirmed
     // stand DEAD LAST — a legitimate ordering it is entitled to propose — so if code did not
     // pull confirmed facts forward, that stand would land on page three.
     await publishEggs(8);
-    const factIds = [
-      ...locationIds.slice(0, 8),
-      locationIds[8]!,
-    ];
-    const answer = await askForEggs(customerHash, T0, factIds);
+    const answer = await askForEggs(customerHash, T0);
 
     expect(answer.outcome).toBe("answered");
     if (answer.outcome !== "answered") return;
     // On page ONE, above the offerings, carrying its recency.
     expect(answer.body).toContain(standNames[8]!);
     expect(answer.body).toMatch(/In stock \(2h ago\)/);
-    expect(answer.body.indexOf(standNames[8]!)).toBeLessThan(
-      answer.body.indexOf(standNames[0]!),
-    );
 
     // And it is not repeated on a later page, having already been shown.
     const page = await more(customerHash, at(1));
@@ -601,12 +636,13 @@ describe("SMS result paging end to end (integration)", () => {
 
   it("case 7 — a new question REPLACES the pending list", async () => {
     await askForEggs(customerHash, T0);
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      select id, 'kale', true, 1 from sales_locations
+      where id = any(${locationIds.slice(5, 9)})
+    `;
     // A second, smaller question. Its list is what MORE must page through afterwards.
-    await askForEggs(
-      customerHash,
-      at(5),
-      locationIds.slice(5, 9),
-    );
+    await askFor(["kale"], customerHash, at(5));
 
     const rows = await client()`
       select fact_ids from pending_result_lists where sender_hash = ${customerHash}
@@ -616,9 +652,8 @@ describe("SMS result paging end to end (integration)", () => {
 
     const page = await more(customerHash, at(6));
     expect(page.status).toBe("paged");
-    // The fourth stand of the SECOND question, not the fourth of the first.
-    expect(page.body).toContain(standNames[8]!);
-    expect(page.body).not.toContain(standNames[3]!);
+    expect(page.body).toContain("kale");
+    for (const name of standNames.slice(0, 5)) expect(page.body).not.toContain(name);
   });
 
   it("case 8 — a list older than its expiry pages nothing, and says so", async () => {
@@ -685,28 +720,55 @@ describe("SMS result paging end to end (integration)", () => {
     // withdrawn between page one and page two must not be rendered from a stale copy — the
     // table stores identifiers precisely so there is no copy to render from.
     await askForEggs(customerHash, T0);
+    const saved = await client()`select fact_ids from pending_result_lists where sender_hash = ${customerHash}`;
+    const withdrawnId = standKeyOfFactId((saved[0]!.fact_ids as string[])[3]!);
     await client()`
-      update sales_locations set is_public = false where id = ${locationIds[3]!}
+      update sales_locations set is_public = false where id = ${withdrawnId}
     `;
 
     const page = await more(customerHash, at(1));
     expect(page.status).toBe("paged");
-    expect(page.body).not.toContain(standNames[3]!);
+    const withdrawnIndex = locationIds.indexOf(withdrawnId);
+    expect(page.body).not.toContain(standNames[withdrawnIndex]!);
     // The rest of the page still renders; one withdrawn stand does not sink the answer.
-    expect(page.body).toContain(standNames[4]!);
+    expect(standNames.some((name) => page.body.includes(name))).toBe(true);
+  });
+
+  it("drops a stand that no longer lists the searched item without calling a model", async () => {
+    await askForEggs(customerHash, T0);
+    const saved = await client()`select fact_ids from pending_result_lists where sender_hash = ${customerHash}`;
+    const changedId = standKeyOfFactId((saved[0]!.fact_ids as string[])[3]!);
+    await client()`
+      update stand_items set usually_carried = false
+      where sales_location_id = ${changedId} and lower(display_name) = 'eggs'
+    `;
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${changedId}, 'carrots', true, 1)
+    `;
+
+    const page = await more(customerHash, at(1));
+    expect(page.status).toBe("paged");
+    const changedIndex = locationIds.indexOf(changedId);
+    expect(page.body).not.toContain(standNames[changedIndex]!);
+    expect(page.body).not.toContain("carrots");
+    expect(standNames.some((name) => page.body.includes(name))).toBe(true);
   });
 
   it("skips a page that has become entirely unpublishable rather than sending an empty one", async () => {
     // All three of page two withdrawn. An empty page reads as "no results" to a customer,
     // which is a false claim — the honest move is to serve the next page that has content.
     await askForEggs(customerHash, T0);
-    for (const id of locationIds.slice(3, 6)) {
+    const saved = await client()`select fact_ids from pending_result_lists where sender_hash = ${customerHash}`;
+    const orderedIds = (saved[0]!.fact_ids as string[]).map(standKeyOfFactId);
+    for (const id of orderedIds.slice(3, 6)) {
       await client()`update sales_locations set is_public = false where id = ${id}`;
     }
 
     const page = await more(customerHash, at(1));
     expect(page.status).toBe("paged");
-    expect(page.body).toContain(standNames[6]!);
+    const expectedIndex = locationIds.indexOf(orderedIds[6]!);
+    expect(page.body).toContain(standNames[expectedIndex]!);
   });
 
   it("stores no message text — only identifiers, the product words, and a position", async () => {

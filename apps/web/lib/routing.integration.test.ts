@@ -7,7 +7,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { LLMProvider, ModelSafeContext } from "@farm-friend/ai";
 import {
   createRequestClassificationModel,
-  createInquiryModel,
+  createCatalogMatcher,
   createInventoryInterpreter,
 } from "@farm-friend/ai";
 import {
@@ -304,7 +304,7 @@ describe("inbound routing end to end (integration)", () => {
             },
           },
       interpreter: createInventoryInterpreter(provider),
-      inquiry: createInquiryModel(provider),
+      catalogMatcher: createCatalogMatcher(provider),
       clock: new FixedClock(at(1)),
       // F-040: configured origin for a farmer standing link. Never a request header.
       publicBaseUrl: "https://farmfriend.example",
@@ -1064,7 +1064,7 @@ describe("inbound routing end to end (integration)", () => {
             },
           },
           interpreter: createInventoryInterpreter(new ForbiddenProvider()),
-          inquiry: createInquiryModel(new ForbiddenProvider()),
+          catalogMatcher: createCatalogMatcher(new ForbiddenProvider()),
           clock: new FixedClock(at(1)),
           // F-040: configured origin for a farmer standing link. Never a request header.
           publicBaseUrl: "https://farmfriend.example",
@@ -1079,7 +1079,7 @@ describe("inbound routing end to end (integration)", () => {
             },
           },
           interpreter: createInventoryInterpreter(new ForbiddenProvider()),
-          inquiry: createInquiryModel(new ForbiddenProvider()),
+          catalogMatcher: createCatalogMatcher(new ForbiddenProvider()),
           clock: new FixedClock(at(1)),
           // F-040: configured origin for a farmer standing link. Never a request header.
           publicBaseUrl: "https://farmfriend.example",
@@ -1163,7 +1163,7 @@ describe("inbound routing end to end (integration)", () => {
             },
           },
         interpreter: createInventoryInterpreter(provider),
-        inquiry: createInquiryModel(provider),
+        catalogMatcher: createCatalogMatcher(provider),
         clock: new FixedClock(at(1)),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
@@ -1213,7 +1213,7 @@ describe("inbound routing end to end (integration)", () => {
             },
           },
         interpreter: createInventoryInterpreter(provider),
-        inquiry: createInquiryModel(provider),
+        catalogMatcher: createCatalogMatcher(provider),
         clock: new FixedClock(at(1)),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
@@ -1322,7 +1322,7 @@ describe("inbound routing end to end (integration)", () => {
             },
           },
         interpreter: createInventoryInterpreter(provider),
-        inquiry: createInquiryModel(provider),
+        catalogMatcher: createCatalogMatcher(provider),
         clock: new FixedClock(at(1)),
         publicBaseUrl: "https://farmfriend.example",
         publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
@@ -1516,22 +1516,14 @@ describe("inbound routing end to end (integration)", () => {
 
       await deliverInboundOnly({ fromPhone: customerPhone, text: "who has kale?" });
 
-      // The model interprets and selects identifiers; it never authors the answer. This
-      // one also tries to smuggle prose through the selection seam.
+      // The model selects one catalog name; code expands it to stands and authors the answer.
       const provider = new ScriptedProvider({
         // F-104 — the route signal comes first now. "who has kale?" is a question.
-        "request-classification": JSON.stringify({ kind: "search_stands" }),
-        "inquiry-interpretation": JSON.stringify({
-          kind: "lookup",
-          items: ["kale"],
-          ranking: "freshest",
-          outOfScopeRequest: false,
-          originDependent: false,
+        "request-classification": JSON.stringify({
+          kind: "search_stands",
+          request: { operation: "inventory" },
         }),
-        "grounded-fact-selection": JSON.stringify({
-          kind: "selection",
-          factIds: [locationId],
-        }),
+        "catalog-match": JSON.stringify({ matches: ["kale"] }),
       });
 
       await runInboundPass({
@@ -1543,7 +1535,7 @@ describe("inbound routing end to end (integration)", () => {
           },
         },
         interpreter: createInventoryInterpreter(provider),
-        inquiry: createInquiryModel(provider),
+        catalogMatcher: createCatalogMatcher(provider),
         clock: new FixedClock(at(1)),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
@@ -1566,14 +1558,11 @@ describe("inbound routing end to end (integration)", () => {
 
       const provider = new ScriptedProvider({
         // F-104 — the route signal comes first now. "who has kale?" is a question.
-        "request-classification": JSON.stringify({ kind: "search_stands" }),
-        "inquiry-interpretation": JSON.stringify({
-          kind: "lookup",
-          items: ["kale"],
-          ranking: "freshest",
-          outOfScopeRequest: false,
-          originDependent: false,
+        "request-classification": JSON.stringify({
+          kind: "search_stands",
+          request: { operation: "inventory" },
         }),
+        "catalog-match": JSON.stringify({ matches: ["kale"] }),
       });
       await runInboundPass({
         db: database(),
@@ -1584,7 +1573,7 @@ describe("inbound routing end to end (integration)", () => {
             },
           },
         interpreter: createInventoryInterpreter(provider),
-        inquiry: createInquiryModel(provider),
+        catalogMatcher: createCatalogMatcher(provider),
         clock: new FixedClock(at(1)),
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",

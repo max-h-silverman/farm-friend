@@ -2,7 +2,8 @@ export type LiveEvalGroup =
   | "live-containment"
   | "live-closure"
   | "live-quality"
-  | "live-recall";
+  | "live-operation"
+  | "live-catalog";
 
 export type LiveEvalResults = Record<LiveEvalGroup, { pass: number; fail: number }>;
 
@@ -14,8 +15,11 @@ export function liveEvalFailureReason(results: LiveEvalResults): string | null {
   if (results["live-closure"].fail > 0) {
     return "an F-049 closure fixture failed against the real model";
   }
-  if (results["live-recall"].fail > 0) {
-    return "a recall fixture missed a stand that carries the item";
+  if (results["live-operation"].fail > 0) {
+    return "a required operation-classification fixture failed against the real model";
+  }
+  if (results["live-catalog"].fail > 0) {
+    return "a required catalog-matching fixture failed against the real model";
   }
   return null;
 }

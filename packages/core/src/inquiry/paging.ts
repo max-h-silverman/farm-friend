@@ -75,6 +75,41 @@ function renderAddress(fact: PageableFact): string {
   return address === "" ? "address not listed" : address;
 }
 
+/** One non-inventory stand result, with every factual line already rendered by code. */
+export interface StandFactPageEntry {
+  locationName: string;
+  publicAddress?: string;
+  detailLines: string[];
+}
+
+/**
+ * Render payment/open-now search results with the same page size and navigation as inventory.
+ * The model can choose a fact type or catalog value; it cannot supply any line printed here.
+ */
+export function renderStandFactPage(input: {
+  entries: StandFactPageEntry[];
+  offset: number;
+  total: number;
+}): RenderedPage {
+  const hasMore = input.offset + input.entries.length < input.total;
+  const lines = [
+    renderHeader({ shown: input.entries.length, offset: input.offset, total: input.total }),
+  ];
+  for (const entry of input.entries) {
+    lines.push("", entry.locationName, ...entry.detailLines);
+    lines.push(
+      stripIslandSuffix(entry.publicAddress?.trim() ?? "") || "address not listed",
+    );
+  }
+  lines.push(
+    "",
+    hasMore
+      ? `Reply MORE for the next ${Math.min(PAGE_SIZE, input.total - input.offset - input.entries.length)}.`
+      : `Map: ${PUBLIC_MAP_URL}`,
+  );
+  return { body: lines.join("\n"), hasMore };
+}
+
 /**
  * The header: how many stands answer, and which of them this page holds.
  *

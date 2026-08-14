@@ -142,14 +142,8 @@ export const REQUEST_TIMEOUT_MS = 90_000;
  * sometimes emitted 62 identifiers from a set of 48, repeating itself until the 20-second
  * abort fired, so the commonest question on the island failed deterministically.
  *
- * Nothing false could have been rendered from it — `validateFactSelection` rejects a repeated
- * identifier — but the check never got to run. This bounds the failure to a fast, visible
- * invalid response instead of a wall-clock timeout.
- *
- * Sized to admit every legitimate answer and stop a loop. Size it from how uuids actually
- * TOKENIZE, not from their character count: a uuid is 36 characters but splits into many
- * hex-chunk tokens — measured, closer to 18 tokens each than the ~11 a chars/3.2 estimate
- * suggests. `MAX_INQUIRY_CANDIDATES` (60) identifiers is therefore ~1100 tokens, not ~750.
+ * Nothing false could have been rendered from it, but the membership check never got to run.
+ * This bounds the failure to a fast, visible invalid response instead of a wall-clock timeout.
  *
  * A first pass at 1024 was set from the bad estimate and TRUNCATED real answers: a broad
  * question ("what's available today?") selects nearly every stand, the array was cut off
@@ -157,8 +151,8 @@ export const REQUEST_TIMEOUT_MS = 90_000;
  * retry. A ceiling that clips honest output is worse than none — it converts a good answer
  * into a refusal.
  *
- * 2048 clears the widest possible selection with real headroom and still stops a model that
- * has started repeating itself. Every other seam's output is far smaller.
+ * B-069 replaced that identifier-heavy selection with catalog names, so normal inquiry output
+ * is now far smaller. The shared provider ceiling remains a conservative loop guard.
  *
  * Kept BELOW what the request timeout can generate, deliberately, so the TOKEN bound is the
  * one that trips first: that fails fast and visibly, where a timeout tells the customer we

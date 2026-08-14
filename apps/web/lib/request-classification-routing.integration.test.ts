@@ -5,7 +5,7 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { FixedClock, PUBLIC_MAP_URL, type InventoryInterpreter } from "@farm-friend/core";
 import type {
-  InquiryModel,
+  CatalogMatcher,
   RequestCategory,
   RequestClassificationModel,
   StockOutModel,
@@ -19,6 +19,7 @@ import {
   STOCK_OUT_THANKS,
   SYSTEM_INQUIRY_REPLY,
   UNCLEAR_REQUEST_REPLY,
+  VIGA_BUCKS_INQUIRY_REPLY,
 } from "./free-text";
 
 /*
@@ -151,7 +152,13 @@ describe("F-111 request-classification routing (integration)", () => {
 
   /** A classifier pinned to one category — the model's verdict, held still. */
   function classifier(kind: RequestCategory): RequestClassificationModel {
-    return { async classify() { return { ok: true, kind }; } };
+    return {
+      async classify() {
+        if (kind === "search_stands") return { ok: true, kind, request: { operation: "inventory" } };
+        if (kind === "stand_lookup") return { ok: true, kind, request: { operation: "overview" } };
+        return { ok: true, kind };
+      },
+    };
   }
 
   /** The seam could not be reached, or returned nothing valid. */
@@ -159,10 +166,9 @@ describe("F-111 request-classification routing (integration)", () => {
     return { async classify() { return { ok: false }; } };
   }
 
-  function forbiddenInquiry(): InquiryModel {
+  function forbiddenInquiry(): CatalogMatcher {
     return {
-      async interpret() { throw new Error("the inquiry seam must not run on this path"); },
-      async select() { throw new Error("the selection seam must not run on this path"); },
+      async match() { throw new Error("the catalog matcher must not run on this path"); },
     };
   }
 
@@ -180,14 +186,14 @@ describe("F-111 request-classification routing (integration)", () => {
 
   function deps(overrides: {
     classifier: RequestClassificationModel;
-    inquiry?: InquiryModel;
+    catalogMatcher?: CatalogMatcher;
     interpreter?: InventoryInterpreter;
     stockOut?: StockOutModel;
   }) {
     return {
       db: database(),
       classifier: overrides.classifier,
-      inquiry: overrides.inquiry ?? forbiddenInquiry(),
+      catalogMatcher: overrides.catalogMatcher ?? forbiddenInquiry(),
       interpreter:
         overrides.interpreter ??
         ({
@@ -335,20 +341,12 @@ describe("F-111 request-classification routing (integration)", () => {
         2. the matcher's bar rejects one word out of four even when it IS reached (next test).
     */
     it("answers 'when do you open' from a farmer handset as a question, not a report", async () => {
-      const interpret = vi.fn(async () => ({
-        kind: "lookup" as const,
-        items: [],
-        ranking: "any" as const,
-        broad: true,
-        outOfScopeRequest: false,
-        originDependent: false,
-      }));
       const d = deps({
-        classifier: classifier("search_stands"),
-        inquiry: {
-          interpret,
-          select: async () => ({ kind: "selection" as const, factIds: [] }),
-        } as unknown as InquiryModel,
+        classifier: {
+          async classify() {
+            return { ok: true, kind: "search_stands", request: { operation: "hours" } };
+          },
+        },
         stockOut: {
           parseItem: async (): Promise<never> => {
             throw new Error("a question must not reach the stock-out seam");
@@ -359,7 +357,6 @@ describe("F-111 request-classification routing (integration)", () => {
       const result = await send(d, FARMER_HASH, "when do you open", "evt-open-1");
 
       // It reached the grounded inquiry path, and NOTHING was filed against Open Gate.
-      expect(interpret).toHaveBeenCalled();
       expect(result.handled).toBe("customer");
       expect(await client()`select id from stock_out_reports`).toHaveLength(0);
     });
@@ -408,6 +405,20 @@ describe("F-111 request-classification routing (integration)", () => {
       expect(result.replies[0]?.body).not.toContain("did not catch");
       expect(await client()`select id from stock_out_reports`).toHaveLength(0);
     });
+
+    it("uses VIGA's live Food Access page for VIGA Bucks details", async () => {
+      const d = deps({
+        classifier: {
+          async classify() {
+            return { ok: true as const, kind: "system_inquiry" as const, topic: "viga_bucks" as const };
+          },
+        },
+      });
+      const result = await send(d, CUSTOMER_HASH, "how do I get VIGA Bucks?", "evt-bucks");
+
+      expect(result.replies[0]?.body).toBe(VIGA_BUCKS_INQUIRY_REPLY);
+      expect(result.replies[0]?.body).toContain("vigavashon.org/food-access-partnership");
+    });
   });
 
   describe("chitchat and unclear are answered in code", () => {
@@ -415,6 +426,9 @@ describe("F-111 request-classification routing (integration)", () => {
       const d = deps({ classifier: classifier("chitchat") });
       const result = await send(d, CUSTOMER_HASH, "hi there", "evt-hi");
       expect(result.replies[0]?.body).toBe(CHITCHAT_REPLY);
+      expect(result.replies[0]?.body).toBe(
+        "Ask me what a Vashon farm stand has, or tell us if something is sold out. 🌱",
+      );
       // No claim about any stand: "no stand has a current listing for hi" was the old answer.
       expect(result.replies[0]?.body).not.toContain("no stand");
     });
@@ -504,16 +518,9 @@ describe("F-111 request-classification routing (integration)", () => {
       for (const kind of ["inventory_report", "stand_lookup", "system_inquiry"] as const) {
         const d = deps({
           classifier: classifier(kind),
-          inquiry: {
-            interpret: async () => ({
-              kind: "lookup" as const,
-              items: ["eggs"],
-              ranking: "any" as const,
-              outOfScopeRequest: false,
-              originDependent: false,
-            }),
-            select: async () => ({ kind: "selection" as const, factIds: [] }),
-          } as unknown as InquiryModel,
+          catalogMatcher: {
+            match: async () => ({ ok: true, matches: ["eggs"] }),
+          } as unknown as CatalogMatcher,
           interpreter: {
             interpret: async () => {
               throw new Error("a customer's message must never reach the interpreter");

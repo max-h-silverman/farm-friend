@@ -1,14 +1,14 @@
 import {
   assertProviderApproved,
   createDeepInfraProvider,
-  createInquiryModel,
+  createCatalogMatcher,
   createInventoryInterpreter,
   createRequestClassificationModel,
   createStockOutModel,
   DEEPINFRA_ATTESTED_DATA_HANDLING,
   DEEPINFRA_THIRD_PARTY_ROUTED_MODEL_PREFIXES,
   StubLLMProvider,
-  type InquiryModel,
+  type CatalogMatcher,
   type RequestClassificationModel,
   type ProviderDataHandling,
   type StockOutModel,
@@ -335,7 +335,7 @@ export interface AppContext {
    */
   classifier: RequestClassificationModel;
   /** The customer inquiry seams. Constructed over the provider alone, like every seam. */
-  inquiry: InquiryModel;
+  catalogMatcher: CatalogMatcher;
   /** The stock-out item parser, used by the code-bound web/QR surface and the SMS door. */
   stockOut: StockOutModel;
   clock: Clock;
@@ -553,7 +553,7 @@ export function createAppContext(env: EnvVars = process.env): AppContext {
     }),
     interpreter: createInventoryInterpreter(provider),
     classifier: createRequestClassificationModel(provider),
-    inquiry: createInquiryModel(provider),
+    catalogMatcher: createCatalogMatcher(provider),
     stockOut: createStockOutModel(provider),
     close: () => db.close(),
   };

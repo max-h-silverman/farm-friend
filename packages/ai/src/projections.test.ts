@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { describe, expect, it } from "vitest";
 import {
-  projectFactSelection,
-  projectInquiryInterpretation,
+  projectCatalogMatch,
   projectInventoryExtraction,
   projectStockOutParse,
   ProjectionError,
@@ -153,94 +152,31 @@ describe("inventory-extraction projection — the only permitted model input for
   });
 });
 
-describe("inquiry-interpretation projection — the question, and no facts", () => {
-  it("carries only the customer's own question", () => {
-    const ctx = projectInquiryInterpretation({ taskText: "who has kale today?" });
-    expect(ctx.seam).toBe("inquiry-interpretation");
-    expect(Object.keys(ctx.fields)).toEqual(["taskText"]);
-    expect(ctx.fields.taskText).toBe("who has kale today?");
-  });
-
-  it("cannot be handed retrieved facts, so it cannot answer from context", () => {
-    // The type test proves this statically; this records the intent at runtime too.
-    const ctx = projectInquiryInterpretation({ taskText: "kale?" });
-    expect(JSON.stringify(ctx)).not.toContain("factId");
-  });
-});
-
-describe("grounded-fact-selection projection — the facts, and no raw customer text", () => {
-  const facts = [
-    {
-      factId: "f1",
-      farmName: "Alpha Farm",
-      locationName: "Alpha Stand",
-      matchedItemNames: ["kale"],
-    },
-  ];
-
-  it("carries the validated intent and the exact retrieved facts", () => {
-    const ctx = projectFactSelection({ items: ["kale"], ranking: "freshest", facts });
-    expect(ctx.seam).toBe("grounded-fact-selection");
-    expect(Object.keys(ctx.fields).sort()).toEqual(["facts", "items", "ranking"]);
-    expect(ctx.fields.facts[0]!.factId).toBe("f1");
-  });
-
-  it("does not carry the customer's raw text, where an injection would live", () => {
-    const ctx = projectFactSelection({ items: ["kale"], ranking: "any", facts });
-    expect(JSON.stringify(ctx)).not.toContain("taskText");
-  });
-
-  it("copies each fact field-by-field, so an over-broad row cannot widen it", () => {
-    const overBroad = {
-      factId: "f1",
-      farmName: "Alpha Farm",
-      locationName: "Alpha Stand",
-      matchedItemNames: ["kale"],
-      farmerPhoneHash: "deadbeef",
-      internalNote: "owner behind on dues",
-    } as (typeof facts)[number];
-
-    const ctx = projectFactSelection({ items: ["kale"], ranking: "any", facts: [overBroad] });
-    expect(Object.keys(ctx.fields.facts[0]!).sort()).toEqual([
-      "factId",
-      "farmName",
-      "locationName",
-      "matchedItemNames",
-    ]);
-    expect(JSON.stringify(ctx)).not.toContain("deadbeef");
-    expect(JSON.stringify(ctx)).not.toContain("behind on dues");
-  });
-
-  it("does not ask the model to choose a stand's evidence type (B-068)", () => {
-    const ctx = projectFactSelection({
-      items: ["lamb"],
-      ranking: "any",
-      facts: [
-        {
-          factId: "stand-1",
-          farmName: "Alpha Farm",
-          locationName: "Alpha Stand",
-          matchedItemNames: ["frozen lamb"],
-        },
-      ],
+describe("catalog match projection — values only, never stand selection (B-069)", () => {
+  it("shows each public item name once without stand identifiers", () => {
+    const ctx = projectCatalogMatch({
+      taskText: "who has eggs?",
+      catalogType: "inventory",
+      values: ["Eggs", "eggs", "Chicken eggs", " Eggs "],
     });
-    expect(Object.keys(ctx.fields.facts[0]!).sort()).toEqual([
-      "factId",
-      "farmName",
-      "locationName",
-      "matchedItemNames",
-    ]);
-    expect(JSON.stringify(ctx)).not.toMatch(/basis|ageHours/);
+
+    expect(ctx.seam).toBe("catalog-match");
+    expect(ctx.fields).toEqual({
+      taskText: "who has eggs?",
+      catalogType: "inventory",
+      values: ["Eggs", "Chicken eggs"],
+    });
+    expect(JSON.stringify(ctx)).not.toMatch(/factId|farmName|locationName|basis|ageHours/);
   });
 
-  it("refuses a raw phone in retrieved public facts", () => {
-    expect(() =>
-      projectFactSelection({
-        items: ["kale"],
-        ranking: "any",
-        facts: [{ ...facts[0]!, locationName: "Call 206-555-1234 Stand" }],
-      }),
-    ).toThrow(ProjectionError);
+  it("uses the same bounded decision for payment values", () => {
+    const ctx = projectCatalogMatch({
+      taskText: "who takes cash?",
+      catalogType: "payment",
+      values: ["Cash", "cash", "Venmo"],
+    });
+
+    expect(ctx.fields).toEqual({ taskText: "who takes cash?", catalogType: "payment", values: ["Cash", "Venmo"] });
   });
 });
 
@@ -266,8 +202,8 @@ describe("stock-out-parse projection — no location identifier in or out", () =
 
   /*
     B-060. B-057 made `stand_items.display_name` an input to THIS seam. The raw-phone content
-    rule was proven on `projectFactSelection`'s `locationName` and never on the field the
-    stock-out seam newly reads, so the guarantee was an inference from reading the projection.
+    rule had been proven on another projection and never on the field the stock-out seam newly
+    reads, so the guarantee was an inference from reading the projection.
 
     A raw phone in our own published item text is a Farm Friend bug either way; what matters is
     that it fails CLOSED here, before a model call, rather than travelling into model context.
@@ -346,42 +282,9 @@ describe("opaque identifiers are checked for shape, never scanned as content", (
         }),
       ).not.toThrow();
       expect(() =>
-        projectFactSelection({
-          items: ["kale"],
-          ranking: "any",
-          facts: [
-            {
-              factId: id,
-              farmName: "Alpha Farm",
-              locationName: "Alpha Stand",
-              matchedItemNames: ["Kale"],
-            },
-          ],
-        }),
-      ).not.toThrow();
-      expect(() =>
         projectStockOutParse({ taskText: "gone", listedItems: [{ entryId: id, itemName: "Kale" }] }),
       ).not.toThrow();
     }
-  });
-
-  it("accepts a UUID that literally contains a phone-shaped digit run", () => {
-    // Constructed to match RAW_PHONE_RE if it were scanned as content.
-    const id = "2065551234-4d1f-4c2b-8f3a-1234567890ab";
-    expect(() =>
-      projectFactSelection({
-        items: ["kale"],
-        ranking: "any",
-        facts: [
-          {
-            factId: id,
-            farmName: "Alpha Farm",
-            locationName: "Alpha Stand",
-            matchedItemNames: ["Kale"],
-          },
-        ],
-      }),
-    ).not.toThrow();
   });
 
   it("still refuses free text smuggled through an identifier field", () => {
@@ -396,20 +299,12 @@ describe("opaque identifiers are checked for shape, never scanned as content", (
     }
   });
 
-  it("still refuses a raw phone in human-readable retrieved text", () => {
-    // The content rule stays where it means something: display text.
+  it("still refuses a raw phone in a public catalog name", () => {
     expect(() =>
-      projectFactSelection({
-        items: ["kale"],
-        ranking: "any",
-        facts: [
-          {
-            factId: randomUUID(),
-            farmName: "Alpha Farm",
-            locationName: "Call 206-555-1234 Stand",
-            matchedItemNames: ["Kale"],
-          },
-        ],
+      projectCatalogMatch({
+        taskText: "kale?",
+        catalogType: "inventory",
+        values: ["Call 206-555-1234 for kale"],
       }),
     ).toThrow(ProjectionError);
   });

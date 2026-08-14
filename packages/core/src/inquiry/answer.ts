@@ -1,15 +1,4 @@
-// Customer inquiry: typed retrieved facts → the code-rendered authoritative answer.
-//
-// This module is the "code commits" half of Golden Rule #4. The model may interpret the
-// request and SELECT or ORDER identifiers from what code retrieved; it never authors the
-// factual text. Everything a customer reads about what a stand has, and how fresh that is,
-// is rendered here from typed authoritative values.
-//
-// The division of labour, precisely:
-//   - code retrieves    → RetrievedFact[] with stable opaque IDs and asOf timestamps
-//   - the model selects → factId[] (and nothing else deliverable)
-//   - code validates    → every selected ID must belong to the retrieved set
-//   - code renders      → names, items, recency, stale warnings, comparisons
+// Customer inquiry: typed public facts → code-rendered authoritative answers.
 //
 // There is deliberately no path by which a model-supplied string becomes customer-facing
 // factual text.
@@ -37,7 +26,7 @@ export type FactBasis = "confirmed" | "offering";
  * "null" to customers past a compiler that was satisfied.
  */
 export interface RetrievedFact {
-  /** Opaque stable identifier. The only thing the model may hand back. */
+  /** Opaque stable identifier used by code-owned paging. */
   factId: string;
   locationName: string;
   farmName: string;
@@ -83,160 +72,6 @@ export interface RetrievedItem {
  * constant passes at any number, which is no test of a product commitment at all.
  */
 export const STALE_AFTER_HOURS = 96;
-
-/**
- * The model's selection: ordered opaque IDs, or a bare signal that it cannot choose.
- *
- * `clarification` carries no `question` (F-018). Like the interpretation seam's ambiguity
- * signal, it was a field model prose travelled through to the customer; code renders the
- * words via `renderClarificationRequest`.
- */
-export type FactSelection =
-  | {
-      kind: "selection";
-      factIds: string[];
-      /**
-       * Which of each selected fact's OWN item names answered the request (F-107), keyed by
-       * factId. Absent when the model did not say.
-       *
-       * Every name here was validated against that fact's `matchedItems`, and code's spelling
-       * is what survives — the model's echo of "eggs" cannot restyle the farmer's "Eggs".
-       * A name the fact never carried, or a fact that was not selected, is dropped.
-       */
-      matchedItems?: Record<string, string[]>;
-    }
-  | { kind: "clarification" };
-
-/**
- * Why a selection was refused, as a typed value rather than prose (B-061).
- *
- * `duplicate_id` is the one failure that reveals NOTHING about facts the model was not shown:
- * the identifier is real and retrieved, the model merely repeated it. Callers may recover from
- * it using their own ranking. Every other failure — an invented identifier, a smuggled factual
- * string, a malformed shape — is a claim about data the model never received, and callers must
- * keep refusing so an attack stays observable.
- *
- * The kind exists so callers branch on a VALUE. Matching the human-readable `reason` string
- * would couple recovery to wording that is free to change.
- */
-export type SelectionFailureKind = "duplicate_id" | "ungrounded";
-
-export type SelectionValidation =
-  | { ok: true; value: FactSelection }
-  | { ok: false; reason: string; failure: SelectionFailureKind };
-
-/**
- * Validate untrusted selection output. Structural validity is NOT grounding: every selected
- * identifier must belong to the exact retrieved set, and no deliverable factual string may
- * appear anywhere in the output.
- */
-export function validateFactSelection(
-  candidate: unknown,
-  retrieved: RetrievedFact[],
-): SelectionValidation {
-  if (typeof candidate !== "object" || candidate === null) {
-    return { ok: false, reason: "selection must be an object", failure: "ungrounded" };
-  }
-  const record = candidate as Record<string, unknown>;
-  const keys = Object.keys(record);
-
-  if (record.kind === "clarification") {
-    // Exactly `kind`. No permitted field means no prose channel to smuggle through.
-    if (keys.length !== 1) {
-      return { ok: false, reason: "clarification is a signal and carries no other field", failure: "ungrounded" };
-    }
-    return { ok: true, value: { kind: "clarification" } };
-  }
-
-  if (record.kind !== "selection") {
-    return { ok: false, reason: "unsupported selection kind", failure: "ungrounded" };
-  }
-  // A field like `answerText`, `distance`, or `recency` would be the model supplying
-  // authoritative content. The answer is code's; the model returns identifiers only.
-  //
-  // F-107 adds exactly one more permitted key, `matchedItems`, whose every value is checked
-  // against what code sent below. Keeping the allow-list a closed count is what makes a
-  // smuggled field a visible refusal rather than a silently stripped one.
-  const permitted = new Set(["kind", "factIds", "matchedItems"]);
-  if (!keys.every((key) => permitted.has(key)) || !("factIds" in record)) {
-    return { ok: false, reason: "selection carries only ordered fact identifiers", failure: "ungrounded" };
-  }
-  if (!Array.isArray(record.factIds)) {
-    return { ok: false, reason: "factIds must be an array", failure: "ungrounded" };
-  }
-
-  const known = new Set(retrieved.map((fact) => fact.factId));
-  const seen = new Set<string>();
-  for (const factId of record.factIds) {
-    if (typeof factId !== "string") {
-      return { ok: false, reason: "a fact identifier must be a string", failure: "ungrounded" };
-    }
-    if (!known.has(factId)) {
-      // The model invented or hallucinated an identifier: reject the whole selection.
-      return { ok: false, reason: `fact ${factId} is not part of the retrieved set`, failure: "ungrounded" };
-    }
-    if (seen.has(factId)) {
-      return {
-        ok: false,
-        reason: `fact ${factId} is selected more than once`,
-        failure: "duplicate_id",
-      };
-    }
-    seen.add(factId);
-  }
-
-  const factIds = record.factIds as string[];
-
-  // F-107 — reduce the model's claimed matches to names code actually sent for that fact.
-  //
-  // Everything not provably ours is DROPPED rather than refused: an unknown item name is a
-  // model being loose about which stand carries what, not an attack on the retrieved set, and
-  // the answer is still correct with it removed. An invented factId stays a hard refusal
-  // above, because that one puts a whole stand in front of a customer who was never offered it.
-  //
-  // Comparison is case-insensitive on trimmed text, and the value kept is CODE's spelling —
-  // the farmer wrote "Eggs", and the model echoing "eggs" must not change what is printed.
-  let matchedItems: Record<string, string[]> | undefined;
-  if (record.matchedItems !== undefined) {
-    if (
-      typeof record.matchedItems !== "object" ||
-      record.matchedItems === null ||
-      Array.isArray(record.matchedItems)
-    ) {
-      return { ok: false, reason: "matchedItems must be an object", failure: "ungrounded" };
-    }
-    const selected = new Set(factIds);
-    const byFactId = new Map(retrieved.map((fact) => [fact.factId, fact]));
-    matchedItems = {};
-    for (const [factId, names] of Object.entries(
-      record.matchedItems as Record<string, unknown>,
-    )) {
-      // Names under a fact the answer does not return have nowhere to render.
-      if (!selected.has(factId)) continue;
-      const fact = byFactId.get(factId);
-      if (fact === undefined || !Array.isArray(names)) continue;
-      const bySpelling = new Map(
-        fact.matchedItems.map((item) => [item.itemName.trim().toLowerCase(), item.itemName]),
-      );
-      const kept: string[] = [];
-      for (const name of names) {
-        if (typeof name !== "string") continue;
-        const ours = bySpelling.get(name.trim().toLowerCase());
-        if (ours !== undefined && !kept.includes(ours)) kept.push(ours);
-      }
-      if (kept.length > 0) matchedItems[factId] = kept;
-    }
-  }
-
-  return {
-    ok: true,
-    value: {
-      kind: "selection",
-      factIds,
-      ...(matchedItems !== undefined ? { matchedItems } : {}),
-    },
-  };
-}
 
 /**
  * Render the bare elapsed phrase — "4 hours ago", "just now" — from typed values.
@@ -460,4 +295,3 @@ export const PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map#map";
 export const ORIGIN_LIMITATION_STATEMENT =
   "Farm Friend cannot work out which stand is closest to you over text. " +
   `The map at ${PUBLIC_MAP_URL} can sort stands by distance if you allow location access.`;
-

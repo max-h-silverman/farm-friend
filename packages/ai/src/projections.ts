@@ -22,21 +22,17 @@
 //
 // EACH SEAM GETS ITS OWN PROJECTION; THERE IS NO GENERIC ONE. `assembleContext(seam, fields)`
 // was deleted in F-015 precisely because it let any caller hand the model a record of its own
-// choosing. Six projections exist, for the seams that have real consumers: farmer-message
-// intent, inventory extraction (F-015), inquiry interpretation, grounded fact selection,
-// stock-out item parsing (F-013), and offering extraction (F-035).
+// choosing. Each projection exists only for a seam with a real consumer, including request
+// classification, inventory extraction, catalog matching, stock-out item parsing,
+// and offering extraction.
 //
 // When you build a new seam, ADD ITS OWN PROJECTION HERE — copying each permitted field
 // explicitly, as below — and add its bypass assertions to safety-boundary.type-test.ts. Do not
 // reintroduce a generic entry point; the type test fails if you do. docs/RUNBOOK.md §"Add a
 // model seam" walks the full procedure.
 //
-// Note what the two INQUIRY projections deliberately do NOT contain. Interpretation sees the
-// customer's question but NO retrieved facts — it decides what to look up, so giving it the
-// answer set would invite it to answer. Grounded selection sees the retrieved facts but NOT
-// the customer's raw text — it picks from what code found, and the raw request is where an
-// injection would live. Neither ever sees a farmer's contact, a recipient, or another
-// customer's message.
+// The inquiry projection carries the customer's question and unique public catalog names, but
+// no stand identifier, association, evidence type, contact, recipient, or other customer's message.
 
 import {
   isLocalDate,
@@ -101,15 +97,7 @@ export const SEAM_OUTPUT_SHAPES = {
     '{"kind":"closure","closure":{"result":"reopen"}}',
     '{"kind":"clarification","question":"Could you list what your stand has right now?"}',
   ],
-  "inquiry-interpretation": [
-    '{"kind":"lookup","items":["bok choy","green beans"],"farmScope":"Provo Farms","ranking":"freshest","broad":false,"outOfScopeRequest":false,"originDependent":false}',
-    '{"kind":"ambiguous"}',
-  ],
-  "grounded-fact-selection": [
-    '{"kind":"selection","factIds":["loc-1","loc-2"],"matchedItems":{"loc-1":["butter lettuce"],"loc-2":["kale"]}}',
-    '{"kind":"selection","factIds":[]}',
-    '{"kind":"clarification"}',
-  ],
+  "catalog-match": ['{"matches":["bok choy","butter lettuce"]}', '{"matches":[]}'],
   "stock-out-parse": [
     '{"kind":"listed","entryId":"e1"}',
     '{"kind":"unlisted","itemText":"strawberries"}',
@@ -117,8 +105,17 @@ export const SEAM_OUTPUT_SHAPES = {
   ],
   "offering-extraction": ['{"items":["eggs","bok choy","cut flowers"]}'],
   "request-classification": [
-    '{"kind":"search_stands"}',
-    '{"kind":"stand_lookup"}',
+    '{"kind":"search_stands","request":{"operation":"inventory","originDependent":false,"outOfScopeRequest":false}}',
+    '{"kind":"search_stands","request":{"operation":"broad","originDependent":false}}',
+    '{"kind":"search_stands","request":{"operation":"payment"}}',
+    '{"kind":"search_stands","request":{"operation":"hours"}}',
+    '{"kind":"search_stands","request":{"operation":"clarification"}}',
+    '{"kind":"stand_lookup","request":{"operation":"inventory","originDependent":false,"outOfScopeRequest":false}}',
+    '{"kind":"stand_lookup","request":{"operation":"payment"}}',
+    '{"kind":"stand_lookup","request":{"operation":"hours"}}',
+    '{"kind":"stand_lookup","request":{"operation":"location"}}',
+    '{"kind":"stand_lookup","request":{"operation":"overview"}}',
+    '{"kind":"stand_lookup","request":{"operation":"clarification"}}',
     '{"kind":"inventory_report"}',
     '{"kind":"system_inquiry"}',
     '{"kind":"chitchat"}',
@@ -158,45 +155,12 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "computed by code before this call. For a close, copy its kind and dates EXACTLY; never " +
     "calculate, substitute, or invent dates. A future closure that conflicts with " +
     "currentClosure requires clarification.",
-  "inquiry-interpretation":
-    "items are the product words the customer asks about, as plain nouns. Correct obvious " +
-    'misspellings ("tomatos" -> "tomatoes", "kayle" -> "kale"). A message that is only a ' +
-    'product word is a request for it ("garlic?" -> items ["garlic"]), and so is one that ' +
-    "asks about price, cost, or availability of a product - answer the product half and let " +
-    "code state what it cannot answer. ranking MUST be " +
-    'exactly "freshest", "coverage", or "any": "coverage" when they want places carrying ' +
-    'the most of their items, "freshest" when recency matters most, "any" otherwise. ' +
-    "farmScope only when they name a specific farm; when they name a farm and no product, " +
-    'set farmScope and use the broad item ["produce"] so the whole stand can answer. ' +
-    "Set broad true whenever they ask what is generally available with no named product, " +
-    'whether or not they name a farm; use ["produce"] for that request. broad is false for ' +
-    "a named product or category, even when many stands may carry it. outOfScopeRequest is " +
-    "true when they " +
-    "also ask for a recipe, preparation, or food-safety guidance. originDependent is true " +
-    "whenever answering depends on where the customer is (nearest, closest, distance, " +
-    'directions), INCLUDING when they name no product - "what is closest to me?" is ' +
-    'originDependent with items ["produce"], never ambiguous. Return the ambiguous shape ' +
-    "ONLY for a message that asks for no product, names no farm, and makes no availability " +
-    'request at all - a greeting, a thank-you, or chat ("hi", "thanks", "are you a robot").',
-  "grounded-fact-selection":
-    "factIds MUST be values from facts, ordered best match first; select only facts that " +
-    "answer the request. Each fact represents ONE STAND; code separately retains every " +
-    "confirmed-inventory and usual-offering record supporting the selected items. Code no " +
-    "longer pre-filters by item name, so facts includes stands " +
-    "that do not answer the request at all - judge each one. Match by MEANING, not spelling: " +
-    'a request for a category selects the facts whose items belong to it (a request for ' +
-    '"leafy greens" selects a stand listing "butter lettuce"; "root vegetables" selects one ' +
-    'listing "beets"), and a request for a specific item selects stands listing it under any ' +
-    'wording ("lamb" selects "frozen lamb"). Select each matching stand ONCE. If the request is clear but ' +
-    "nothing here sells it, return the selection shape with an EMPTY factIds array - that is " +
-    "how you say nobody carries it. Reserve the clarification shape for a request you cannot " +
-    "interpret at all; returning it for an item nobody stocks tells the customer they mistyped " +
-    "when they did not. " +
-    "Also return matchedItems: an object keyed by each selected factId, whose value lists " +
-    "WHICH of that fact's matchedItemNames answered the request - copy those names EXACTLY as " +
-    'given ("butter lettuce" for a leafy-greens request, "frozen lamb" for lamb). Include only ' +
-    "names present in that fact's own matchedItemNames; never invent an item, and never move " +
-    "an item from one fact to another.",
+  "catalog-match":
+    "The operation is already fixed. Match taskText against values and return every matching " +
+    "value copied exactly. For inventory, match by meaning, including categories such as " +
+    "leafy greens. For payment, match equivalent payment wording. When nothing matches, return " +
+    "an empty matches array. Never copy a requested value that is absent from values. Never " +
+    "classify the request, return an operation, or return factual prose.",
   "stock-out-parse":
     "If the text names an item matching one of listedItems, return listed with that " +
     "entryId. If it names an item that is not in listedItems, return unlisted with the " +
@@ -235,7 +199,8 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     downstream in code from `farmer_authorizations` — never here.
   */
   "request-classification":
-    "Classify the message into exactly one category.\n\n" +
+    "Classify the message into exactly one top-level category. For search_stands and " +
+    "stand_lookup, also classify exactly one request operation.\n\n" +
     "search_stands: asking which stand(s) meet a need or asking generally about stands, " +
     "including availability, payment, hours, or other stand information.\n" +
     "stand_lookup: asking for information about one specific stand.\n" +
@@ -256,7 +221,33 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "- An inventory statement with no stand named is still inventory_report.\n" +
     "- A message naming the service is system_inquiry when it asks what the service is or " +
     "does.\n" +
-    "- Use unclear only when no other category reasonably fits.",
+    "- Unqualified you / your refers to the service when the question is about the recipient " +
+    "itself, its identity, capabilities, operation, or availability. Do not apply this rule " +
+    "when the message is clearly asking about farm-stand inventory, payment, or other stand " +
+    "information.\n" +
+    "- Use unclear only when no other category reasonably fits.\n\n" +
+    "Operations for search_stands:\n" +
+    "- payment: asks which stands accept a payment method.\n" +
+    "- hours: asks which stands are open now.\n" +
+    "- broad: asks generally what is available, without requesting a product or category that meaningfully narrows the inventory.\n" +
+    "- inventory: requests a specific product or a product category that meaningfully narrows the inventory.\n" +
+    "- clarification: no supported search operation can be identified.\n\n" +
+    "Operations for stand_lookup:\n" +
+    "- payment: asks whether the named stand accepts a payment method.\n" +
+    "- hours: asks for the named stand's hours or schedule.\n" +
+    "- location: asks for the named stand's address or location.\n" +
+    "- overview: names one stand without requesting a narrower fact.\n" +
+    "- inventory: asks whether the named stand has a product or product category.\n" +
+    "- clarification: no supported lookup operation can be identified.\n\n" +
+    "Inventory vs broad:\n" +
+    "- Choose inventory only when the requested product/category would meaningfully filter the available inventory to a subset.\n" +
+    "- Generic inventory words do NOT make a request inventory. Examples: produce, food, items, products, stuff, selection, inventory, anything.\n" +
+    "- Examples of broad: “what’s available?”, “what produce do you have?”, “anything for sale?”, “what can I buy?”, “show me what’s out there.”\n" +
+    "- Examples of inventory: “any tomatoes?”, “what greens do you have?”, “any leafy greens?”, “who has eggs?”, “do you have flowers?”\n" +
+    "- Decide broad vs inventory from the sender's request first. No catalog is provided.\n\n" +
+    "originDependent is true only when an inventory or broad request requires the customer's " +
+    "position. outOfScopeRequest is true only when an inventory request also asks for recipe, " +
+    "preparation, preservation, or food-safety help.",
 };
 
 function outputInstructionsFor(
@@ -428,10 +419,53 @@ export function projectInventoryExtraction(input: {
   } as ModelSafeContext<InventoryExtractionFields>;
 }
 
-/** The complete permitted input for the inquiry-interpretation seam. */
-export interface InquiryInterpretationFields {
-  /** The current customer's own question, verbatim. */
+export type CatalogType = "inventory" | "payment";
+
+/** The complete public vocabulary for one already-classified matching job. */
+export interface CatalogMatchFields {
   readonly taskText: string;
+  readonly catalogType: CatalogType;
+  /** Unique public values only; which stands carry them stays behind the code boundary. */
+  readonly values: readonly string[];
+}
+
+function uniquePublicNames(values: readonly string[]): string[] {
+  const names: string[] = [];
+  const seen = new Set<string>();
+  for (const value of values) {
+    const trimmed = value.trim();
+    const key = trimmed.toLowerCase();
+    if (trimmed === "" || seen.has(key)) continue;
+    seen.add(key);
+    names.push(trimmed);
+  }
+  return names;
+}
+
+/**
+ * Project one post-classification catalog match (B-069).
+ *
+ * The model sees each public catalog name once and no stand association. It can decide which
+ * values answer the request, but it cannot change the already-fixed operation, inconsistently
+ * include two stands carrying the same value, or choose evidence type.
+ */
+export function projectCatalogMatch(input: {
+  taskText: string;
+  catalogType: CatalogType;
+  values: readonly string[];
+}): ModelSafeContext<CatalogMatchFields> {
+  const fields: CatalogMatchFields = {
+    taskText: input.taskText,
+    catalogType: input.catalogType,
+    values: uniquePublicNames(input.values).map((name, index) =>
+      assertNoRawPhone(name, `values[${index}]`),
+    ),
+  };
+  return {
+    seam: "catalog-match",
+    fields,
+    outputInstructions: outputInstructionsFor("catalog-match"),
+  } as ModelSafeContext<CatalogMatchFields>;
 }
 
 /**
@@ -482,74 +516,6 @@ export function projectRequestClassification(input: {
     // costs this seam 6 of 47 cases; the adapter must not have to guess that.
     framing: "classification",
   } as ModelSafeContext<RequestClassificationFields>;
-}
-
-/**
- * Project the inquiry-interpretation seam: the customer's own question and nothing else.
- *
- * Deliberately NO retrieved facts. This call decides *what to look up*; handing it the
- * answer set would invite it to answer from context instead of interpreting the request,
- * which is exactly the grounding failure code owns. Retrieval runs after this returns.
- */
-export function projectInquiryInterpretation(input: {
-  taskText: string;
-}): ModelSafeContext<InquiryInterpretationFields> {
-  return {
-    seam: "inquiry-interpretation",
-    fields: { taskText: input.taskText },
-    outputInstructions: outputInstructionsFor("inquiry-interpretation"),
-  } as ModelSafeContext<InquiryInterpretationFields>;
-}
-
-/** One retrieved stand as the selection seam is permitted to see it. */
-export interface RetrievedFactRef {
-  factId: string;
-  farmName: string;
-  locationName: string;
-  matchedItemNames: readonly string[];
-}
-
-/** The complete permitted input for the grounded fact-selection seam. */
-export interface FactSelectionFields {
-  /** The validated items code actually retrieved against. */
-  readonly items: readonly string[];
-  readonly ranking: string;
-  /** Opaque stand identifiers plus the public item names needed to select them. */
-  readonly facts: readonly RetrievedFactRef[];
-}
-
-/**
- * Project the grounded fact-selection seam: the validated interpreted intent plus the exact
- * typed facts code retrieved.
- *
- * Deliberately NO raw customer text. This call selects and orders identifiers from a fixed
- * set; the customer's free text is where a prompt injection would live, and this seam has no
- * need of it. It also carries no address, phone, or recipient — selection does not choose who
- * hears anything, and the renderer dereferences the authoritative values afterward.
- */
-export function projectFactSelection(input: {
-  items: readonly string[];
-  ranking: string;
-  facts: readonly RetrievedFactRef[];
-}): ModelSafeContext<FactSelectionFields> {
-  const fields: FactSelectionFields = {
-    items: input.items.map((item) => item),
-    ranking: input.ranking,
-    facts: input.facts.map((fact, index) => ({
-      factId: assertOpaqueId(fact.factId, `facts[${index}].factId`),
-      farmName: assertNoRawPhone(fact.farmName, `facts[${index}].farmName`),
-      locationName: assertNoRawPhone(fact.locationName, `facts[${index}].locationName`),
-      matchedItemNames: fact.matchedItemNames.map((name, itemIndex) =>
-        assertNoRawPhone(name, `facts[${index}].matchedItemNames[${itemIndex}]`),
-      ),
-    })),
-  };
-
-  return {
-    seam: "grounded-fact-selection",
-    fields,
-    outputInstructions: outputInstructionsFor("grounded-fact-selection"),
-  } as ModelSafeContext<FactSelectionFields>;
 }
 
 /**

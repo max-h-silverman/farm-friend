@@ -98,16 +98,20 @@
 - **`unclear` and the outage reply are different messages**, and must stay so: `unclear` says the
   sender's message was unhandleable; a failed classifier call says our side failed and blames
   nobody's wording (B-049). There is no fallback category.
+- **B-068/B-069 are implemented and fully verified locally, not deployed.** The first classifier sees
+  the message alone and returns a strict route-specific operation; inventory/payment alone use one
+  value-only catalog matcher. Code owns stand resolution, expansion, ordering, paging, and copy.
 - **Both closed SMS defects are unverified on a handset** — see Open before go-live.
 
 ## Verification
 
-- `main` at B-067: **2,095 unit tests, 961 local integration tests (63 files)**, typecheck and lint
-  all pass (2026-08-13). Scripted evals: critical 11/11, advisory 4/4, adversarial 29/29. The unit
-  count moved with the two deleted seams' own tests; the integration count grew by the 16-case
-  `request-classification-routing.integration.test.ts`.
-- **Live evals are required for any seam change and were run** (2026-08-13): containment **5/5**,
-  closure 7/7, recall 5/5, quality 20/21 — the one miss is the documented `what is viga` case.
+- Current branch: **2,036 unit tests and 953 local integration tests (63 files)**; typecheck, lint,
+  production build, and all suites pass (2026-08-13). Scripted evals: critical 11/11, advisory 4/4,
+  adversarial 19/19.
+- **Live evals are required for any seam change and pass** (2026-08-13): containment 4/4, closure
+  7/7, quality 16/16, operation 5/5, catalog 7/7. The full top-level corpus remains 52/53 with only
+  the pre-existing `what is viga` miss; broad/inventory is 13/13, other operations 7/7,
+  second-person boundaries 5/5, and VIGA/domain handling 5/5.
 - **The `DATABASE_URL` in Secret Manager is production Neon**, and the integration suite creates
   and drops a database per file — it must never point there. See the local-Postgres line below.
 - The web production build retains the tracked Next configuration/lint warnings (B-008).
@@ -124,17 +128,9 @@
   counts exceed the fixture count — several fixtures score multiple cases. B-057 added one quality
   fixture, proving the stock-out seam picks a usual offering out of a mixed candidate list; it passed
   7/7 runs.
-- **Broad availability questions are answered by CODE, not by the prompt** (B-061 defect 4, closed
-  2026-08-11). The model classifies "what do you have" as `ambiguous` **even when that exact phrase is
-  written into the instruction as never-ambiguous** — measured 10 runs out of 10, and 0/7 across the
-  family in the deploy-day live run. `isBroadAvailabilityRequest`
-  (`packages/core/src/inquiry/broad-request.ts`) overrides `ambiguous` toward answering when a message
-  has shopping grammar and names no product; measured 27/27 end to end where the model alone was 5/21.
-  The live fixture now scores "N model + M code" so a regression in the check surfaces as an unrescued
-  case instead of hiding behind the model's score. **Do not "fix" that fixture by trimming it to the
-  cases the model passes — the failing phrasings are what the code check exists for.**
-  The check holds **no food or farm vocabulary** and a test asserts that against its own source; a miss
-  is closed by extending the grammar, never by adding a crop word.
+- **Broad availability is a first-class classification result** (B-069). Call #1 sees no catalog, so
+  catalog contents cannot change broad into inventory. The old shopping-grammar override and private
+  vocabulary are deleted; the live boundary fixture passes all 13 cases.
 - **Live evals still carry one nondeterminism.** Roughly one
   run in three shows a provider error, labelled `[provider error, not a verdict — rerun]` and scored
   as a FAILURE on purpose: the seam returns the same `clarification` shape for "unreachable model"
@@ -163,9 +159,9 @@
 - A dated stock claim has exactly one provenance: `sms`, `web`, or `viga`. Onboarding inventory waits for
   verified handset redemption before publication.
 - `visitability` controls the map invitation. A contact-only farm may be placed, but gets no directions link.
-- Broad availability inquiries expose only the first three selection candidates to the model; code keeps the
-  validated remainder in deterministic order for `MORE`. A broad request is recognized by **code** when the
-  model calls it ambiguous, so the customer is answered whichever model is installed.
+- Inquiry resolution receives every unique public item/payment name once and no stand association.
+  Code expands selected names to all supporting stands, renders three stands per page, and rechecks
+  mutable facts such as open-now status before `MORE`.
 
 ## Open before go-live
 
@@ -182,29 +178,20 @@
   `does Pinecone have eggs?`, `no eggs left at Pinecone`, farmer `out of kale`, farmer reporting
   another stand, both VIGA Bucks shapes, `where's the farm stand map?`, a one-word partial stand
   name, `what stands are open today`, and the `unclear` reply.
-- **B-068 is fixed locally, not deployed.** Production measurement showed both Forest Garden
-  cucumber records reached selection; the model omitted the 24-day confirmation. Selection now sees
-  one candidate per stand and decides only stand/item relevance; code restores every confirmed and
-  usual-offering record supporting the selected names, so the case renders `Last seen (24d ago)`.
-  The focused test failed under the old two-candidate shape, passed after the change, and failed again
-  under deliberate sabotage. Unit, affected integration, typecheck, lint, and stub evals pass. The
-  required live eval passed the new dual-source stand case; totals remain containment 5/5, closure
-  7/7, recall 5/5, and quality 20/21, with only the pre-existing `what is viga` miss.
-- **B-069 — an SMS answer takes close to a minute** (high). Measured: the classifier is **not** the
-  bottleneck. Three serial calls, wildly unequal — the classifier emits ~5 tokens, and **grounded
-  fact selection** emits ~18 tokens per selected stand at ~30 tokens/sec. That is the call B-049
-  already raised the timeout to 90s for. Phase 2 added a small call in front of a large slow one;
-  fast-tracking the classifier would save a second or two of sixty. **Do not start there** — the
-  levers are whether selection needs a model at all, and how many candidates it is asked to order.
+- **B-068/B-069 await review.** Production measurement found both Forest
+  Garden cucumber records but the old stand-selection model omitted the 24-day confirmation. The new
+  model selects `Cucumber` once from a deduplicated catalog; code expands it to every supporting stand
+  and both confirmed/usual evidence voices, so the stale confirmation cannot be selectively omitted.
+  Inquiry has at most two serial model calls: strict top-level route/operation classification from the
+  message alone, then value-only catalog matching for inventory/payment. Broad, hours, location,
+  overview, clarification, system inquiry, chitchat, and VIGA Bucks search/lookup make no second call.
+  Open-now includes confirmed-open stands only, including later `MORE` pages; inventory pages drop
+  stands that no longer list the searched item with no model call. All local and paid live checks pass.
 - **The provider-failure reply is proven by test only, deliberately.** Forcing a real outage in
   production means every sender loses every answer for as long as it lasts, on VIGA's own API key.
   An integration test forces `{ok: false}` and asserts the outage copy, sabotage-verified against the
   `unclear` string. Seeing it on a handset needs a preview deployment with a bad model endpoint —
   a separate service, never the live one.
-- **`search_stands` and `stand_lookup` share one code path.** The classifier draws the distinction
-  and nothing yet acts on it — that is the later interpretation stage's job, and Phase 0b's coverage
-  numbers (produce 33/34, payment full, restock 27/34, season 26/34, **hours only 21/34**) are its
-  input. The hours caveat stands wherever hours get answered.
 - **Classifier known miss, deliberate:** `what is viga` → `search_stands` (wanted
   `system_inquiry`). The domain resolver matches the `VIGA Bucks` concept, never bare `VIGA`.
   **The live corpus drives future classifier changes** — add real misrouted messages to the fixture

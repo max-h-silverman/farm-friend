@@ -113,3 +113,70 @@ export function meetsDistinctiveWordBar(
   if (matchedWords <= 0) return false;
   return matchedWords * 2 >= standDistinctiveWords;
 }
+
+const GENERIC_NAME_WORDS: ReadonlySet<string> = new Set([
+  "farm",
+  "farms",
+  "farmstand",
+  "stand",
+  "garden",
+  "gardens",
+  "the",
+  "and",
+]);
+
+/** The one spelling used for both a customer's text and public stand names. */
+export function foldStandName(value: string): string {
+  return value
+    .toLowerCase()
+    .replace(/[^a-z0-9 ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+export type StandNameResolution =
+  | { kind: "match"; id: string }
+  | { kind: "none" }
+  | { kind: "ambiguous" };
+
+/**
+ * Resolve one cold-message stand name without guessing.
+ *
+ * Complete-name containment wins. Otherwise the single candidate whose distinctive words
+ * cover at least half its name wins. Zero matches and ties remain separate so a lookup can say
+ * "not found" while a report can ask the same clarification for either.
+ */
+export function resolveStandName(
+  text: string,
+  stands: readonly { id: string; name: string }[],
+): StandNameResolution {
+  const foldedText = foldStandName(text);
+  if (foldedText === "") return { kind: "none" };
+
+  const names = stands.map((stand) => ({ ...stand, folded: foldStandName(stand.name) }));
+  const complete = names.filter(
+    (stand) => stand.folded !== "" && foldedText.includes(stand.folded),
+  );
+  if (complete.length === 1) return { kind: "match", id: complete[0]!.id };
+  if (complete.length > 1) return { kind: "ambiguous" };
+
+  const messageWords = new Set(foldedText.split(" ").filter((word) => word !== ""));
+  let best: { id: string; score: number } | undefined;
+  let tied = false;
+  for (const stand of names) {
+    const words = stand.folded
+      .split(" ")
+      .filter((word) => word !== "" && !GENERIC_NAME_WORDS.has(word));
+    const score = words.filter((word) => messageWords.has(word)).length;
+    if (!meetsDistinctiveWordBar(score, words.length)) continue;
+    if (best === undefined || score > best.score) {
+      best = { id: stand.id, score };
+      tied = false;
+    } else if (score === best.score) {
+      tied = true;
+    }
+  }
+
+  if (best === undefined) return { kind: "none" };
+  return tied ? { kind: "ambiguous" } : { kind: "match", id: best.id };
+}

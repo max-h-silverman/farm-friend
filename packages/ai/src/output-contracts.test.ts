@@ -1,8 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import {
-  projectFactSelection,
-  projectInquiryInterpretation,
+  projectCatalogMatch,
   projectInventoryExtraction,
   projectOfferingExtraction,
   projectRequestClassification,
@@ -10,7 +9,7 @@ import {
   SEAM_OUTPUT_SHAPES,
 } from "./projections";
 import { interpretationSchema } from "./inventory-seam";
-import { intentSchema, selectionSchema, stockOutSchema } from "./inquiry-seam";
+import { catalogMatchSchema, stockOutSchema } from "./inquiry-seam";
 import { offeringsSchema } from "./offering-seam";
 import {
   REQUEST_CATEGORIES,
@@ -31,8 +30,7 @@ import {
 
 const SCHEMAS: Record<keyof typeof SEAM_OUTPUT_SHAPES, z.ZodTypeAny> = {
   "inventory-extraction": interpretationSchema,
-  "inquiry-interpretation": intentSchema,
-  "grounded-fact-selection": selectionSchema,
+  "catalog-match": catalogMatchSchema,
   "stock-out-parse": stockOutSchema,
   "offering-extraction": offeringsSchema,
   "request-classification": requestClassificationSchema,
@@ -78,19 +76,6 @@ describe("declared-optional fields accept an explicit null as absence (F-024)", 
     expect(result.success).toBe(false);
   });
 
-  it("intent: nulls in the optional lookup fields parse as absent values", () => {
-    const parsed = intentSchema.parse({
-      kind: "lookup",
-      items: ["bok choy"],
-      farmScope: null,
-      ranking: "freshest",
-      outOfScopeRequest: null,
-      originDependent: null,
-    });
-    if (parsed.kind !== "lookup") throw new Error("expected lookup");
-    expect(parsed.farmScope).toBeUndefined();
-    expect(parsed.outOfScopeRequest).toBeUndefined();
-  });
 });
 
 describe("seam output contracts (F-024)", () => {
@@ -138,10 +123,23 @@ describe("seam output contracts (F-024)", () => {
    */
   it("every request category has a documented example, and vice versa", () => {
     const schemaKinds = [...REQUEST_CATEGORIES].sort();
-    const exampleKinds = SEAM_OUTPUT_SHAPES["request-classification"]
-      .map((shape) => (JSON.parse(shape) as { kind: string }).kind)
-      .sort();
+    const exampleKinds = [...new Set(SEAM_OUTPUT_SHAPES["request-classification"]
+      .map((shape) => (JSON.parse(shape) as { kind: string }).kind))].sort();
     expect(exampleKinds).toEqual(schemaKinds);
+  });
+
+  it("documents every allowed inquiry route and operation, and no impossible one", () => {
+    const examples = SEAM_OUTPUT_SHAPES["request-classification"]
+      .map((shape) => JSON.parse(shape) as { kind: string; request?: { operation: string } })
+      .filter((value) => value.request !== undefined)
+      .map((value) => `${value.kind}:${value.request!.operation}`)
+      .sort();
+    expect(examples).toEqual([
+      "search_stands:broad", "search_stands:clarification", "search_stands:hours",
+      "search_stands:inventory", "search_stands:payment", "stand_lookup:clarification",
+      "stand_lookup:hours", "stand_lookup:inventory", "stand_lookup:location",
+      "stand_lookup:overview", "stand_lookup:payment",
+    ]);
   });
 
   it("each projection hands its seam's shapes to the model, verbatim", () => {
@@ -151,8 +149,11 @@ describe("seam output contracts (F-024)", () => {
         currentEntries: [],
         currentLocalDate: "2026-08-06",
       }),
-      projectInquiryInterpretation({ taskText: "x" }),
-      projectFactSelection({ items: ["kale"], ranking: "freshest", facts: [] }),
+      projectCatalogMatch({
+        taskText: "x",
+        catalogType: "inventory",
+        values: [],
+      }),
       projectStockOutParse({ taskText: "x", listedItems: [] }),
       projectOfferingExtraction({ sourceText: "x" }),
       projectRequestClassification({ taskText: "x" }),

@@ -7,7 +7,7 @@ import {
 import { generateValidated } from "./index";
 import {
   projectInventoryExtraction,
-  projectInquiryInterpretation,
+  projectCatalogMatch,
   projectOfferingExtraction,
   projectRequestClassification,
   projectStockOutParse,
@@ -86,7 +86,11 @@ describe("the DeepInfra adapter", () => {
         currentEntries: [],
         currentLocalDate: "2026-08-13",
       }),
-      projectInquiryInterpretation({ taskText: "who has eggs" }),
+      projectCatalogMatch({
+        taskText: "who has eggs",
+        catalogType: "inventory",
+        values: ["Eggs"],
+      }),
       projectStockOutParse({ taskText: "no eggs", listedItems: [] }),
     ];
 
@@ -166,7 +170,7 @@ describe("the DeepInfra adapter", () => {
       `${ctx.outputInstructions}\n\nmessage: ${JSON.stringify("who has eggs?")}`,
     );
     // The instruction leads; the message is the last thing the model reads.
-    expect(user.startsWith("Classify the message into exactly one category.")).toBe(true);
+    expect(user.startsWith("Classify the message into exactly one top-level category.")).toBe(true);
   });
 
   /**
@@ -217,12 +221,7 @@ describe("the DeepInfra adapter", () => {
     return provider.generateJson(context).then(() => {
       const sent = JSON.parse(sentBody(fetchImpl));
       expect(typeof sent.max_tokens).toBe("number");
-      // Above the widest legitimate selection so a real answer is never truncated into
-      // invalid JSON, and low enough to cut a loop off. Sized from how uuids TOKENIZE
-      // (~18 tokens each, not the ~11 a chars/3.2 estimate gives): 60 identifiers is ~1100
-      // tokens. A first pass at 1024 came from the bad estimate and clipped real answers to
-      // a broad question, turning them into rejections.
-      expect(sent.max_tokens).toBeGreaterThanOrEqual(1500);
+      expect(sent.max_tokens).toBe(MAX_RESPONSE_TOKENS);
       expect(sent.max_tokens).toBeLessThanOrEqual(4096);
     });
   });
@@ -240,24 +239,6 @@ describe("the DeepInfra adapter", () => {
     // And with real headroom, not by a hair: connection setup and prompt processing come
     // out of the same budget before the first token is emitted.
     expect(msToGenerateCeiling).toBeLessThan(REQUEST_TIMEOUT_MS * 0.8);
-  });
-
-  it("admits the widest legitimate selection without truncating it (B-049)", () => {
-    // The check the first fix was missing, and the reason it shipped broken. A ceiling below
-    // the widest honest answer does not fail safely: the array is cut off mid-identifier, the
-    // JSON no longer parses, the repair retry is spent on nonsense, and a good answer becomes
-    // a refusal. Observed in production on "what's available today?", which selects nearly
-    // every stand.
-    //
-    // Sized from how uuids TOKENIZE rather than their length. 36 characters looks like ~11
-    // tokens at the usual chars/3.2 rule, but hex splits far more finely — measured nearer 18
-    // — and using the optimistic figure is exactly what set the ceiling too low.
-    const MAX_CANDIDATES = 60; // MAX_INQUIRY_CANDIDATES, the retrieval cap
-    const TOKENS_PER_UUID = 18;
-    const ENVELOPE_TOKENS = 16; // {"kind":"selection","factIds":[ … ]}
-    const widestHonestResponse = MAX_CANDIDATES * TOKENS_PER_UUID + ENVELOPE_TOKENS;
-
-    expect(MAX_RESPONSE_TOKENS).toBeGreaterThan(widestHonestResponse);
   });
 
   it("sends NO conversation, thread, or session identifier — calls are stateless", async () => {

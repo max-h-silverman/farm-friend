@@ -26,18 +26,19 @@ class FailingProvider implements LLMProvider {
 
 describe("request-classification seam", () => {
   it.each([
-    ["search_stands", "who has eggs?"],
-    ["stand_lookup", "does Pinecone Gardens have eggs?"],
-    ["inventory_report", "no eggs left at Pinecone Gardens"],
-    ["system_inquiry", "where's the farm stand map?"],
-    ["chitchat", "thanks!"],
-    ["unclear", "what's the weather going to be tomorrow"],
-  ])("returns the %s category", async (kind, taskText) => {
-    const provider = new RecordingProvider(JSON.stringify({ kind }));
+    ["search_stands", { operation: "inventory", originDependent: false, outOfScopeRequest: false }, "who has eggs?"],
+    ["stand_lookup", { operation: "inventory", originDependent: false, outOfScopeRequest: false }, "does Pinecone Gardens have eggs?"],
+    ["inventory_report", undefined, "no eggs left at Pinecone Gardens"],
+    ["system_inquiry", undefined, "where's the farm stand map?"],
+    ["chitchat", undefined, "thanks!"],
+    ["unclear", undefined, "what's the weather going to be tomorrow"],
+  ])("returns the %s category", async (kind, request, taskText) => {
+    const payload = request === undefined ? { kind } : { kind, request };
+    const provider = new RecordingProvider(JSON.stringify(payload));
 
     const result = await createRequestClassificationModel(provider).classify({ taskText });
 
-    expect(result).toEqual({ ok: true, kind });
+    expect(result).toEqual({ ok: true, ...payload });
     expect(provider.seen).toHaveLength(1);
     expect(provider.seen[0]?.seam).toBe("request-classification");
   });
@@ -51,7 +52,10 @@ describe("request-classification seam", () => {
    * about it, and one that cannot see authority cannot route around it.
    */
   it("projects the message text and nothing else", async () => {
-    const provider = new RecordingProvider(JSON.stringify({ kind: "search_stands" }));
+    const provider = new RecordingProvider(JSON.stringify({
+      kind: "search_stands",
+      request: { operation: "inventory", originDependent: false, outOfScopeRequest: false },
+    }));
 
     await createRequestClassificationModel(provider).classify({ taskText: "who has kale" });
 
@@ -103,6 +107,22 @@ describe("request-classification seam", () => {
     }
   });
 
+  it("makes impossible route and operation combinations unrepresentable", () => {
+    for (const impossible of [
+      { kind: "search_stands", request: { operation: "location" } },
+      { kind: "search_stands", request: { operation: "overview" } },
+      { kind: "stand_lookup", request: { operation: "broad" } },
+      { kind: "inventory_report", request: { operation: "inventory" } },
+      { kind: "chitchat", originDependent: false },
+      {
+        kind: "search_stands",
+        request: { operation: "broad", outOfScopeRequest: true },
+      },
+    ]) {
+      expect(requestClassificationSchema.safeParse(impossible).success).toBe(false);
+    }
+  });
+
   /**
    * The acceptance-question fast path (F-111).
    *
@@ -117,7 +137,12 @@ describe("request-classification seam", () => {
       taskText: "who takes viga bucks?",
     });
 
-    expect(result).toEqual({ ok: true, kind: "search_stands" });
+    expect(result).toEqual({
+      ok: true,
+      kind: "search_stands",
+      request: { operation: "payment" },
+      topic: "viga_bucks",
+    });
     // The provider was scripted to return the WRONG answer; the fast path means it never ran.
     expect(provider.seen).toHaveLength(0);
   });
@@ -153,7 +178,11 @@ describe("request-classification seam", () => {
 
     const result = await createRequestClassificationModel(provider).classify({ taskText });
 
-    expect(result).toEqual({ ok: true, kind });
+    const request =
+      kind === "search_stands" || kind === "stand_lookup"
+        ? { request: { operation: "payment" as const } }
+        : {};
+    expect(result).toEqual({ ok: true, kind, ...request, topic: "viga_bucks" });
     expect(provider.seen).toHaveLength(0);
   });
 
@@ -184,7 +213,10 @@ describe("request-classification seam", () => {
       new RecordingProvider("unused"),
     ).classify({ taskText: "who accepts cash" });
     const viaModel = await createRequestClassificationModel(
-      new RecordingProvider(JSON.stringify({ kind: "search_stands" })),
+      new RecordingProvider(JSON.stringify({
+        kind: "search_stands",
+        request: { operation: "payment" },
+      })),
     ).classify({ taskText: "who has eggs?" });
 
     expect(fast).toEqual(viaModel);

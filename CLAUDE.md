@@ -48,15 +48,15 @@ doc that owns it.
    once**, and **expire** — one open inventory confirmation per sender.
    → SMS_COMPLIANCE.md, ARCHITECTURE.md §routing
 3. **The LLM proposes; code commits.** The model interprets, extracts, classifies, drafts where a
-   seam permits, and selects or ranks identifiers from retrieved options. It never writes durable
+   seam permits, and selects public catalog names or typed options. It never writes durable
    state, chooses recipients, decides consent, supplies authoritative factual answer text, invents
    availability, or overrides a rule. → AI_ARCHITECTURE.md §the model-vs-code line
-4. **Grounded answers only, retrieval before fact selection — with open intent.** Customer intent is
-   open-ended. After deterministic routing the model interprets, **code** runs a **general**
-   retrieval/ranking layer, and the model selects or orders identifiers from typed retrieved facts.
-   Code validates every ID against the retrieved set and renders the authoritative text with explicit
-   "updated X ago" recency. **No fixed semantic strategy catalog.** Empty retrieval → a code-rendered
-   honest "no current listing", no model call. → AI_ARCHITECTURE.md §retrieval
+4. **Grounded answers only, classification before catalog matching.** After deterministic routing,
+   one strict classifier sees the message alone and fixes the route and inquiry operation. Code then
+   resolves any named stand; only inventory/payment builds a deduplicated public catalog for one
+   bounded matcher call. Code validates every match, expands it to all supporting stands/evidence,
+   orders, pages, and renders authoritative text with explicit recency. Neither call receives a stand
+   association or identifier. → AI_ARCHITECTURE.md §retrieval
 5. **Privacy at the data layer.** Phones normalized at ingress; raw E.164 in **exactly one column**,
    read only by the outbound send path; the **hash is the only lookup/log key**. Raw numbers are never
    logged, never enter model context, masked in admin. Raw message context is short-lived (flagged

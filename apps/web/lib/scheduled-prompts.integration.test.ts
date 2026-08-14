@@ -1139,7 +1139,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
             };
           },
         },
-        inquiry: {} as never,
+        catalogMatcher: {} as never,
       },
       {
         senderHash: fixture.senderHash,

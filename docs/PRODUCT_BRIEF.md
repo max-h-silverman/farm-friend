@@ -71,10 +71,11 @@ list; no item is attributed to a seller. **Public discovery is model-free.**
 Customers ask free-form questions and get grounded answers. The intent space is **open-ended and often
 ambiguous** — for "where can I get bok choy and green beans?" the customer might want *one stand with
 both*, *different stands covering the set*, *any* stands with either item, the *freshest*, etc. The
-design must not privilege one reading, and must not reduce the space to a fixed catalog of supported
-request shapes: the model interprets the request, code runs general retrieval, the model selects or
-orders identifiers from the retrieved facts, and code renders the authoritative factual answer and
-recency. Ambiguous → ask.
+design must not privilege one reading. One model call first fixes the route and operation from the
+message alone. Code then resolves any named stand; inventory/payment alone build a deduplicated public
+catalog for one generic matching call. Code expands matches to every supporting stand, orders and
+pages the results, and renders the authoritative factual answer and recency. Broad, hours, location,
+overview, and clarification need no matching call. Ambiguous → ask.
 
 A useful answer may be concise rather than conversational:
 

@@ -14,9 +14,10 @@
     "node": ">=20"
   },
   "scripts": {
-    "typecheck": "npm run typecheck:packages && npm run typecheck:web",
+    "typecheck": "npm run typecheck:packages && npm run typecheck:web && npm run typecheck:evals",
     "typecheck:packages": "tsc -b",
     "typecheck:web": "npm run typecheck --workspace @farm-friend/web",
+    "typecheck:evals": "tsc -p tsconfig.evals.json --noEmit",
     "lint": "eslint . --ext .ts,.tsx",
     "test": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
