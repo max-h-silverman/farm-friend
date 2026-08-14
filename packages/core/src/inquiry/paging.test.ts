@@ -288,7 +288,10 @@ describe("grounded rendering — every value comes from typed facts", () => {
       total: 2,
       clock,
     });
-    expect(page.body).toContain("Last seen (6d ago)");
+    // Six days is past the 96-hour RANKING threshold but inside the one-week WORDING
+    // threshold, which is the case that proves the two are separate numbers: the stale stand
+    // still prints an exact age and still ranks below the fresh one.
+    expect(page.body).toContain("In stock (6d ago)");
     expect(page.body.indexOf("Provo Stand")).toBeLessThan(
       page.body.indexOf("Week Old Stand"),
     );
@@ -713,7 +716,8 @@ describe("one entry per stand (F-107)", () => {
         total: 1,
         clock,
       }).body;
-      expect(body).toContain(`${hours >= 96 ? "Last seen" : "In stock"} ${expected}`);
+      // Every case here is inside a week, so the exact count is what prints.
+      expect(body).toContain(`In stock ${expected}`);
     });
 
     it("never states minutes", () => {
@@ -969,13 +973,21 @@ describe("the header states the count and the window", () => {
   claims — and the label is the one a customer reads first.
 
   F-107 dropped the "- may be out of date" suffix on the reasoning that the elapsed phrase
-  carries the warning. That holds at "(3d ago)" and breaks down entirely by "(16d ago)". The
-  fix changes the LABEL rather than restoring the suffix: "Last seen" is honest at any age,
-  costs no extra characters (it replaces rather than appends), and leaves the segment ceiling
-  where it is.
+  carries the warning. That holds at "(3d ago)" and breaks down entirely by "(16d ago)".
 
-  Thresholds are the ones the public map already uses, so the two surfaces cannot come to
-  disagree about the same row: `isStale` at 48 hours, `isConfirmationExpired` at 28 days.
+  First fixed by swapping the LABEL to "Last seen" past the threshold. Max's call (2026-08-14)
+  replaced that: the label never changes, because a customer should learn ONE vocabulary, and
+  the PARENTHESIS carries the warning instead — "(over a week ago)" rather than "(16d ago)".
+  An exact count asks the reader to judge whether sixteen days is a lot; the phrase has
+  already judged, which is the job the old label was doing.
+
+  What must not regress is the DEFECT, not the wording that fixed it: a fortnight-old
+  confirmation must never present as an unqualified current claim. These tests are written
+  against that property.
+
+  Wording changes at `EXACT_AGE_UNTIL_DAYS` (one week). Ranking and the map's warning still
+  change at `isStale` (4 days), and the claim is dropped entirely at `isConfirmationExpired`
+  (28 days) — three thresholds, three jobs, asserted apart.
 */
 describe("a stale confirmation stops claiming present stock (B-063)", () => {
   const stand = (ageHours: number): PageableFact => ({
@@ -997,37 +1009,48 @@ describe("a stale confirmation stops claiming present stock (B-063)", () => {
       clock,
     }).body;
 
-  it("says In stock inside the freshness threshold", () => {
+  it("gives an exact age while the count still means something", () => {
     expect(bodyAt(3)).toContain("In stock (3h ago): Zucchini, Carrots");
-    expect(bodyAt(3)).not.toMatch(/Last seen/);
+    expect(bodyAt(3 * 24)).toContain("In stock (3d ago)");
   });
 
-  it("still says In stock at the last hour before the threshold", () => {
-    // 96 hours is where staleness STARTS, so 95 must still read as current.
-    expect(bodyAt(95)).toContain("In stock (3d ago)");
+  it("still counts exactly on the last day before the wording changes", () => {
+    // Six days still counts; the seventh is where an exact number stops being useful.
+    expect(bodyAt(6 * 24)).toContain("In stock (6d ago)");
+    expect(bodyAt(6 * 24)).not.toMatch(/over a week/);
   });
 
-  it("switches to Last seen once the confirmation is stale", () => {
-    // The live case. 16 days under a present-tense label was the defect.
+  it("stops printing an exact age once the confirmation is over a week old", () => {
+    // The live case. 16 days presented as a bare countable number was the defect.
     const body = bodyAt(16 * 24);
-    expect(body).toContain("Last seen (16d ago): Zucchini, Carrots");
-    expect(body).not.toMatch(/In stock/);
+    expect(body).toContain("In stock (over a week ago): Zucchini, Carrots");
+    expect(body).not.toMatch(/16d ago/);
   });
 
-  it("switches exactly at the shared threshold, not a second later", () => {
-    // 96 hours, the same constant the public map warns on (max, 2026-08-11).
-    expect(bodyAt(96)).toContain("Last seen (4d ago)");
-    expect(bodyAt(95)).toContain("In stock (3d ago)");
+  it("changes wording exactly at one week, not a second earlier", () => {
+    expect(bodyAt(7 * 24)).toContain("In stock (over a week ago)");
+    expect(bodyAt(7 * 24 - 1)).toContain("In stock (6d ago)");
+  });
+
+  it("keeps one vocabulary at every age", () => {
+    /*
+      THE POINT OF THE 2026-08-14 CHANGE. A customer reads "In stock" whether the confirmation
+      is three hours or three weeks old, and judges it by the parenthesis. A second label for
+      the same fact is a second thing to learn from a text message.
+    */
+    for (const hours of [1, 3 * 24, 6 * 24, 16 * 24, 27 * 24]) {
+      expect(bodyAt(hours)).toMatch(/In stock \(/);
+    }
   });
 
   it("keeps the stand listed, ranked, and stamped with its age", () => {
     // The honor-system commitment, and the thing that must NOT change: a stale listing still
-    // appears and still carries its items and its age. Only the tense of the claim changes.
+    // appears and still carries its items and a statement of how old the claim is.
     const body = bodyAt(16 * 24);
     expect(body).toContain("Twisting Tree Farm");
     expect(body).toContain("12919 SW Cemetery Rd");
     expect(body).toContain("Zucchini, Carrots");
-    expect(body).toContain("16d ago");
+    expect(body).toContain("over a week ago");
   });
 
   it("drops the stock claim entirely once the confirmation has expired", () => {
@@ -1037,7 +1060,6 @@ describe("a stale confirmation stops claiming present stock (B-063)", () => {
     // read as stock on one surface and not on the other.
     const body = bodyAt(40 * 24);
     expect(body).not.toMatch(/In stock/);
-    expect(body).not.toMatch(/Last seen/);
     // With no claim left, the entry has nothing to say about the question and is dropped —
     // the same rule F-107 applies to a stand whose matched items were all filtered away.
     expect(body).toMatch(/No stand has a current listing/i);
@@ -1059,7 +1081,7 @@ describe("a stale confirmation stops claiming present stock (B-063)", () => {
     expect(body).toContain("Twisting Tree Farm");
     // The expired confirmation is gone, so nothing remains for "also" to be additional to.
     expect(body).toContain("May have: Zucchini, Carrots");
-    expect(body).not.toMatch(/In stock|Last seen/);
+    expect(body).not.toMatch(/In stock/);
   });
 
   it("ranks a fresh confirmation above a stale one", () => {

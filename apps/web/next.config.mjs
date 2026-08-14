@@ -35,19 +35,44 @@ const nextConfig = {
     "@farm-friend/db",
     "@farm-friend/sms",
   ],
-  // Administrator pages may be framed by VIGA's Squarespace site and nowhere else. This
-  // contains clickjacking even though the session cookie must work inside that one iframe.
+  /*
+    Response headers. `apps/web/lib/public-map-headers.test.ts` and
+    `admin-embed-security.test.ts` assert these against this config.
+
+    VIGA's Squarespace page embeds the map in an iframe, and until 2026-08-14 only the
+    ADMINISTRATOR routes carried any policy — the public map, which is what everyone actually
+    loads, served no security headers at all. A farmer reported Webroot blocking it as
+    phishing, and a bare response from a raw `*.run.app` host is part of that picture.
+
+    The framing allowance is the same one the admin rule uses: VIGA's two hostnames plus the
+    app itself. Stated twice rather than shared through a variable, because the two rules
+    answer different questions — who may embed the PUBLIC map, and who may embed the
+    ADMINISTRATOR console — and a future change to one must not silently move the other.
+  */
   async headers() {
+    const vigaFrameAncestors =
+      "frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org";
     return [
       {
-        source: "/admin/:path*",
+        // Everything, including the map at `/`. `/admin/*` matches this too and ALSO matches
+        // the rule below; a browser intersects two frame-ancestors policies, so the admin
+        // pages cannot be loosened by this broader rule.
+        source: "/:path*",
         headers: [
-          {
-            key: "Content-Security-Policy",
-            value:
-              "frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org",
-          },
+          { key: "Content-Security-Policy", value: vigaFrameAncestors },
+          // A response whose declared type is not second-guessed. Cheap, and one of the
+          // headers whose absence a scanner notices.
+          { key: "X-Content-Type-Options", value: "nosniff" },
+          // The map is framed by a third party, so a full referring URL would otherwise
+          // travel outward on every asset request it makes.
+          { key: "Referrer-Policy", value: "strict-origin-when-cross-origin" },
         ],
+      },
+      // Administrator pages may be framed by VIGA's Squarespace site and nowhere else. This
+      // contains clickjacking even though the session cookie must work inside that one iframe.
+      {
+        source: "/admin/:path*",
+        headers: [{ key: "Content-Security-Policy", value: vigaFrameAncestors }],
       },
     ];
   },

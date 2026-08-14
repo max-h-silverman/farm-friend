@@ -188,12 +188,15 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
       The worst case B-063's fix creates, and the one the previous attempt at this failed on.
 
       F-107 removed the "- may be out of date" suffix precisely because twenty characters per
-      entry pushed an all-stale page over the ceiling. Changing the LABEL instead costs one
-      character per entry ("Last seen" against "In stock"), because it replaces rather than
-      appends — so the page that used to break the budget now sits inside it.
+      entry pushed an all-stale page over the ceiling.
 
-      Measured 2026-08-11: 416 characters on the first page, 438 on the closing page that also
-      carries the map URL. Three segments, which is the ceiling max accepted for this format.
+      The 2026-08-14 wording change spends some of that budget back: "(over a week ago)" is
+      eight characters longer per entry than "(16d ago)", and unlike the label swap it appends
+      rather than replaces. That is the trade max accepted — a phrase a customer can act on
+      against a number they have to judge — and this test is what proves it still fits.
+
+      Three segments is the ceiling max accepted for this format. Re-measure here before
+      changing this wording again; it is the binding constraint, not the single-stand listing.
     */
     const stale = [
       ["Fruits des Vignes Farm", "20430 111th Ave SW"],
@@ -231,8 +234,8 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
         total: total!,
         clock,
       });
-      expect(page.body).toContain("Last seen (16d ago)");
-      expect(page.body).not.toMatch(/In stock/);
+      expect(page.body).toContain("In stock (over a week ago)");
+      expect(page.body).not.toMatch(/16d ago/);
       expect(
         estimateSmsSegments(page.body).segmentCount,
         `offset ${offset}`,

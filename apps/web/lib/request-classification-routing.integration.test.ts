@@ -427,7 +427,7 @@ describe("F-111 request-classification routing (integration)", () => {
       const result = await send(d, CUSTOMER_HASH, "hi there", "evt-hi");
       expect(result.replies[0]?.body).toBe(CHITCHAT_REPLY);
       expect(result.replies[0]?.body).toBe(
-        "Ask me what a Vashon farm stand has, or tell us if something is sold out. 🌱",
+        "Ask me what a Vashon farm stand has, or tell us if something is sold out.",
       );
       // No claim about any stand: "no stand has a current listing for hi" was the old answer.
       expect(result.replies[0]?.body).not.toContain("no stand");
