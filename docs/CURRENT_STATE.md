@@ -42,9 +42,10 @@
   an invitation that existed when the message arrived. `runInboundPass` logs a routing failure by
   sender hash and event id; recovery is still by lapse, but the silence is gone.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. This release adds no migration.
-- Cloud Run web `farm-friend-web-00080-*` and worker `farm-friend-worker-00075-*` serve the image
-  built from merged `main` (B-070 + B-071), deployed 2026-08-14. Mounted-secret freshness, public
-  API, health, protected routes, and served-card assertions pass.
+- Cloud Run web `farm-friend-web-00080-5c8` and worker `farm-friend-worker-00075-jqs` serve digest
+  `sha256:fdb19c99b88800fad1e137cdc6b2b45feb7ee3100ba6f27fb06908a1cdc46f04`, built from merged
+  `main` `b934fd3` and deployed 2026-08-14. Plan assertions 60/60; mounted-secret freshness, public
+  API, and served-card assertions pass; neither revision has an error-level log.
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
 ## Verification
