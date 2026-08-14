@@ -41,17 +41,39 @@
   Redemption supersedes an existing current revision before publishing held stock, and only redeems
   an invitation that existed when the message arrived. `runInboundPass` logs a routing failure by
   sender hash and event id; recovery is still by lapse, but the silence is gone.
+- **One stock vocabulary at every age, and the age states itself.** An SMS stock line always reads
+  `In stock (…)`; past one week the parenthesis says `over a week ago` rather than a day count.
+  `EXACT_AGE_UNTIL_DAYS` (7) governs wording ONLY — `isStale` (4 days) still decides ranking and the
+  map's stale warning, and `isConfirmationExpired` (28 days) still drops the claim entirely.
+  `renderStockAge` is the single renderer, shared by the paged answer, the single-stand listing, and
+  the item verdict.
+- **A single-stand listing is grouped and dated.** Blank lines separate name / stock / payments /
+  schedule / address; an empty group collapses. A stand with no confirmation says
+  "Nothing confirmed recently." before its standing offerings, and a stand with neither fact no
+  longer omits the stock block silently.
+- **The farmer's proposal prompt asks for its confirmation** — "Reply YES to publish, or NO to
+  discard." The gate itself was always real; the prompt simply never named it. No code-owned reply
+  carries an emoji: one non-GSM-7 character re-encodes a whole message to UCS-2 and doubles its
+  segments (`reply-encoding.test.ts` holds this).
+- **The public map serves security headers** — `frame-ancestors` (VIGA plus self), `nosniff`, and a
+  trimmed referrer. This does NOT clear the antivirus reputation block a farmer reported on
+  2026-08-14; a custom domain is what addresses that, and it is **blocked on DNS access to
+  `vigavashon.org`**.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. This release adds no migration.
-- Cloud Run web `farm-friend-web-00080-5c8` and worker `farm-friend-worker-00075-jqs` serve digest
-  `sha256:fdb19c99b88800fad1e137cdc6b2b45feb7ee3100ba6f27fb06908a1cdc46f04`, built from merged
-  `main` `b934fd3` and deployed 2026-08-14. Plan assertions 60/60; mounted-secret freshness, public
-  API, and served-card assertions pass; neither revision has an error-level log.
+- Cloud Run web `farm-friend-web-00081-ql9` and worker `farm-friend-worker-00076-8hk` serve digest
+  `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`, built from merged
+  `main` `3ee6bc7` and deployed 2026-08-14. Plan assertions 60/60; mounted-secret freshness, public
+  API, and served-card assertions pass; neither revision has an error-level log. The map's three
+  response headers were read back from the live service.
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
 ## Verification
 
-- **2,036 unit tests pass; 7 corpus-only tests skip.** **958 integration tests across 64 files pass**
+- **2,055 unit tests pass; 7 corpus-only tests skip.** **963 integration tests across 64 files pass**
   against disposable local Postgres databases (2026-08-14).
+- The map still loads inside VIGA's iframe after the `frame-ancestors` header shipped — confirmed in
+  a browser by max, 2026-08-14. That was the one real risk in the header change: a policy that named
+  the wrong host would have blanked the embed rather than failing loudly.
 - Typecheck, lint, production web build, and scripted evals pass: critical 11/11, advisory 4/4,
   adversarial 19/19. The build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
@@ -83,8 +105,19 @@
 - Finish physical-handset checks: farmer onboarding/consent, contact card, paged SMS, administrator
   and settings flows, F-105 stand details at phone width, Squarespace embeds, and `?hidden=true`.
 - **B-068/B-069 still need handset confirmation:** `cucumber` must retain Forest Garden's dated
-  `Last seen` evidence, and representative inventory/broad/payment replies should confirm the reduced
-  model-call path under production transport.
+  evidence — now `In stock (over a week ago)`, not `Last seen` — and representative
+  inventory/broad/payment replies should confirm the reduced model-call path under production
+  transport.
+- **The 2026-08-14 SMS wording changes owe a handset pass.** A grouped stand listing, a stale
+  `In stock (over a week ago)` line, the farmer proposal's `Reply YES to publish, or NO to discard.`,
+  and the emoji-free greeting all shipped verified in integration and against the live model, but no
+  message has been read on a real phone.
+- **The map's antivirus block is NOT fixed.** A farmer reported Webroot flagging the embedded map as
+  phishing on 2026-08-14. Security headers shipped, but the signal is the hostname: VIGA's page
+  iframes the raw `*.run.app` host. The fix is a custom domain (`map.vigavashon.org`) mapped to the
+  Cloud Run service — **blocked on DNS access to `vigavashon.org`**, which max is pursuing. It needs
+  a domain mapping in `infra/`, `PUBLIC_BASE_URL` updated, the Squarespace iframe src changed, and a
+  wall-clock wait for certificate provisioning after DNS resolves.
 - **B-071 owes a handset check:** `what's in stock at <stand>?` must list every confirmed item the map
   shows, and `does <stand> have <item>?` must answer yes/no and then the same full listing. Both were
   verified against the live model and in integration, not yet over production SMS.
@@ -105,3 +138,12 @@
 
 - RUNBOOK owns migration generation/order, production fingerprinting, seeding, secret rotation,
   immutable-image deployment, and Neon reachability. DEVELOPMENT owns codebase/test gotchas.
+- **One emoji doubles a message's cost.** A single non-GSM-7 character re-encodes the WHOLE body to
+  UCS-2, dropping per-segment capacity from 153 to 67 — the greeting billed two segments for 73
+  characters. It is an encoding effect, not a length effect, and invisible by inspection because the
+  emoji renders correctly everywhere it is read. `reply-encoding.test.ts` sweeps every code-owned
+  reply; measure with `estimateSmsSegments` before adding any decoration.
+- **A stale local server can serve headers that the config no longer describes.** While verifying the
+  map headers, a `curl` returned a 200 with no headers at all against a build whose manifest clearly
+  contained them — a server process left running from before the rebuild. The config assertion and
+  the wire disagreed, and the wire was stale, not the config. Restart before believing either.
