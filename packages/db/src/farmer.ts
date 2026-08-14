@@ -603,6 +603,34 @@ async function publishPendingStockIn(
   const farmApprovalId = approvals[0]?.id as string | undefined;
   if (farmApprovalId === undefined) return;
 
+  /*
+    SUPERSEDE FIRST (B-070). `inventory_revisions_one_current_per_location` allows exactly one
+    current revision per stand, so inserting without retiring the incumbent throws — and this
+    ran inside the redemption transaction, so the throw rolled back the authorization, the
+    approval and the consent alongside the stock, leaving the farmer's inbound event to be
+    retried forever behind `runInboundPass`'s catch.
+
+    The farm that hits this is the ORDINARY one at launch, not an exotic case: VIGA seeded
+    every imported farm's offerings as a `viga` revision, so a stand already holds a current
+    revision before its farmer ever texts.
+
+    `for update` for the reason `activateWebProposal` locks the same row: two redemptions must
+    never both read the same incumbent as current and both insert a successor.
+  */
+  const current = await tx`
+    select id from inventory_revisions
+    where sales_location_id = ${salesLocationId} and is_current
+    for update
+  `;
+  const currentRevisionId = current[0]?.id as string | undefined;
+  if (currentRevisionId !== undefined) {
+    await tx`
+      update inventory_revisions
+      set is_current = false, superseded_at = ${input.occurredAt.toISOString()}
+      where id = ${currentRevisionId}
+    `;
+  }
+
   const revisions = await tx`
     insert into inventory_revisions (
       farm_id, sales_location_id, proposal_id, published_by_authorization_id,
@@ -1023,6 +1051,18 @@ export async function openFarmerOnboardingRequest(
         unique), and the NEWEST is the one the farmer just filled in — an older unredeemed
         invitation for the same handset is the abandoned one. `limit 1` also means a second
         `START` finds the next one rather than nothing, which is the retry a farmer expects.
+
+        **Newest AMONG THOSE THAT ALREADY EXISTED** (B-070). "Newest" alone selected invitations
+        created after the message was sent: a farmer who onboards, texts, and is then put through
+        a second onboarding pass has a newer unredeemed invitation that their earlier text was
+        plainly not a response to. Stamping `redeemed_at` (the message time) onto it violates
+        `farmer_invitations_valid_redemption` (`redeemed_at >= created_at`), and the throw
+        rolled back the whole redemption on every retry, forever.
+
+        Bounding by `created_at` keeps the intent — the farmer's most recent stated intent at the
+        moment they texted — and makes the constraint unreachable rather than merely unlikely.
+        A later invitation is not skipped, only deferred: the farmer's next `START` postdates it
+        and redeems it normally.
       */
       const invitations =
         invitationToken !== undefined
@@ -1042,6 +1082,7 @@ export async function openFarmerOnboardingRequest(
               where pending_phone_hash = ${pendingPhoneHash!}
                 and redeemed_at is null
                 and expires_at > ${input.occurredAt.toISOString()}
+                and created_at <= ${input.occurredAt.toISOString()}
               order by created_at desc
               limit 1
               for update

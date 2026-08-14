@@ -17,6 +17,10 @@
   recency, three stands per page, and a bare `Map:` close. Confirmed inventory remains `Last seen`
   through day 28; usual offerings remain `May have`/`May also have` and cannot displace confirmed
   evidence for the same item. Open-now returns only stands confirmed open at render time.
+- **A single-stand answer is rendered wholly by code** (B-071). A product-less question about one
+  stand is `overview` and calls no seam; a stand-scoped `inventory` question answers the yes/no and
+  then the same full listing, so a matcher miss can no longer shorten what a farmer published. The
+  offerings line subtracts confirmed items, and single-stand answers carry no `Map:` link.
 - **Broad availability is a first-class operation.** Call #1 sees no catalog, so catalog contents
   cannot change broad into inventory. Generic inventory nouns remain broad; meaningful categories
   narrow the catalog. `when do you open?` is a system inquiry, while second-person stand inventory
@@ -33,17 +37,20 @@
   completion sends it beside the listing-live message. Carrier recovery remains `START`.
 - **Code owns closure timing and consequential output.** Models select bounded values; they do not
   write public claims, authorize publication, resolve mutable open-now state, or choose evidence.
+- **Onboarding survives a seeded stand, and a poisoned inbound message is no longer silent** (B-070).
+  Redemption supersedes an existing current revision before publishing held stock, and only redeems
+  an invitation that existed when the message arrived. `runInboundPass` logs a routing failure by
+  sender hash and event id; recovery is still by lapse, but the silence is gone.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. This release adds no migration.
-- Cloud Run web `farm-friend-web-00076-nn4` and worker `farm-friend-worker-00071-m2q` serve digest
-  `sha256:03dd49d94130cbd7d247b68bf1ef2425decde4dc330706a6ac87f152f75616f5`, built from merged
-  `main` `a636cbe` and deployed 2026-08-13. Mounted-secret freshness, public API, health, protected
-  routes, and served-card assertions pass; neither revision has an error-level log.
+- Cloud Run web `farm-friend-web-00080-*` and worker `farm-friend-worker-00075-*` serve the image
+  built from merged `main` (B-070 + B-071), deployed 2026-08-14. Mounted-secret freshness, public
+  API, health, protected routes, and served-card assertions pass.
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
 ## Verification
 
-- **2,036 unit tests pass; 7 corpus-only tests skip.** **953 integration tests across 63 files pass**
-  against disposable local Postgres databases (2026-08-13).
+- **2,036 unit tests pass; 7 corpus-only tests skip.** **958 integration tests across 64 files pass**
+  against disposable local Postgres databases (2026-08-14).
 - Typecheck, lint, production web build, and scripted evals pass: critical 11/11, advisory 4/4,
   adversarial 19/19. The build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
@@ -77,6 +84,9 @@
 - **B-068/B-069 still need handset confirmation:** `cucumber` must retain Forest Garden's dated
   `Last seen` evidence, and representative inventory/broad/payment replies should confirm the reduced
   model-call path under production transport.
+- **B-071 owes a handset check:** `what's in stock at <stand>?` must list every confirmed item the map
+  shows, and `does <stand> have <item>?` must answer yes/no and then the same full listing. Both were
+  verified against the live model and in integration, not yet over production SMS.
 - **B-066 owes one console check:** remove a test farm, confirm map/SMS disappearance, then restore it.
 - **F-111 Phase 2 handset pass is 2/13.** Remaining cases cover STOP/START, HELP, named-stand inquiry
   and report, farmer own/other-stand reports, both VIGA Bucks shapes, map, a partial stand name,

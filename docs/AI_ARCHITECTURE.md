@@ -254,6 +254,16 @@ flag:
   stand's item or payment catalog when matching is needed. Location, hours, and overview are rendered
   directly from the stand's public record with no second model call.
 
+  **A single-stand answer always carries that stand's whole listing, rendered by code** (B-071). A
+  question naming no product is `overview` and reaches no seam at all; a stand-scoped `inventory`
+  question leads with the yes/no the customer asked and then renders the same full listing. The
+  matcher's only contribution is *which item* the verdict is about, still re-validated against the
+  stand's catalog. This is deliberate containment rather than presentation: on a real eleven-value
+  catalog the matcher omitted a confirmed item in 3 of 8 live runs, and a value it silently fails to
+  return is indistinguishable from one the customer never asked about, so no downstream check can
+  recover it. The model may select values; it may never decide which of a farmer's published facts a
+  customer is allowed to see.
+
   `system_inquiry` and `chitchat` do not use this seam. System answers are fixed code-owned copy;
   VIGA Bucks explanations link the official VIGA page rather than embedding mutable pickup details.
   Chitchat returns `Ask me what a Vashon farm stand has, or tell us if something is sold out. 🌱`.
@@ -299,8 +309,10 @@ target — access is checked in code after the category is known. Inquiry catego
 category-specific flows above.
 
 The classifier fixes the inquiry operation from the message alone. Broad, hours, location, overview,
-and clarification make no second model call. Inventory/payment then build an island-wide catalog for
-search or resolve one stand and build its catalog for lookup; one generic matcher selects values. Code
+and clarification make no second model call — and a product-less question about ONE stand is
+`overview`, so it is code-rendered rather than matched (B-071). Inventory/payment then build an
+island-wide catalog for search or resolve one stand and build its catalog for lookup; one generic
+matcher selects values. Code
 validates membership, expands names to authoritative rows, combines confirmed inventory with usual
 offerings without losing either evidence voice, orders deterministically, and renders. Model-supplied
 values or prose are never accepted as evidence.

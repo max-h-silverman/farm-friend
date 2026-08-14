@@ -211,9 +211,28 @@ export async function runInboundPass(
       );
 
       await claimed.finalize({ outcome: "processed", now: deps.clock.now() });
-    } catch {
-      // Leave the claim to lapse and be recovered rather than losing the event. The
-      // consent transition, if one committed, is already durable on its own watermark.
+    } catch (error) {
+      /*
+        Leave the claim to lapse and be recovered rather than losing the event. The consent
+        transition, if one committed, is already durable on its own watermark.
+
+        BUT SAY SO (B-070). Recovery-by-lapse is the right handling for a transient failure
+        and the wrong SILENCE for a permanent one: a message that can never succeed is
+        reclaimed every minute forever, and because this loop reports `processed` and the
+        cron returns 200, nothing anywhere said a farmer had been stuck for a day. Inbound
+        events are ordered per sender, so one poisoned message blocks every later message
+        from that handset — which is exactly how a farmer's stock updates went unanswered.
+
+        The hash and the event id ONLY. `senderHash` is the sole permitted log key
+        (DATA_ARCHITECTURE §privacy) and the body is untrusted public SMS that must never
+        reach a log line.
+      */
+      console.error("inbound routing failed", {
+        senderHash: claimed.senderHash,
+        inboxEventId: claimed.inboxEventId,
+        providerEventId: claimed.providerEventId,
+        error: error instanceof Error ? error.message : "unknown",
+      });
     }
     processed += 1;
   }

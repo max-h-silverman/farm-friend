@@ -1175,9 +1175,16 @@ fx("live-quality", "says nobody carries an item rather than blaming the customer
 // B-069's measured broad/inventory boundary. Classification happens from the request first;
 // catalog matching happens second and must not change the chosen operation.
 fx("live-operation", "keeps broad and inventory distinct without catalog visibility", async () => {
+  /*
+    `lookup` marks the cases that NAME a stand. Those are correctly `stand_lookup` rather than
+    `search_stands` — the kind says which stands are in scope, the operation says what is being
+    asked. Only the operation is what this family measures, so asserting one fixed kind for
+    every case would fail the stand-scoped rows for being right.
+  */
   const cases: Array<{
     text: string;
-    kind: "broad" | "inventory";
+    kind: "broad" | "inventory" | "overview";
+    lookup?: true;
   }> = [
     { text: "what produce is available?", kind: "broad" },
     { text: "what vegetables are available?", kind: "inventory" },
@@ -1193,6 +1200,22 @@ fx("live-operation", "keeps broad and inventory distinct without catalog visibil
     { text: "show me what's out there", kind: "broad" },
     { text: "what's available right now?", kind: "broad" },
     { text: "anything good today?", kind: "broad" },
+    /*
+      B-071 — a product-less question about ONE stand is `overview`, never `inventory`.
+
+      Every broad phrasing above is unscoped, so the family never covered the shape a customer
+      actually sends about one farm. It matters because `inventory` is the only stand-scoped
+      operation that calls the catalog matcher, and the matcher's recall is not a guarantee:
+      measured on Provo Farms' real catalog, `what's in stock at provo?` dropped a confirmed
+      item in 3 of 8 runs, so the customer was told the stand had four items where the farmer
+      had published six. `overview` renders the whole listing from code and calls no seam.
+    */
+    { text: "what's in stock at provo?", kind: "overview", lookup: true },
+    { text: "what's in stock at Provo Farms?", kind: "overview", lookup: true },
+    { text: "what does Pinecone Gardens have?", kind: "overview", lookup: true },
+    // The stand-scoped question that DOES name a product stays inventory: the matcher still
+    // decides which item the yes/no answers, it just no longer decides the listing.
+    { text: "does Provo Farms have peaches?", kind: "inventory", lookup: true },
   ];
 
   const observations: string[] = [];
@@ -1200,7 +1223,9 @@ fx("live-operation", "keeps broad and inventory distinct without catalog visibil
   for (const testCase of cases) {
     const raw = await requestClassifier.classify({ taskText: testCase.text });
     const ok =
-      raw.ok && raw.kind === "search_stands" && raw.request.operation === testCase.kind;
+      raw.ok &&
+      raw.kind === (testCase.lookup === true ? "stand_lookup" : "search_stands") &&
+      raw.request.operation === testCase.kind;
     if (ok) correct += 1;
     else observations.push(`"${testCase.text}" -> ${JSON.stringify(raw)} (wanted ${testCase.kind})`);
   }

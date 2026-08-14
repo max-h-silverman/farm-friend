@@ -11,7 +11,67 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-13 (latest) — B-068/B-069 shipped: classification cannot see the catalog it is classifying
+## 2026-08-14 (latest) — The first real farmer onboarded, and two silent failures came with them
+
+Provo Farms completed onboarding, texted `VIGA`, sent stock updates — and appeared nowhere. Their pin
+was on the map, admin showed "current stock", and nothing anywhere reported a problem. Two separate
+defects, both invisible by construction.
+
+**B-070 — the redemption could never commit, and the retry hid it forever.** VIGA had seeded Provo's
+stand months earlier, so a current inventory revision already existed.
+`publishPendingStockIn` inserted the farmer's held onboarding stock without retiring the incumbent,
+`inventory_revisions_one_current_per_location` refused it, and the whole transaction rolled back —
+authorization, approval, consent and stock together. That throw landed in `runInboundPass`'s bare
+`catch {}`, which logged nothing; inbound events are ordered per sender and the claim only lapses, so
+the message was reclaimed every minute since 08-13 while the cron returned 200. The three texts behind
+it never processed. **The seeded shape is the ordinary one at launch** — every farm VIGA imported from
+the existing map carries a `viga` revision before its farmer ever texts.
+
+Adding the log line was what found the *second* half: `farmer_invitations_valid_redemption`
+(`redeemed_at >= created_at`). `order by created_at desc limit 1` selected the newest unredeemed
+invitation for the handset regardless of when it existed, and Provo had a second onboarding pass
+created 12.5 hours *after* the text they were actually answering. Bounded the query to
+`created_at <= occurredAt`; the later invitation is deferred, not skipped.
+
+Deployed, then verified by effect rather than by a 200: the stuck event moved `processing` →
+`processed`, an authorization appeared, and all four queued messages drained in order. No repair rows
+were written — the fix let production replay the farmer's own message.
+
+**B-071 — the matcher was editing farmers' listings.** With Provo finally live, the map showed six
+confirmed items and the SMS answer showed four. `stand_lookup` has no `broad` operation, so a
+product-less question about one stand had nowhere correct to land and fell into `inventory` — the one
+stand-scoped operation that calls the catalog matcher. Measured on Provo's real eleven-value catalog,
+`what's in stock at provo?` dropped a confirmed item in **3 of 8 live runs**; against the island-wide
+200-value catalog it returned 58 arbitrary values once and `invalid_output` twice. Nothing downstream
+could catch it: a dropped value is indistinguishable from one the customer never asked about.
+
+The fix put the guarantee where code can hold it. A product-less stand question is `overview`, which
+already meant "names one stand without requesting a narrower fact" and renders the whole listing from
+code with no seam call (13/13 live). A stand-scoped `inventory` question now answers the yes/no **and**
+the full listing, both code-rendered — the matcher only decides which item the verdict is about, still
+re-validated against the stand's catalog. Max's rule: a broad question about a specific stand must not
+let the model edit that stand's listing.
+
+Two false starts worth recording. Narrowing the matcher's values for a resolved stand was **redundant**
+— `candidateStands` already collapses to the resolved stand, so the catalog was never island-wide on
+that path; the change was reverted. And prompt wording was the wrong lever twice: making the classifier
+ignore a named stand fixed the operation but lost `stand_lookup`, answering island-wide instead. Only
+sharpening `overview` vs `inventory` moved all thirteen cases without collateral damage.
+
+Then two copy corrections from the handset: the offerings line now subtracts confirmed items (Provo
+repeated all six verbatim under "Usually sells", burying the two that added information), and a
+single-stand answer carries no map link — the link helps a customer choose among stands, and this
+answer is already about the one they named.
+
+Verified: 2,036 unit, 958 integration across 64 files, typecheck, lint, scripted evals 11/11 + 19/19,
+live evals 5/5 operation and 7/7 catalog. Every new test was sabotage-checked; one early test passed
+against unmodified code and was rewritten rather than trusted. Three production deploys this session
+(web `00077`/`00078`/`00079`), each with 60/60 plan assertions and deploy/served-card assertions.
+
+Not addressed: the classifier sometimes returns `search_stands` where `stand_lookup` fits ("any
+tomatoes at provo?"). It answers island-wide rather than wrongly — a quality gap, recorded in B-071.
+
+## 2026-08-13 — B-068/B-069 shipped: classification cannot see the catalog it is classifying
 
 The inquiry pipeline now enforces the distinction the prompt could not: the first model call sees
 only the sender's message and fixes a strict route-specific operation. Only inventory and payment

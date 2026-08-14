@@ -236,8 +236,8 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "- payment: asks whether the named stand accepts a payment method.\n" +
     "- hours: asks for the named stand's hours or schedule.\n" +
     "- location: asks for the named stand's address or location.\n" +
-    "- overview: names one stand without requesting a narrower fact.\n" +
-    "- inventory: asks whether the named stand has a product or product category.\n" +
+    "- overview: names one stand without requesting a narrower fact. Asking what one stand has, sells, or is carrying — including “what’s in stock at NAME?”, “what does NAME have?”, “what’s NAME got today?” — is overview, because it names no product to narrow by.\n" +
+    "- inventory: asks whether the named stand has a SPECIFIC product or product category, e.g. “does NAME have peaches?”, “any greens at NAME?”.\n" +
     "- clarification: no supported lookup operation can be identified.\n\n" +
     "Inventory vs broad:\n" +
     "- Choose inventory only when the requested product/category would meaningfully filter the available inventory to a subset.\n" +

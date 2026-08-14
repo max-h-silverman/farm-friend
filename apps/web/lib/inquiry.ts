@@ -1,12 +1,14 @@
 import {
   factsPerPage,
   groupFactsByStand,
+  isStale,
   openNow,
   rankCandidates,
   renderClarificationRequest,
   renderInterpreterUnavailable,
   renderNoCurrentListing,
   renderResultPage,
+  renderShortElapsed,
   renderStandFactPage,
   ORIGIN_LIMITATION_STATEMENT,
   PAGE_SIZE,
@@ -534,6 +536,102 @@ function scheduleLines(stand: PublicStand): string[] {
   return lines.length === 0 ? ["Hours not listed"] : lines;
 }
 
+/**
+ * One stand's whole listing, rendered by code from its own published facts (B-071).
+ *
+ * Shared by `overview` and by a stand-scoped `inventory` answer, so the two cannot drift into
+ * describing the same stand differently. Every line is a value the farmer published; no model
+ * output reaches this function.
+ */
+function renderStandListing(stand: PublicStand): string {
+  const lines = [stand.locationName];
+  const confirmed = new Set(stand.items.map((item) => item.itemName.trim().toLowerCase()));
+  if (stand.items.length > 0) {
+    lines.push(`In stock: ${stand.items.map((item) => item.itemName).join(", ")}`);
+  }
+  /*
+    A confirmation outranks a standing description of the SAME item — the rule the paged answer
+    already applies, and it belongs here for the same reason: several corpus stands publish the
+    thing they also list as usually carried, and printing it under both labels tells the
+    customer we are unsure which is true. It is in stock; that is the stronger claim.
+
+    Provo Farms showed the cost — all six confirmed items repeated verbatim under "Usually
+    sells", so the useful part of that line (the two items they carry but had not confirmed) was
+    buried in a list the customer had just read (max, 2026-08-14).
+  */
+  const alsoSells = stand.usualOfferings.filter(
+    (item) => !confirmed.has(item.itemName.trim().toLowerCase()),
+  );
+  if (alsoSells.length > 0) {
+    // "also" only when a confirmed line sits above it to be additional TO — the same wording
+    // rule `paging.ts` follows.
+    const label = stand.items.length > 0 ? "Usually also sells" : "Usually sells";
+    lines.push(`${label}: ${alsoSells.map((item) => item.itemName).join(", ")}`);
+  }
+  if (stand.paymentMethods.length > 0) {
+    lines.push(`Payments: ${stand.paymentMethods.join(", ")}`);
+  }
+  lines.push(...scheduleLines(stand));
+  /*
+    NO MAP LINK (max, 2026-08-14). The link exists to help a customer pick among several stands;
+    this answer is already about the one stand they named, and its address is the line above.
+  */
+  lines.push(stand.publicAddress ?? "address not listed");
+  return lines.join("\n");
+}
+
+/**
+ * A stand-scoped product question: the yes/no the customer asked, then the whole listing.
+ *
+ * **The verdict is computed by CODE from the stand's own rows**, never taken from the model.
+ * The matcher's only contribution is `asked` — which catalog value the customer meant — and
+ * even that is re-validated against the stand's catalog before it arrives here. So the worst a
+ * matcher miss can do is answer about the wrong item; it can no longer delete items from the
+ * listing beneath, which is the failure this rule exists to prevent.
+ *
+ * Confirmed stock and a standing offering are answered DIFFERENTLY on purpose. "Yes" is
+ * reserved for a confirmation the farmer actually published, stamped with its age so the
+ * customer can judge it; a usual offering says only that the stand usually carries it, because
+ * nobody confirmed it today and claiming otherwise would invent availability (Golden Rule #3).
+ */
+function renderStandItemAnswer(
+  stand: PublicStand,
+  asked: readonly string[],
+  now: Date,
+): string {
+  const confirmed = new Map(
+    stand.items.map((item) => [item.itemName.trim().toLowerCase(), item.itemName]),
+  );
+  const usual = new Map(
+    stand.usualOfferings.map((item) => [item.itemName.trim().toLowerCase(), item.itemName]),
+  );
+
+  const verdicts: string[] = [];
+  for (const name of asked) {
+    const key = name.trim().toLowerCase();
+    const confirmedName = confirmed.get(key);
+    if (confirmedName !== undefined) {
+      // The age rides on the claim, exactly as the paged answer does it: a confirmation past
+      // the staleness threshold is reported as the last sighting, never as present-tense stock.
+      const label = stand.asOf === undefined || isStale(stand.asOf, now) ? "Last seen" : "Yes";
+      const when = stand.asOf === undefined ? "" : ` (${renderShortElapsed(stand.asOf, now)})`;
+      verdicts.push(`${label}: ${confirmedName}${when}`);
+      continue;
+    }
+    const usualName = usual.get(key);
+    verdicts.push(
+      usualName === undefined
+        ? `Not listed: ${name}`
+        : `Usually, but not confirmed today: ${usualName}`,
+    );
+  }
+
+  // No verdict means the matcher selected nothing the stand carries — the customer asked about
+  // something this stand does not list. The listing still follows, which is the useful answer.
+  const head = verdicts.length === 0 ? ["Not listed at this stand"] : verdicts;
+  return [...head, "", renderStandListing(stand)].join("\n");
+}
+
 async function deliverStandFactPage(
   deps: InquiryDeps,
   input: {
@@ -617,7 +715,8 @@ async function answerResolvedInquiry(
             : "VIGA Farm Bucks acceptance not listed";
       return {
         outcome: "answered",
-        body: [resolvedStand.locationName, status, "", `Map: ${PUBLIC_MAP_URL}`].join("\n"),
+        // No map link on a single-stand answer — see `renderStandListing`.
+        body: [resolvedStand.locationName, status].join("\n"),
         selectedFactIds: [resolvedStand.factId],
       };
     }
@@ -655,11 +754,10 @@ async function answerResolvedInquiry(
   if (input.request.operation === "location" && resolvedStand !== undefined) {
     return {
       outcome: "answered",
+      // No map link — see `renderStandListing`. The address IS the answer here.
       body: [
         resolvedStand.locationName,
         resolvedStand.publicAddress ?? "address not listed",
-        "",
-        `Map: ${PUBLIC_MAP_URL}`,
       ].join("\n"),
       selectedFactIds: [resolvedStand.factId],
     };
@@ -668,7 +766,8 @@ async function answerResolvedInquiry(
   if (input.request.operation === "hours" && resolvedStand !== undefined) {
     return {
       outcome: "answered",
-      body: [resolvedStand.locationName, ...scheduleLines(resolvedStand), "", `Map: ${PUBLIC_MAP_URL}`].join("\n"),
+      // No map link — see `renderStandListing`.
+      body: [resolvedStand.locationName, ...scheduleLines(resolvedStand)].join("\n"),
       selectedFactIds: [resolvedStand.factId],
     };
   }
@@ -705,21 +804,60 @@ async function answerResolvedInquiry(
   }
 
   if (input.request.operation === "overview" && resolvedStand !== undefined) {
-    const lines = [resolvedStand.locationName];
-    if (resolvedStand.items.length > 0) {
-      lines.push(`In stock: ${resolvedStand.items.map((item) => item.itemName).join(", ")}`);
-    }
-    if (resolvedStand.usualOfferings.length > 0) {
-      lines.push(`Usually sells: ${resolvedStand.usualOfferings.map((item) => item.itemName).join(", ")}`);
-    }
-    if (resolvedStand.paymentMethods.length > 0) {
-      lines.push(`Payments: ${resolvedStand.paymentMethods.join(", ")}`);
-    }
-    lines.push(...scheduleLines(resolvedStand));
-    lines.push(resolvedStand.publicAddress ?? "address not listed", "", `Map: ${PUBLIC_MAP_URL}`);
     return {
       outcome: "answered",
-      body: lines.join("\n"),
+      body: renderStandListing(resolvedStand),
+      selectedFactIds: [resolvedStand.factId],
+    };
+  }
+
+  /*
+    B-071 — A QUESTION ABOUT ONE STAND ALWAYS RETURNS THAT STAND'S WHOLE LISTING.
+
+    The customer asked about one product, so the answer LEADS with yes or no — that is what
+    they asked. Then it shows the same full listing `overview` renders, because a customer who
+    is standing in front of one farm wants to know what is there (max, 2026-08-14).
+
+    That shape is also what takes the matcher out of the answer's content. Previously a
+    stand-scoped inventory question narrowed the reply to the values the matcher returned, and
+    a value it silently failed to return was deleted from what the farmer had published: on
+    Provo Farms' real eleven values, `what's in stock at provo?` dropped a confirmed item in 3
+    of 8 live runs, so the customer saw four items where the farmer had published six while the
+    map, which calls no model, showed all six. Nothing downstream could catch it, because a
+    dropped value is indistinguishable from one the customer never asked about.
+
+    Now the model only decides WHICH ITEM the yes/no is about. The listing beneath it is
+    rendered by code from the stand's own published facts, so a matcher miss can no longer
+    shorten a farmer's listing — Golden Rule #4's line, placed where it can be enforced.
+  */
+  if (input.request.operation === "inventory" && resolvedStand !== undefined) {
+    const catalogNames = [...resolvedStand.items, ...resolvedStand.usualOfferings]
+      .map((item) => item.itemName.trim())
+      .filter((name) => name !== "");
+    const match = await deps.matcher.match({
+      taskText: input.taskText,
+      catalogType: "inventory",
+      values: catalogNames,
+    });
+    if (!match.ok) {
+      return match.reason === "provider_error"
+        ? { outcome: "clarification", question: renderInterpreterUnavailable() }
+        : { outcome: "rejected", reason: "catalog matcher carries only public catalog values" };
+    }
+    // Membership is re-validated exactly as the island-wide path validates it: the model may
+    // only ever name a value code placed in front of it.
+    const byKey = new Map(catalogNames.map((name) => [name.toLowerCase(), name]));
+    const asked: string[] = [];
+    for (const name of match.matches) {
+      const ours = byKey.get(name.trim().toLowerCase());
+      if (ours === undefined) {
+        return { outcome: "rejected", reason: `item ${name} is not part of the public catalog` };
+      }
+      if (!asked.includes(ours)) asked.push(ours);
+    }
+    return {
+      outcome: "answered",
+      body: renderStandItemAnswer(resolvedStand, asked, deps.clock.now()),
       selectedFactIds: [resolvedStand.factId],
     };
   }
