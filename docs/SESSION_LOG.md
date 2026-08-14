@@ -11,7 +11,30 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-13 (latest) — Phase 2 shipped, and the first two handset messages found two more bugs
+## 2026-08-13 (latest) — B-068/B-069 shipped: classification cannot see the catalog it is classifying
+
+The inquiry pipeline now enforces the distinction the prompt could not: the first model call sees
+only the sender's message and fixes a strict route-specific operation. Only inventory and payment
+then expose a deduplicated catalog to one generic value matcher. An empty match is a valid result;
+provider/schema failure remains a separate failure. Code validates every returned value, expands it
+to all supporting stands, retains both confirmed and usual evidence, and owns ordering and paging.
+
+That closes the cucumber defect structurally. Forest Garden's 24-day cucumber confirmation can no
+longer be omitted because a model preferred its usual-offering voice; matching `Cucumber` restores
+every supporting fact and renders the confirmed one as `Last seen`. It also removes the expensive
+stand-by-stand fact-selection call from broad, hours, location, overview, and clarification answers.
+
+The boundary is measured independently from matching: broad/inventory 13/13, other operations 7/7,
+second-person 5/5, VIGA/domain 5/5, and catalog 7/7. The full top-level corpus remains 52/53 with only
+the pre-existing `what is viga` miss; any new miss fails the gate. `when do you open?` is a system
+inquiry, while `do you have eggs?` remains stand inventory and VIGA Bucks keeps its deterministic path.
+
+Verified before release: 2,036 unit tests, 953 integration tests, typecheck, lint, production build,
+scripted evals, and the paid live suites. Merged to `main` and deployed as one immutable image to both
+Cloud Run services with no migration; deploy and served-card assertions passed. Handset confirmation
+of B-068/B-069 remains part of the pre-go-live pass.
+
+## 2026-08-13 — Phase 2 shipped, and the first two handset messages found two more bugs
 
 F-111 Phase 2: the classifier is wired, both legacy seams are deleted, and it is **deployed**
 (`b187b7e`, PR #114, web `00075-bfw` / worker `00070-7rw`). Then two SMS messages from a real
