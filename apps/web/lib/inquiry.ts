@@ -1,15 +1,14 @@
 import {
   factsPerPage,
   groupFactsByStand,
-  isStale,
   openNow,
   rankCandidates,
   renderClarificationRequest,
   renderInterpreterUnavailable,
   renderNoCurrentListing,
   renderResultPage,
-  renderShortElapsed,
   renderStandFactPage,
+  renderStockAge,
   ORIGIN_LIMITATION_STATEMENT,
   PAGE_SIZE,
   PUBLIC_MAP_URL,
@@ -543,11 +542,21 @@ function scheduleLines(stand: PublicStand): string[] {
  * describing the same stand differently. Every line is a value the farmer published; no model
  * output reaches this function.
  */
-function renderStandListing(stand: PublicStand): string {
-  const lines = [stand.locationName];
+function renderStandListing(stand: PublicStand, now: Date): string {
+  const produce: string[] = [];
   const confirmed = new Set(stand.items.map((item) => item.itemName.trim().toLowerCase()));
   if (stand.items.length > 0) {
-    lines.push(`In stock: ${stand.items.map((item) => item.itemName).join(", ")}`);
+    /*
+      THE STOCK CLAIM CARRIES ITS OWN AGE. This line asserted a bare "In stock:" at any age up
+      to the 28-day expiry, so a nine-day-old confirmation read as current stock on the reply a
+      customer is most likely to act on, while `paging.ts` dated the SAME rows. One
+      confirmation must not read two ways over two routes, so both now call `renderStockAge`.
+
+      An EXPIRED confirmation never arrives here at all: `listPublicStands` drops it upstream,
+      so the stand reaches this function shaped like one that was never confirmed.
+    */
+    const when = stand.asOf === undefined ? "" : ` (${renderStockAge(stand.asOf, now)})`;
+    produce.push(`In stock${when}: ${stand.items.map((item) => item.itemName).join(", ")}`);
   }
   /*
     A confirmation outranks a standing description of the SAME item — the rule the paged answer
@@ -562,22 +571,50 @@ function renderStandListing(stand: PublicStand): string {
   const alsoSells = stand.usualOfferings.filter(
     (item) => !confirmed.has(item.itemName.trim().toLowerCase()),
   );
+  /*
+    AVAILABILITY LEADS, exactly as it does on the map card, and it is stated even when there is
+    nothing to state it about.
+
+    With no confirmation above it, "Usually sells: Garlic" is the first thing a customer reads
+    and lands as a hedged stock claim rather than as the absence of one — `standListingLines`
+    already says "Nothing confirmed recently." before the standing offerings for that case.
+
+    And a stand with NEITHER fact used to collapse this block entirely, so a customer who asked
+    what a stand has got a reply that jumped to its hours without mentioning stock at all —
+    indistinguishable from a bug. Silence is the one thing this surface must not do with a
+    missing fact, so the status line is unconditional whenever no confirmation is being shown.
+  */
+  if (stand.items.length === 0) produce.push("Nothing confirmed recently.");
   if (alsoSells.length > 0) {
     // "also" only when a confirmed line sits above it to be additional TO — the same wording
     // rule `paging.ts` follows.
     const label = stand.items.length > 0 ? "Usually also sells" : "Usually sells";
-    lines.push(`${label}: ${alsoSells.map((item) => item.itemName).join(", ")}`);
+    produce.push(`${label}: ${alsoSells.map((item) => item.itemName).join(", ")}`);
   }
-  if (stand.paymentMethods.length > 0) {
-    lines.push(`Payments: ${stand.paymentMethods.join(", ")}`);
-  }
-  lines.push(...scheduleLines(stand));
   /*
     NO MAP LINK (max, 2026-08-14). The link exists to help a customer pick among several stands;
-    this answer is already about the one stand they named, and its address is the line above.
+    this answer is already about the one stand they named, and its address is the line below.
+
+    BLANK LINES BETWEEN GROUPS (max, 2026-08-14). A live listing arrived as eight unbroken
+    lines, and a customer scanning for one fact had to read all of them. The four groups are
+    the four questions being answered — who, what they have, how to pay, when and where —
+    which is the same separation `paging.ts` already gives each stand in a multi-stand page.
+
+    An empty group contributes nothing rather than a gap, so a stand with no payment methods
+    reads as three tidy blocks instead of one with a hole in it. Measured against the live
+    Provo Farms reply the three added characters do not change its segment count.
   */
-  lines.push(stand.publicAddress ?? "address not listed");
-  return lines.join("\n");
+  const groups: string[][] = [
+    [stand.locationName],
+    produce,
+    stand.paymentMethods.length > 0 ? [`Payments: ${stand.paymentMethods.join(", ")}`] : [],
+    scheduleLines(stand),
+    [stand.publicAddress ?? "address not listed"],
+  ];
+  return groups
+    .filter((group) => group.length > 0)
+    .map((group) => group.join("\n"))
+    .join("\n\n");
 }
 
 /**
@@ -611,11 +648,11 @@ function renderStandItemAnswer(
     const key = name.trim().toLowerCase();
     const confirmedName = confirmed.get(key);
     if (confirmedName !== undefined) {
-      // The age rides on the claim, exactly as the paged answer does it: a confirmation past
-      // the staleness threshold is reported as the last sighting, never as present-tense stock.
-      const label = stand.asOf === undefined || isStale(stand.asOf, now) ? "Last seen" : "Yes";
-      const when = stand.asOf === undefined ? "" : ` (${renderShortElapsed(stand.asOf, now)})`;
-      verdicts.push(`${label}: ${confirmedName}${when}`);
+      // The age rides on the claim, exactly as the paged answer does it. The customer asked a
+      // yes/no question, so the answer is "Yes" at every age and the parenthesis says how old
+      // the confirmation is — the same one-vocabulary rule the stock line follows.
+      const when = stand.asOf === undefined ? "" : ` (${renderStockAge(stand.asOf, now)})`;
+      verdicts.push(`Yes: ${confirmedName}${when}`);
       continue;
     }
     const usualName = usual.get(key);
@@ -629,7 +666,7 @@ function renderStandItemAnswer(
   // No verdict means the matcher selected nothing the stand carries — the customer asked about
   // something this stand does not list. The listing still follows, which is the useful answer.
   const head = verdicts.length === 0 ? ["Not listed at this stand"] : verdicts;
-  return [...head, "", renderStandListing(stand)].join("\n");
+  return [...head, "", renderStandListing(stand, now)].join("\n");
 }
 
 async function deliverStandFactPage(
@@ -766,8 +803,9 @@ async function answerResolvedInquiry(
   if (input.request.operation === "hours" && resolvedStand !== undefined) {
     return {
       outcome: "answered",
-      // No map link — see `renderStandListing`.
-      body: [resolvedStand.locationName, ...scheduleLines(resolvedStand)].join("\n"),
+      // No map link — see `renderStandListing`. The schedule is one block under the name,
+      // matching the listing's grouping so both single-stand replies read the same way.
+      body: [resolvedStand.locationName, scheduleLines(resolvedStand).join("\n")].join("\n\n"),
       selectedFactIds: [resolvedStand.factId],
     };
   }
@@ -806,7 +844,7 @@ async function answerResolvedInquiry(
   if (input.request.operation === "overview" && resolvedStand !== undefined) {
     return {
       outcome: "answered",
-      body: renderStandListing(resolvedStand),
+      body: renderStandListing(resolvedStand, deps.clock.now()),
       selectedFactIds: [resolvedStand.factId],
     };
   }

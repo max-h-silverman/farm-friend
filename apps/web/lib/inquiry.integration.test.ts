@@ -329,10 +329,11 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
 
     expect(result).toMatchObject({ outcome: "answered" });
     if (result.outcome !== "answered") return;
-    expect(result.body).toContain("Pinecone Gardens");
-    expect(result.body).toContain("Hours: 8am-6pm");
-    expect(result.body).toContain("Days: Monday-Friday");
-    expect(result.body).toContain("Season: year-round");
+    // The stand's name, then its schedule as one block — the same who/what separation the
+    // whole listing uses, so the two single-stand replies read alike.
+    expect(result.body).toBe(
+      "Pinecone Gardens\n\nHours: 8am-6pm\nDays: Monday-Friday\nSeason: year-round",
+    );
   });
 
   it("includes only confirmed-open stands in an open-now search (B-069)", async () => {
@@ -451,7 +452,9 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
 
     expect(result.outcome).toBe("answered");
     if (result.outcome !== "answered") return;
-    expect(result.body).toContain("Last seen (24d ago): Cucumbers");
+    // 24 days: still inside the 28-day expiry, so the claim survives — but well past a week,
+    // so it is stated in words rather than as a count the customer has to weigh.
+    expect(result.body).toContain("In stock (over a week ago): Cucumbers");
   });
 
   it("renders an empty model selection as no listing without inventing a stand", async () => {
@@ -558,8 +561,9 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     if (result.outcome !== "answered") return;
     // The yes/no the customer asked for, stamped with the confirmation's age.
     expect(result.body).toMatch(/^Yes: Peaches \(2h ago\)/);
-    // ...and the whole listing beneath it, including the item nobody asked about.
-    expect(result.body).toContain("In stock: Kale, Peaches");
+    // ...and the whole listing beneath it, including the item nobody asked about. The stock
+    // claim carries its own age, exactly as the island-wide page states it.
+    expect(result.body).toContain("In stock (2h ago): Kale, Peaches");
     // "also", because a confirmed line sits above it; and Garlic only, because a confirmation
     // outranks the standing description of the same item.
     expect(result.body).toContain("Usually also sells: Garlic");
@@ -588,8 +592,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.outcome).toBe("answered");
     if (result.outcome !== "answered") return;
     expect(result.body).toContain("Not listed at this stand");
-    // Still the useful part: what the stand DOES have.
-    expect(result.body).toContain("In stock: Kale");
+    // Still the useful part: what the stand DOES have, dated.
+    expect(result.body).toContain("In stock (2h ago): Kale");
   });
 
   it("renders a whole-stand question from code without calling the matcher", async () => {
@@ -622,7 +626,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(provider.seen).toEqual([]);
     expect(result.outcome).toBe("answered");
     if (result.outcome !== "answered") return;
-    expect(result.body).toContain("In stock: Kale, Peaches");
+    expect(result.body).toContain("In stock (2h ago): Kale, Peaches");
     expect(result.body).not.toContain("Rhubarb");
     // Garlic only: a confirmation outranks the standing description of the SAME item, so Kale
     // is not repeated under a second label.
@@ -630,6 +634,182 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     expect(result.body).not.toMatch(/Usually also sells:.*Kale/);
     // A single-stand answer carries no map link.
     expect(result.body).not.toContain("Map:");
+  });
+
+  it("stamps a stand listing's stock claim with its age, in words once it is old", async () => {
+    await client()`
+      update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}
+    `;
+    // Nine days: past `isStale` (96h) but well inside `isConfirmationExpired` (28d), so the
+    // confirmation still reaches the renderer and still has to be described honestly.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(24 * 9));
+
+    const { deps } = inquiryDeps({});
+
+    const result = await answerInquiry(deps, {
+      mode: "stand_lookup",
+      request: { operation: "overview" },
+      taskText: "what's at Pinecone Gardens?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    /*
+      This reply asserted a bare "In stock:" with no date on it at all — the strongest claim in
+      the system, made about the oldest evidence, on the surface a customer is most likely to
+      act on. The age now rides on the claim exactly as `paging.ts` states it, from the same
+      shared function, so one confirmation cannot read as dated over one route and undated over
+      another.
+
+      Nine days is past a week, so the age is stated in words. The LABEL is unchanged at every
+      age: one vocabulary for the customer to learn (max, 2026-08-14).
+    */
+    expect(result.body).toContain("In stock (over a week ago): Kale");
+    expect(result.body).not.toMatch(/9d ago/);
+  });
+
+  it("stamps a fresh stand listing's stock claim with its age", async () => {
+    await client()`
+      update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}
+    `;
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale"], hoursAgo(2));
+
+    const { deps } = inquiryDeps({});
+
+    const result = await answerInquiry(deps, {
+      mode: "stand_lookup",
+      request: { operation: "overview" },
+      taskText: "what's at Pinecone Gardens?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    // Fresh keeps the present-tense label, but still dates it — an undated stock claim is the
+    // one thing this surface must never print.
+    expect(result.body).toContain("In stock (2h ago): Kale");
+  });
+
+  it("says nothing is confirmed when a stand has only standing offerings", async () => {
+    await client()`
+      update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}
+    `;
+    // No confirmation at all — only what the farmer says they usually carry.
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, 'Garlic', true, 0)
+    `;
+
+    const { deps } = inquiryDeps({});
+
+    const result = await answerInquiry(deps, {
+      mode: "stand_lookup",
+      request: { operation: "overview" },
+      taskText: "what's at Pinecone Gardens?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    /*
+      The map already leads this case with "Nothing confirmed recently." before the standing
+      offerings, so a customer reads the STATUS before the list. Over SMS the same stand opened
+      straight into "Usually sells: Garlic", which reads as a weaker version of a stock claim
+      rather than as the absence of one. Same fact, same order, both surfaces.
+    */
+    expect(result.body).toContain("Nothing confirmed recently.");
+    expect(result.body).toContain("Usually sells: Garlic");
+    // "also" needs a confirmed line above it to be additional TO; there is none.
+    expect(result.body).not.toContain("Usually also sells");
+    // The status line belongs WITH the offerings it qualifies, not stranded in its own block.
+    expect(result.body).toContain("Nothing confirmed recently.\nUsually sells: Garlic");
+  });
+
+  it("says a stand has no listing rather than silently omitting one", async () => {
+    await client()`
+      update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}
+    `;
+    // Neither a confirmation nor a standing offering: the stand exists, but nothing is known
+    // about what it sells.
+
+    const { deps } = inquiryDeps({});
+
+    const result = await answerInquiry(deps, {
+      mode: "stand_lookup",
+      request: { operation: "overview" },
+      taskText: "what's at Pinecone Gardens?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    /*
+      The produce block collapsed to nothing, so the reply jumped from the stand's name to its
+      hours and address — a customer who asked what a stand has got an answer that never
+      mentioned stock at all, and cannot tell "we don't know" from "we forgot to say". Silence
+      is the one thing this surface must not do with a missing fact.
+    */
+    expect(result.body).toContain("Nothing confirmed recently.");
+  });
+
+  it("groups a stand's listing into scannable blocks", async () => {
+    await client()`
+      update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}
+    `;
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale", "Peaches"], hoursAgo(2));
+    await client()`
+      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, 'Garlic', true, 0)
+    `;
+    await client()`
+      insert into sales_location_payment_methods (sales_location_id, method)
+      values (${ids.alphaLocation!}, 'Cash')
+    `;
+    await client()`
+      update sales_locations
+      set open_hours_kind = 'all_day', season_kind = 'year_round'
+      where id = ${ids.alphaLocation!}
+    `;
+
+    const { deps } = inquiryDeps({});
+
+    const result = await answerInquiry(deps, {
+      mode: "stand_lookup",
+      request: { operation: "overview" },
+      taskText: "what's at Pinecone Gardens?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    /*
+      A listing arrived on a handset as one unbroken wall of eight lines (max, 2026-08-14).
+      Four things are being read here — WHO, WHAT, HOW to pay, WHEN and WHERE — and a blank
+      line between them is what lets a customer find one without reading all four.
+
+      Asserted as whole blocks, not as "contains a blank line somewhere": the value is that
+      each group is intact, so this fails if a line drifts into the wrong block.
+    */
+    const blocks = result.body.split("\n\n");
+    expect(blocks[0]).toBe("Pinecone Gardens");
+    expect(blocks[1]).toBe("In stock (2h ago): Kale, Peaches\nUsually also sells: Garlic");
+    expect(blocks[2]).toBe("Payments: Cash");
+    expect(blocks[3]).toMatch(/^Hours: /);
+    // The address closes the message on its own, where a customer's eye lands last.
+    expect(blocks[blocks.length - 1]).not.toContain("\n");
+    // No blank line is ever doubled — an empty group must collapse, not print a gap.
+    expect(result.body).not.toMatch(/\n{3}/);
   });
 
   it("refuses a matcher value that code did not place in the public catalog", async () => {
