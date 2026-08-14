@@ -1182,9 +1182,30 @@ describe("inbound routing end to end (integration)", () => {
       expect(proposals[0]?.activated_at).toBeNull();
 
       const work = await client()`
-        select message_category from outbox_work where recipient_hash = ${farmerHash}
+        select message_category, body from outbox_work where recipient_hash = ${farmerHash}
       `;
       expect(work[0]?.message_category).toBe("inventory_confirmation");
+
+      /*
+        THE PROMPT MUST ASK FOR THE CONFIRMATION IT IS WAITING ON (max, 2026-08-14).
+
+        The message listed what the stand would show and then stopped. Nothing is published
+        until a YES arrives — the gate is real and was never open — so this is a dead end
+        rather than an unsafe write: the farmer is asked to approve a change without being
+        told that approval is needed, or which word gives it.
+
+        Asserted on the OUTBOX BODY, which is what the handset receives, rather than on the
+        renderer's return value. The web form composes the same snapshot text as an audit
+        record of what it already published, and must NOT gain a "reply YES" instruction that
+        belongs to a channel it does not use.
+      */
+      const body = work[0]?.body as string;
+      expect(body).toMatch(/\bYES\b/);
+      expect(body).toMatch(/\bNO\b/);
+      // The items are still what the farmer is confirming — the instruction adds to the
+      // snapshot rather than replacing it.
+      expect(body).toMatch(/kale/i);
+      expect(body).toMatch(/eggs/i);
     });
 
     it("a YES arriving before its prompt was accepted commits nothing", async () => {

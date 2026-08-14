@@ -147,6 +147,23 @@ export const SYSTEM_INQUIRY_REPLY =
   `Ask what a stand has, or tell us something is sold out. The map: ${PUBLIC_MAP_URL}`;
 
 /**
+ * How a farmer commits or discards the update they were just shown (max, 2026-08-14).
+ *
+ * The proposal prompt listed the resulting stand and stopped, so a farmer was asked to approve
+ * a change without being told approval was needed or which word gives it. Nothing published
+ * without a YES — the gate was never open — so the defect was a dead end, not an unsafe write.
+ *
+ * **Added HERE, at the SMS reply, rather than inside `renderProposedFarmerUpdate`.** That
+ * renderer is shared with the web form, where the same snapshot text is stored as the audit
+ * record of what the farmer's button already published; an instruction to reply YES would be
+ * false on that surface and would then be quoted back in the audit trail.
+ *
+ * NO is offered alongside YES because a farmer who sees a wrong listing needs the reject path
+ * more urgently than the accept one, and `commands.ts` already routes both.
+ */
+export const PROPOSAL_CONFIRMATION_PROMPT = "Reply YES to publish, or NO to discard.";
+
+/**
  * VIGA owns the changing distribution details; Farm Friend links to their live answer rather
  * than copying pickup locations that can drift. Source reviewed 2026-08-13:
  * https://www.vigavashon.org/food-access-partnership
@@ -162,8 +179,14 @@ export const VIGA_BUCKS_INQUIRY_REPLY =
  * product retrieval used to be answered "no stand has a current listing for hi", which is a
  * claim about the corpus in reply to a message that was never about the corpus.
  */
+/*
+  NO EMOJI (max, 2026-08-14). The plant that used to close this line cost a whole extra
+  segment: one non-GSM-7 character re-encodes the entire message to UCS-2, dropping capacity
+  per segment from 153 to 67, so 73 characters of text billed as two. `reply-encoding.test.ts`
+  holds this for every code-owned reply.
+*/
 export const CHITCHAT_REPLY =
-  "Ask me what a Vashon farm stand has, or tell us if something is sold out. 🌱";
+  "Ask me what a Vashon farm stand has, or tell us if something is sold out.";
 
 async function handleCustomerInquiry(
   deps: FreeTextDeps,
@@ -733,7 +756,7 @@ async function handleFarmerInventoryUpdate(
       return {
         replies: [
           {
-            body: outcome.confirmationText,
+            body: `${outcome.confirmationText}\n\n${PROPOSAL_CONFIRMATION_PROMPT}`,
             category: "inventory_confirmation",
             // Bound to the proposal VERSION: a revision produces a new prompt rather than
             // reusing the previous row, so the outbox key tracks what is being confirmed.
