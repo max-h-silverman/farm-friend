@@ -21,6 +21,7 @@ Exit 0 if every assertion holds, 1 otherwise, with the failures named.
 import json
 import re
 import sys
+from urllib.parse import urlparse
 
 FAILURES: list[str] = []
 CHECKS = 0
@@ -319,6 +320,25 @@ def main() -> int:
     check("the web service has a canonical public map url",
           bool(web_env.get("PUBLIC_MAP_URL", "").startswith("https://")),
           f"PUBLIC_MAP_URL={web_env.get('PUBLIC_MAP_URL')}")
+
+    # F-113. PUBLIC_BASE_URL is what every texted farmer link is built from. A custom domain that
+    # is claimed on Cloud Run but NOT carried into PUBLIC_BASE_URL would leave the mapping serving
+    # while every SMS still sent the `*.run.app` host — the exact block this change exists to fix,
+    # with a green apply on top of it. Assert the two agree in both directions.
+    mapped_hosts = {
+        values.get("name")
+        for values in by_type(plan, "google_cloud_run_domain_mapping").values()
+    } - {None}
+    base_host = urlparse(web_env.get("PUBLIC_BASE_URL", "")).hostname
+
+    if mapped_hosts:
+        check("PUBLIC_BASE_URL uses the mapped custom domain",
+              base_host in mapped_hosts,
+              f"PUBLIC_BASE_URL host={base_host} mapped={sorted(mapped_hosts)}")
+    else:
+        check("PUBLIC_BASE_URL falls back to the run.app host when nothing is mapped",
+              bool(base_host and base_host.endswith(".run.app")),
+              f"no domain mapping planned, but PUBLIC_BASE_URL host={base_host}")
 
     # The worker needs PUBLIC_BASE_URL too — `resolveConfig` requires it before any pass runs,
     # and omitting it crashed every scheduled run with a ConfigurationError that only the

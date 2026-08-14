@@ -56,15 +56,31 @@
   carries an emoji: one non-GSM-7 character re-encodes a whole message to UCS-2 and doubles its
   segments (`reply-encoding.test.ts` holds this).
 - **The public map serves security headers** — `frame-ancestors` (VIGA plus self), `nosniff`, and a
-  trimmed referrer. This does NOT clear the antivirus reputation block a farmer reported on
-  2026-08-14; a custom domain is what addresses that, and it is **blocked on DNS access to
-  `vigavashon.org`**.
+  trimmed referrer.
+- **Every public and SMS link is on `farmfriend.vigavashon.org`** (B-072). `PUBLIC_BASE_URL` is now
+  the custom domain, so onboarding invitations, standing farmer links, settings, and the contact card
+  all carry a subdomain of the domain already in the 10DLC campaign registration — the raw
+  `*.run.app` hostname was the signal behind the antivirus block a farmer reported on 2026-08-14, and
+  the same host in a texted link wrapped around a 64-character token is what carrier filters block.
+  `public_host` lives in tracked `production.tfvars`, NOT the gitignored `terraform.tfvars`: an apply
+  that omits it destroys the mapping and silently reverts the fix. Internal Cloud Tasks/Scheduler
+  traffic stays on `*.run.app` by design, and that host still serves every route, so links already
+  texted keep working. VIGA's iframe points at the new host and pins the origin on its height
+  listener.
+- **`vigavashon.org` DNS now authenticates VIGA's mail.** SPF was missing Google entirely while the
+  domain's MX is Google Workspace, so every message Farm Friend sent as `board@` failed SPF; the
+  record now includes `_spf.google.com` alongside the existing Mandrill and SendGrid senders. A
+  `_dmarc` record exists at `p=none` (monitor only). Both nameserver sets (NS1 and Squarespace)
+  serve identical records — verified, not assumed.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. This release adds no migration.
-- Cloud Run web `farm-friend-web-00081-ql9` and worker `farm-friend-worker-00076-8hk` serve digest
-  `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`, built from merged
-  `main` `3ee6bc7` and deployed 2026-08-14. Plan assertions 60/60; mounted-secret freshness, public
-  API, and served-card assertions pass; neither revision has an error-level log. The map's three
-  response headers were read back from the live service.
+- Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
+  `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a` — the SAME image as the
+  previous revisions; B-072 changed configuration only. Plan assertions 61/61 (the new one asserts
+  `PUBLIC_BASE_URL` matches the mapped host, so a mapping created without the cutover fails at plan
+  time). Deployed 2026-08-14; neither revision has an error-level log. Verified by effect against the
+  live service: `PUBLIC_BASE_URL` read back from the running config, the map serving 89KB at the root
+  with its three response headers, the contact card and admin login both 200, and the old
+  `*.run.app` host still serving.
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
 ## Verification
@@ -112,12 +128,11 @@
   `In stock (over a week ago)` line, the farmer proposal's `Reply YES to publish, or NO to discard.`,
   and the emoji-free greeting all shipped verified in integration and against the live model, but no
   message has been read on a real phone.
-- **The map's antivirus block is NOT fixed.** A farmer reported Webroot flagging the embedded map as
-  phishing on 2026-08-14. Security headers shipped, but the signal is the hostname: VIGA's page
-  iframes the raw `*.run.app` host. The fix is a custom domain (`map.vigavashon.org`) mapped to the
-  Cloud Run service — **blocked on DNS access to `vigavashon.org`**, which max is pursuing. It needs
-  a domain mapping in `infra/`, `PUBLIC_BASE_URL` updated, the Squarespace iframe src changed, and a
-  wall-clock wait for certificate provisioning after DNS resolves.
+- **The antivirus block is addressed but NOT confirmed cleared.** The custom domain shipped
+  (B-072), which removes the `*.run.app` signal — but no one has re-tested the embed against Webroot,
+  and reputation systems can carry a stale verdict for a while. Worth asking the farmer who reported
+  it on 2026-08-14 to look again. Whether carrier filtering was ever affecting SMS links is unknown:
+  it was never measured, so the SMS half of this is a reasoned fix, not an observed one.
 - **B-071 owes a handset check:** `what's in stock at <stand>?` must list every confirmed item the map
   shows, and `does <stand> have <item>?` must answer yes/no and then the same full listing. Both were
   verified against the live model and in integration, not yet over production SMS.
