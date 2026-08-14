@@ -545,17 +545,38 @@ function scheduleLines(stand: PublicStand): string[] {
  */
 function renderStandListing(stand: PublicStand): string {
   const lines = [stand.locationName];
+  const confirmed = new Set(stand.items.map((item) => item.itemName.trim().toLowerCase()));
   if (stand.items.length > 0) {
     lines.push(`In stock: ${stand.items.map((item) => item.itemName).join(", ")}`);
   }
-  if (stand.usualOfferings.length > 0) {
-    lines.push(`Usually sells: ${stand.usualOfferings.map((item) => item.itemName).join(", ")}`);
+  /*
+    A confirmation outranks a standing description of the SAME item — the rule the paged answer
+    already applies, and it belongs here for the same reason: several corpus stands publish the
+    thing they also list as usually carried, and printing it under both labels tells the
+    customer we are unsure which is true. It is in stock; that is the stronger claim.
+
+    Provo Farms showed the cost — all six confirmed items repeated verbatim under "Usually
+    sells", so the useful part of that line (the two items they carry but had not confirmed) was
+    buried in a list the customer had just read (max, 2026-08-14).
+  */
+  const alsoSells = stand.usualOfferings.filter(
+    (item) => !confirmed.has(item.itemName.trim().toLowerCase()),
+  );
+  if (alsoSells.length > 0) {
+    // "also" only when a confirmed line sits above it to be additional TO — the same wording
+    // rule `paging.ts` follows.
+    const label = stand.items.length > 0 ? "Usually also sells" : "Usually sells";
+    lines.push(`${label}: ${alsoSells.map((item) => item.itemName).join(", ")}`);
   }
   if (stand.paymentMethods.length > 0) {
     lines.push(`Payments: ${stand.paymentMethods.join(", ")}`);
   }
   lines.push(...scheduleLines(stand));
-  lines.push(stand.publicAddress ?? "address not listed", "", `Map: ${PUBLIC_MAP_URL}`);
+  /*
+    NO MAP LINK (max, 2026-08-14). The link exists to help a customer pick among several stands;
+    this answer is already about the one stand they named, and its address is the line above.
+  */
+  lines.push(stand.publicAddress ?? "address not listed");
   return lines.join("\n");
 }
 
@@ -694,7 +715,8 @@ async function answerResolvedInquiry(
             : "VIGA Farm Bucks acceptance not listed";
       return {
         outcome: "answered",
-        body: [resolvedStand.locationName, status, "", `Map: ${PUBLIC_MAP_URL}`].join("\n"),
+        // No map link on a single-stand answer — see `renderStandListing`.
+        body: [resolvedStand.locationName, status].join("\n"),
         selectedFactIds: [resolvedStand.factId],
       };
     }
@@ -732,11 +754,10 @@ async function answerResolvedInquiry(
   if (input.request.operation === "location" && resolvedStand !== undefined) {
     return {
       outcome: "answered",
+      // No map link — see `renderStandListing`. The address IS the answer here.
       body: [
         resolvedStand.locationName,
         resolvedStand.publicAddress ?? "address not listed",
-        "",
-        `Map: ${PUBLIC_MAP_URL}`,
       ].join("\n"),
       selectedFactIds: [resolvedStand.factId],
     };
@@ -745,7 +766,8 @@ async function answerResolvedInquiry(
   if (input.request.operation === "hours" && resolvedStand !== undefined) {
     return {
       outcome: "answered",
-      body: [resolvedStand.locationName, ...scheduleLines(resolvedStand), "", `Map: ${PUBLIC_MAP_URL}`].join("\n"),
+      // No map link — see `renderStandListing`.
+      body: [resolvedStand.locationName, ...scheduleLines(resolvedStand)].join("\n"),
       selectedFactIds: [resolvedStand.factId],
     };
   }
