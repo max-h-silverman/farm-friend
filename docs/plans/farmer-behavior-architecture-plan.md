@@ -706,6 +706,59 @@ the column without the writer would leave a nullable column no code can produce,
 `sales_location_participants` has the same shape and is retired display-only history, so it needs
 nothing.
 
+##### Phase C.1 invitation as built (2026-08-15)
+
+**The hosting invitation IS the farmer invitation, and the onboarding IS the farmer onboarding.**
+§there is no second permission system cut C.1's access grants because the permission that follows
+acceptance is an ordinary authorization; the same reasoning applies one level up.
+`farmer_invitations` already names a seller, holds the handset a redemption must arrive from,
+carries the SMS agreement, and on a bare `START` mints the authorization and the approval in one
+transaction. That is invitation and acceptance, already built and in production. What it could not
+say is WHICH relationship the redemption accepts — one nullable column, not a second lifecycle.
+
+A `hosting_invitations` table with its own token, expiry, redemption path and consent story would
+be a second mechanism doing one mechanism's job, and every rule the first enforces would have to be
+restated and kept in step.
+
+The flow, end to end: a stand owner (or VIGA) names a seller and gets a one-use link to forward.
+That writes a `pending` provider row and an invitation bound to it. The invited seller opens the
+link, fills the same form a stand owner fills, and texts `START` — at which point they are
+authorized for their own seller and the relationship activates. **No approval queue, no second
+form, no VIGA step.**
+
+**Five product decisions, all max, 2026-08-15**, each of which narrowed the build:
+
+- **VIGA does not have to okay it.** The invitation IS the approval, exactly as F-067 made it for
+  the ordinary farmer. VIGA revokes afterwards if it must.
+- **Onboarding always happens, even for a seller Farm Friend already knows**, because the
+  stand-specific details vary — hours, season, what they sell there, whether the host may restock
+  for them. One path parameterized by whether the seller exists, rather than two that would drift.
+- **The host forwards the link; Farm Friend never texts the invited seller first.** No consent row
+  exists for a number nobody gave us, so an outbound send would be suppressed anyway.
+- **VIGA is the approver on record whenever VIGA issues the link**, even when a coordinator is
+  doing it for a stand owner who asked. Not the owner "on whose behalf" they typed.
+- **Nothing is public until the seller finishes.** `pending` is already excluded by every public
+  reader, so an invitation nobody answers lists nobody.
+
+Migration `0044` adds the binding and the two rules that make it unabusable: a composite key onto
+`(stand_providers.id, seller_id)` so an invitation cannot accept a relationship belonging to
+another seller; `farmer_invitations_hosting_names_seller`, **one-directional on purpose** because
+only one direction is a real failure and the converse is what all 39 production invitations look
+like; `farmer_invitations_one_open_per_provider`, partial so a lapse is reissuable; and
+`invited_by_authorization_id`, the vouching stand owner — which waits on the invitation because
+`stand_providers_hosting_lifecycle_coherent` refuses an approval on a `pending` row, and rightly,
+since approving a relationship nobody has accepted would publish a seller who never agreed to be
+there.
+
+`acceptHostingInvitationIn` runs inside the redemption transaction, gated on the authorization
+exactly as the held stock publication beside it is. The invitation is spent by that redemption, so
+a crash between the two would strand the farmer holding a dead link with nothing reporting why.
+`host_may_update_stock` is untouched and stays off: acceptance never grants more than it says.
+
+**What is deliberately still not built**: the stand owner's own SMS/web door (VIGA's admin door is
+wired, the farmer-facing one is not), the invited seller's stand-scoped onboarding fields, and
+everything C.1's later sub-phases own — per-provider publication, the seller list, item-first cards.
+
 ### The pending-change defect
 
 **Defect, not a feature — fix scoped into Phase B.**

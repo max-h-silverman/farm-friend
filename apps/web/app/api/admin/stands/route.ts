@@ -1,4 +1,5 @@
 import {
+  inviteSellerToStand,
   restoreStand,
   retireStand,
   saveFarmBucksStatus,
@@ -29,7 +30,13 @@ export async function POST(req: Request): Promise<Response> {
   const caller = await requireAdministrator(req);
   if (caller instanceof Response) return caller;
 
-  let body: { standId?: unknown; farmBucksStatus?: unknown; action?: unknown };
+  let body: {
+    standId?: unknown;
+    farmBucksStatus?: unknown;
+    action?: unknown;
+    sellerId?: unknown;
+    newSellerName?: unknown;
+  };
   try {
     body = (await req.json()) as typeof body;
   } catch {
@@ -40,6 +47,42 @@ export async function POST(req: Request): Promise<Response> {
 
   const { db, clock } = publicReadContext();
   const occurredAt = clock.now();
+
+  /*
+    F-114 Phase C.1 — VIGA's invitation door.
+
+    Here rather than on a route of its own for the reason the header already gives: it is the same
+    KIND of act, VIGA recording a decision about one stand, and a second route would be a second
+    place to remember the session guard.
+
+    **VIGA is the approver on record whenever VIGA issues the link** (max, 2026-08-15), so this
+    passes `administratorId` and never a vouching authorization. The stand owner's own door is the
+    farmer surface, not this one.
+
+    The response carries the token ONCE. Only its hash is stored, so a coordinator who loses it
+    reissues rather than recovers — and Farm Friend texts the invited seller nothing, because no
+    consent record exists for a number nobody gave us.
+  */
+  if (body.action === "invite_seller") {
+    const sellerId = typeof body.sellerId === "string" ? body.sellerId : undefined;
+    const newSellerName =
+      typeof body.newSellerName === "string" ? body.newSellerName : undefined;
+    /*
+      NO shape check here, deliberately. `inviteSellerToStand` already refuses a blank name, both
+      named at once, and neither named, returning `invalid_seller` — which this route maps to 400.
+      A duplicate check was written and then removed: sabotaging it changed no test result,
+      because the writer's refusal produced the same 400. An unfalsifiable guard is not a guard,
+      and two places stating one rule is exactly what the zen desk forbids.
+    */
+    const result = await inviteSellerToStand(db, {
+      salesLocationId: standId,
+      ...(sellerId === undefined ? {} : { sellerId }),
+      ...(newSellerName === undefined ? {} : { newSellerName }),
+      administratorId: caller.administratorId,
+      occurredAt,
+    });
+    return Response.json(result, { status: invitationStatusFor(result.status) });
+  }
 
   if (body.action !== undefined) {
     const action =
@@ -83,6 +126,31 @@ export async function POST(req: Request): Promise<Response> {
  * `already_retired` / `not_retired` are 409 rather than 200: the caller's decision was NOT
  * recorded, and answering 200 would be a lie about an audit record.
  */
+/**
+ * One status table for the invitation, so a new refusal cannot answer inconsistently.
+ *
+ * `already_selling_here` is 409 rather than 200 for the same reason `already_retired` is: the
+ * coordinator's decision was NOT recorded and no link was minted, so 200 would be a lie. A blank
+ * or doubly-named seller is 400 — a caller bug, not a state conflict.
+ */
+function invitationStatusFor(status: string): number {
+  switch (status) {
+    case "invited":
+      return 200;
+    case "unknown_stand":
+    case "unknown_seller":
+      return 404;
+    case "not_an_administrator":
+    case "not_authorized":
+      return 403;
+    case "invalid_seller":
+    case "invalid_issuer":
+      return 400;
+    default:
+      return 409;
+  }
+}
+
 function retirementStatusFor(status: string): number {
   switch (status) {
     case "retired":

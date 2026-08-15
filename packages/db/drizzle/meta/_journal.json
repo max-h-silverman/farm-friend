@@ -309,6 +309,13 @@
       "when": 1788150409000,
       "tag": "0043_authorization_arms",
       "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1788150410000,
+      "tag": "0044_hosting_invitation",
+      "breakpoints": true
     }
   ]
 }

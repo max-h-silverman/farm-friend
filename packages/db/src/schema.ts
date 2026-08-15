@@ -797,6 +797,40 @@ export const farmerInvitations = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     /** NULL means the invitation starts onboarding a farm that is not in Farm Friend yet. */
     sellerId: uuid("seller_id").references(() => sellers.id, { onDelete: "restrict" }),
+    /**
+     * The pending hosting relationship this invitation accepts (F-114 Phase C.1).
+     *
+     * **The hosting invitation IS the farmer invitation.** §there is no second permission system
+     * cut the access grant C.1 was once going to build, because the permission that follows
+     * acceptance is an ordinary authorization for the seller who accepted. The same reasoning
+     * applies here: this table already names a seller, holds the handset a redemption must arrive
+     * from, carries the SMS agreement, and on a bare `START` mints the authorization and the
+     * approval in one transaction. That is invitation and acceptance, already built. What it could
+     * not say is WHICH pending relationship the redemption accepts, and that is this column.
+     *
+     * NULL on every ordinary invitation, which is what all 39 in production are.
+     */
+    standProviderId: uuid("stand_provider_id"),
+    /**
+     * The vouching stand owner, when the invitation was not VIGA's (F-114 Phase C.1).
+     *
+     * §hosting and approval lifecycle: a VIGA invitation counts as approval, and an already
+     * approved stand owner may vouch instead — which produces a visible-but-revocable state
+     * rather than silent publication.
+     *
+     * The vouch waits HERE rather than on the provider because
+     * `stand_providers_hosting_lifecycle_coherent` refuses an approval on a `pending` row, and
+     * rightly: approving a relationship nobody has accepted would publish a seller who never
+     * agreed to be there. It is applied at acceptance, in the same transaction — exactly as
+     * `pendingStock` and `pendingPromptCadence` already wait here for facts that cannot legally
+     * exist until the authorization does.
+     *
+     * NULL means VIGA issued it and `createdByAdministratorId` is the actor.
+     */
+    invitedByAuthorizationId: uuid("invited_by_authorization_id").references(
+      () => farmerAuthorizations.id,
+      { onDelete: "restrict" },
+    ),
     tokenHash: text("token_hash").notNull(),
     channel: farmerInviteChannel("channel").notNull(),
     /**
@@ -913,6 +947,47 @@ export const farmerInvitations = pgTable(
       "farmer_invitations_pending_phone_coherent",
       sql`(${table.pendingPhoneE164} is null) = (${table.pendingPhoneHash} is null)`,
     ),
+    /**
+     * The invitation's seller IS the provider's seller (F-114 Phase C.1).
+     *
+     * A composite key, so "this invitation accepts a relationship belonging to the seller it
+     * authorizes for" is a database guarantee rather than a check some future caller might skip.
+     * Without it a typo could invite Zoe to accept Gracie's Greens' participation at Kelsey's
+     * stand while authorizing her for Venison Valley — the fabricated authority §migration
+     * approach forbids, reached by accident rather than by inference. Same shape and same reason
+     * as `stand_providers_id_location_unique`, which already does this for the stand.
+     *
+     * `restrict`, matching `seller_id` above: an invitation records an offer that was made, and a
+     * deleted provider row must not silently erase it.
+     */
+    providerSellerReference: foreignKey({
+      name: "farmer_invitations_provider_seller_fk",
+      columns: [table.standProviderId, table.sellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
+    }).onDelete("restrict"),
+    /**
+     * A hosting invitation names its seller.
+     *
+     * **Deliberately NOT a biconditional**, unlike almost every coherence rule beside it. The
+     * usual reason for one is that a CHECK passes on NULL and both directions are real failures;
+     * here only one is. A provider bound with no seller would redeem straight into
+     * `authorizeInvitedFarmerIn`'s "nothing to authorize" branch — invitation spent, farmer
+     * consented, relationship still pending, nothing saying why. The converse is legitimate and
+     * common: a seller named with no provider is what every ordinary invitation looks like.
+     */
+    hostingNamesSeller: check(
+      "farmer_invitations_hosting_names_seller",
+      sql`${table.standProviderId} is null or ${table.sellerId} is not null`,
+    ),
+    /**
+     * One live invitation per pending relationship. Two unredeemed invitations for one provider
+     * row would let two handsets each accept it, and the second would find the relationship
+     * already active with no honest answer for its farmer. Partial on unredeemed, so a lapsed
+     * invitation is reissuable — which is the ordinary case, since most are never redeemed.
+     */
+    oneOpenPerProvider: uniqueIndex("farmer_invitations_one_open_per_provider")
+      .on(table.standProviderId)
+      .where(sql`${table.redeemedAt} is null and ${table.standProviderId} is not null`),
   }),
 );
 
@@ -1782,6 +1857,16 @@ export const standProviders = pgTable(
     idAndLocationUnique: unique("stand_providers_id_location_unique").on(
       table.id,
       table.salesLocationId,
+    ),
+    /**
+     * The seller sibling of the pair above, and the target of
+     * `farmer_invitations_provider_seller_fk` (F-114 Phase C.1). It exists so a hosting
+     * invitation cannot name a relationship belonging to a seller other than the one it
+     * authorizes for.
+     */
+    idAndSellerUnique: unique("stand_providers_id_seller_unique").on(
+      table.id,
+      table.sellerId,
     ),
 
     /**

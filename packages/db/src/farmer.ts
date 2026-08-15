@@ -1074,7 +1074,7 @@ export async function openFarmerOnboardingRequest(
         invitationToken !== undefined
           ? await tx`
               select id, agreed_to_sms_at, seller_id, created_by_administrator_id,
-                pending_prompt_cadence
+                pending_prompt_cadence, stand_provider_id, invited_by_authorization_id
               from farmer_invitations
               where token_hash = ${hashFarmerInviteToken(invitationToken)}
                 and redeemed_at is null
@@ -1083,7 +1083,7 @@ export async function openFarmerOnboardingRequest(
             `
           : await tx`
               select id, agreed_to_sms_at, seller_id, created_by_administrator_id,
-                pending_prompt_cadence
+                pending_prompt_cadence, stand_provider_id, invited_by_authorization_id
               from farmer_invitations
               where pending_phone_hash = ${pendingPhoneHash!}
                 and redeemed_at is null
@@ -1111,6 +1111,20 @@ export async function openFarmerOnboardingRequest(
       const pendingPromptCadence =
         (invitations[0]?.pending_prompt_cadence as PendingPromptCadence | null | undefined) ??
         undefined;
+      /*
+        F-114 Phase C.1 — the hosting relationship this redemption accepts, and who vouched for
+        it. NULL on every ordinary invitation, which is what all 39 in production are.
+
+        The vouch waits on the INVITATION rather than the provider row because
+        `stand_providers_hosting_lifecycle_coherent` refuses an approval on a `pending` row — and
+        rightly, since approving a relationship nobody has accepted would publish a seller who
+        never agreed to be there. It is applied below, beside the authorization that makes it
+        legal, exactly as `pending_stock` and `pending_prompt_cadence` already are.
+      */
+      const standProviderId =
+        (invitations[0]?.stand_provider_id as string | null | undefined) ?? null;
+      const vouchingAuthorizationId =
+        (invitations[0]?.invited_by_authorization_id as string | null | undefined) ?? null;
 
       const inserted = await tx`
         insert into farmer_onboarding_requests (contact_hash, invitation_id, requested_at)
@@ -1214,6 +1228,30 @@ export async function openFarmerOnboardingRequest(
           invitationId,
           farmId: invitationSellerId,
           authorizationId,
+          occurredAt: input.occurredAt,
+        });
+      }
+
+      /*
+        F-114 Phase C.1 — ACCEPTANCE. The invited seller's `START` activates the relationship a
+        host (or VIGA) offered, in THIS transaction.
+
+        Gated on `authorizationId` for the same reason the stock publication above is: that value
+        being null IS the "nobody to attribute this to" case — an invitation whose farmer never
+        ticked the agreement, or one naming no seller. Activating a relationship on either would
+        publish a seller who agreed to nothing, and acceptance must be exactly as gated as the
+        authorization it rides on.
+
+        In this transaction, and not a follow-up call, because the invitation is now SPENT. A
+        crash between the two would leave the farmer authorized, approved, and holding a link that
+        can never be redeemed again, with their relationship still pending and nothing reporting
+        why — the silent dead end F-067 closed for the ordinary farmer, reintroduced one step
+        later.
+      */
+      if (authorizationId !== null && standProviderId !== null) {
+        await acceptHostingInvitationIn(tx, {
+          standProviderId,
+          vouchingAuthorizationId,
           occurredAt: input.occurredAt,
         });
       }
@@ -1389,6 +1427,50 @@ async function authorizeInvitedFarmerIn(
   });
 
   return authorizationId;
+}
+
+/**
+ * Activate the hosting relationship this redemption accepts (F-114 Phase C.1).
+ *
+ * **The approval source comes from WHO ISSUED the invitation, and nowhere else.** A stand owner's
+ * vouch is `host` and names their authorization; VIGA's own is `viga` and names nobody, because
+ * VIGA's approval names no farmer. §hosting and approval lifecycle: *a VIGA invitation counts as
+ * approval; an already approved stand owner may vouch, and the approval records that provenance.*
+ * There is no queue in front of either — the invitation IS the decision, exactly as F-067 made it
+ * for the ordinary farmer.
+ *
+ * **`host_may_update_stock` is not touched, so it stays `false`.** An invitation that silently
+ * conferred stock rights would make acceptance mean more than it says, which §hosting and
+ * approval lifecycle forbids: *acceptance never grants more access than the explicit scopes
+ * attached to the relationship.* It is the seller's own later choice.
+ *
+ * **The host is not notified.** §customer behavior leaves host-to-seller communication to the
+ * farmers, and VIGA's ask was explicitly that Zoe reach her own listing *"without telling
+ * Kelsey"*.
+ *
+ * Scoped to the still-`pending` row, so a second redemption of a relationship already accepted is
+ * a no-op rather than a re-activation that would move `accepted_at` forward and falsify when the
+ * seller actually agreed.
+ */
+async function acceptHostingInvitationIn(
+  tx: Tx,
+  input: {
+    standProviderId: string;
+    /** The vouching stand owner, or NULL when VIGA issued the invitation. */
+    vouchingAuthorizationId: string | null;
+    occurredAt: Date;
+  },
+): Promise<void> {
+  await tx`
+    update stand_providers
+    set lifecycle_state = 'active',
+        accepted_at = ${input.occurredAt.toISOString()},
+        approval_source = ${input.vouchingAuthorizationId === null ? "viga" : "host"},
+        approved_by_authorization_id = ${input.vouchingAuthorizationId},
+        approved_at = ${input.occurredAt.toISOString()},
+        updated_at = ${input.occurredAt.toISOString()}
+    where id = ${input.standProviderId} and lifecycle_state = 'pending'
+  `;
 }
 
 /** Whether this sender has any launch consent record at all, active or stopped. */

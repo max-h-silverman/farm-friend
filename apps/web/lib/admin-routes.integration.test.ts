@@ -480,6 +480,126 @@ describe("admin routes (integration)", () => {
     });
   });
 
+  describe("hosted-seller invitation through the route (F-114 Phase C.1)", () => {
+    it("invites a seller and returns a link ONCE, storing only its hash", async () => {
+      // VIGA's door — the one that resolves the 11 retained hosted names into real sellers. The
+      // coordinator gets a link to pass on; Farm Friend texts the invited seller nothing, because
+      // no consent row exists for a number nobody gave us.
+      const token = await sessionFor(ids.administrator as string);
+      const response = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            standId: ids.stand,
+            action: "invite_seller",
+            newSellerName: "Gracies Greens",
+            // A caller naming someone else must not be able to act as them.
+            administratorId: randomUUID(),
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        status: string;
+        token?: string;
+        sellerName?: string;
+      };
+      expect(payload.status).toBe("invited");
+      expect(payload.token).toMatch(/^[0-9a-f]{64}$/);
+      expect(payload.sellerName).toBe("Gracies Greens");
+
+      // The relationship is PENDING and therefore invisible: nobody is shown as selling
+      // somewhere before they have agreed to be there.
+      const providers = await sql()`
+        select p.lifecycle_state, p.host_may_update_stock
+        from stand_providers p
+        join sellers s on s.id = p.seller_id
+        where p.sales_location_id = ${ids.stand as string} and s.name = 'Gracies Greens'
+      `;
+      expect(providers[0]).toMatchObject({
+        lifecycle_state: "pending",
+        host_may_update_stock: false,
+      });
+
+      // The raw token is never stored, and the invitation records VIGA as the approver —
+      // max, 2026-08-15: VIGA is the approver on record whenever VIGA issues the link.
+      const invitations = await sql()`
+        select token_hash, created_by_administrator_id, invited_by_authorization_id
+        from farmer_invitations where stand_provider_id is not null
+      `;
+      expect(invitations).toHaveLength(1);
+      expect(invitations[0]?.token_hash).not.toBe(payload.token);
+      expect(invitations[0]?.created_by_administrator_id).toBe(ids.administrator);
+      expect(invitations[0]?.invited_by_authorization_id).toBeNull();
+    });
+
+    it("rejects a malformed request without creating a seller or a relationship", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const before = await sql()`select count(*)::int as n from sellers`;
+
+      for (const body of [
+        { standId: ids.stand, action: "invite_seller" },
+        { standId: ids.stand, action: "invite_seller", newSellerName: "   " },
+        { standId: ids.stand, action: "invite_seller", newSellerName: 42 },
+        {
+          standId: ids.stand,
+          action: "invite_seller",
+          newSellerName: "Both Named",
+          sellerId: randomUUID(),
+        },
+      ]) {
+        const response = await standsRoute.POST(
+          request("https://ff.example/api/admin/stands", {
+            method: "POST",
+            token,
+            body: JSON.stringify(body),
+          }),
+        );
+        expect(response.status, JSON.stringify(body)).toBe(400);
+      }
+
+      const after = await sql()`select count(*)::int as n from sellers`;
+      expect(after[0]?.n, "no malformed request may create a seller").toBe(before[0]?.n);
+    });
+
+    it("answers 404 for an unknown stand", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const response = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            standId: randomUUID(),
+            action: "invite_seller",
+            newSellerName: "Nowhere Farm",
+          }),
+        }),
+      );
+      expect(response.status).toBe(404);
+    });
+
+    it("answers 409 for a seller already selling there, minting no second link", async () => {
+      // The uniqueness the index enforces, surfaced honestly rather than as a 500. A second
+      // link for one relationship would let two handsets each accept it.
+      const token = await sessionFor(ids.administrator as string);
+      const send = async (): Promise<Response> =>
+        standsRoute.POST(
+          request("https://ff.example/api/admin/stands", {
+            method: "POST",
+            token,
+            body: JSON.stringify({
+              standId: ids.stand,
+              action: "invite_seller",
+              sellerId: ids.farm,
+            }),
+          }),
+        );
+      // `ids.farm` is the stand's OWN seller, which already sells there by the self-pointer.
+      expect((await send()).status).toBe(409);
+    });
+  });
+
   describe("the review queues through their routes (F-030)", () => {
     /** A flagged inbound message on a real contact, the way routing writes one. */
     async function flaggedMessage(body: string): Promise<{ flagId: string }> {
