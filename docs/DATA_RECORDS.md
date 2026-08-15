@@ -195,6 +195,25 @@ would add a case to every reader and change no public output.
   time, a CHECK forbids it predating the invitation, and NULL means the box was never ticked, in which
   case the resulting redemption establishes no consent. Anyone holding the link can set it, which is
   exactly why it cannot be the consent write; see §privacy, Consent.
+
+  **A hosting invitation is this same record** (C.1). `stand_provider_id` names the pending
+  relationship the redemption accepts, and there is no second invitation lifecycle: this table
+  already names a seller, holds the handset, carries the agreement, and on `START` mints the
+  authorization and the approval in one transaction. A composite key onto
+  `(stand_providers.id, seller_id)` makes "this invitation accepts a relationship belonging to the
+  seller it authorizes for" a database guarantee rather than a caller's check.
+  `farmer_invitations_hosting_names_seller` is **deliberately one-directional** — a provider bound
+  with no seller would redeem into the "nothing to authorize" branch and silently accept nothing,
+  while a seller named with no provider is what every ordinary invitation looks like, so the
+  biconditional form would make the self-issued door unwritable. One open invitation per
+  relationship, partial on unredeemed so a lapse is reissuable.
+
+  `invited_by_authorization_id` is the **vouching stand owner**, or NULL when VIGA issued it. It
+  waits here rather than on the provider row because `stand_providers_hosting_lifecycle_coherent`
+  refuses an approval on a `pending` row — approving a relationship nobody has accepted would
+  publish a seller who never agreed to be there. Applied at acceptance, exactly as `pending_stock`
+  and `pending_prompt_cadence` already are. A hosting invitation has **exactly one issuer**: the
+  owner's vouch becomes `approval_source = 'host'`, VIGA's becomes `'viga'` naming nobody.
 - **farmer standing links** (F-040, hardened by B-031) — a durable key letting a farmer reach *their
   own* listing form in a browser, with no password and no session. Only the **hash** is stored. A link
   is a **pointer to an authorization, never authority itself**: resolution re-reads both the link's

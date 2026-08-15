@@ -210,3 +210,88 @@ with the guard that protects each.
   indexable, cacheable as success, and an oracle telling a prober the path exists. Only the real
   standalone server showed it; `next dev` and unit tests could not. Keep route-scoped fallbacks inside
   their own route group. Guard: `apps/web/lib/route-group-status.test.ts` asserts no root `loading.tsx`.
+
+
+- **Vitest's tail names the wrong file, and a rename defect hides in `select`/read mismatch.** A
+  scheduled-prompt failure was diagnosed from the last stack in the output; the real site was named
+  by the FIRST failure, 45 lines earlier, with its bind parameters. Capture the whole run to a file
+  and read failure `[1/N]`, never the tail. The defect itself: the query `select`s `own_seller_id`
+  and the code read `.owner_seller_id`, so nothing errors until the undefined reaches a bind
+  parameter, far from the mismatch. Grep for every `.owner_*` read after any column rename.
+- **A historical migration test must select its predecessors BY ORDER, never by exclusion.** The
+  *"every file that is not mine"* form is correct only while that migration is the newest in the
+  repo, and every future migration breaks it the same way. Use `name < "00NN_"`. The failure is loud
+  but names the wrong file, so it reads as a defect in the new migration rather than the old test.
+- **A hand-written migration leaves the generator's snapshot stale, and nothing notices until the
+  next one.** Applying stays correct throughout — only generation breaks, which is why
+  `migration-metadata.test.ts` (GL-006) checks the newest snapshot. **Repair it by measurement, not
+  by hand**: build a database from every migration, run `drizzle-kit introspect` against it, and
+  chain that snapshot's `prevId` to its predecessor (replacing introspect's all-zero `id` with a real
+  UUID). **Then measure the baseline before believing the result** — a probe of `generate` against a
+  repaired snapshot emits ~16KB of constraint churn, and the identical probe against the previous
+  commit emits ~16KB of the *same* churn. That drift is pre-existing (introspected names differ from
+  `schema.ts` names across the schema); the delta between the two probes is what your migration
+  actually added.
+- **A historical migration test written in the CURRENT vocabulary proves nothing.** A rename sweep
+  will drag a fixture forward and prove the migration against its own output rather than against the
+  corpus it has to survive. A fixture's vocabulary must match the schema it populates.
+- **A schema rename passes typecheck and breaks every raw SQL string.** Drizzle infers column types
+  from `schema.ts`, so identifier renames propagate invisibly; raw SQL is just text. After any
+  rename, grep the old names — never trust the compiler.
+- **A populated-schema migration test catches defects an empty one passes**: composite keys created
+  before their unique target, keys rooted on a dropped column, triggers depending on it, constraints
+  left asserting old names, and backfill joins matching a removed slot.
+- **`ALTER TABLE … RENAME` has no `IF EXISTS` form**, so an unguarded rename makes a migration
+  non-idempotent and the integration suite applies every file twice. Wrap each in a
+  `to_regclass`/`information_schema` guard. Related: a `UNIQUE` constraint's backing index raises
+  `duplicate_table`, not `duplicate_object`, so the usual handler lets the error through.
+- **Sabotage a guard against the state it actually forbids — and check the sabotage itself worked.**
+  One attempt "passed" only because the *other* trigger had already rolled back the setup statement,
+  so nothing was tested. Another appeared to collapse a whole suite when the edit had simply emitted
+  malformed SQL. Read the row back, and read the error, before believing a negative result.
+- **A guard that cannot be falsified is not a guard.** Sabotaging a route's shape check changed no
+  test result, because the writer beneath it refused the same input and produced the same status.
+  Delete the duplicate and prove the rule where it lives, rather than keeping an assertion that
+  cannot fail.
+- **A CHECK is not automatically a biconditional.** The standing reason for one is that a CHECK
+  passes on NULL and both directions are real failures — but where only one direction is a failure,
+  the biconditional makes a legitimate row unwritable. `farmer_invitations_hosting_names_seller` is
+  deliberately one-directional; written as a biconditional it makes the self-issued onboarding door
+  impossible.
+- **The schema vocabulary forbids certain words outright**, `provenance` among them
+  (`schema.integration.test.ts` §removes forbidden concepts). It scans schema text, the index file,
+  `0000`, and the snapshot — so a constraint NAME or even a doc comment trips it.
+- **A tagged template turns an interpolation into a bind PARAMETER.** Composing shared SQL text into
+  a `` driver(db)`…` `` query sends the clause as a string value and dies at parse
+  (`syntax error at or near "$1"`). Any query composing `visibleFarms` or the B-074 join fragments
+  must use `.unsafe(…)`. Invisible to typecheck and to every test not run against a real database.
+- **An assertion on an empty collection can be green whatever the code returns.** When a reader's
+  only coverage is its empty case, it has no coverage; assert a populated value.
+- **One emoji doubles a message's cost.** A single non-GSM-7 character re-encodes the WHOLE body to
+  UCS-2, dropping per-segment capacity from 153 to 67. An encoding effect, not a length effect, and
+  invisible by inspection. `reply-encoding.test.ts` sweeps every code-owned reply; measure with
+  `estimateSmsSegments` before adding any decoration.
+- **`npm run test:integration` needs `DATABASE_URL` exported** or every file fails instantly with no
+  tests run — the suite failing loudly by design. RUNBOOK §top has the two export lines.
+- **A domain mapping reports `Ready: True` before TLS serves** — ~6 minutes ahead on F-113, and a
+  request in that window fails certificate verification; inside an iframe that is a silent blank.
+  Poll the real request for a 200; never cut an embed over on the mapping's status.
+- **Every plan shows two spurious `scaling` updates** (B-073) — a provider artifact, not the
+  container template. Real diffs still have to be read; do not learn to skim "2 to change".
+- **A stale local server can serve headers the config no longer describes.** Restart before believing
+  either the config or the wire.
+- **`drizzle-kit generate` writes a migration that passes on an empty database and fails on a real
+  one.** It emits `ADD COLUMN … NOT NULL` with no default and no backfill; against any table already
+  holding a row that is an instant 23502. Add the column nullable, backfill, then `SET NOT NULL`.
+- **`inventory_revisions` has a trigger that refuses almost every UPDATE.**
+  `guard_inventory_revision_history` permits exactly one transition — superseding a current revision
+  — so a backfill cannot touch the table at all. Disable it for one statement, re-enable it
+  immediately, and widen it to cover any new column. Do not weaken it; it is a Golden Rule #1
+  protection.
+- **SQL NULL semantics silently invert guards.** A CHECK constraint *passes* on NULL.
+  `array_length` of an empty array returns NULL, not 0 — use `coalesce`. Postgres sorts NULLs FIRST
+  under `order by … desc`. In JS, `Number(null)` is `0`.
+- **A first-insert race is arbitrated by a unique index, never by a preceding read.**
+  `select … for update` cannot serialize a row that does not exist yet, so both writers observe
+  "none" and the second raises. Use `insert … on conflict do nothing returning …` and trust only
+  `RETURNING` as proof of winning.

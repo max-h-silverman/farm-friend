@@ -171,6 +171,14 @@ onboarding calls inside its own transaction so invitation redemption and the con
 together. The first-time rule, watermark ordering, and STOP's tie-break are stated once, so every
 caller gets all of them.
 
+**The redemption transaction is where everything an invitation promised comes true.** Consent, the
+authorization, the farm approval, any held stock and cadence, and — since F-114 Phase C.1 —
+acceptance of a hosted-seller relationship all commit together or not at all. The reason is that
+the invitation is *spent* by that transaction: a crash between any two of them would leave the
+farmer holding a link that can never be redeemed again, in a state nothing reports. Each step is
+gated on the authorization existing, so an invitation whose farmer never ticked the agreement
+publishes nothing and accepts nothing.
+
 **Code decides three things about every outbound message; the model decides none:**
 
 1. who may receive it — enforced at the dispatch claim;

@@ -127,6 +127,11 @@ bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
   and **Users** (everyone who has texted, inviting a farmer, deciding access requests). `/admin`
   redirects to Farms. Organizing by subject rather than by queue keeps one screen owning each
   entity; see ADMIN_OPERATIONS.md.
+  `POST /api/admin/stands` carries the per-stand acts: Farm Bucks, retire/restore, and — since
+  F-114 Phase C.1 — `invite_seller`, which mints a one-use link inviting a seller to sell at that
+  stand. **`invite_seller` has no button yet**: the endpoint is live and tested, the Farms screen
+  does not call it, so today it is reachable only by an authenticated request. The acting
+  administrator always comes from the session, never the body.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
 - **Scheduled jobs:** farmer prompting, outbound delivery, retry, and retention.
 

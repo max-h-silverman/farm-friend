@@ -11,7 +11,101 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-15 (latest) — Two records, and three quiet defects the migration walked into (F-114 Phase C.1)
+## 2026-08-15 (latest) — The invitation is the one we already had (F-114 Phase C.1, invitation)
+
+C.1's behavior half: a stand owner or VIGA names a seller and gets a one-use link to forward. The
+invited seller opens it, fills the same onboarding form a stand owner fills, and texts a bare
+`START` — at which point they are authorized for their own seller and the relationship goes live.
+**No approval queue, no second form, no VIGA step.** Integration is **1124/1124 across 77 of 77
+files**, up from 1077/1077 across 73.
+
+**The hosting invitation IS the farmer invitation, and that is the whole design.** §there is no
+second permission system had already cut C.1's access grants on the ground that the permission
+following acceptance is an ordinary authorization. The same argument applies one level up:
+`farmer_invitations` already names a seller, holds the handset a redemption must arrive from,
+carries the SMS agreement, and on `START` mints the authorization and the approval in one
+transaction. That is invitation and acceptance, built and in production. The only thing it could
+not say is *which* relationship the redemption accepts — one nullable column. A `hosting_invitations`
+table with its own token, expiry, redemption path and consent story would have been a second
+mechanism doing one mechanism's job, with every rule restated and kept in step by hand.
+
+**Max narrowed the design five times mid-session, and every answer removed work.** He interrupted
+with *"let's make sure the invite/adding/onboarding is very simple and not overly gated"*, which
+killed the approval queue I was about to build. Then, in order: VIGA does not have to okay it — the
+invitation IS the approval, exactly as F-067 made it for the ordinary farmer. Onboarding happens
+**always**, even for a seller Farm Friend already knows, *"because details may vary"* — which is
+better than either option I offered, since it collapses two paths into one parameterized path
+rather than doubling them. The host forwards the link; Farm Friend never texts a number nobody gave
+us. VIGA is the approver on record whenever VIGA issues the link — not the owner "on whose behalf" a
+coordinator typed. And nothing is public until the seller finishes, which `pending` already gives
+for free because every public reader excludes it.
+
+**The vouch waits on the invitation, and that is forced rather than chosen.**
+`stand_providers_hosting_lifecycle_coherent` refuses an approval on a `pending` row — rightly, since
+approving a relationship nobody has accepted would publish a seller who never agreed to be there.
+So `invited_by_authorization_id` sits on the invitation and is applied at acceptance, which is
+exactly what `pending_stock` and `pending_prompt_cadence` already do for facts that cannot legally
+exist until the authorization does. Kelsey's vouch becomes `approval_source = 'host'`; VIGA's
+becomes `'viga'` naming nobody.
+
+**One CHECK is deliberately not a biconditional**, against the grain of every rule beside it. The
+schema's standing reason for biconditionals is that a CHECK passes on NULL and both directions are
+real failures. Here only one is: a provider bound with no seller would redeem into the "nothing to
+authorize" branch and silently accept nothing, while a seller named with no provider is what all 39
+production invitations look like. Sabotaging it *as* a biconditional made the fixture unwritable —
+the honour-system door needs a seller and no provider — which is the clearest possible proof the
+one-directional form is correct.
+
+**Acceptance runs inside the redemption transaction**, gated on the authorization exactly as the
+held stock publication beside it. The invitation is spent by that redemption, so a crash between the
+two would strand the farmer holding a dead link with nothing reporting why — F-067's silent dead
+end, reintroduced one step later. `host_may_update_stock` is untouched and stays off: acceptance
+never grants more than it says.
+
+**Twenty-two sabotages, each caught by the case aimed at it** — across the two record suites, the
+invite writer, the acceptance path, and the admin route. Two are worth keeping:
+
+- **A sabotage that caught nothing, and what it exposed.** Removing the admin route's
+  exactly-one-seller check changed no test result, because the *writer's* refusal produced the same
+  400. The guard was unfalsifiable, so it was deleted rather than kept — and the rule proved where
+  it actually lives, where breaking it fails three cases across two suites. Two places stating one
+  rule is what the zen desk forbids; an assertion that cannot fail is what the verification
+  discipline forbids. The same edit fixed both.
+- **A sabotage script that produced malformed SQL read as a real signal.** Dropping the issuer CHECK
+  appeared to collapse the whole suite at setup, which looked like a strong catch. It was a broken
+  `python` splice emitting `syntax error at end of input`. Redone properly, the same sabotage failed
+  three cases honestly. A sabotage that fails for the wrong reason proves nothing about the
+  constraint.
+
+**The `0044` snapshot was repaired by measurement, not by hand** — the trap CURRENT_STATE.md already
+documents, hit again because `0044` is hand-written. A database built from all 45 migrations,
+introspected, its all-zero id replaced with a real UUID and `prevId` chained to `0043`. Then the
+part worth recording: probing `drizzle-kit generate` against the repaired snapshot emitted **16.7KB
+of constraint churn**, which looked alarming until the same probe was run against `HEAD` in a
+throwaway worktree and emitted **15.9KB of the same churn**. The drift is pre-existing — introspected
+names differ from `schema.ts` names across the whole schema — and the delta between the two probes
+is exactly this migration's three new objects. Measuring the baseline is what turned "my repair is
+broken" into "this predates me".
+
+**One flake, filed rather than tuned around (B-078).** A full integration run reported `Test Files 1
+failed | 76 passed` while all 1124 tests passed — a suite-level failure with no failing test named.
+Re-run was 77/77 and both heavy candidate files were green in isolation, so it reads as database
+contention under parallel load. The file name was lost to a `grep` for summary lines, which is the
+whole reason it is filed: the run that hides this is the one reporting a passing test count beside a
+failed file.
+
+**No live eval was owed**, checked rather than assumed: every new column was located across
+non-test source and appears only in the db package, migrations, and build output. The search was
+proved against a known-present term first, after an initial `grep` for `provider_id` in the two seam
+files returned zero — an empty result that would have "confirmed" the right answer for the wrong
+reason.
+
+Committed as `06e211e`, `3383866`, `b879ea6` and merged. **`0044` joins `0042` and `0043` unapplied
+to production**, and all three remain Max's call.
+
+---
+
+## 2026-08-15 — Two records, and three quiet defects the migration walked into (F-114 Phase C.1)
 
 C.1 was scoped down to **records only** — the authorization's stand arm and the host stock right,
 with `0043_authorization_arms` and its constraints. Invitation, per-provider publication, the
