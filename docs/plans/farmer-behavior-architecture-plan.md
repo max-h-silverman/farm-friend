@@ -680,6 +680,32 @@ populated-schema test asserts exact row effects and every added constraint is sa
 4. Per-provider reminder cadence and the scheduler pass.
 5. Stand and seller public list/detail views.
 
+##### Phase C.1 records as built (2026-08-15)
+
+The two records the rest of C.1 writes against landed first, on their own, so the behavior
+sub-phases write against a settled shape rather than reshaping one underneath themselves. Same
+reason C.0 was separated, and the phase order already states it.
+
+- **`farmer_authorizations` gained the stand arm**, enforced by
+  `farmer_authorizations_subject_arm` — `(seller_id is null) <> (sales_location_id is null)`, a
+  biconditional because a CHECK passes on NULL and both directions are real failures. Each arm has
+  its own partial uniqueness index: the existing one is keyed on `seller_id`, which is NULL on every
+  stand-armed row, and NULLs never collide in a unique index.
+- **`stand_providers.host_may_update_stock`** is the seller's opt-in, NOT NULL and `false` both as
+  the column default and as the backfill.
+- **No writer produces a stand-armed row yet**, and every existing reader joins on `a.seller_id =
+  …`, which a NULL never matches. The arm is therefore inert until the invitation sub-phase, which
+  is the correct state rather than an omission.
+
+**One thing the contract implies that the records cannot yet deliver.** §there is no second
+permission system says the two stand-level tables pair against the stand arm. `closure_revisions`
+does not: its `owner_seller_id`, `owner_authorization_id` and `owner_approval_id` are all NOT NULL
+and route through the self-pointer, so **a venue still cannot record a closure at all**. Widening
+the column without the writer would leave a nullable column no code can produce, so it is filed
+(B-077) for the owner-only-stand-closure sub-phase rather than half-built here.
+`sales_location_participants` has the same shape and is retired display-only history, so it needs
+nothing.
+
 ### The pending-change defect
 
 **Defect, not a feature — fix scoped into Phase B.**

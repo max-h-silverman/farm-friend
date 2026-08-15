@@ -107,6 +107,12 @@ unpublished address or an absent pin.
   which seller that is lives in `sales_locations.own_seller_id`. Phase B made the column nullable
   because `farms` was the authority root and NULL was the only way to say "the stand itself"; C.0
   removed that root, so NULL had nothing left to mean.
+  `host_may_update_stock` (C.1) is the hosted seller's opt-in for the stand's own authorized phones
+  stating **their current stock only** — a property of the relationship rather than of the stand or
+  the role, since one hosted seller wants the host restocking on their behalf and another does not.
+  NOT NULL and **`false` by default**, because an invitation that silently conferred it would make
+  acceptance mean more than it says. It never extends to identity, prices, payment, pause, or
+  participation, and it is distinct from the observation right a stand owner has anyway.
 
 `stand_providers_one_per_seller_per_location` admits one row per seller per stand and is the
 **first-insert arbiter** for a race: two writers adding the same seller both find nothing and both
@@ -148,6 +154,15 @@ would add a case to every reader and change no public output.
   of a farm: the only writer is administrator-gated, re-reads the administrator's authority inside its
   own transaction, and records who acted. Revocation updates the row rather than deleting it —
   published revisions reference the authorization they were made under.
+  **The record names a seller OR a stand, never both and never neither** (C.1,
+  `farmer_authorizations_subject_arm`, a biconditional because a CHECK passes on NULL). The stand
+  arm exists for the one case the seller arm cannot express: a venue with no seller of its own,
+  whose hours, closure, description and roster can be reached through no seller authorization.
+  It is **not a second permission system** — "stand owner" is what being authorized for the seller
+  a stand points at already gets you, derived through the self-pointer and never stored. The nine
+  composite keys onto `(id, seller_id)` are unchanged, and a stand-armed row is NULL there, so it
+  satisfies none of them: managing a venue authorizes nobody for anyone's goods. Each arm carries
+  its own partial uniqueness index, since NULLs never collide in a unique index.
 - **farm email roster** (F-078) — the addresses VIGA already holds for each farm, so a farmer can
   prove who they are without a volunteer vouching. **Answers exactly one question** — "is this address
   on file for this farm?" — and holds no name, role, or preferences; it must never become a contact

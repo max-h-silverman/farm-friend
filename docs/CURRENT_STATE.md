@@ -16,36 +16,37 @@
   write public claims, authorize publication, resolve open-now state, or choose evidence.
 - **Every public and SMS link is on `farmfriend.vigavashon.org`** (F-113), and `vigavashon.org` DNS
   authenticates VIGA's mail (SPF includes Google; `_dmarc` at `p=none`).
-- **A stand has providers** (F-114 Phase B, merged to `main`, **not deployed**). `stand_providers`
-  holds one row per seller-at-stand; revisions, usual items, proposals, farmer links, prompt
-  preferences, scheduled prompts, and SMS targeting all carry a provider.
-  `inventory_revisions_one_current_per_location` became **one-current-per-provider** and
-  `stand_items_one_per_location_name` became **one-per-provider-per-name**. One open SMS
-  confirmation is now per person **per provider-at-stand**, fixing a defect that predates this work.
-  `provider-invalidation.ts` is the pause/revoke/close mechanism that did not exist.
-  **Phase B's native brand slot no longer exists** — C.0 replaced it, see below.
-- **F-114 Phase C.0 re-roots identity on sellers** (**merged to `main` via PR #122, not
-  deployed**). A stand has a name, metadata, and nested sellers. `farms` is renamed to `sellers`
-  (ids preserved, so every key keeps pointing at the same rows); `owner_farm_id` is replaced by
-  `own_seller_id`, the **self-pointer** naming the one nested seller that IS the stand, NULL for a
-  venue like Morgan Hill; `stand_providers.seller_id` is NOT NULL and the **native brand slot is
-  gone**. Public suppression follows the self-pointer instead of a name match. Phase B's separate
-  `sellers` table merged into the renamed record and its `revoked_at` pair went with it —
-  `retired_at` already meant that. The contract section that governs this is §the
-  stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; it overrides
-  four reviewed decisions.
-- **C.0 is converted and green.** The codebase moved to the seller vocabulary across ~160 files;
-  the admin route directories are `/admin/sellers`. Deliberately NOT renamed: `farm_bucks_*`
-  (a VIGA program), `farm_approval_id`, every `farmer_*` table (those name the PERSON acting), the
-  operator-facing **"Farms" tab label**, and `GENERIC_WORDS` in the corpus matcher — where "farms"
-  is an English word farmers type into stand names.
-- **Hosted-seller behavior — invitation, per-provider publication, the seller list, item-first
-  cards — is Phase C.1 and is NOT built.**
+- **F-114 Phases B, C.0 and C.1-records are merged to `main` and NOT deployed.** A stand has a
+  name, metadata, and **nested sellers**: `sellers` is the identity root (renamed from `farms`,
+  ids preserved), `sales_locations.own_seller_id` is the **self-pointer** naming the one nested
+  seller that IS the stand and NULL for a venue like Morgan Hill, and `stand_providers` holds one
+  row per seller-at-stand with `seller_id` NOT NULL — **there is no native brand slot**. Revisions,
+  usual items, proposals, farmer links, prompt preferences, scheduled prompts and SMS targeting all
+  carry a provider; one-current and one-usual-name are **per provider**, and one open SMS
+  confirmation is per person **per provider-at-stand**. Public suppression follows the self-pointer,
+  never a name match. `provider-invalidation.ts` is the pause/revoke/close mechanism. The governing
+  contract is §the stand-and-sellers correction in
+  `docs/plans/farmer-behavior-architecture-plan.md`, which overrides four reviewed decisions.
+- **An authorization names a seller OR a stand** (C.1 records, `0043`), enforced by the
+  biconditional `farmer_authorizations_subject_arm`, each arm with its own partial uniqueness
+  index. The stand arm exists for the venue that has no seller of its own; **"stand owner" stays
+  derived** through the self-pointer and is never stored, so this is not a second permission
+  system. The nine composite keys onto `(authorization, seller)` are unchanged and a stand-armed
+  row satisfies none of them. `stand_providers.host_may_update_stock` is the hosted seller's
+  opt-in for the host stating their stock — **off by default and off for every backfilled row**.
+  **No writer creates a stand-armed row yet**, so the arm is inert until the invitation sub-phase.
+- **A venue still cannot record a closure** — `closure_revisions` demands a seller in three NOT
+  NULL columns. **B-077**; it needs the closure writer's stand arm, not a nullable column.
+- **The rest of C.1 — invitation, per-provider publication, the seller list, item-first cards — is
+  NOT built.** Deliberately NOT renamed by C.0: `farm_bucks_*` (a VIGA program), `farm_approval_id`,
+  every `farmer_*` table (those name the PERSON acting), the operator-facing **"Farms" tab label**,
+  and `GENERIC_WORDS` in the corpus matcher.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**.
-  **`0042` is NOT applied to production, and its content changed**: the merged
+  **Neither `0042` nor `0043` is applied to production**, and `0042`'s content changed: the merged
   `0042_multi_seller_stand_providers` was **replaced in place** by `0042_seller_root`, because no
   database anywhere had applied it (production ledger 42 rows `0000`–`0041`; every local database
-  at most 40). Production therefore never sees the native-slot model at all.
+  at most 40). Production therefore never sees the native-slot model at all. `0043` must follow
+  `0042`, in that order.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
   neither revision has an error-level log. **B-074 and F-114 Phases B and C.0 are on `main` and
@@ -54,14 +55,15 @@
 
 ## Verification
 
-- **2,063 unit tests pass; 7 corpus-only tests skip.** Integration is **1057/1057 across 71 of 71
+- **2,063 unit tests pass; 7 corpus-only tests skip.** Integration is **1077/1077 across 73 of 73
   files** against disposable local Postgres databases (2026-08-15).
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19. The
   build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
   broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5. Last
-  run 2026-08-14 — **F-114 Phase B changed no seam projection, schema, or output contract**, so no
-  live run was owed for it.
+  run 2026-08-14 — **F-114 Phases B, C.0 and C.1-records changed no seam projection, schema, or
+  output contract**, so no live run was owed. Checked rather than assumed for C.1: the four seam
+  files receive no authorization data, and the only matches for the term are comments saying so.
 - The full top-level corpus is 52/53 with only the pre-existing `what is viga` miss. The gate fails
   on any new miss rather than treating that known baseline as a regression.
 - **F-114's constraints are sabotage-proved.** 43 cases assert the exact row each index and CHECK
@@ -73,6 +75,13 @@
   the rename and no constraint or index left carrying the old names, plus a re-run proving it is a
   no-op. Thirteen deliberate breakages across the two suites were each caught by the case aimed at
   them.
+- **C.1's two records are sabotage-proved too.** 20 cases across
+  `authorization-arms-constraints` and `authorization-arms-migration`; six deliberate breakages —
+  each half of the one-arm biconditional, a non-unique stand index, the stock right defaulting to
+  `true`, the CHECK added `NOT VALID`, and a migration quietly moving a live authorization onto the
+  stand arm — were each caught by the case aimed at them. `0043` is proved against a **populated**
+  copy of the post-`0042` schema, including the one phone that acts for two sellers and a
+  revoked-then-restored contact.
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only. It is
   the renamed `farms_name_not_blank` and predates F-114; seventeen `*_not_blank` CHECKs share it.
   The suite asserts that measured truth in two cases rather than the constraint's name; **B-076**
@@ -99,8 +108,10 @@
 
 ## Open before go-live
 
-- **`0042` must be applied to production before the code that requires it.** Every writer now
-  supplies `provider_id`; against the un-migrated schema they fail immediately.
+- **`0042` then `0043` must be applied to production before the code that requires them.** Every
+  writer now supplies `provider_id`; against the un-migrated schema they fail immediately. `0043`
+  adds no such requirement on its own — no writer produces a stand-armed row yet — but it must not
+  land ahead of `0042`.
 - Finish physical-handset checks: farmer onboarding/consent, contact card, paged SMS, administrator
   and settings flows, F-105 stand details at phone width, Squarespace embeds, and `?hidden=true`.
   Every texted link now carries `farmfriend.vigavashon.org` and none has been read on a handset.
@@ -138,6 +149,22 @@
   the rename trap's twin: the query `select`s `own_seller_id` and the code reads
   `.owner_seller_id`, so there is no error until the undefined reaches a bind parameter, far from
   the mismatch. Grep for every `.owner_*` read after any column rename.
+- **A historical migration test must select its predecessors BY ORDER, never by exclusion.** Both
+  populated-schema tests built their pre-migration set as *"every file that is not mine"*, which is
+  correct only while that migration is the newest in the repo. The moment `0043` landed it was
+  swept into `0042`'s pre-migration set and applied against a schema that had not yet renamed the
+  column it alters — and **every future migration would have broken the file the same way**. Use
+  `name < "00NN_"`. The failure is loud but names the wrong file, so it reads as a defect in the
+  new migration rather than in the old test.
+- **A hand-written migration leaves the generator's snapshot stale, and nothing notices until the
+  next one.** `0042` renamed `farm`→`seller` columns across sixteen tables in SQL and never updated
+  `0042_snapshot.json`, so `drizzle-kit generate` stopped and asked create-or-rename questions
+  instead of diffing. Applying stays correct throughout — only generation breaks, which is why
+  `migration-metadata.test.ts` (GL-006) checks the newest snapshot rather than any suite catching
+  it. **Repair it by measurement, not by hand**: build a database from every migration, run
+  `drizzle-kit introspect` against it, and chain that snapshot's `prevId` to its predecessor
+  (replacing introspect's all-zero `id` with a real UUID). Hand-editing sixteen tables' worth of
+  JSON would be fabricating the evidence the test exists to verify.
 - **A historical migration test written in the CURRENT vocabulary proves nothing.** Two suites stop
   at an earlier schema and populate it; the C.0 sweep renamed their fixtures to `sellers` and
   `own_seller_id`, against databases that still had `farms` and `owner_farm_id`. Had the names

@@ -57,7 +57,14 @@ const migrationFiles = readdirSync(migrationsDir)
   .filter((name) => name.endsWith(".sql"))
   .sort();
 
-const beforeThisWork = migrationFiles.filter((name) => !name.startsWith("0042_"));
+/*
+  "Before this work" means everything ORDERED BEFORE `0042`, never "everything that is not
+  `0042`". The exclusion form was correct only while `0042` was the last migration in the repo:
+  the moment `0043` landed it was swept into the pre-migration set and applied against a schema
+  four decades of columns too early, failing on the first name `0042` introduces. Every future
+  migration would have broken this file the same way.
+*/
+const beforeThisWork = migrationFiles.filter((name) => name < "0042_");
 const thisWork = migrationFiles.filter((name) => name.startsWith("0042_"));
 
 async function applyFile(db: Sql, fileName: string): Promise<void> {

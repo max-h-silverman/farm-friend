@@ -11,7 +11,70 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-15 (latest) — The last four files, and one column name (F-114 Phase C.0)
+## 2026-08-15 (latest) — Two records, and three quiet defects the migration walked into (F-114 Phase C.1)
+
+C.1 was scoped down to **records only** — the authorization's stand arm and the host stock right,
+with `0043_authorization_arms` and its constraints. Invitation, per-provider publication, the
+seller list, and the item-first cards are the sub-phases that follow, each writing against the
+shape this settles. Max chose the stopping point at the top of the session; the phase order's own
+discipline argues for it, since each phase wants its constraints and readers before the next
+begins. Integration is now **1077/1077 across 73 of 73 files**.
+
+**An authorization names a seller OR a stand, and the stand arm has exactly one job.** A venue like
+Morgan Hill sells nothing of its own, so its hours, closure, description, and roster can be reached
+through no seller authorization — there is no seller to name. It is deliberately not a second
+permission system: "stand owner" stays *derived* through the self-pointer and is never stored. The
+nine composite keys onto `(authorization, seller)` are untouched, and a stand-armed row has NULL
+there, so it satisfies none of them. That is the correct reading, not an oversight — a person
+managing a venue is not thereby authorized for anyone's goods.
+
+**The host stock right is off by default, and that default is the product decision.** Whether a
+hosted seller's stock may be updated by the stand's own authorized phones lives on the
+`stand_providers` row, because it is a property of the relationship rather than of the stand or the
+role. The baker who drops off at dawn wants it; Zoe at Venison Valley does not. An invitation that
+silently conferred it would make acceptance mean more than it says, which the hosting lifecycle
+already forbids — so `false` both as the column default and as the backfill for every existing row.
+
+**Six sabotages, six caught by the case aimed at each.** Both halves of the one-arm biconditional
+(admitting "neither", then admitting "both"), a stand index made non-unique, the stock right
+defaulting to `true`, the CHECK added `NOT VALID`, and a migration quietly moving a live
+authorization onto the stand arm. The last one needed two attempts and the failed one was
+informative: moving an authorization that *carried* dependent facts failed inside the composite
+keys, so the suite errored in `beforeAll` rather than proving the assertion. Re-aiming it at the
+revoked authorization — which carries nothing — let the UPDATE succeed and the identity assertion
+catch it, which is what was actually being tested.
+
+**Three pre-existing defects surfaced on the way through, none of them mine to introduce.**
+
+- `multi-seller-migration` selected its pre-migration set as *"everything that is not `0042`"*. That
+  is correct only while `0042` is the newest file in the repo: `0043` was swept into the
+  pre-migration set and applied against a schema that had not yet renamed `farm_id`. **Every future
+  migration would have broken this file the same way.** Both files now compare by order
+  (`name < "0043_"`), which is stable.
+- `schema.ts` named two constraints that `0042` had renamed —
+  `farmer_authorizations_id_farm_unique` and `…_one_active_contact_per_farm`. Harmless to apply,
+  and dangerous to *generate*: the next generated migration would have proposed dropping and
+  recreating the target of nine composite foreign keys. Found because a sabotage case asserted the
+  constraint *name* and Postgres reported a different one.
+- **The `0042` snapshot never received the `farm`→`seller` column renames**, across sixteen tables,
+  so `drizzle-kit generate` stopped and interrogated rather than diffing. `migration-metadata.test.ts`
+  (GL-006) exists precisely to catch this and is what failed. It was repaired by building a real
+  database from all 43 migrations and **introspecting** it into `0043_snapshot.json` — a measured
+  picture rather than a hand-edited one, which is what that test's own comment warns against. A
+  generation trial afterwards produced only foreign-key noise and zero structural changes.
+
+**`closure_revisions` deliberately stays seller-rooted.** Its `owner_seller_id`,
+`owner_authorization_id`, and `owner_approval_id` are all NOT NULL and route through the
+self-pointer, so a venue still cannot record a closure at all. That is a real gap and it is filed
+(B-077) rather than half-fixed: it needs the closure *writer* to grow a stand arm, and widening the
+column alone would leave a nullable column no code can produce.
+
+Verified: integration 1077/1077, unit 2063 passing (7 corpus skips), typecheck, lint, and scripted
+evals 11/11 · 4/4 · 19/19. **No live eval was owed** — checked rather than assumed: the four seam
+files receive no authorization data at all, and the only matches for the term are comments saying
+so. `0043` is **not** applied to production.
+
+## 2026-08-15 — The last four files, and one column name (F-114 Phase C.0)
 
 Closed out C.0's remaining four integration files and merged PR #122. Integration is now
 **1057/1057 across 71 of 71 files**.
