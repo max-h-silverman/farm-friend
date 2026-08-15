@@ -920,9 +920,31 @@ export const farmerAuthorizations = pgTable(
   "farmer_authorizations",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    sellerId: uuid("seller_id")
-      .notNull()
-      .references(() => sellers.id, { onDelete: "restrict" }),
+    /**
+     * ONE OF TWO ARMS — a seller, or a stand, never both and never neither (F-114 Phase C.1).
+     *
+     * Nullable since `0043`, and the nine composite keys onto `(id, seller_id)` are unchanged:
+     * a stand-armed authorization has NULL here and so cannot satisfy any of them, which is
+     * correct. A person managing a venue is not thereby authorized for anyone's goods.
+     */
+    sellerId: uuid("seller_id").references(() => sellers.id, {
+      onDelete: "restrict",
+    }),
+    /**
+     * The other arm, for the one case the seller arm cannot express: a stand with NO seller of
+     * its own. Morgan Hill Community Stand is a venue with four nested sellers and none of its
+     * own, so its hours, closure, description, and who sells there can be reached through no
+     * seller authorization — there is no seller to name.
+     *
+     * **This is not a second permission system.** "Stand owner" is not a role: it is what being
+     * authorized for the seller a stand points at already gets you, derived through the
+     * self-pointer at read time and never stored. This arm is only for the stand that has no
+     * such seller.
+     */
+    salesLocationId: uuid("sales_location_id").references(
+      () => salesLocations.id,
+      { onDelete: "restrict" },
+    ),
     contactId: uuid("contact_id")
       .notNull()
       .references(() => contacts.id, { onDelete: "restrict" }),
@@ -933,14 +955,45 @@ export const farmerAuthorizations = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => ({
-    idAndFarmUnique: unique("farmer_authorizations_id_farm_unique").on(
+    // Renamed by `0042` with the rest of the seller vocabulary; this file was left naming the
+    // old constraint. Same drift as the index below, and the same consequence — a generated
+    // migration proposing to drop and recreate the target of nine composite foreign keys.
+    idAndSellerUnique: unique("farmer_authorizations_id_seller_unique").on(
       table.id,
       table.sellerId,
     ),
+    /**
+     * Exactly one arm, always. A BICONDITIONAL rather than two independent NULL tests, because
+     * **a CHECK PASSES on NULL**: "a seller is named" evaluates to NULL on the row that omits
+     * it, and NULL is not false, so the row is admitted.
+     *
+     * Both directions are refused. BOTH named would let one authorization satisfy composite
+     * keys on both sides, so a seller-level fact could be filed by a stand-armed authorization.
+     * NEITHER named is an authorization for nothing at all — no reader would raise, because
+     * each joins on a subject, so the row simply never matches and the person cannot act with
+     * nothing saying why.
+     */
+    subjectArm: check(
+      "farmer_authorizations_subject_arm",
+      sql`(${table.sellerId} is null) <> (${table.salesLocationId} is null)`,
+    ),
+    // `0042` renamed this from `…_per_farm` with the rest of the seller vocabulary; this file
+    // was left naming the old index, which would have made the next generated migration propose
+    // dropping and recreating a live one. The name here is what the database actually holds.
     oneActiveAuthorization: uniqueIndex(
-      "farmer_authorizations_one_active_contact_per_farm",
+      "farmer_authorizations_one_active_contact_per_seller",
     )
       .on(table.sellerId, table.contactId)
+      .where(sql`${table.revokedAt} is null`),
+    /**
+     * The stand arm needs its OWN uniqueness. The index above is keyed on `seller_id`, which is
+     * NULL on every stand-armed row, and NULLs never collide in a unique index — so without
+     * this a person could hold five live authorizations for one venue.
+     */
+    oneActiveStandAuthorization: uniqueIndex(
+      "farmer_authorizations_one_active_contact_per_stand",
+    )
+      .on(table.salesLocationId, table.contactId)
       .where(sql`${table.revokedAt} is null`),
     verificationPrecedesAuthorization: check(
       "farmer_authorizations_verification_precedes_authorization",
@@ -1633,6 +1686,34 @@ export const standProviders = pgTable(
 
     /** One stand-specific public note, in the seller's own words. */
     publicNote: text("public_note"),
+
+    /**
+     * May this stand's own authorized phones state THIS seller's current stock? (F-114 C.1)
+     *
+     * **A property of the hosting relationship, not of the stand and not of the role** (max,
+     * 2026-08-15). Some hosted sellers want the host restocking on their behalf: a baker who
+     * drops off at dawn and would rather the host mark the last loaf gone than be texted about
+     * it. Zoe at Venison Valley specifically does not. Both are legitimate, so the row that
+     * binds a seller to a stand is where the answer lives.
+     *
+     * **Off unless the seller turns it on.** An invitation that silently conferred stock rights
+     * would make acceptance mean more than it says, which §hosting and approval lifecycle
+     * forbids: acceptance never grants more access than the explicit scopes attached to the
+     * relationship.
+     *
+     * **Current stock only.** A host may never change a hosted seller's identity, prices,
+     * payment, pause, or participation — those need separate authorization for that seller.
+     * It is also distinct from the observation right §facts and authority already grants:
+     * marking an item sold out is a physical observation of an empty cooler, available to a
+     * stand owner regardless. What this adds is the ability to STATE STOCK, which is a claim
+     * about someone else's goods and therefore theirs to permit.
+     *
+     * NOT NULL because the column is two-state, not three. An `unknown` would force every stock
+     * writer to decide what silence means, and the answer would be "no" at every one of them.
+     */
+    hostMayUpdateStock: boolean("host_may_update_stock")
+      .notNull()
+      .default(false),
 
     // The provider's OWN stated availability, clamped to the stand's at read time. Every
     // column mirrors its `sales_locations` counterpart, and NULL throughout means "never

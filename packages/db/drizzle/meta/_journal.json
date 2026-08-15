@@ -302,6 +302,13 @@
       "when": 1788150408000,
       "tag": "0042_seller_root",
       "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1788150409000,
+      "tag": "0043_authorization_arms",
+      "breakpoints": true
     }
   ]
 }
