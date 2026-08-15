@@ -99,8 +99,12 @@ pre-`0042` schema with 11 assertions on exact row effects — including a retire
 revisions and a never-published stand — plus a re-run proving it is a no-op. No live-model eval was
 owed: no seam projection, schema, or output contract changed.
 
-Owed: **`0042` is unapplied in production and must land before the code that requires it.** Every
-writer now supplies `provider_id`, so against the un-migrated schema they fail immediately.
+Merged as PR #121 (`0ed60cb`). **Max chose merge-only at the wrap: no database change was applied.**
+`0042` rewrites rows in VIGA's real farmer data and is irreversible, so the apply is his to run.
+
+Owed: **`0042` is unapplied in production and must land BEFORE the merged code runs.** Every writer
+now supplies `provider_id`, so against the un-migrated schema they fail immediately. Merging changed
+nothing about the live service, which still serves the 2026-08-14 revisions.
 
 ## 2026-08-14 — One reader for "what's in stock here" (B-074, F-114 Phase A)
 
