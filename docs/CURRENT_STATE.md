@@ -28,9 +28,28 @@
   provider-at-stand**, fixing a defect that predates this work. `provider-invalidation.ts` is the
   pause/revoke/close mechanism that did not exist. **Hosted-seller behavior — invitation,
   per-provider publication, the seller list, item-first cards — is Phase C and is NOT built.**
+- **F-114 Phase C.0 re-roots identity on sellers** (branch `f-114-phase-c0-seller-root`, **not
+  merged, not deployed, INCOMPLETE**). Max corrected the model before C.1 was written: a stand has
+  a name, metadata, and nested sellers. `farms` is renamed to `sellers` (ids preserved, so every
+  key keeps pointing at the same rows); `owner_farm_id` is replaced by `own_seller_id`, the
+  **self-pointer** naming the one nested seller that IS the stand, NULL for a venue like Morgan
+  Hill; `stand_providers.seller_id` becomes NOT NULL and the **native brand slot is gone**. Public
+  suppression now follows the self-pointer instead of a name match. Phase B's separate `sellers`
+  table merged into the renamed record and its `revoked_at` pair went with it — `retired_at`
+  already meant that. The contract section that governs this is §the stand-and-sellers correction
+  in `docs/plans/farmer-behavior-architecture-plan.md`; it overrides four reviewed decisions.
+- **The C.0 branch does not run yet.** The migration and `schema.ts` are done and proved; **63
+  files still reference the old vocabulary in raw SQL strings** (`owner_farm_id`, `farm_id`,
+  `farms`, `farm_emails`, `farm_approvals`, `farm_links`, `farm_email_verifications`) plus the
+  `/admin/farms` route paths. **Typecheck passes and is not evidence** — drizzle infers column
+  types, so renames propagate silently while raw SQL does not. Two unit tests fail
+  (`migration-metadata.test.ts`): the drizzle snapshot still describes the pre-rename schema and
+  must be regenerated. Integration suites have not been run since the rename.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**.
-  **`0042_multi_seller_stand_providers` is locally verified but NOT applied to production** — the
-  first migration this work owes a deploy, and it must precede the code that requires it.
+  **`0042` is NOT applied to production, and its content changed**: the merged
+  `0042_multi_seller_stand_providers` was **replaced in place** by `0042_seller_root`, because no
+  database anywhere had applied it (production ledger 42 rows `0000`–`0041`; every local database
+  at most 40). Production therefore never sees the native-slot model at all.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
   neither revision has an error-level log. **B-074 and F-114 Phase B are on `main` and undeployed**;
@@ -104,6 +123,28 @@
   an idea for a per-answer map showing only returned stands.
 
 ## Traps worth not rediscovering
+
+- **A schema rename passes typecheck and breaks every raw SQL string.** Renaming `farms` to
+  `sellers` and `owner_farm_id` to `own_seller_id` produced a fully green `npm run typecheck`
+  across all three workspaces while 63 non-test files still named the old columns inside tagged
+  template literals. Drizzle infers column types from `schema.ts`, so identifier renames propagate
+  invisibly; raw SQL is just text. After any rename, grep the old names — never trust the compiler.
+- **A populated-schema migration test caught five defects an empty one would have passed.** On
+  F-114 C.0: a composite foreign key created before its unique target; six keys rooted on the
+  column being dropped; two map-projection triggers depending on that column; 25 constraints and
+  13 indexes left asserting `farm_*` names on renamed `seller_*` tables (renaming a table renames
+  neither); and eight backfill joins still matching a removed native slot. Only the last two were
+  data-dependent — the rest simply never ran in an empty-schema test because nothing referenced
+  the column yet.
+- **`ALTER TABLE … RENAME` has no `IF EXISTS` form**, so an unguarded rename makes a migration
+  non-idempotent and the integration suite applies every file twice. Wrap each in a
+  `to_regclass`/`information_schema` guard. Related: a `UNIQUE` constraint's backing index raises
+  `duplicate_table`, not `duplicate_object`, so the usual `EXCEPTION WHEN duplicate_object`
+  handler lets the error through.
+- **Sabotage a guard against the state it actually forbids.** A first attempt to prove the
+  map-projection trigger "passed" only because the *other* trigger had already rolled back the
+  setup statement — the projection column was still empty, so nothing was ever tested. Read the
+  row back before believing a negative result.
 
 - RUNBOOK owns migration generation/order, production fingerprinting, seeding, secret rotation,
   immutable-image deployment, and Neon reachability. DEVELOPMENT owns codebase/test gotchas.
