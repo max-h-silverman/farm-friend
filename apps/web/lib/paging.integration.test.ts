@@ -93,8 +93,8 @@ describe("SMS result paging end to end (integration)", () => {
     await client()`
       truncate table
         inventory_entries, inventory_revisions, inventory_publication_proposals,
-        pending_result_lists, outbox_work, farm_approvals, farmer_authorizations,
-        stand_items, sales_locations, administrators, farms, contacts
+        pending_result_lists, outbox_work, seller_approvals, farmer_authorizations,
+        stand_items, sales_locations, administrators, sellers, contacts
       restart identity cascade
     `;
 
@@ -103,10 +103,10 @@ describe("SMS result paging end to end (integration)", () => {
     // rather than approximated.
     locationIds = [];
     for (const [index, name] of standNames.entries()) {
-      const farm = await client()`insert into farms (name) values (${name}) returning id`;
+      const farm = await client()`insert into sellers (name) values (${name}) returning id`;
       const location = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${farm[0]?.id as string}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce',
@@ -118,7 +118,7 @@ describe("SMS result paging end to end (integration)", () => {
       await client()`
         insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
         values (${locationId}, (select id from stand_providers
-          where sales_location_id = ${locationId} and seller_id is null), 'eggs', true, 0)
+          where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), 'eggs', true, 0)
       `;
     }
   });
@@ -130,10 +130,10 @@ describe("SMS result paging end to end (integration)", () => {
    */
   async function publishEggs(index: number): Promise<void> {
     const locationId = locationIds[index]!;
-    const farms = await client()`
-      select owner_farm_id from sales_locations where id = ${locationId}
+    const sellers = await client()`
+      select own_seller_id from sales_locations where id = ${locationId}
     `;
-    const farmId = farms[0]?.owner_farm_id as string;
+    const farmId = sellers[0]?.own_seller_id as string;
 
     // Reused across calls: several tests publish at more than one stand, and the farmer
     // contact and the administrator are unique by phone and by email. `on conflict` keeps a
@@ -157,12 +157,12 @@ describe("SMS result paging end to end (integration)", () => {
             returning id
           `;
     const auth = await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${farmerContactId}, ${T0}, ${T0})
       returning id
     `;
     const approval = await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${farmId}, ${admins[0]?.id as string}, ${T0})
       returning id
     `;
@@ -185,7 +185,7 @@ describe("SMS result paging end to end (integration)", () => {
       values (
         ${"7".repeat(64)}, ${locationId},
         (select id from stand_providers
-          where sales_location_id = ${locationId} and seller_id is null),
+          where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})),
         ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted', ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3_600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
@@ -194,13 +194,13 @@ describe("SMS result paging end to end (integration)", () => {
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
       values (
         ${farmId}, ${locationId},
         (select id from stand_providers
-          where sales_location_id = ${locationId} and seller_id is null),
+          where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})),
         ${proposal[0]?.id as string},
         ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${hoursAgo(2)})
       returning id
@@ -352,7 +352,7 @@ describe("SMS result paging end to end (integration)", () => {
   async function alsoUsuallySells(index: number, item: string): Promise<void> {
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${locationIds[index]!}, (select id from stand_providers where sales_location_id = ${locationIds[index]!} and seller_id is null), ${item}, true, 1)
+      values (${locationIds[index]!}, (select id from stand_providers where sales_location_id = ${locationIds[index]!} and seller_id = (select own_seller_id from sales_locations where id = ${locationIds[index]!})), ${item}, true, 1)
     `;
   }
 
@@ -648,7 +648,7 @@ describe("SMS result paging end to end (integration)", () => {
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
       select l.id,
         (select id from stand_providers
-          where sales_location_id = l.id and seller_id is null),
+          where sales_location_id = l.id and seller_id = (select own_seller_id from sales_locations where id = l.id)),
         'kale', true, 1
       from sales_locations l
       where l.id = any(${locationIds.slice(5, 9)})
@@ -706,10 +706,10 @@ describe("SMS result paging end to end (integration)", () => {
     // consistent — no stand appearing twice, none skipped as ordering shifts.
     await askForEggs(customerHash, T0);
 
-    const farm = await client()`insert into farms (name) values ('Latecomer Farm') returning id`;
+    const farm = await client()`insert into sellers (name) values ('Latecomer Farm') returning id`;
     const location = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (${farm[0]?.id as string}, 'farm_stand', 'Latecomer Farm', 'America/Los_Angeles', 'visitable', 'produce', '1 New Rd',
@@ -718,7 +718,7 @@ describe("SMS result paging end to end (integration)", () => {
     `;
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${location[0]?.id as string}, (select id from stand_providers where sales_location_id = ${location[0]?.id as string} and seller_id is null), 'eggs', true, 0)
+      values (${location[0]?.id as string}, (select id from stand_providers where sales_location_id = ${location[0]?.id as string} and seller_id = (select own_seller_id from sales_locations where id = ${location[0]?.id as string})), 'eggs', true, 0)
     `;
 
     const page = await more(customerHash, at(1));
@@ -757,7 +757,7 @@ describe("SMS result paging end to end (integration)", () => {
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
       values (${changedId}, (select id from stand_providers
-        where sales_location_id = ${changedId} and seller_id is null), 'carrots', true, 1)
+        where sales_location_id = ${changedId} and seller_id = (select own_seller_id from sales_locations where id = ${changedId})), 'carrots', true, 1)
     `;
 
     const page = await more(customerHash, at(1));

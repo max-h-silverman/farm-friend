@@ -21,12 +21,12 @@ describe("admin routes expose only live browser contracts (B-033)", () => {
   // tell the first two apart by name. The pairing below is what keeps that merge honest — a
   // route whose reader stops being called on its page fails here.
   const serverRenderedQueues = [
-    ["apps/web/app/api/admin/farms/route.ts", "apps/web/app/admin/farms/page.tsx", "listFarmsForApproval"],
-    ["apps/web/app/api/admin/farmers/route.ts", "apps/web/app/admin/farms/page.tsx", "listFarmerAuthorizations"],
+    ["apps/web/app/api/admin/sellers/route.ts", "apps/web/app/admin/sellers/page.tsx", "listFarmsForApproval"],
+    ["apps/web/app/api/admin/farmers/route.ts", "apps/web/app/admin/sellers/page.tsx", "listFarmerAuthorizations"],
     ["apps/web/app/api/admin/flags/route.ts", "apps/web/app/admin/messages/page.tsx", "listFlagsForReview"],
     ["apps/web/app/api/admin/stock-out-reports/route.ts", "apps/web/app/admin/messages/page.tsx", "listStockOutReports"],
     ["apps/web/app/api/admin/stand-data-flags/route.ts", "apps/web/app/admin/messages/page.tsx", "listStandDataFlags"],
-    ["apps/web/app/api/admin/stands/route.ts", "apps/web/app/admin/farms/page.tsx", "listStandsForAdministration"],
+    ["apps/web/app/api/admin/stands/route.ts", "apps/web/app/admin/sellers/page.tsx", "listStandsForAdministration"],
   ] as const;
 
   it.each(serverRenderedQueues)(

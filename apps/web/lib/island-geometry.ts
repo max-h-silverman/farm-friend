@@ -5,7 +5,7 @@ import { projectToIsland } from "@farm-friend/core/island-projection";
 // Separated from the JSX that draws it (`app/island-artwork.tsx`) for one reason: this is the
 // part that can be WRONG, and it must live where the test suite reaches it. `vitest.config.ts`
 // covers `apps/*/lib`, not `apps/*/app` — so a coastline defined beside its component is
-// untestable by construction. The first version of this shape put 16 of 32 real farms in open
+// untestable by construction. The first version of this shape put 16 of 32 real sellers in open
 // water and no test could have caught it.
 //
 // The island itself is drawn rather than tiled.
@@ -54,7 +54,7 @@ export function svgRing(points: readonly (readonly [number, number])[]): string 
  * hand-drawn path would be. The island's shape does not change.
  *
  * WHY TRACED RATHER THAN HAND-DRAWN: the first two versions of this outline were drawn by
- * eye against the farm positions. The first put 16 of 32 real farms in open water; the
+ * eye against the farm positions. The first put 16 of 32 real sellers in open water; the
  * second fixed that but rendered Quartermaster Harbour — the inlet that gives the island its
  * shape — as a thin sliver, because the farm positions constrain a hand-guess far more
  * tightly than the real coast does. Real data satisfies every farm with no tuning at all.
@@ -321,7 +321,7 @@ export const ISLAND_SHORELINE: readonly (readonly [number, number])[] = [
  * REAL POLYGONS, from the same OpenStreetMap source as the coastline (`leisure=nature_reserve`,
  * `landuse=forest`, `natural=wood`, `leisure=park`), simplified to ~40m and projected through
  * the SAME `projectToIsland` as the pins and the shore. Hand-drawn blobs would be a third
- * independent guess at where the island is — the exact defect that put 16 farms in open water.
+ * independent guess at where the island is — the exact defect that put 16 sellers in open water.
  *
  * Chosen by drawn area: below roughly 450 square drawing units a wood is a speck at phone
  * size and adds noise rather than orientation. Waterfront parks whose polygons legitimately
@@ -652,7 +652,7 @@ export const ISLAND_HIGHWAY: readonly (readonly [number, number])[] = [
  *
  * Same discipline as the coastline and the woods, for the same reason: real traced coordinates
  * through the SAME `projectToIsland` as the pins. Hand-drawing these would be another
- * independent guess at where the island is, and that guess is what put 16 of 32 farms in open
+ * independent guess at where the island is, and that guess is what put 16 of 32 sellers in open
  * water the first time.
  */
 export const ISLAND_ROADS: readonly {
@@ -808,7 +808,7 @@ export function svgLine(points: readonly (readonly [number, number])[]): string 
  * Places a customer orients by. Not stands — these are landmarks.
  *
  * `nudge` shifts a label off the feature it names, in drawing units. Vashon town sits at the
- * island's densest cluster of farms and its label landed on top of a pin; Burton and
+ * island's densest cluster of sellers and its label landed on top of a pin; Burton and
  * Tahlequah sat on the highway line. A label overlapping a pin is worse than a slightly
  * offset one, because the pin is the thing a customer is trying to tap.
  *
@@ -844,7 +844,7 @@ export const ISLAND_PLACES: readonly {
  *
  * Exported so a test can check the ARTWORK against the PROJECTION rather than checking the
  * projection against itself. The first coastline was geometrically plausible, passed every
- * test, and put 16 of 32 real farms in open water; nothing caught it because a drawn map and
+ * test, and put 16 of 32 real sellers in open water; nothing caught it because a drawn map and
  * projected pins are two separate statements about where the island is, and no test compared
  * them. This is what makes them comparable.
  */

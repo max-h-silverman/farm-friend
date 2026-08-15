@@ -32,9 +32,9 @@ describe("the participant structured-save boundary", () => {
   it("locks sender, location, participants, then authorization at their call sites", () => {
     const calls = [
       "select sender_hash from sender_states where sender_hash = ${input.senderHash} for update",
-      "select owner_farm_id from sales_locations where id = ${input.salesLocationId} for update",
+      "select own_seller_id from sales_locations where id = ${input.salesLocationId} for update",
       "select id, display_name from sales_location_participants where sales_location_id = ${input.salesLocationId} and retired_at is null order by id for update",
-      "select farmer.id from farmer_authorizations as farmer join contacts on contacts.id = farmer.contact_id where farmer.farm_id = ${ownerFarmId} and contacts.phone_hash = ${input.senderHash} and farmer.revoked_at is null for update of farmer",
+      "select farmer.id from farmer_authorizations as farmer join contacts on contacts.id = farmer.contact_id where farmer.seller_id = ${ownerSellerId} and contacts.phone_hash = ${input.senderHash} and farmer.revoked_at is null for update of farmer",
     ];
     const positions = calls.map((call) => compactSave.indexOf(call));
     expect(positions.every((position) => position >= 0)).toBe(true);
@@ -48,7 +48,7 @@ describe("the participant structured-save boundary", () => {
   });
 
   it("performs no farm-name or profile matching", () => {
-    expect(compactSave).not.toMatch(/\b(from|join) farms\b/i);
+    expect(compactSave).not.toMatch(/\b(from|join) sellers\b/i);
   });
 });
 

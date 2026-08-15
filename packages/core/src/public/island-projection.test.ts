@@ -112,7 +112,7 @@ describe("projectToIsland", () => {
   });
 
   it("is monotonic — two stands never swap places", () => {
-    // Sweeps the real extent. Any non-monotonic step means two farms could render in the
+    // Sweeps the real extent. Any non-monotonic step means two sellers could render in the
     // wrong order relative to each other, which no single-point check would reveal.
     let previousX = -Infinity;
     for (let lon = ISLAND_BOUNDS.west; lon <= ISLAND_BOUNDS.east; lon += 0.005) {

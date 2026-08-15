@@ -1787,7 +1787,7 @@ export function ListingStep({
           because it answers a different question. Visitability decides whether there is
           somewhere to go; this decides whether the street address is printed. Folding them
           into one list would make "don't show my address" look like "I have no stand", which
-          is what the map says today for the farms that prompted this.
+          is what the map says today for the sellers that prompted this.
 
           **Directly BELOW the address field it governs** (max 2026-08-07). It used to render
           after the map, where a tall block sat between the choice and the thing it applies to
@@ -2228,7 +2228,7 @@ export function ListingStep({
 
       {/*
         THE FARM'S OWN PARAGRAPH, and the first farmer-facing surface that can change it.
-        `farms.description` renders on the public card and was seeded from VIGA's forms with no
+        `sellers.description` renders on the public card and was seeded from VIGA's forms with no
         writer anywhere, so a farmer publishing a clean listing kept stale prose underneath it.
 
         Prefilled with what is STORED rather than blank: the writer replaces it, so an empty box

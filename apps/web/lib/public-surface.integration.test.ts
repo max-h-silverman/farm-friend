@@ -161,7 +161,7 @@ describe("public web surface boundary (integration)", () => {
       values (
 ${farmerHash}, ${ids.location},
           (select id from stand_providers
-            where sales_location_id = ${ids.location} and seller_id is null), ${client().json({ entries: [] })}, 1,
+            where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
@@ -169,17 +169,17 @@ ${farmerHash}, ${ids.location},
       returning id
     `;
     const auth = await client()`
-      select id from farmer_authorizations where farm_id = ${ids.farm} limit 1
+      select id from farmer_authorizations where seller_id = ${ids.farm} limit 1
     `;
     const approval = await client()`
-      select id from farm_approvals where farm_id = ${ids.farm} limit 1
+      select id from seller_approvals where seller_id = ${ids.farm} limit 1
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${proposal[0]?.id as string},
+      values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${proposal[0]?.id as string},
               ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${publishedAt})
       returning id
     `;
@@ -199,8 +199,8 @@ ${farmerHash}, ${ids.location},
     await client()`
       truncate table
         inventory_entries, inventory_revisions, inventory_publication_proposals,
-        stock_out_reports, outbox_work, farm_approvals, farmer_authorizations,
-        sales_locations, administrators, farms, contacts
+        stock_out_reports, outbox_work, seller_approvals, farmer_authorizations,
+        sales_locations, administrators, sellers, contacts
       restart identity cascade
     `;
 
@@ -220,22 +220,22 @@ ${farmerHash}, ${ids.location},
     `;
 
     const farm = await client()`
-      insert into farms (name) values ('Provo Farms') returning id
+      insert into sellers (name) values ('Provo Farms') returning id
     `;
     ids.farm = farm[0]?.id as string;
 
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${ids.farm}, ${ids.contact}, ${T0}, ${T0})
     `;
     await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${ids.farm}, ${admins[0]?.id as string}, ${T0})
     `;
 
     const location = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (${ids.farm}, 'farm_stand', 'Provo Stand', 'America/Los_Angeles', 'visitable', 'produce', '123 Vashon Hwy',
@@ -254,11 +254,11 @@ ${farmerHash}, ${ids.location},
   describe("owner-confirmed names of other sellers (F-050)", () => {
     it("returns active names separately from aggregate inventory and never invents the owner", async () => {
       const authorization = await client()`
-        select id from farmer_authorizations where farm_id = ${ids.farm}
+        select id from farmer_authorizations where seller_id = ${ids.farm}
       `;
       await client()`
         insert into sales_location_participants (
-          owner_farm_id, sales_location_id, display_name,
+          owner_seller_id, sales_location_id, display_name,
           source, confirmed_by_authorization_id, confirmed_at,
           retired_by_authorization_id, retired_at
         ) values
@@ -379,7 +379,7 @@ ${farmerHash}, ${ids.location},
       // hides the majority or flattens "confirmed 3 hours ago" into "we have no idea".
       const second = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${ids.farm}, 'farm_stand', 'Unseeded Stand', 'America/Los_Angeles', 'visitable', 'produce', '456 Vashon Hwy',
@@ -514,7 +514,7 @@ ${farmerHash}, ${ids.location},
     async function insertContactOnly(name: string): Promise<string> {
       const rows = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
@@ -570,7 +570,7 @@ ${farmerHash}, ${ids.location},
 
     it("still carries address and coordinates for an ordinary visitable stand", async () => {
       // The other direction: making the fields optional must not quietly drop them from the
-      // stands that DO have them, which is 30 of the 32 real farms.
+      // stands that DO have them, which is 30 of the 32 real sellers.
       await insertContactOnly("Open Gate Lamb and Grazing");
 
       const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
@@ -601,7 +601,7 @@ ${farmerHash}, ${ids.location},
 
     it("carries the sanitized public source description to the map and HTTP API", async () => {
       await client()`
-        update farms
+        update sellers
         set description = ${"Facebook: www.facebook.com/example\nStocking Days: Daily"}
         where id = ${ids.farm}
       `;
@@ -831,7 +831,7 @@ ${farmerHash}, ${ids.location},
       expect(await listPublicStands({ db: db!, clock })).toEqual([]);
     });
 
-    // ──────────────────────────────────────────────────── F-074: test farms
+    // ──────────────────────────────────────────────────── F-074: test sellers
     //
     // A test farm is a farm VIGA marked as fake so the whole journey can be walked against real
     // production without an islander seeing it. The property that makes it worth building is
@@ -930,16 +930,16 @@ ${farmerHash}, ${ids.location},
       // a never-confirmed stand is the honest shape of this case anyway.
       const admins = await client()`select id from administrators limit 1`;
       const quietFarm = await client()`
-        insert into farms (name) values ('Rhubarb Test Farm') returning id
+        insert into sellers (name) values ('Rhubarb Test Farm') returning id
       `;
-      const quietFarmId = quietFarm[0]?.id as string;
+      const quietSellerId = quietFarm[0]?.id as string;
       const quietLocation = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
-        values (${quietFarmId}, 'farm_stand', 'Rhubarb Stand', 'America/Los_Angeles',
+        values (${quietSellerId}, 'farm_stand', 'Rhubarb Stand', 'America/Los_Angeles',
                 'visitable', 'produce', '9 Vashon Hwy', 47.4, -122.46, false, false)
         returning id
       `;
@@ -947,11 +947,11 @@ ${farmerHash}, ${ids.location},
       await client()`
         insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
         values (${quietLocationId}, (select id from stand_providers
-          where sales_location_id = ${quietLocationId} and seller_id is null), 'Rhubarb', true)
+          where sales_location_id = ${quietLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${quietLocationId})), 'Rhubarb', true)
       `;
 
       const marked = await setTestFarm(db!, {
-        farmId: quietFarmId,
+        farmId: quietSellerId,
         isTestFarm: true,
         administratorId: admins[0]?.id as string,
         occurredAt: T0,
@@ -1047,7 +1047,7 @@ ${farmerHash}, ${ids.location},
       expect(removed.status).toBe("removed");
       expect(
         await isPrivilegedSender(db!, { senderHash: operatorHash }),
-        "a removed number must stop seeing test farms immediately",
+        "a removed number must stop seeing test sellers immediately",
       ).toBe(false);
 
       // Revocation, not deletion: the row survives so the audit trail can still answer who was
@@ -1074,7 +1074,7 @@ ${farmerHash}, ${ids.location},
 
       // The fixture farm has a live authorization, so `already_onboarded` is the correct
       // refusal — and crucially NOT `unknown_farm`, which is what a resolver that filtered
-      // test farms would answer.
+      // test sellers would answer.
       const claim = await claimGrandfatheredFarm(db!, { farmId: ids.farm });
       expect(claim.status).toBe("already_onboarded");
 
@@ -1086,7 +1086,7 @@ ${farmerHash}, ${ids.location},
       // anyway. `NO_LIVE_FARMER` keys on `revoked_at`, which is the whole point of that
       // predicate over an invitation-based one.
       await client()`
-        update farmer_authorizations set revoked_at = ${T0} where farm_id = ${ids.farm}
+        update farmer_authorizations set revoked_at = ${T0} where seller_id = ${ids.farm}
       `;
       const claimable = await claimGrandfatheredFarm(db!, { farmId: ids.farm });
       expect(claimable.status).toBe("claimable");
@@ -1122,10 +1122,10 @@ ${farmerHash}, ${ids.location},
       expect(saved.status, "the farmer's save must really commit").toBe("saved");
 
       const rows = await client()`
-        select test_farm_at from farms where id = ${ids.farm}
+        select test_seller_at from sellers where id = ${ids.farm}
       `;
       expect(
-        rows[0]?.test_farm_at,
+        rows[0]?.test_seller_at,
         "a listing save must not clear the test-farm flag",
       ).not.toBeNull();
       expect(await listPublicStands({ db: db!, clock: new FixedClock(T0) })).toEqual([]);
@@ -1164,7 +1164,7 @@ ${farmerHash}, ${ids.location},
       for (const [index, item] of items.entries()) {
         await client()`
           insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-          values (${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${item}, true, ${index})
+          values (${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${item}, true, ${index})
           on conflict (provider_id, (lower(btrim(display_name, E' \t\r\n'))))
           do update set usually_carried = true, sort_order = excluded.sort_order
         `;
@@ -1255,7 +1255,7 @@ ${farmerHash}, ${ids.location},
         values (
           ${ids.location},
           (select id from stand_providers
-            where sales_location_id = ${ids.location} and seller_id is null),
+            where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})),
           ${item}, true, 0,
           ${price.amount}, ${price.quantity}, ${price.unit}, ${price.basis}
         )
@@ -1483,7 +1483,7 @@ ${farmerHash}, ${ids.location},
       // still sort behind a confirmed one, or the map opens on the least certain listings.
       const second = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', 'America/Los_Angeles', 'visitable', 'produce', '456 Vashon Hwy',
@@ -1495,7 +1495,7 @@ ${farmerHash}, ${ids.location},
         await client()`
           insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
           values (${taggedId}, (select id from stand_providers
-            where sales_location_id = ${taggedId} and seller_id is null), ${item}, true, ${index})
+            where sales_location_id = ${taggedId} and seller_id = (select own_seller_id from sales_locations where id = ${taggedId})), ${item}, true, ${index})
         `;
       }
 

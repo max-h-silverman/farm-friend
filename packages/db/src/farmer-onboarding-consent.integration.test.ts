@@ -69,11 +69,11 @@ describe("web onboarding establishes SMS consent (integration)", () => {
 
   /** A farm with one sales location, so authorization has something to authorize. */
   async function farmWithStand(name: string): Promise<string> {
-    const farms = await sql()`insert into farms (name) values (${name}) returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await sql()`insert into sellers (name) values (${name}) returning id`;
+    const farmId = sellers[0]?.id as string;
     await sql()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -315,13 +315,13 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       expect(opened.status).toBe("opened");
 
       const authorizations = await sql()`
-        select grant_row.id, grant_row.farm_id
+        select grant_row.id, grant_row.seller_id
         from farmer_authorizations as grant_row
         join contacts on contacts.id = grant_row.contact_id
         where contacts.phone_hash = ${contactHash} and grant_row.revoked_at is null
       `;
       expect(authorizations.length).toBe(1);
-      expect(authorizations[0]?.farm_id).toBe(farmId);
+      expect(authorizations[0]?.seller_id).toBe(farmId);
 
       // No human acted, so nothing is left waiting in VIGA's queue.
       const open = await sql()`
@@ -333,7 +333,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
 
     it("APPROVES the farm too, so the farmer's first publish is not refused", async () => {
       // F-067 — authorization and approval are two INDEPENDENT gates. `confirmProposal` checks
-      // `farmer_authorizations` and then `farm_approvals`, and returns `not_approved` when the
+      // `farmer_authorizations` and then `seller_approvals`, and returns `not_approved` when the
       // second is missing. Setting a farmer up without approving their farm leaves them
       // authorized, texted "your farm is ready", and refused on their first update — the exact
       // silent dead end this feature exists to close, moved one step later.
@@ -355,21 +355,21 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       });
 
       const approvals = await sql()`
-        select administrator_id from farm_approvals
-        where farm_id = ${farmId} and revoked_at is null
+        select administrator_id from seller_approvals
+        where seller_id = ${farmId} and revoked_at is null
       `;
       expect(approvals.length).toBe(1);
       expect(approvals[0]?.administrator_id).toBe(administratorId);
     });
 
     it("does not approve a farm that was already approved", async () => {
-      // `farm_approvals_one_current_per_farm` is a partial unique index, so a second live row is
+      // `seller_approvals_one_current_per_farm` is a partial unique index, so a second live row is
       // an error rather than a no-op. A farmer invited to an already-participating farm must not
       // turn a redemption into a constraint violation.
       const contactHash = await contact("g2");
       const farmId = await farmWithStand(`Reapproved ${randomUUID()}`);
       await sql()`
-        insert into farm_approvals (farm_id, administrator_id, approved_at)
+        insert into seller_approvals (seller_id, administrator_id, approved_at)
         values (${farmId}, ${administratorId}, ${at(0).toISOString()})
       `;
       const token = await invitation(farmId);
@@ -385,7 +385,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
 
       expect(opened.status).toBe("opened");
       const approvals = await sql()`
-        select id from farm_approvals where farm_id = ${farmId} and revoked_at is null
+        select id from seller_approvals where seller_id = ${farmId} and revoked_at is null
       `;
       expect(approvals.length).toBe(1);
     });
@@ -406,7 +406,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       });
 
       const approvals = await sql()`
-        select id from farm_approvals where farm_id = ${farmId} and revoked_at is null
+        select id from seller_approvals where seller_id = ${farmId} and revoked_at is null
       `;
       expect(approvals.length).toBe(0);
     });
@@ -1000,7 +1000,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
         from inventory_entries entry
         join inventory_revisions revision on revision.id = entry.inventory_revision_id
         join sales_locations location on location.id = revision.sales_location_id
-        where location.owner_farm_id = ${farmId} and revision.is_current
+        where location.own_seller_id = ${farmId} and revision.is_current
         order by entry.sort_order asc
       `) as unknown as { item_name: string; price_text: string | null }[];
     }
@@ -1023,7 +1023,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       const revisions = await sql()`
         select revision.id from inventory_revisions revision
         join sales_locations location on location.id = revision.sales_location_id
-        where location.owner_farm_id = ${farmId}
+        where location.own_seller_id = ${farmId}
       `;
       expect(revisions).toHaveLength(0);
     });
@@ -1082,7 +1082,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
                revision.proposal_id, revision.farm_approval_id
         from inventory_revisions revision
         join sales_locations location on location.id = revision.sales_location_id
-        where location.owner_farm_id = ${farmId} and revision.is_current
+        where location.own_seller_id = ${farmId} and revision.is_current
       `;
       expect(revisions).toHaveLength(1);
       /*
@@ -1136,7 +1136,7 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       const revisions = await sql()`
         select revision.id from inventory_revisions revision
         join sales_locations location on location.id = revision.sales_location_id
-        where location.owner_farm_id = ${farmId}
+        where location.own_seller_id = ${farmId}
       `;
       expect(revisions).toHaveLength(1);
     });
@@ -1193,11 +1193,11 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       if (opened.status !== "opened") throw new Error(opened.status);
 
       const locations = await sql()`
-        select id from sales_locations where owner_farm_id = ${farmId}
+        select id from sales_locations where own_seller_id = ${farmId}
       `;
       const salesLocationId = locations[0]!.id as string;
       const approvals = await sql()`
-        select id from farm_approvals where farm_id = ${farmId} and revoked_at is null
+        select id from seller_approvals where seller_id = ${farmId} and revoked_at is null
       `;
       const farmApprovalId = approvals[0]!.id as string;
 
@@ -1205,13 +1205,13 @@ describe("web onboarding establishes SMS consent (integration)", () => {
       await expect(
         sql()`
           insert into inventory_revisions (
-            farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+            seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
             farm_approval_id, source, published_at
           )
           values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), null, null,
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), null, null,
             ${farmApprovalId}, 'web', ${at(3)}
           )
         `,
@@ -1221,13 +1221,13 @@ ${farmId}, ${salesLocationId},
       await expect(
         sql()`
           insert into inventory_revisions (
-            farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+            seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
             farm_approval_id, source, published_at
           )
           values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), null, ${opened.authorizationId},
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), null, ${opened.authorizationId},
             null, 'web', ${at(3)}
           )
         `,

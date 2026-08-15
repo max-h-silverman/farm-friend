@@ -8,7 +8,7 @@
 //
 // Both facts below cost real addresses if handled the obvious way:
 //
-//   1. **The two columns disagree for 5 of 32 farms**, so they are UNIONED rather than chosen
+//   1. **The two columns disagree for 5 of 32 sellers**, so they are UNIONED rather than chosen
 //      between. Lavender Hill's three addresses are `cathy@` in one and `info@` + `shop@` in the
 //      other — either column alone loses real addresses and locks that farmer out of verifying
 //      with one VIGA genuinely holds.
@@ -19,7 +19,7 @@
 //
 // ## Normalization, and why it matches the database exactly
 //
-// Addresses are lowercased and trimmed here because `farm_emails_one_per_farm_address` indexes
+// Addresses are lowercased and trimmed here because `seller_emails_one_per_farm_address` indexes
 // `lower(btrim(email, E' \t\r\n'))`. If the two disagreed, the ingest would insert `Info@…`, the
 // index would collapse it against `info@…`, and the failure would name a constraint rather than
 // anything an operator could see in their data.
@@ -43,8 +43,8 @@ export interface FarmRoster {
    * Every distinct address for this farm, primary first, normalized.
    *
    * **Empty is a real answer and is reported, never dropped.** Roughly three of the 35 seeded
-   * farms have no email on file; they are told to contact VIGA, which is only possible if the
-   * ingest says which farms they are.
+   * sellers have no email on file; they are told to contact VIGA, which is only possible if the
+   * ingest says which sellers they are.
    */
   emails: string[];
 }
@@ -90,7 +90,7 @@ export function splitEmailCell(cell: string | null | undefined): string[] {
  *
  * **Measured against the real 2026 export.** Four of 32 rows write the name as
  * `Lavender Hill Farm *does not accept VIGA Bucks*` — a volunteer appended a VIGA Bucks
- * eligibility note to the name cell. Those farms exist in the database under their clean names,
+ * eligibility note to the name cell. Those sellers exist in the database under their clean names,
  * so exact matching found nothing for them and four real farmers would have been silently
  * unable to verify, with the ingest reporting success.
  *

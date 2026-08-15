@@ -84,8 +84,8 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
   beforeEach(async () => {
     await client()`
       truncate table closure_revisions, inventory_entries, inventory_revisions,
-        inventory_publication_proposals, outbox_work, farm_approvals,
-        farmer_authorizations, sales_locations, administrators, farms, contacts
+        inventory_publication_proposals, outbox_work, seller_approvals,
+        farmer_authorizations, sales_locations, administrators, sellers, contacts
       restart identity cascade
     `;
     const contacts = await client()`
@@ -99,11 +99,11 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       insert into administrators (email, authorized_at)
       values ('board@vigavashon.org', ${T0}) returning id
     `;
-    const farms = await client()`insert into farms (name) values ('Closure Farm') returning id`;
-    ids.farm = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values ('Closure Farm') returning id`;
+    ids.farm = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${ids.farm}, 'farm_stand', 'Closure Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Closure Way', 47.44, -122.46,
@@ -112,12 +112,12 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     `;
     ids.location = locations[0]?.id as string;
     const authorizations = await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${ids.farm}, ${farmerContact}, ${T0}, ${T0}) returning id
     `;
     ids.authorization = authorizations[0]?.id as string;
     const approvals = await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${ids.farm}, ${administrators[0]?.id as string}, ${T0}) returning id
     `;
     ids.approval = approvals[0]?.id as string;
@@ -233,7 +233,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       now: T0,
     });
     await mixed.activate({ providerAcceptedAt: at(1) });
-    await client()`update farm_approvals set revoked_at = ${at(1.5)} where id = ${ids.approval}`;
+    await client()`update seller_approvals set revoked_at = ${at(1.5)} where id = ${ids.approval}`;
 
     const refused = await confirmInventoryPublication(database(), {
       proposalId: mixed.proposalId,
@@ -247,7 +247,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     expect(await client()`select id from inventory_revisions`).toHaveLength(0);
     expect(await client()`select id from closure_revisions`).toHaveLength(0);
 
-    await client()`update farm_approvals set revoked_at = null where id = ${ids.approval}`;
+    await client()`update seller_approvals set revoked_at = null where id = ${ids.approval}`;
     const published = await confirmInventoryPublication(database(), {
       proposalId: mixed.proposalId,
       senderHash: farmerHash,
@@ -278,7 +278,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       superseded?: Date | null;
     }) => client()`
       insert into closure_revisions (
-        owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+        owner_seller_id, sales_location_id, proposal_id, owner_authorization_id,
         owner_approval_id, result, closure_kind, starts_on, closed_through,
         published_at, is_current, superseded_at
       ) values (
@@ -325,7 +325,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       ) values (
         ${farmerHash}, ${ids.location},
           (select id from stand_providers
-            where sales_location_id = ${ids.location} and seller_id is null), ${client().json({ closure: { result: "reopen" } })},
+            where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${client().json({ closure: { result: "reopen" } })},
         1, ${input.hasInventory}, ${input.hasClosure},
         ${input.inventoryFirst}, ${input.closureFirst}
       )
@@ -358,14 +358,14 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
   });
 
   it("refuses a non-owner's whole mixed proposal before any durable fact exists", async () => {
-    const otherFarms = await client()`insert into farms (name) values ('Other Farm') returning id`;
-    const otherFarmId = otherFarms[0]?.id as string;
+    const otherFarms = await client()`insert into sellers (name) values ('Other Farm') returning id`;
+    const otherSellerId = otherFarms[0]?.id as string;
     const otherContacts = await client()`
       select id from contacts where phone_hash = ${nonOwnerHash}
     `;
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
-      values (${otherFarmId}, ${otherContacts[0]?.id as string}, ${T0}, ${T0})
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${otherSellerId}, ${otherContacts[0]?.id as string}, ${T0}, ${T0})
     `;
 
     await expect(
@@ -383,26 +383,26 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
   });
 
   it("binds closure location, authorization, and approval to the same owner farm", async () => {
-    const otherFarms = await client()`insert into farms (name) values ('Binding Farm') returning id`;
-    const otherFarmId = otherFarms[0]?.id as string;
+    const otherFarms = await client()`insert into sellers (name) values ('Binding Farm') returning id`;
+    const otherSellerId = otherFarms[0]?.id as string;
     const otherLocations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${otherFarmId}, 'farm_stand', 'Binding Stand', 'America/Los_Angeles', 'visitable', 'produce', '2 Closure Way', 47.43, -122.45,
+        ${otherSellerId}, 'farm_stand', 'Binding Stand', 'America/Los_Angeles', 'visitable', 'produce', '2 Closure Way', 47.43, -122.45,
         false, false
       ) returning id
     `;
     const otherContacts = await client()`select id from contacts where phone_hash = ${nonOwnerHash}`;
     const otherAuthorizations = await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
-      values (${otherFarmId}, ${otherContacts[0]?.id as string}, ${T0}, ${T0}) returning id
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${otherSellerId}, ${otherContacts[0]?.id as string}, ${T0}, ${T0}) returning id
     `;
     const administrators = await client()`select id from administrators limit 1`;
     const otherApprovals = await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
-      values (${otherFarmId}, ${administrators[0]?.id as string}, ${T0}) returning id
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
+      values (${otherSellerId}, ${administrators[0]?.id as string}, ${T0}) returning id
     `;
     const proposal = await openOrReviseProposal(database(), {
       senderHash: farmerHash,
@@ -413,7 +413,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
 
     const insert = (locationId: string, authorizationId: string, approvalId: string) => client()`
       insert into closure_revisions (
-        owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+        owner_seller_id, sales_location_id, proposal_id, owner_authorization_id,
         owner_approval_id, result, published_at
       ) values (
         ${ids.farm}, ${locationId}, ${proposal.proposalId}, ${authorizationId},
@@ -436,7 +436,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
   it("serializes genuinely queued closure claimants and publishes exactly one base", async () => {
     const otherContacts = await client()`select id from contacts where phone_hash = ${nonOwnerHash}`;
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${ids.farm}, ${otherContacts[0]?.id as string}, ${T0}, ${T0})
     `;
     const first = await openOrReviseProposal(database(), {
@@ -464,7 +464,7 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       markLocked = resolve;
     });
     const holding = blocker.begin(async (tx) => {
-      await tx`select owner_farm_id from sales_locations where id = ${ids.location} for update`;
+      await tx`select own_seller_id from sales_locations where id = ${ids.location} for update`;
       markLocked();
       await releasePromise;
     });

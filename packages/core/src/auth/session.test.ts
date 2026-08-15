@@ -63,7 +63,7 @@ describe("admin session tokens", () => {
   });
 
   it("bounds the session lifetime", () => {
-    // An operator session is a standing credential to approve farms. It expires in a
+    // An operator session is a standing credential to approve sellers. It expires in a
     // working day, not a month.
     expect(ADMIN_SESSION_TTL_MS).toBeGreaterThan(0);
     expect(ADMIN_SESSION_TTL_MS).toBeLessThanOrEqual(24 * 60 * 60 * 1000);

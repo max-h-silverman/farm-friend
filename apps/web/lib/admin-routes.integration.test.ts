@@ -49,7 +49,7 @@ describe("admin routes (integration)", () => {
 
   // Routes are imported AFTER the environment points at the throwaway database, because
   // `publicReadContext` caches its pool on first use.
-  let farmsRoute: typeof import("../app/api/admin/farms/route");
+  let farmsRoute: typeof import("../app/api/admin/sellers/route");
   let flagsRoute: typeof import("../app/api/admin/flags/route");
   let threadRoute: typeof import("../app/api/admin/flags/[flagId]/thread/route");
   let reportsRoute: typeof import("../app/api/admin/stock-out-reports/route");
@@ -120,13 +120,13 @@ describe("admin routes (integration)", () => {
     `;
     ids.administrator = administrators[0]?.id as string;
 
-    const farms = await sql()`
-      insert into farms (name) values ('Route Farm') returning id
+    const sellers = await sql()`
+      insert into sellers (name) values ('Route Farm') returning id
     `;
-    ids.farm = farms[0]?.id as string;
+    ids.farm = sellers[0]?.id as string;
 
     const locations = await sql()`
-      insert into sales_locations (owner_farm_id, kind, name, timezone, visitability,
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
         offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible)
       values (${ids.farm}, 'farm_stand', 'Route Stand', 'America/Los_Angeles', 'visitable',
@@ -135,7 +135,7 @@ describe("admin routes (integration)", () => {
     `;
     ids.stand = locations[0]?.id as string;
 
-    farmsRoute = await import("../app/api/admin/farms/route");
+    farmsRoute = await import("../app/api/admin/sellers/route");
     flagsRoute = await import("../app/api/admin/flags/route");
     threadRoute = await import("../app/api/admin/flags/[flagId]/thread/route");
     reportsRoute = await import("../app/api/admin/stock-out-reports/route");
@@ -163,7 +163,7 @@ describe("admin routes (integration)", () => {
       expect(
         (
           await farmsRoute.POST(
-            request("https://ff.example/api/admin/farms", {
+            request("https://ff.example/api/admin/sellers", {
               method: "POST",
               body: JSON.stringify({ farmId: ids.farm, action: "approve" }),
             }),
@@ -259,10 +259,10 @@ describe("admin routes (integration)", () => {
 
     it("refuses a cross-site write even when the browser carries a live session", async () => {
       const token = await sessionFor(ids.administrator as string);
-      const before = await sql()`select count(*)::int as n from farm_approvals`;
+      const before = await sql()`select count(*)::int as n from seller_approvals`;
 
       const response = await farmsRoute.POST(
-        request("https://ff.example/api/admin/farms", {
+        request("https://ff.example/api/admin/sellers", {
           method: "POST",
           token,
           headers: { origin: "https://attacker.example" },
@@ -271,7 +271,7 @@ describe("admin routes (integration)", () => {
       );
 
       expect(response.status).toBe(403);
-      const after = await sql()`select count(*)::int as n from farm_approvals`;
+      const after = await sql()`select count(*)::int as n from seller_approvals`;
       expect(after[0]?.n).toBe(before[0]?.n);
     });
 
@@ -313,7 +313,7 @@ describe("admin routes (integration)", () => {
       const impostorId = randomUUID();
 
       const approve = await farmsRoute.POST(
-        request("https://ff.example/api/admin/farms", {
+        request("https://ff.example/api/admin/sellers", {
           method: "POST",
           token,
           // A caller naming someone else must not be able to act as them.
@@ -327,15 +327,15 @@ describe("admin routes (integration)", () => {
       expect(approve.status).toBe(200);
 
       const rows = await sql()`
-        select administrator_id from farm_approvals
-        where farm_id = ${ids.farm as string} and revoked_at is null
+        select administrator_id from seller_approvals
+        where seller_id = ${ids.farm as string} and revoked_at is null
       `;
       expect(rows).toHaveLength(1);
       expect(rows[0]?.administrator_id).toBe(ids.administrator);
       expect(rows[0]?.administrator_id).not.toBe(impostorId);
 
       const revoke = await farmsRoute.POST(
-        request("https://ff.example/api/admin/farms", {
+        request("https://ff.example/api/admin/sellers", {
           method: "POST",
           token,
           body: JSON.stringify({ farmId: ids.farm, action: "revoke" }),
@@ -343,15 +343,15 @@ describe("admin routes (integration)", () => {
       );
       expect(revoke.status).toBe(200);
       const after = await sql()`
-        select id from farm_approvals
-        where farm_id = ${ids.farm as string} and revoked_at is null
+        select id from seller_approvals
+        where seller_id = ${ids.farm as string} and revoked_at is null
       `;
       expect(after).toHaveLength(0);
     });
 
     it("rejects a malformed or unknown request without touching approval state", async () => {
       const token = await sessionFor(ids.administrator as string);
-      const before = await sql()`select count(*)::int as n from farm_approvals`;
+      const before = await sql()`select count(*)::int as n from seller_approvals`;
 
       for (const body of [
         {},
@@ -361,7 +361,7 @@ describe("admin routes (integration)", () => {
         { farmId: 42, action: "approve" },
       ]) {
         const response = await farmsRoute.POST(
-          request("https://ff.example/api/admin/farms", {
+          request("https://ff.example/api/admin/sellers", {
             method: "POST",
             token,
             body: JSON.stringify(body),
@@ -371,7 +371,7 @@ describe("admin routes (integration)", () => {
       }
 
       const unknownFarm = await farmsRoute.POST(
-        request("https://ff.example/api/admin/farms", {
+        request("https://ff.example/api/admin/sellers", {
           method: "POST",
           token,
           body: JSON.stringify({ farmId: randomUUID(), action: "approve" }),
@@ -379,7 +379,7 @@ describe("admin routes (integration)", () => {
       );
       expect(unknownFarm.status).toBe(404);
 
-      const after = await sql()`select count(*)::int as n from farm_approvals`;
+      const after = await sql()`select count(*)::int as n from seller_approvals`;
       expect(after[0]?.n).toBe(before[0]?.n);
     });
 
@@ -603,7 +603,7 @@ describe("admin routes (integration)", () => {
       const token = await sessionFor(ids.administrator as string);
       const locations = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (
@@ -681,16 +681,16 @@ describe("admin routes (integration)", () => {
   describe("the stand-data flag queue through its route (F-037)", () => {
     /** A seeded stand with one open data flag, the way the loader writes them. */
     async function standDataFlag(): Promise<{ flagId: string }> {
-      const farms = await sql()`
-        insert into farms (name) values (${`Data Farm ${randomUUID()}`}) returning id
+      const sellers = await sql()`
+        insert into sellers (name) values (${`Data Farm ${randomUUID()}`}) returning id
       `;
       const locations = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (
-          ${farms[0]?.id as string}, 'farm_stand', ${`Data Stand ${randomUUID()}`}, 'America/Los_Angeles',
+          ${sellers[0]?.id as string}, 'farm_stand', ${`Data Stand ${randomUUID()}`}, 'America/Los_Angeles',
           'visitable', 'produce', '9 Vashon Hwy', 47.42, -122.44, false, false
         )
         returning id
@@ -785,10 +785,10 @@ describe("admin routes (integration)", () => {
         values (${`+1206555${suffix}`}, ${contactHash})
         on conflict (phone_hash) do nothing
       `;
-      const farms = await sql()`
-        insert into farms (name) values (${`Farmer Farm ${randomUUID()}`}) returning id
+      const sellers = await sql()`
+        insert into sellers (name) values (${`Farmer Farm ${randomUUID()}`}) returning id
       `;
-      return { contactHash, farmId: farms[0]?.id as string };
+      return { contactHash, farmId: sellers[0]?.id as string };
     }
 
     async function openRequestFor(contactHash: string): Promise<string> {
@@ -822,11 +822,11 @@ describe("admin routes (integration)", () => {
       expect(payload.link).toMatch(/^https:\/\/ff\.example\/farmer\/onboarding\/[0-9a-f]{64}$/);
 
       const invitation = await sql()`
-        select farm_id, channel, redeemed_at from farmer_invitations
-        where farm_id = ${ids.farm as string}
+        select seller_id, channel, redeemed_at from farmer_invitations
+        where seller_id = ${ids.farm as string}
       `;
       expect(invitation).toEqual([
-        { farm_id: ids.farm as string, channel: "email", redeemed_at: null },
+        { seller_id: ids.farm as string, channel: "email", redeemed_at: null },
       ]);
     });
 
@@ -851,11 +851,11 @@ describe("admin routes (integration)", () => {
       expect(payload.link).toMatch(/^https:\/\/ff\.example\/farmer\/onboarding\/[0-9a-f]{64}$/);
 
       const invitation = await sql()`
-        select farm_id, channel, redeemed_at from farmer_invitations
-        where channel = 'sms' and farm_id is null
+        select seller_id, channel, redeemed_at from farmer_invitations
+        where channel = 'sms' and seller_id is null
       `;
       expect(invitation).toEqual([
-        { farm_id: null, channel: "sms", redeemed_at: null },
+        { seller_id: null, channel: "sms", redeemed_at: null },
       ]);
     });
 
@@ -911,7 +911,7 @@ describe("admin routes (integration)", () => {
 
       const locations = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
           public_latitude, public_longitude, farm_bucks_accepted, farm_bucks_eligible
         ) values
           (${farmId}, 'farm_stand', 'North Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 North Rd',
@@ -952,10 +952,10 @@ describe("admin routes (integration)", () => {
       expect(issuedToken).toBeDefined();
 
       const links = await sql()`
-        select owner_farm_id, sales_location_id
+        select owner_seller_id, sales_location_id
         from farmer_links where token_hash = ${hashFarmerLinkToken(issuedToken as string)}
       `;
-      expect(links).toEqual([{ owner_farm_id: farmId, sales_location_id: southStandId }]);
+      expect(links).toEqual([{ owner_seller_id: farmId, sales_location_id: southStandId }]);
     });
 
     it("revokes a farmer's access through the route", async () => {

@@ -72,7 +72,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
   const nativeProvider = async (salesLocationId: string): Promise<string> => {
     const rows = await client()`
       select id from stand_providers
-      where sales_location_id = ${salesLocationId} and seller_id is null
+      where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})
     `;
     return rows[0]?.id as string;
   };
@@ -93,10 +93,10 @@ describe("B-074 shared current-inventory reader (integration)", () => {
     sql = postgres(url.toString(), { max: 10 });
 
     const db = client();
-    const farms = await db`
-      insert into farms (name) values ('Golden Farm') returning id
+    const sellers = await db`
+      insert into sellers (name) values ('Golden Farm') returning id
     `;
-    farmId = farms[0]?.id as string;
+    farmId = sellers[0]?.id as string;
 
     // `visitable` carries an address and a coordinate pair, because
     // `sales_locations_coherent_visitability` requires them — a visitable stand with nowhere to
@@ -104,7 +104,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
     const mkLocation = async (name: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           is_public, farm_bucks_accepted, farm_bucks_eligible,
           public_address, public_latitude, public_longitude
         ) values (
@@ -131,11 +131,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
     // legitimately null instead of manufacturing an authorization chain the test never reads.
     const superseded = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, source, published_at, is_current, superseded_at
+        seller_id, sales_location_id, provider_id, source, published_at, is_current, superseded_at
       ) values (
         ${farmId}, ${richLocationId},
         (select id from stand_providers
-          where sales_location_id = ${richLocationId} and seller_id is null), 'viga', now() - interval '10 days',
+          where sales_location_id = ${richLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${richLocationId})), 'viga', now() - interval '10 days',
         false, now() - interval '2 days'
       ) returning id
     `;
@@ -150,11 +150,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
 
     const current = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, source, published_at, is_current
+        seller_id, sales_location_id, provider_id, source, published_at, is_current
       ) values (
         ${farmId}, ${richLocationId},
         (select id from stand_providers
-          where sales_location_id = ${richLocationId} and seller_id is null), 'viga', now() - interval '2 days', true
+          where sales_location_id = ${richLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${richLocationId})), 'viga', now() - interval '2 days', true
       ) returning id
     `;
     currentRevisionId = current[0]?.id as string;
@@ -173,11 +173,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
 
     await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, source, published_at, is_current
+        seller_id, sales_location_id, provider_id, source, published_at, is_current
       ) values (
         ${farmId}, ${emptyLocationId},
         (select id from stand_providers
-          where sales_location_id = ${emptyLocationId} and seller_id is null), 'viga', now() - interval '1 day', true
+          where sales_location_id = ${emptyLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${emptyLocationId})), 'viga', now() - interval '1 day', true
       )
     `;
   }, 60_000);

@@ -74,8 +74,8 @@ describe("F-050 forward migration from populated pre-change schema (integration)
   }
 
   it("preserves reviewed ownership, visibility, and open flags without inventing participants", async () => {
-    const farms = await client()`insert into farms (name) values ('Reviewed Owner') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into farms (name) values ('Reviewed Owner') returning id`;
+    const farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
         farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
@@ -95,8 +95,8 @@ describe("F-050 forward migration from populated pre-change schema (integration)
     await migrate(drizzle(client()), { migrationsFolder: migrationsDir });
 
     expect(await client()`
-      select id, owner_farm_id, is_public from sales_locations where id = ${locationId}
-    `).toEqual([{ id: locationId, owner_farm_id: farmId, is_public: false }]);
+      select id, own_seller_id, is_public from sales_locations where id = ${locationId}
+    `).toEqual([{ id: locationId, own_seller_id: farmId, is_public: false }]);
     expect(await client()`
       select id, sales_location_id, reason, resolved_at
       from stand_data_flags where id = ${flags[0]?.id as string}
@@ -113,10 +113,10 @@ describe("F-050 forward migration from populated pre-change schema (integration)
     const ownershipColumns = await client()`
       select column_name from information_schema.columns
       where table_schema = 'public' and table_name = 'sales_locations'
-        and column_name in ('farm_id', 'owner_farm_id')
+        and column_name in ('seller_id', 'own_seller_id')
       order by column_name
     `;
-    expect(ownershipColumns).toEqual([{ column_name: "owner_farm_id" }]);
+    expect(ownershipColumns).toEqual([{ column_name: "own_seller_id" }]);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
     ).toEqual([{ count: currentMigrationCount }]);

@@ -10,14 +10,20 @@ doc owns the *rules*; this one owns the *inventory*.
 > No build status — that lives in [CURRENT_STATE.md](CURRENT_STATE.md). **A record described here is a
 > claim until a test can fail on it**; see DATA_ARCHITECTURE's note on the real-Postgres harness.
 
-## farms and sales locations
+## sellers and sales locations
 
-The farm and its stands or sales points. A location's `owner_farm_id` is the farm authorized to
-govern address, hours, closure, and visibility; owner authority is not seller participation. Each
-location carries one reviewed timezone used for local scheduled work; launch permits only
-`America/Los_Angeles`.
+The seller — a brand that sells, whether a farm, a bakery, a maker, or an individual grower — and
+the stands or sales points it sells at. **`farms` was renamed to `sellers` in F-114 Phase C.0**,
+because that is what the record truthfully holds; renaming preserved every id, so all sixteen keys
+onto it stayed valid. Each location carries one reviewed timezone used for local scheduled work;
+launch permits only `America/Los_Angeles`.
 
-**Publication authority no longer routes through `owner_farm_id`** (F-114 Phase B). Six of the eight
+A location's **`own_seller_id` is the self-pointer**: which of the sellers nested at this stand IS
+the stand. It replaced `owner_farm_id`, and it is a different fact — ownership asserted who controls
+the place; this answers the question public rendering actually has, which line to suppress. **NULL
+is a venue with no goods of its own**, like Morgan Hill Community Stand, and is a permanent shape.
+
+**Publication authority no longer routes through stand ownership** (F-114 Phase B). Six of the eight
 composite keys that did now route through `(sales_locations.id, stand_providers.id)` instead, because
 the publisher may be a hosted seller the owner does not control. Two deliberately did NOT move:
 `closure_revisions`, because stand closure is owner-only and overrides every provider — a fact about
@@ -56,8 +62,8 @@ time the farmer edited their listing. **Two actors owning one column is the fail
 prevents.** `retired_at` and `retired_by_administrator_id` move together, enforced by a CHECK stated
 as a full disjunction so the NULL case cannot pass silently.
 
-**`farms.retired_at` is the same act one level up** (F-100): VIGA taking a whole farm down, with the
-same paired-actor CHECK. `farms` is referenced `on delete restrict` by eight tables, so erasure is
+**`sellers.retired_at` is the same act one level up** (F-100): VIGA taking a whole farm down, with the
+same paired-actor CHECK. `sellers` is referenced `on delete restrict` by eight tables, so erasure is
 unavailable there too. It deliberately **does not write each stand's own `retired_at`.** Readers treat
 a stand under a retired farm as off the map — "is this stand served?" is the farm's state OR the
 stand's — but the stand's column stays untouched, so restoring the farm returns exactly the stands it
@@ -71,10 +77,10 @@ VIGA removed. Publication gets its own locked check inside `confirmInventoryPubl
 approval it sits with, returning `farm_retired`. Filtering only the stand's column leaves a removed
 farm on the map, reachable by text, and still publishing.
 
-**`farms.test_farm_at` is the same rule applied a second time** (F-074): a farm VIGA marked as fake so
+**`sellers.test_seller_at` is the same rule applied a second time** (F-074): a farm VIGA marked as fake so
 the whole journey can be walked against real production without an islander seeing it. It is on
-**`farms`**, not `sales_locations`, because the intent is "this whole farm is fake" — one decision
-covering every stand it has. It pairs with `test_farm_by_administrator_id` under the same
+**`sellers`**, not `sales_locations`, because the intent is "this whole farm is fake" — one decision
+covering every stand it has. It pairs with `test_seller_by_administrator_id` under the same
 full-disjunction CHECK, and a test asserts a real listing save does not clear it.
 
 **It decides presence, never presentation.** A test farm is *absent* from the map, from both halves of
@@ -91,29 +97,42 @@ unpublished address or an absent pin.
 
 ## sellers and stand providers (F-114)
 
-- **sellers** — a reusable public brand identity, shared by one or more people. Deliberately NOT
-  rooted on `farms`: the stands that host other sellers today host bakeries and makers that are not
-  farms and never will have a listing. `farm_id` links a brand to a farm when it *is* one, and is
-  never inferred — the migration is forbidden to link a display name to an identity. VIGA may revoke
-  a seller globally.
-- **stand_providers** — ONE seller's participation at ONE stand, or, when `seller_id is null`, the
-  stand's **native brand slot**: the stand selling under its own name. One record with a nullable
-  column rather than two behind an interface, because two would double every current-inventory read
-  site and reintroduce the agree-by-convention failure Phase A ended. `seller_id is null` is a
-  permanent shape, not a migration shim: every stand today is its own seller and most will stay so.
+- **sellers** — the identity record, and the authority root (F-114 Phase C.0). One brand: a farm, a
+  bakery, a maker, an individual grower. Phase B added a *second* `sellers` table beside `farms`
+  with a `farm_id` back-pointer; when C.0 renamed `farms` to `sellers` the two merged, because two
+  records for one brand is exactly the duplication this removes. `retired_at` is the one revocation
+  concept — Phase B's separate `revoked_at` pair went with the merge.
+- **stand_providers** — ONE seller's participation at ONE stand. **`seller_id` is NOT NULL: there is
+  no native brand slot.** A stand's own goods belong to its own seller, named like any other, and
+  which seller that is lives in `sales_locations.own_seller_id`. Phase B made the column nullable
+  because `farms` was the authority root and NULL was the only way to say "the stand itself"; C.0
+  removed that root, so NULL had nothing left to mean.
 
-**Every stand has exactly one native slot**, enforced by a PARTIAL unique index —
-`stand_providers_one_native_per_location` on `sales_location_id where seller_id is null`. A plain
-unique on `(location, seller)` would constrain nothing, because Postgres treats NULLs as distinct
-and every native row would be its own key. It is also the first-insert arbiter for that row.
+`stand_providers_one_per_seller_per_location` admits one row per seller per stand and is the
+**first-insert arbiter** for a race: two writers adding the same seller both find nothing and both
+insert, so the unique index decides, never a preceding read.
 
-The slot is created **by a trigger on `sales_locations`**, not by the writers that create stands. A
-stand with no native slot can hold no inventory and no usual items at all, and the failure would
-surface far from its cause.
+A stand that NAMES its own seller gets that seller's provider row from a trigger on
+`sales_locations`, firing on insert and on any later change of the self-pointer. This is not Phase
+B's trigger, which fired for every stand: **a venue with no seller of its own gets nothing
+fabricated**, which is the whole reason the earlier one had to go.
 
 **Which facts live where:** the stand owns coordinates, address, directions, physical access, and
 stand-level closure. The provider owns current and usual inventory, prices, payment, season,
-schedule, pause, one public note, and its reminder cadence and recipient. **Availability is an
+schedule, pause, one public note, and its reminder cadence and recipient.
+
+**Payment is the seller's own fact** — their money, their account — so it belongs to the provider
+like the rest of that list. `sales_location_payment_methods` is still keyed on the stand alone,
+which is correct only while every stand has exactly one seller; it gains the provider dimension
+with the rest of the hosted-seller work. A hosted seller's accepted methods are never inferred from
+the host's list.
+
+Two things this does *not* mean. A **shared cash box is the common arrangement** at an unattended
+stand, so a hosted seller taking cash is presumed to use the host's box unless they say otherwise —
+some set their own lockbox beside it. And whether a host's *digital* payment covers a hosted
+seller's goods is often unsettled between the farmers themselves: cash in a shared box needs no
+agreement because the money is separated when the box is emptied, but an instrument naming an
+account is that holder's claim to make. Recorded when stated, silent when not. **Availability is an
 intersection, never a union** — a provider may be closed inside an open stand and can never be open
 inside a closed one, computed once at `intersectAvailability`.
 

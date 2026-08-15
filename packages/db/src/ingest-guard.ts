@@ -17,7 +17,7 @@ export interface DatabaseFingerprint {
   databaseName: string;
   /** Applied migrations. Zero means the schema was never migrated — never "it's fine, it's new". */
   migrationsApplied: number;
-  farms: number;
+  sellers: number;
   salesLocations: number;
   inventoryRevisions: number;
 }
@@ -40,7 +40,7 @@ export async function fingerprintDatabase(sql: Sql): Promise<DatabaseFingerprint
     {
       database_name: string;
       migrations_applied: number;
-      farms: number;
+      sellers: number;
       sales_locations: number;
       inventory_revisions: number;
     }[]
@@ -48,7 +48,7 @@ export async function fingerprintDatabase(sql: Sql): Promise<DatabaseFingerprint
     select
       current_database() as database_name,
       (select count(*)::int from drizzle.__drizzle_migrations) as migrations_applied,
-      (select count(*)::int from farms) as farms,
+      (select count(*)::int from sellers) as sellers,
       (select count(*)::int from sales_locations) as sales_locations,
       (select count(*)::int from inventory_revisions) as inventory_revisions
   `;
@@ -58,7 +58,7 @@ export async function fingerprintDatabase(sql: Sql): Promise<DatabaseFingerprint
   return {
     databaseName: row.database_name,
     migrationsApplied: row.migrations_applied,
-    farms: row.farms,
+    sellers: row.sellers,
     salesLocations: row.sales_locations,
     inventoryRevisions: row.inventory_revisions,
   };
@@ -68,7 +68,7 @@ export async function fingerprintDatabase(sql: Sql): Promise<DatabaseFingerprint
 export function describeFingerprint(fingerprint: DatabaseFingerprint): string {
   return (
     `database "${fingerprint.databaseName}" ` +
-    `(${fingerprint.migrationsApplied} migrations, ${fingerprint.farms} farms, ` +
+    `(${fingerprint.migrationsApplied} migrations, ${fingerprint.sellers} sellers, ` +
     `${fingerprint.salesLocations} sales locations, ` +
     `${fingerprint.inventoryRevisions} inventory revisions)`
   );
@@ -103,7 +103,7 @@ export async function requireExpectedDatabase(
 
   if (
     expected.expectEmpty === true &&
-    (fingerprint.farms > 0 ||
+    (fingerprint.sellers > 0 ||
       fingerprint.salesLocations > 0 ||
       fingerprint.inventoryRevisions > 0)
   ) {

@@ -76,10 +76,10 @@ describe("F-067 onboarding listing (integration)", () => {
 
   beforeEach(async () => {
     // A fresh farm per test, so one test's location cannot satisfy another's assertion.
-    const farms = await client()`
-      insert into farms (name) values (${`Listing Farm ${randomUUID()}`}) returning id
+    const sellers = await client()`
+      insert into sellers (name) values (${`Listing Farm ${randomUUID()}`}) returning id
     `;
-    farmId = farms[0]?.id as string;
+    farmId = sellers[0]?.id as string;
   });
 
   /** The listing a farmer with a real roadside stand would submit. */
@@ -109,7 +109,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const rows = await client()`
       select name, timezone, visitability, offering_type, public_address,
              public_latitude, public_longitude, hours_text, is_public
-      from sales_locations where owner_farm_id = ${farmId}
+      from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(1);
     const stand = rows[0]!;
@@ -153,7 +153,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
     const rows = await client()`
       select visitability, public_address, public_latitude, public_longitude
-      from sales_locations where owner_farm_id = ${farmId}
+      from sales_locations where own_seller_id = ${farmId}
     `;
     const stand = rows[0]!;
     expect(stand.visitability).toBe("contact_only");
@@ -177,7 +177,7 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(result.status).toBe("incomplete_location");
 
     const rows = await client()`
-      select id from sales_locations where owner_farm_id = ${farmId}
+      select id from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(0);
   });
@@ -192,7 +192,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
     expect(result.status).toBe("incomplete_location");
     const rows = await client()`
-      select id from sales_locations where owner_farm_id = ${farmId}
+      select id from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(0);
   });
@@ -222,7 +222,7 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(result.status).toBe("saved");
     const rows = await client()`
       select visitability, public_address, public_latitude, public_longitude
-      from sales_locations where owner_farm_id = ${farmId}
+      from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({
@@ -247,7 +247,7 @@ describe("F-067 onboarding listing (integration)", () => {
       select item.display_name, item.usually_carried, item.sort_order
       from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
       order by item.sort_order asc
     `;
     expect(items.map((row) => row.display_name)).toEqual(["Eggs", "plant starts"]);
@@ -261,7 +261,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const revisions = await client()`
       select r.id from inventory_revisions r
       join sales_locations l on l.id = r.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(revisions).toHaveLength(0);
   });
@@ -295,7 +295,7 @@ describe("F-067 onboarding listing (integration)", () => {
              item.price_unit, item.price_basis
       from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
       order by item.sort_order asc
     `;
     expect(items.map((row) => row.display_name)).toEqual(["Eggs", "plant starts"]);
@@ -336,7 +336,7 @@ describe("F-067 onboarding listing (integration)", () => {
       select item.price_amount, item.price_quantity, item.price_unit, item.price_basis
       from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(items[0]!.price_basis).toBe("for");
     expect(items[0]!.price_quantity).toBe("3.00");
@@ -367,7 +367,7 @@ describe("F-067 onboarding listing (integration)", () => {
       select item.price_amount, item.price_quantity, item.price_unit, item.price_basis
       from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(items[0]!.price_amount).toBe("5.00");
     expect(items[0]!.price_quantity).toBe("3.00");
@@ -389,7 +389,7 @@ describe("F-067 onboarding listing (integration)", () => {
       occurredAt: new Date("2026-08-08T17:00:00Z"),
     });
     const location = await client()`
-      select l.id from sales_locations l where l.owner_farm_id = ${farmId} limit 1
+      select l.id from sales_locations l where l.own_seller_id = ${farmId} limit 1
     `;
     expect(location[0]?.id, "no stand to insert into").toBeDefined();
     await expect(
@@ -399,7 +399,7 @@ describe("F-067 onboarding listing (integration)", () => {
         values (
           ${location[0]!.id},
           (select id from stand_providers
-            where sales_location_id = ${location[0]!.id} and seller_id is null),
+            where sales_location_id = ${location[0]!.id} and seller_id = (select own_seller_id from sales_locations where id = ${location[0]!.id})),
           'Bad Eggs', true, 6.00, 1.00, null, 'per'
         )
       `,
@@ -429,7 +429,7 @@ describe("F-067 onboarding listing (integration)", () => {
       select item.price_amount, item.price_unit
       from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(items[0]!.price_amount).toBe("0.00");
     expect(items[0]!.price_amount).not.toBeNull();
@@ -462,7 +462,7 @@ describe("F-067 onboarding listing (integration)", () => {
       select item.price_amount, item.price_unit
       from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(items).toHaveLength(1);
     expect(items[0]!.price_amount).toBeNull();
@@ -503,7 +503,7 @@ describe("F-067 onboarding listing (integration)", () => {
       select item.price_amount, item.price_quantity, item.price_unit, item.price_basis
       from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(items).toHaveLength(1);
     // ALL FOUR cleared. A `do update` that reset three and forgot one would leave a row the
@@ -537,7 +537,7 @@ describe("F-067 onboarding listing (integration)", () => {
     });
 
     const locations = await client()`
-      select id from sales_locations where owner_farm_id = ${farmId}
+      select id from sales_locations where own_seller_id = ${farmId}
     `;
     const salesLocationId = locations[0]!.id as string;
 
@@ -598,7 +598,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
     const first = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude, hours_text,
         farm_bucks_accepted, farm_bucks_eligible, retired_at, retired_by_administrator_id
       )
@@ -613,7 +613,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
     await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude, hours_text,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -665,7 +665,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const items = await client()`
       select item.display_name from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
       order by item.sort_order asc
     `;
     expect(items.map((row) => row.display_name)).toEqual([
@@ -688,7 +688,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const items = await client()`
       select item.display_name from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(items).toHaveLength(1);
     // The farmer's first spelling is kept for display.
@@ -709,7 +709,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const methods = await client()`
       select m.method from sales_location_payment_methods m
       join sales_locations l on l.id = m.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     // Compared as a SET: the table's primary key is (location, method) and carries no order,
     // so asserting a sequence would be asserting the collation rather than the behaviour.
@@ -731,7 +731,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const methods = await client()`
       select m.method from sales_location_payment_methods m
       join sales_locations l on l.id = m.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(methods.map((row) => row.method).sort()).toEqual(
       ["Venmo", "trade for eggs"].sort(),
@@ -751,7 +751,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const methods = await client()`
       select m.method from sales_location_payment_methods m
       join sales_locations l on l.id = m.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
@@ -775,13 +775,13 @@ describe("F-067 onboarding listing (integration)", () => {
     const items = await client()`
       select item.display_name from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(items.map((row) => row.display_name)).toEqual(["Eggs"]);
     const methods = await client()`
       select m.method from sales_location_payment_methods m
       join sales_locations l on l.id = m.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
@@ -795,7 +795,7 @@ describe("F-067 onboarding listing (integration)", () => {
     });
 
     const rows = await client()`
-      select name, public_address from sales_locations where owner_farm_id = ${farmId}
+      select name, public_address from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows[0]!.name).toBe("Padded Stand");
     expect(rows[0]!.public_address).toBe("9 Padded Way");
@@ -811,7 +811,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
     expect(result.status).toBe("invalid_name");
     const rows = await client()`
-      select id from sales_locations where owner_farm_id = ${farmId}
+      select id from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(0);
   });
@@ -830,7 +830,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
     expect(result.status).toBe("off_island");
     const rows = await client()`
-      select id from sales_locations where owner_farm_id = ${farmId}
+      select id from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(0);
   });
@@ -861,7 +861,7 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(second.status).toBe("saved");
 
     const rows = await client()`
-      select id, hours_text from sales_locations where owner_farm_id = ${farmId}
+      select id, hours_text from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.hours_text).toBe("Weekends only");
@@ -871,7 +871,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const items = await client()`
       select item.display_name, item.usually_carried from stand_items item
       join sales_locations l on l.id = item.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
       order by item.sort_order asc
     `;
     const carried = items.filter((row) => row.usually_carried === true);
@@ -885,7 +885,7 @@ describe("F-067 onboarding listing (integration)", () => {
     const methods = await client()`
       select m.method from sales_location_payment_methods m
       join sales_locations l on l.id = m.sales_location_id
-      where l.owner_farm_id = ${farmId}
+      where l.own_seller_id = ${farmId}
     `;
     expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
@@ -1002,7 +1002,7 @@ describe("F-067 onboarding listing (integration)", () => {
     // same farm twice, once with the old CSV data and once with the farmer's own.
     const seeded = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
@@ -1021,7 +1021,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
     const rows = await client()`
       select id, hours_text, public_address
-      from sales_locations where owner_farm_id = ${farmId}
+      from sales_locations where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(1);
     expect(rows[0]!.id).toBe(seededId);
@@ -1032,7 +1032,7 @@ describe("F-067 onboarding listing (integration)", () => {
   it("lets an eligible farmer state acceptance of VIGA Bucks", async () => {
     const seeded = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
@@ -1075,7 +1075,7 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(result.status).toBe("saved");
     const rows = await client()`
       select id, farm_bucks_accepted, farm_bucks_eligible from sales_locations
-      where owner_farm_id = ${farmId}
+      where own_seller_id = ${farmId}
     `;
     expect(rows).toHaveLength(1);
     // The farmer's claim is published...
@@ -1090,7 +1090,7 @@ describe("F-067 onboarding listing (integration)", () => {
     // farmer's tick into an opaque constraint violation.
     const seeded = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
@@ -1118,9 +1118,9 @@ describe("F-067 onboarding listing (integration)", () => {
     // Two farmers onboarding at once must not write onto each other's listing. The scope is
     // the invitation's farm and nothing wider.
     const others = await client()`
-      insert into farms (name) values (${`Other Farm ${randomUUID()}`}) returning id
+      insert into sellers (name) values (${`Other Farm ${randomUUID()}`}) returning id
     `;
-    const otherFarmId = others[0]?.id as string;
+    const otherSellerId = others[0]?.id as string;
 
     await saveOnboardingListing(database(), {
       farmId,
@@ -1129,17 +1129,17 @@ describe("F-067 onboarding listing (integration)", () => {
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
     await saveOnboardingListing(database(), {
-      farmId: otherFarmId,
+      farmId: otherSellerId,
       standName: "Theirs",
       listing: { ...visitableListing, hoursText: "Different hours" },
       occurredAt: new Date("2026-08-05T17:00:00Z"),
     });
 
     const mine = await client()`
-      select name, hours_text from sales_locations where owner_farm_id = ${farmId}
+      select name, hours_text from sales_locations where own_seller_id = ${farmId}
     `;
     const theirs = await client()`
-      select name, hours_text from sales_locations where owner_farm_id = ${otherFarmId}
+      select name, hours_text from sales_locations where own_seller_id = ${otherSellerId}
     `;
     expect(mine).toHaveLength(1);
     expect(theirs).toHaveLength(1);
@@ -1187,7 +1187,7 @@ describe("F-067 onboarding listing (integration)", () => {
         select season_kind, season_start_month, season_start_day, season_end_month,
                season_end_day, open_hours_kind, open_days, stocking_cadence, stocking_days,
                hours_text
-        from sales_locations where owner_farm_id = ${farmId}
+        from sales_locations where own_seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(1);
       const row = rows[0]!;
@@ -1229,7 +1229,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
       const rows = await client()`
         select open_hours_kind, open_from_minutes, open_until_minutes
-        from sales_locations where owner_farm_id = ${farmId}
+        from sales_locations where own_seller_id = ${farmId}
       `;
       expect(rows[0]!.open_hours_kind).toBe("clock_range");
       expect(rows[0]!.open_from_minutes).toBe(0);
@@ -1253,7 +1253,7 @@ describe("F-067 onboarding listing (integration)", () => {
       expect(result.status).toBe("saved");
 
       const rows = await client()`
-        select season_kind, season_names from sales_locations where owner_farm_id = ${farmId}
+        select season_kind, season_names from sales_locations where own_seller_id = ${farmId}
       `;
       expect(rows[0]!.season_kind).toBe("named_season");
       expect(rows[0]!.season_names).toEqual(["berry season", "pumpkin season"]);
@@ -1273,7 +1273,7 @@ describe("F-067 onboarding listing (integration)", () => {
       const rows = await client()`
         select season_kind, season_start_month, season_names, open_hours_kind,
                open_from_minutes, open_days, stocking_cadence, stocking_days
-        from sales_locations where owner_farm_id = ${farmId}
+        from sales_locations where own_seller_id = ${farmId}
       `;
       const row = rows[0]!;
       expect(row.season_kind).toBeNull();
@@ -1300,7 +1300,7 @@ describe("F-067 onboarding listing (integration)", () => {
 
       const rows = await client()`
         select season_kind, season_start_month from sales_locations
-        where owner_farm_id = ${farmId}
+        where own_seller_id = ${farmId}
       `;
       expect(rows[0]!.season_kind).toBe("year_round");
       expect(rows[0]!.season_start_month).toBeNull();
@@ -1327,7 +1327,7 @@ describe("F-067 onboarding listing (integration)", () => {
       expect(result.status).toBe("incoherent_availability");
       // Nothing was written — the refusal happens before the transaction opens.
       const rows = await client()`
-        select id from sales_locations where owner_farm_id = ${farmId}
+        select id from sales_locations where own_seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(0);
     });
@@ -1393,7 +1393,7 @@ describe("F-067 onboarding listing (integration)", () => {
       const rows = await client()`
         select season_kind, season_start_month, season_start_day, season_end_month,
                season_end_day, stocking_cadence, stocking_days
-        from sales_locations where owner_farm_id = ${farmId}
+        from sales_locations where own_seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(1);
       const row = rows[0]!;
@@ -1421,25 +1421,25 @@ describe("F-067 onboarding listing (integration)", () => {
       });
 
       expect(result.status).toBe("saved");
-      const rows = await client()`select name from farms where id = ${farmId}`;
+      const rows = await client()`select name from sellers where id = ${farmId}`;
       expect(rows[0]?.name).toBe("Misty Hollow Farm");
     });
 
     it("trims a padded name rather than publishing the whitespace", async () => {
       await renameFarm(database(), { farmId, name: "  Padded Farm  " });
 
-      const rows = await client()`select name from farms where id = ${farmId}`;
+      const rows = await client()`select name from sellers where id = ${farmId}`;
       expect(rows[0]?.name).toBe("Padded Farm");
     });
 
     it("refuses a blank name instead of erasing the farm's identity on the map", async () => {
-      const before = await client()`select name from farms where id = ${farmId}`;
+      const before = await client()`select name from sellers where id = ${farmId}`;
 
       const result = await renameFarm(database(), { farmId, name: "   " });
 
       expect(result.status).toBe("invalid_name");
       // Refusal means UNCHANGED, not "changed to something else".
-      const after = await client()`select name from farms where id = ${farmId}`;
+      const after = await client()`select name from sellers where id = ${farmId}`;
       expect(after[0]?.name).toBe(before[0]?.name);
     });
 
@@ -1455,7 +1455,7 @@ describe("F-067 onboarding listing (integration)", () => {
       });
 
       const locations = await client()`
-        select id from sales_locations where owner_farm_id = ${farmId}
+        select id from sales_locations where own_seller_id = ${farmId}
       `;
       const listing = await readStandListing(database(), {
         salesLocationId: locations[0]?.id as string,
@@ -1513,7 +1513,7 @@ describe("F-067 onboarding listing (integration)", () => {
         returning id
       `;
       const authorizations = await client()`
-        insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+        insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
         values (
           ${farmId}, ${contacts[0]?.id as string},
           ${new Date("2026-08-07T12:00:00Z")}, ${new Date("2026-08-07T12:00:00Z")}
@@ -1541,10 +1541,10 @@ describe("F-067 onboarding listing (integration)", () => {
       const rows = await client()`
         select preference.cadence, preference.version, preference.next_due_at,
                preference.last_due_slot_at, preference.designated_authorization_id,
-               preference.owner_farm_id
+               preference.owner_seller_id
         from inventory_prompt_preferences as preference
         join sales_locations as location on location.id = preference.sales_location_id
-        where location.owner_farm_id = ${farmId}
+        where location.own_seller_id = ${farmId}
       `;
 
       expect(rows).toHaveLength(1);
@@ -1552,7 +1552,7 @@ describe("F-067 onboarding listing (integration)", () => {
       expect(preference.cadence).toBe("weekly");
       expect(preference.version).toBe(1);
       expect(preference.designated_authorization_id).toBe(authorizationId);
-      expect(preference.owner_farm_id).toBe(farmId);
+      expect(preference.owner_seller_id).toBe(farmId);
       // Nothing has been prompted yet, so there is no previous slot to have ordered against.
       expect(preference.last_due_slot_at).toBeNull();
 
@@ -1577,7 +1577,7 @@ describe("F-067 onboarding listing (integration)", () => {
       });
 
       const locations = await client()`
-        select id from sales_locations where owner_farm_id = ${farmId}
+        select id from sales_locations where own_seller_id = ${farmId}
       `;
       const salesLocationId = locations[0]?.id as string;
       await client()`
@@ -1626,7 +1626,7 @@ describe("F-067 onboarding listing (integration)", () => {
       const rows = await client()`
         select preference.id from inventory_prompt_preferences as preference
         join sales_locations as location on location.id = preference.sales_location_id
-        where location.owner_farm_id = ${farmId}
+        where location.own_seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(0);
     });
@@ -1635,7 +1635,7 @@ describe("F-067 onboarding listing (integration)", () => {
       // The cross-farm write vector: a door passing a caller-supplied authorization must not
       // make a farmer of farm A the prompt recipient for farm B's stand.
       const otherFarms = await client()`
-        insert into farms (name) values (${`Other Farm ${randomUUID()}`}) returning id
+        insert into sellers (name) values (${`Other Farm ${randomUUID()}`}) returning id
       `;
       const otherContacts = await client()`
         insert into contacts (phone_e164, phone_hash)
@@ -1646,7 +1646,7 @@ describe("F-067 onboarding listing (integration)", () => {
         returning id
       `;
       const foreign = await client()`
-        insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+        insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
         values (
           ${otherFarms[0]?.id as string}, ${otherContacts[0]?.id as string},
           ${new Date("2026-08-07T12:00:00Z")}, ${new Date("2026-08-07T12:00:00Z")}
@@ -1666,7 +1666,7 @@ describe("F-067 onboarding listing (integration)", () => {
       const rows = await client()`
         select preference.id from inventory_prompt_preferences as preference
         join sales_locations as location on location.id = preference.sales_location_id
-        where location.owner_farm_id = ${farmId}
+        where location.own_seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(0);
     });
@@ -1687,14 +1687,14 @@ describe("F-067 onboarding listing (integration)", () => {
       const rows = await client()`
         select preference.id from inventory_prompt_preferences as preference
         join sales_locations as location on location.id = preference.sales_location_id
-        where location.owner_farm_id = ${farmId}
+        where location.own_seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(0);
     });
   });
 
   describe("the farm's own prose", () => {
-    // `farms.description` renders on the public stand card under "Additional information", is
+    // `sellers.description` renders on the public stand card under "Additional information", is
     // seeded from VIGA's forms, and — until now — had NO farmer-facing writer at all. The
     // consequence measured on production: a farmer publishes a clean listing through this form
     // and VIGA's older prose stays welded to their card underneath it, sometimes contradicting
@@ -1715,7 +1715,7 @@ describe("F-067 onboarding listing (integration)", () => {
       });
       expect(result.status).toBe("saved");
 
-      const rows = await client()`select description from farms where id = ${farmId}`;
+      const rows = await client()`select description from sellers where id = ${farmId}`;
       expect(rows[0]?.description).toBe(
         "We place a sign at the bottom of the driveway when the stand is open.",
       );
@@ -1726,7 +1726,7 @@ describe("F-067 onboarding listing (integration)", () => {
       // paragraph and publishes must end up with no paragraph — an empty box that silently
       // kept the old text would make the form lie about what it publishes.
       await client()`
-        update farms set description = ${"Stale VIGA prose about this farm."} where id = ${farmId}
+        update sellers set description = ${"Stale VIGA prose about this farm."} where id = ${farmId}
       `;
 
       const result = await saveOnboardingListing(database(), {
@@ -1737,7 +1737,7 @@ describe("F-067 onboarding listing (integration)", () => {
       });
       expect(result.status).toBe("saved");
 
-      const rows = await client()`select description from farms where id = ${farmId}`;
+      const rows = await client()`select description from sellers where id = ${farmId}`;
       expect(rows[0]?.description).toBeNull();
     });
 
@@ -1747,7 +1747,7 @@ describe("F-067 onboarding listing (integration)", () => {
       // must not erase a farm's paragraph as a side effect of saving its hours — that is
       // B-037's exact failure shape, one column over.
       await client()`
-        update farms set description = ${"A land acknowledgement and a note about the goats."}
+        update sellers set description = ${"A land acknowledgement and a note about the goats."}
         where id = ${farmId}
       `;
 
@@ -1759,7 +1759,7 @@ describe("F-067 onboarding listing (integration)", () => {
       });
       expect(result.status).toBe("saved");
 
-      const rows = await client()`select description from farms where id = ${farmId}`;
+      const rows = await client()`select description from sellers where id = ${farmId}`;
       expect(rows[0]?.description).toBe("A land acknowledgement and a note about the goats.");
     });
 
@@ -1801,7 +1801,7 @@ describe("F-067 onboarding listing (integration)", () => {
       });
       expect(again.status).toBe("saved");
 
-      const rows = await client()`select description from farms where id = ${farmId}`;
+      const rows = await client()`select description from sellers where id = ${farmId}`;
       expect(rows[0]?.description).toBe("Certified organic. Goats on site.");
     });
   });

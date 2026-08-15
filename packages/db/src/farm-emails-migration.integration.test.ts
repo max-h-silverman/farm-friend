@@ -20,7 +20,7 @@ import type { Sql } from "./sql";
 //
 // ## What this table is, and the privacy rule it exists under
 //
-// `farm_emails` is the roster VIGA already holds, so a farmer can prove they control an address
+// `seller_emails` is the roster VIGA already holds, so a farmer can prove they control an address
 // on file for their farm without a volunteer vouching for them. It is Golden Rule #5 applied to
 // a second kind of personal data: the addresses are largely PERSONAL (`dhusch@hotmail.com`), so
 // they carry the same weight as phone numbers.
@@ -29,7 +29,7 @@ import type { Sql } from "./sql";
 // address lives in EXACTLY ONE column read only by the send path, and the HASH is the only
 // lookup and log key.
 //
-// **Verifying is not publishing** (max, 2026-08-06). Six farms answered "No" to putting contact
+// **Verifying is not publishing** (max, 2026-08-06). Six sellers answered "No" to putting contact
 // email on the printed map and two left it blank; their addresses are still stored and still
 // authenticate. Nothing here is a display column, and no public read path selects from this
 // table — asserted in `farm-email-privacy.test.ts`, not here.
@@ -72,10 +72,10 @@ describe("F-078 farm emails migration (integration)", () => {
     await migrationClient.end({ timeout: 5 });
     sql = postgres(url.toString(), { max: 1 });
 
-    const farms = await client()`
-      insert into farms (name) values (${`Email Farm ${randomUUID()}`}) returning id
+    const sellers = await client()`
+      insert into sellers (name) values (${`Email Farm ${randomUUID()}`}) returning id
     `;
-    farmId = farms[0]?.id as string;
+    farmId = sellers[0]?.id as string;
   }, 60_000);
 
   afterAll(async () => {
@@ -93,7 +93,7 @@ describe("F-078 farm emails migration (integration)", () => {
     hash?: string;
   }): Promise<Record<string, unknown>> {
     const rows = await client()`
-      insert into farm_emails (farm_id, email, email_hash, added_at)
+      insert into seller_emails (seller_id, email, email_hash, added_at)
       values (
         ${input.farm ?? farmId}, ${input.email},
         ${input.hash ?? digest(input.email.length.toString(16))}, ${now}
@@ -107,20 +107,20 @@ describe("F-078 farm emails migration (integration)", () => {
     // By effect. A migration that created nothing would fail here rather than at exit status.
     const row = await addEmail({ email: "dhusch@hotmail.com", hash: digest("a") });
 
-    expect(row.farm_id).toBe(farmId);
+    expect(row.seller_id).toBe(farmId);
     expect(row.email).toBe("dhusch@hotmail.com");
     expect(row.email_hash).toBe(digest("a"));
     expect(row.id).toBeDefined();
   });
 
-  it("holds SEVERAL addresses for one farm — five real farms have more than one", async () => {
+  it("holds SEVERAL addresses for one farm — five real sellers have more than one", async () => {
     // Lavender Hill has three, from two different columns of VIGA's form. A one-address-per-farm
     // shape would silently drop two of them and lock that farmer out of two of their own
     // addresses.
-    const farms = await client()`
-      insert into farms (name) values (${`Multi ${randomUUID()}`}) returning id
+    const sellers = await client()`
+      insert into sellers (name) values (${`Multi ${randomUUID()}`}) returning id
     `;
-    const multi = farms[0]?.id as string;
+    const multi = sellers[0]?.id as string;
 
     for (const [index, email] of [
       "cathy@lavenderhillvashon.com",
@@ -131,7 +131,7 @@ describe("F-078 farm emails migration (integration)", () => {
     }
 
     const rows = await client()`
-      select email from farm_emails where farm_id = ${multi} order by email
+      select email from seller_emails where seller_id = ${multi} order by email
     `;
     expect(rows.map((r) => r.email)).toEqual([
       "cathy@lavenderhillvashon.com",
@@ -144,10 +144,10 @@ describe("F-078 farm emails migration (integration)", () => {
     // Re-running the ingest must not double the roster. The uniqueness is on the NORMALIZED
     // address, because "Info@Lavender..." and "info@lavender..." are one address and a farmer
     // verifying against either must hit the same row.
-    const farms = await client()`
-      insert into farms (name) values (${`Dup ${randomUUID()}`}) returning id
+    const sellers = await client()`
+      insert into sellers (name) values (${`Dup ${randomUUID()}`}) returning id
     `;
-    const dup = farms[0]?.id as string;
+    const dup = sellers[0]?.id as string;
     await addEmail({ farm: dup, email: "info@example.org", hash: digest("b") });
 
     await expect(
@@ -155,20 +155,20 @@ describe("F-078 farm emails migration (integration)", () => {
     ).rejects.toThrow();
   });
 
-  it("ALLOWS one address on two different farms, though the real corpus has none", async () => {
-    // Measured, not assumed: zero addresses are shared between farms in VIGA's 32 rows, so
+  it("ALLOWS one address on two different sellers, though the real corpus has none", async () => {
+    // Measured, not assumed: zero addresses are shared between sellers in VIGA's 32 rows, so
     // email → farm is unambiguous today. The database still permits it, deliberately — a
     // couple who farm two plots from one inbox is a real thing, and refusing it would be this
     // schema inventing a rule the product never decided. What must never happen is one
     // address verifying the WRONG farm, and that is a query-scope property, not a constraint.
-    const farms = await client()`
-      insert into farms (name) values (${`Shared ${randomUUID()}`}) returning id
+    const sellers = await client()`
+      insert into sellers (name) values (${`Shared ${randomUUID()}`}) returning id
     `;
-    const other = farms[0]?.id as string;
+    const other = sellers[0]?.id as string;
     await addEmail({ email: "shared@example.org", hash: digest("d") });
 
     const row = await addEmail({ farm: other, email: "shared@example.org", hash: digest("d") });
-    expect(row.farm_id).toBe(other);
+    expect(row.seller_id).toBe(other);
   });
 
   it("REFUSES a blank address — including tab- and newline-only", async () => {
@@ -209,18 +209,18 @@ describe("F-078 farm emails migration (integration)", () => {
   });
 
   it("keeps the roster when a farm is renamed, and blocks deleting a farm that has one", async () => {
-    // `on delete restrict`, matching every other reference to `farms` in this schema. A farm
+    // `on delete restrict`, matching every other reference to `sellers` in this schema. A farm
     // silently losing its roster is a farmer who can no longer prove who they are.
-    const farms = await client()`
-      insert into farms (name) values (${`Rename ${randomUUID()}`}) returning id
+    const sellers = await client()`
+      insert into sellers (name) values (${`Rename ${randomUUID()}`}) returning id
     `;
-    const target = farms[0]?.id as string;
+    const target = sellers[0]?.id as string;
     await addEmail({ farm: target, email: "keep@example.org", hash: digest("h") });
 
-    await client()`update farms set name = 'Renamed Farm' where id = ${target}`;
-    const kept = await client()`select email from farm_emails where farm_id = ${target}`;
+    await client()`update sellers set name = 'Renamed Farm' where id = ${target}`;
+    const kept = await client()`select email from seller_emails where seller_id = ${target}`;
     expect(kept).toHaveLength(1);
 
-    await expect(client()`delete from farms where id = ${target}`).rejects.toThrow();
+    await expect(client()`delete from sellers where id = ${target}`).rejects.toThrow();
   });
 });

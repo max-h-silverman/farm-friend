@@ -116,7 +116,7 @@ export function meetsDistinctiveWordBar(
 
 const GENERIC_NAME_WORDS: ReadonlySet<string> = new Set([
   "farm",
-  "farms",
+  "sellers",
   "farmstand",
   "stand",
   "garden",

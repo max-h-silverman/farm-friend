@@ -17,7 +17,7 @@ import {
 //
 // WHY THIS FILE EXISTS: the first version of the coastline passed every test in the suite —
 // the projection was correct, the pins were inside the viewBox, every unit test was green —
-// and SIXTEEN OF THIRTY-TWO real farms rendered in open water. Nothing could catch it,
+// and SIXTEEN OF THIRTY-TWO real sellers rendered in open water. Nothing could catch it,
 // because every existing test checked the projection against itself rather than checking the
 // artwork against the projection.
 //
@@ -54,7 +54,7 @@ function isInside(
  *
  * A FIXTURE OF REAL DATA, deliberately — not generated, not sampled from the bounds. The
  * defect this file was written for was invisible to synthetic points near the island's
- * centre, and only the actual west-shore and Maury farms exposed it. Transcribed from
+ * centre, and only the actual west-shore and Maury sellers exposed it. Transcribed from
  * `select name, public_latitude, public_longitude from sales_locations where is_public`.
  */
 const REAL_STANDS: readonly (readonly [string, number, number])[] = [
@@ -150,7 +150,7 @@ describe("the island artwork agrees with the projection", () => {
 
   it("puts EVERY real farm stand on land, not in the water", () => {
     // THE ASSERTION THIS FILE EXISTS FOR. Reported as a list rather than failing on the first
-    // one, because "which farms are wrong" is what tells you whether the coastline is off in
+    // one, because "which sellers are wrong" is what tells you whether the coastline is off in
     // one place or systematically too narrow — the difference between a nudge and a retrace.
     const polygon = projectedShoreline();
     const inWater = REAL_STANDS.filter(([, latitude, longitude]) => {

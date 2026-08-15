@@ -30,8 +30,8 @@ describe("B-032 final proposal and location schema (integration)", () => {
     sql = postgres(url.toString(), { max: 1 });
     await migrate(drizzle(sql), { migrationsFolder: migrationsDir });
 
-    const farms = await sql`insert into farms (name) values ('B-032 Farm') returning id`;
-    farmId = farms[0]?.id as string;
+    const sellers = await sql`insert into sellers (name) values ('B-032 Farm') returning id`;
+    farmId = sellers[0]?.id as string;
     contactHash = "3".repeat(64);
     await sql`
       insert into contacts (phone_e164, phone_hash)
@@ -42,7 +42,7 @@ describe("B-032 final proposal and location schema (integration)", () => {
     `;
     const locations = await sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${farmId}, 'farm_stand', 'B-032 Contact Stand', 'America/Los_Angeles',
@@ -73,7 +73,7 @@ describe("B-032 final proposal and location schema (integration)", () => {
       ) values (
         ${contactHash}, ${locationId},
           (select id from stand_providers
-            where sales_location_id = ${locationId} and seller_id is null), ${db().json({ closure: { result: "reopen" } })},
+            where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${db().json({ closure: { result: "reopen" } })},
         1, true, true, true
       )
     `;
@@ -87,7 +87,7 @@ describe("B-032 final proposal and location schema (integration)", () => {
       ) values (
         ${closureOmissionHash}, ${locationId},
           (select id from stand_providers
-            where sales_location_id = ${locationId} and seller_id is null), ${db().json({ entries: [] })},
+            where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${db().json({ entries: [] })},
         1, true, true
       )
     `;
@@ -101,7 +101,7 @@ describe("B-032 final proposal and location schema (integration)", () => {
       ) values (
         ${exactFlagsHash}, ${locationId},
           (select id from stand_providers
-            where sales_location_id = ${locationId} and seller_id is null), ${db().json({ entries: [] })},
+            where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${db().json({ entries: [] })},
         1, true, false, true
       ) returning has_inventory, has_closure
     `;
@@ -111,7 +111,7 @@ describe("B-032 final proposal and location schema (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, offering_type,
+          own_seller_id, kind, name, timezone, offering_type,
           public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         ) values (
@@ -126,7 +126,7 @@ describe("B-032 final proposal and location schema (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability,
+          own_seller_id, kind, name, timezone, visitability,
           public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         ) values (

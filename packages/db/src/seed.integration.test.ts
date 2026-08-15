@@ -95,7 +95,7 @@ describe("seeding VIGA's stands (B-002)", () => {
     const rows = await client`
       select f.name as farm_name, f.description, l.name as location_name, l.public_address,
              l.public_latitude, l.public_longitude, l.is_public
-      from sales_locations l join farms f on f.id = l.owner_farm_id
+      from sales_locations l join sellers f on f.id = l.own_seller_id
       order by l.name
     `;
     expect(rows).toHaveLength(2);
@@ -194,11 +194,11 @@ describe("seeding VIGA's stands (B-002)", () => {
   it("ACCEPTS a contact_only farm with a full location (F-088)", async () => {
     await client`
       insert into sales_locations
-        (owner_farm_id, kind, name, timezone, visitability, offering_type,
+        (own_seller_id, kind, name, timezone, visitability, offering_type,
          public_address, public_latitude, public_longitude,
          is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
       values
-        ((select id from farms limit 1), 'farm_stand', 'Placed Delivery Farm',
+        ((select id from sellers limit 1), 'farm_stand', 'Placed Delivery Farm',
          'America/Los_Angeles', 'contact_only', 'by_order',
          '12345 Vashon Highway SW', 47.4471, -122.4594,
          true, false, false, now(), now())
@@ -220,11 +220,11 @@ describe("seeding VIGA's stands (B-002)", () => {
       await expect(
         client`
           insert into sales_locations
-            (owner_farm_id, kind, name, timezone, visitability, offering_type,
+            (own_seller_id, kind, name, timezone, visitability, offering_type,
              public_address, public_latitude, public_longitude,
              is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
           values
-            ((select id from farms limit 1), 'farm_stand', ${`Half Pinned ${visitability}`},
+            ((select id from sellers limit 1), 'farm_stand', ${`Half Pinned ${visitability}`},
              'America/Los_Angeles', ${visitability}, 'produce',
              '12345 Vashon Highway SW', 47.4471, null,
              true, false, false, now(), now())
@@ -238,11 +238,11 @@ describe("seeding VIGA's stands (B-002)", () => {
     await expect(
       client`
         insert into sales_locations
-          (owner_farm_id, kind, name, timezone, visitability, offering_type,
+          (own_seller_id, kind, name, timezone, visitability, offering_type,
            public_address, public_latitude, public_longitude,
            is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
         values
-          ((select id from farms limit 1), 'farm_stand', 'Unplaced Visitable Stand',
+          ((select id from sellers limit 1), 'farm_stand', 'Unplaced Visitable Stand',
            'America/Los_Angeles', 'visitable', 'produce',
            null, null, null,
            true, false, false, now(), now())
@@ -267,7 +267,7 @@ describe("seeding VIGA's stands (B-002)", () => {
   it("seeds no farmer authorization or approval, so nothing can publish", async () => {
     const auths = await client`select count(*)::integer as count from farmer_authorizations`;
     expect(auths[0]!.count).toBe(0);
-    const approvals = await client`select count(*)::integer as count from farm_approvals`;
+    const approvals = await client`select count(*)::integer as count from seller_approvals`;
     expect(approvals[0]!.count).toBe(0);
   });
 
@@ -383,7 +383,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       // The stand exists with none of them; a re-run supplies what VIGA now states.
       const before = await client`
         select
-          (select count(*)::integer from farm_links) as links,
+          (select count(*)::integer from seller_links) as links,
           (select count(*)::integer from sales_location_payment_methods) as payments
       `;
       expect(before[0]!.links).toBe(0);
@@ -400,7 +400,7 @@ describe("seeding VIGA's stands (B-002)", () => {
 
       const rows = await client`
         select
-          (select count(*)::integer from farm_links) as links,
+          (select count(*)::integer from seller_links) as links,
           (select count(*)::integer from sales_location_payment_methods) as payments,
           (select count(*)::integer from sales_location_participants) as hosts
       `;
@@ -441,7 +441,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       // and VIGA's spreadsheet must not add to it behind their back — they may have deliberately
       // removed a payment method or a host that the older export still names.
       const location = await client`
-        select l.id, l.owner_farm_id from sales_locations l where l.name = 'Beta Farm'
+        select l.id, l.own_seller_id from sales_locations l where l.name = 'Beta Farm'
       `;
       const contact = await client`
         insert into contacts (phone_e164, phone_hash)
@@ -450,10 +450,10 @@ describe("seeding VIGA's stands (B-002)", () => {
       `;
       await client`
         insert into farmer_authorizations (
-          farm_id, contact_id, phone_verified_at, authorized_at
+          seller_id, contact_id, phone_verified_at, authorized_at
         )
         values (
-          ${location[0]!.owner_farm_id as string}, ${contact[0]!.id as string}, now(), now()
+          ${location[0]!.own_seller_id as string}, ${contact[0]!.id as string}, now(), now()
         )
       `;
 
@@ -467,8 +467,8 @@ describe("seeding VIGA's stands (B-002)", () => {
 
       expect(result.backfillRefused).toBe(1);
       const rows = await client`
-        select count(*)::integer as count from farm_links
-        where farm_id = ${location[0]!.owner_farm_id as string}
+        select count(*)::integer as count from seller_links
+        where seller_id = ${location[0]!.own_seller_id as string}
       `;
       expect(rows[0]!.count).toBe(0);
     });
@@ -485,7 +485,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       ]);
       const rows = await client`
         select
-          (select count(*)::integer from farm_links) as links,
+          (select count(*)::integer from seller_links) as links,
           (select count(*)::integer from sales_location_payment_methods) as payments
       `;
       expect(rows[0]!.links).toBe(1);
@@ -493,7 +493,7 @@ describe("seeding VIGA's stands (B-002)", () => {
     });
   });
 
-  // F-064 — host farms from VIGA's records, the third table that had a schema, a reader, and
+  // F-064 — host sellers from VIGA's records, the third table that had a schema, a reader, and
   // no writer. The public card's "Also selling here" section and the admin table's "Other
   // sellers here" row have both existed since F-050 and both rendered nothing.
   describe("seeding hosted participants", () => {
@@ -517,15 +517,15 @@ describe("seeding VIGA's stands (B-002)", () => {
       // asserts the biconditional actually refuses the half-populated row rather than
       // admitting it — the failure mode a per-column rule would have shipped.
       const location = await client`
-        select id, owner_farm_id from sales_locations where name = 'Alpha Farm'
+        select id, own_seller_id from sales_locations where name = 'Alpha Farm'
       `;
       await expect(
         client`
           insert into sales_location_participants (
-            owner_farm_id, sales_location_id, display_name, source, confirmed_at
+            owner_seller_id, sales_location_id, display_name, source, confirmed_at
           )
           values (
-            ${location[0]!.owner_farm_id as string}, ${location[0]!.id as string},
+            ${location[0]!.own_seller_id as string}, ${location[0]!.id as string},
             'Fabricated Farm', 'sms', now()
           )
         `,
@@ -683,7 +683,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       await client`
         insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
         values (${locationId}, (select id from stand_providers
-          where sales_location_id = ${locationId} and seller_id is null), 'Rhubarb', false, 0)
+          where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), 'Rhubarb', false, 0)
       `;
 
       const result = await seedOfferings(client, [
@@ -776,7 +776,7 @@ describe("seeding VIGA's stands (B-002)", () => {
 
     it("still reports a genuinely unknown stand rather than matching it loosely", async () => {
       // The refusal must survive the looser key. This is the property the corpus decided:
-      // "Lavender Hill Farm" and "Flora Hill Farm" are distinct farms, and a matcher permissive
+      // "Lavender Hill Farm" and "Flora Hill Farm" are distinct sellers, and a matcher permissive
       // enough to join them would publish one farm's tags under another's name.
       const result = await seedOfferings(client, [
         { standName: "Lavender Hill Farm", items: ["lavender"] },

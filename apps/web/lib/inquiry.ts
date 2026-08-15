@@ -72,7 +72,7 @@ type InquiryRequestContext = ClassifiedInquiry & {
 };
 
 /**
- * Whether this SENDER may see test farms (F-074).
+ * Whether this SENDER may see test sellers (F-074).
  *
  * A resolved boolean by the time it reaches retrieval, and that is the containment. Whether a
  * sender is privileged is CODE's decision from the sender hash, made before any model call; the
@@ -279,7 +279,7 @@ async function retrieveCurrentListings(
       c.starts_on::text as closure_starts_on,
       c.closed_through::text as closure_closed_through
     from sales_locations l
-    join farms f on f.id = l.owner_farm_id
+    join sellers f on f.id = l.own_seller_id
     -- B-074 — the currency rule comes from the shared reader, not from this query. It is an
     -- INNER join here deliberately: a stand with no confirmed revision reaches a customer
     -- through the offerings half below, never as an empty confirmed listing.
@@ -352,7 +352,7 @@ async function retrieveCurrentListings(
       c.starts_on::text as closure_starts_on,
       c.closed_through::text as closure_closed_through
     from sales_locations l
-    join farms f on f.id = l.owner_farm_id
+    join sellers f on f.id = l.own_seller_id
     -- F-066 — usually_carried in the JOIN, not a WHERE: an item that exists only because a
     -- past revision named it must not enter the offerings half of retrieval, or a customer
     -- would be told a stand usually sells something nobody ever said that about.
@@ -422,7 +422,7 @@ export async function dereferenceFacts(
     /**
      * F-074 — re-applied on the paging path too. A saved list holds identifiers, and this
      * dereferences them through the SAME retrieval: a sender whose listing was removed between
-     * the question and their `MORE` stops seeing test farms mid-conversation, and a saved id
+     * the question and their `MORE` stops seeing test sellers mid-conversation, and a saved id
      * cannot be replayed by anyone else into an answer they were never entitled to.
      */
     scope: SmsViewerScope;

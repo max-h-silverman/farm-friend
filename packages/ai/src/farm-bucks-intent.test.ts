@@ -26,7 +26,7 @@ describe("the VIGA Bucks domain resolver", () => {
       "where can I spend viga bucks",
       "where can I use my viga bucks",
       "who takes farm bucks?",
-      "which farms accept farm bucks",
+      "which sellers accept farm bucks",
       "anywhere I can spend farm bucks",
     ])("%j", (text) => {
       expect(farmBucksIntent(text)).toBe("search");

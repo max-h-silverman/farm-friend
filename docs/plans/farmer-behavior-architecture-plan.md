@@ -7,10 +7,219 @@ plan below disagree, the contract wins.
 
 ## Multi-seller stand architecture: implementation contract
 
+> **REVISED 2026-08-14 by §the stand-and-sellers correction, below.** That section overrides four
+> decisions in the contract that follows — the `farms` authority root, the native brand slot, stand
+> ownership, and migration `0042`. Where the two disagree, the correction wins. Everything the
+> correction does not name still stands, and none of it was reopened.
+
 Several VIGA stands host more than one seller today. This is current fact, not anticipated growth.
 The contract below replaces this plan's historical participant, guest-access, shared-inventory, and
 shared seller-schedule/payment assumptions. The ten open questions that stood here are resolved in
 §resolved questions; nothing in this section is still open for design.
+
+### The stand-and-sellers correction
+
+**Decided by Max, 2026-08-14, before any Phase C.1 code was written.** The contract below was
+adversarially reviewed and settled, and this section deliberately overrides part of it. The reason
+is not a design preference: the corpus contradicts the model the contract assumed.
+
+#### What the data said
+
+Measured against production, 2026-08-14:
+
+- **All 38 stands have an owner farm whose name is byte-identical to the stand's name**, and every
+  farm owns exactly one stand. The `farms`/`sales_locations` split carries no information. It is one
+  concept stored twice, created because `owner_farm_id` is `NOT NULL` and every stand had to name an
+  owner — not because anyone described two things.
+- **Morgan Hill Community Farm Stand's "owner farm" is a farm invented to satisfy that constraint.**
+  It is a venue with four nested sellers and no goods of its own, and the row naming it as its own
+  owner asserts something false. This is the fabricated authority §migration approach forbids,
+  already in production.
+- **11 hosted-seller names live across 7 stands** (`sales_location_participants`, all live).
+
+#### The model
+
+**A stand has a name, metadata, and nested sellers. That is the whole structure.**
+
+- A **stand** is a venue with its own identity — Morgan Hill Community Stand is a brand, and keeping
+  it as one is why stand and seller are two records rather than one merged record. An earlier draft
+  of this correction proposed merging them on the strength of the 38 identical names; **that was
+  wrong** and Max rejected it. It would have destroyed the identity of a venue that sells nothing.
+- A **seller** is a brand that sells. It may own the stand it sells at, sell at someone else's, or
+  both. Bakeries, flower growers, and makers are sellers; `farm` is not the authority root.
+- **A stand names the one nested seller that is itself**, when it has one. Morgan Hill names none.
+
+**Three concepts are deleted, none added:**
+
+- **`farms` is removed.** Its 38 rows are one-per-stand duplicates of the stand name; the brand
+  facts belong on the seller.
+- **The native brand slot is removed.** There is no nullable-seller special case: a stand's own
+  goods are simply its own seller, named like any other. `stand_providers.seller_id` becomes
+  `NOT NULL`, and the native arm of `stand_providers_hosting_lifecycle_coherent` disappears with it.
+  §one provider record chose the nullable reference because `farms` was the authority root and NULL
+  was the only way to say "the stand itself"; remove that root and NULL has nothing left to mean.
+- **Stand ownership is removed.** "Who may act here" is the scoped access grant Phase C.1 builds
+  anyway. `owner_farm_id` does not become a nullable seller reference — it goes.
+
+#### Customer-facing naming is a rendering fact, never a data fact
+
+Customers say **farm stand**, and search products, sellers, and stands. Internally the record is a
+seller, because that is what it truthfully is for a bakery or a popsicle maker. **The public word
+stays "farm stand" and lives in the render layer**, which already owns it — the customer-facing
+"farm" strings sit in SMS copy and admin cards, not bound to any table name. No table exists to
+preserve a word.
+
+#### Suppression follows a pointer, never a name
+
+A customer must never see `Provo Farms stand — Selling here: Provo Farms`. The card suppresses the
+seller **the stand's self-pointer names**, and credits every other.
+
+§customer behavior rejected name matching for this, and was right to: seller names are free text,
+so `Morgan Hill Farm` at `Morgan Hill Stand` would not match, while a genuine hosted seller called
+`Hill Farm` at `Hill Farm Stand` would be wrongly erased. That contract had no way to know whether a
+seller *was* the stand, so it reached for the string. **Under this model it is a recorded fact.**
+One reference, set at creation, compared to nothing.
+
+This survives two cases a name match gets wrong in opposite directions: a farmer renaming their farm
+stays suppressed, and a hosted seller whose name resembles the venue's stays credited.
+
+#### Onboarding asks one question, and only sometimes a second
+
+The distinction becomes visible exactly when it starts mattering to the customer's card, and not
+before. **A farmer who hosts nobody never learns the word "seller."**
+
+- **Hosting unchecked** — one name field. The stand and its own seller both take it and the
+  self-pointer is set. This is 31 of 38 stands today. The seller concept never surfaces, so there is
+  nothing for the farmer to get wrong.
+- **Hosting checked** — the card will now name other sellers, so *what do your own goods sell as?*
+  is finally a meaningful question. It is **prefilled with the stand name**: accept it and the line
+  stays suppressed, change it and it is credited, which is correct because the customer genuinely
+  needs to tell the brands apart.
+- **Hosting checked, field cleared** — the venue-only answer, which is Morgan Hill. The prefilled
+  name must be **clearable, not merely editable**; forcing a name here would re-invent exactly the
+  fabricated seller this correction removes.
+
+#### Migration `0042` is replaced, not migrated past
+
+`0042` backfills native slots and re-roots eight composite keys onto the model this correction
+replaces. **It has never been applied to production** — verified against the Neon ledger on
+2026-08-14: 42 rows, `0000`–`0041`, and no `stand_providers`, `sellers`, or
+`inventory_revisions.provider_id`. Production has never seen this shape, so it is replaced rather
+than applied and then reversed. Migrating onto a model and off it again would put production through
+two structural reshapes to reach a state it can reach in one.
+
+The replacement migration is proved the same way `0042` was: against a **populated** copy of the
+schema that actually precedes it in production, asserting exact row effects, with every CHECK
+written as a biconditional and every constraint sabotage-tested.
+
+#### The 11 hosted names are still never auto-linked
+
+§migration approach's prohibition is unchanged and this correction strengthens the case for it. The
+corpus contains **`Fernhorn Bakery`** at Pacific Crest Farm and **`Fern Horn Bakery`** at Tian Tian
+Farm — almost certainly one bakery, spelled two ways. Name matching would either merge two stands'
+relationships on a guess or split one bakery into two identities. Both are fabricated authority.
+
+`sales_location_participants` rows migrate as **retained history and a VIGA work queue**. A person
+resolves each name into a seller and an invitation; code never infers one.
+
+#### What VIGA actually asked for — the Venison Valley case
+
+VIGA's own words, relayed by Max 2026-08-15:
+
+> *I also have a request to be able to have two numbers update one farm stand OR have two farms
+> point to one address? For example Venison Valley carries Gracie's Greens. We want Zoe to be able
+> to give her inventory without telling Kelsey. But we also don't want her inventory update to
+> override Kelsey's… There are a couple situations like that where farm stands host other growers.*
+
+**Both proposals in that message are workarounds for a model that could not express hosting**, and
+the built answer is the third thing neither names: one stand, two sellers, separate inventory,
+separate phones. "Two numbers on one stand" loses whose goods are whose; "two farms at one
+address" splits the place in two.
+
+Measured 2026-08-15, the case is exactly as described: **Venison Valley** is a seller with one
+stand and one live authorization (Kelsey). **Gracie's Greens exists only as a display-only
+participant name** — no seller record, no phone, so Zoe can text nothing today. That single row is
+the whole of C.1: turn the name into a seller with its own phone and its own inventory at Kelsey's
+stand.
+
+Two requirements fall out, and both are already satisfied by the records:
+
+- **"Without overriding Kelsey's"** — `stand_providers` plus one-current-per-provider. Zoe's
+  update cannot touch Kelsey's because they are different rows. Built in Phase B, kept by C.0.
+- **"Without telling Kelsey"** — Zoe is authorized in her own right and texts her own updates.
+  Nothing routes through the host, and the host is not notified. This is Zoe's arrangement rather
+  than a universal rule: see the optional host stock rights below.
+
+**A stand-level authorization does not confer inventory rights over other sellers by default — but
+the relationship may carry them, at the seller's option** (max, 2026-08-15).
+
+The rights are **a property of the hosting relationship, not of the stand and not of the role**.
+Some hosted sellers want the host restocking on their behalf: a baker who drops off at dawn and
+would rather the host mark the last loaf gone than be texted about it. Zoe specifically does not.
+Both are legitimate, so the `stand_providers` row that binds a seller to a stand carries whether
+that seller's stock may be updated by the stand's own authorized phones.
+
+Two things this must not become:
+
+- **Not a default.** An invitation that silently conferred stock rights would make acceptance mean
+  more than it says, which §hosting and approval lifecycle already forbids: *acceptance never
+  grants more access than the explicit scopes attached to the relationship.* Off unless the seller
+  turns it on.
+- **Not a general permission.** It covers current stock only. A host may never change a hosted
+  seller's identity, prices, payment, pause, or participation — §facts and authority is unchanged,
+  and those need separate authorization for that seller.
+
+This is also distinct from the observation right §facts and authority already grants: marking an
+item sold out is a physical observation of an empty cooler, available to a stand owner regardless.
+What the relationship optionally adds is the ability to *state stock*, which is a claim about
+someone else's goods and therefore theirs to permit.
+
+#### There is no second permission system, and no "grant"
+
+**Decided by Max, 2026-08-15.** A phone authorized for a seller is the whole permission
+mechanism, and it already exists as `farmer_authorizations`. **"Stand owner" is not a role** — it
+is what being authorized for the seller a stand points at gets you. Stand authority is *derived*,
+never stored: the existing readers resolve the stand's seller and look up an authorization for it.
+
+Two things follow, and both **reduce** what C.1 builds:
+
+- **C.1 does not build access grants.** An earlier framing of C.1 said "scoped access grants",
+  which imported a permission-system vocabulary this product does not have. The permission that
+  follows an accepted invitation is an ordinary authorization for the seller who accepted — the
+  same record a farmer already gets. C.1 is invitation, acceptance, and approval; the authorization
+  is the existing mechanism, gaining a stand arm in C.0 for stands with no seller of their own.
+- **An authorization names what it is for: a seller, or a stand.** A stand with no seller of its
+  own still has people who manage it — its hours, closure, description, and who sells there — and
+  they cannot be reached through a seller authorization because there is no seller to name. So the
+  authorization record carries either a seller or a stand, one record with two arms, the way
+  `stand_providers` names a seller or nothing.
+
+  **This corrects a reading error worth recording.** Measured 2026-08-15, no phone has ever been
+  authorized for Morgan Hill and its one inventory revision has `source = 'viga'` — and an earlier
+  draft of this section concluded from that that no such role exists and VIGA simply maintains the
+  stand by hand forever. **That read a transitional state as a permanent one**: VIGA is mid-migration
+  from the old system, and Morgan Hill *will* have one or more people managing it (max, 2026-08-15).
+  It is the same mistake §customer behavior already warns against with the 18 stands publishing no
+  confirmed inventory — a farmer-migration artifact must never be designed around.
+
+  The split is already in the data: **two** tables carry stand-level facts written by an
+  authorization (`closure_revisions`, `sales_location_participants`), and **seven** carry
+  seller-level ones. The two pair against the stand arm; the seven against the seller arm; no
+  existing key loses its guarantee. A seller-authorized phone at its own stand still reaches that
+  stand's facts through the self-pointer, exactly as today.
+
+A seller and a phone stay separate records. A seller is a **brand** a customer sees credited and
+searches for; a phone is a **person**. Measured 2026-08-15: 14 live authorizations across 13
+phones, and **one phone already acts for two sellers** — so the many-to-many is current fact, and
+collapsing the two would break a person who exists today.
+
+#### What this does not change
+
+The hosting lifecycle itself — invitation, acceptance, approval source, scoped grants, and the
+`pending`/`active`/`paused` states — is untouched, and so is every rule in §facts and authority,
+§customer behavior, and §verification requirements that does not depend on `farms` or the native
+slot. Seller-internal roles stay cut. Availability stays an intersection. VIGA approval stays the
+real gate.
 
 ### Product model
 
@@ -61,7 +270,8 @@ for that brand.
   stand-level closure, and the stand's own descriptive information.
 - **Provider facts**: current and usual inventory, item prices, payment/Farm Bucks rules, season,
   schedule, restocking, visibility/pause, one stand-specific public note, and inventory reminder
-  preferences.
+  preferences. Payment is the seller's own fact — see the payment bullet in §customer behavior for
+  the shared-cash-box default and what stays deliberately unrecorded.
 - **Availability is an intersection, never a union.** A provider's schedule and season are clamped
   to the stand's: a provider may be closed while the stand is open, and can never be open while the
   stand is closed. This is what supports the real case — a hosted seller who takes only cash and
@@ -169,8 +379,38 @@ suppressed price: each provider carries its own price and its own confirmation t
 - `What's at Morgan Hill?` returns the union of its provider inventories. `What does Green Acres
   have out?` filters to that seller across its active stands. `Who has eggs?` returns one result per
   stand and uses that stand's own freshest eggs evidence, never an unrelated stand's update.
-- Payment is explicit per provider. The likely case is a seller-specific payment path, but a
-  relationship may deliberately use a shared stand checkout. A seller's payment may differ by stand.
+- **Payment is per seller, and a shared cash box is the common arrangement — not the only one**
+  (max, 2026-08-15).
+
+  **Payment acceptance is the seller's own fact** — it is their money and their account. Whether
+  Fernhorn Bakery takes Venmo is Fernhorn's to state, not Tian Tian's, and it varies for real:
+  Fernhorn may take cash only while its host takes four methods.
+
+  The Tian Tian case is about **one shared instrument**, not about whether sellers have their own
+  payment: customers pay cash into Tian Tian's box, and *may or may not* also use Tian Tian's Venmo
+  — "not always the case that/how this will overlap" (VIGA). **And even the box may not be shared**
+  (max): a hosted seller may set their own lockbox beside the host's. Two boxes at one stand is a
+  legitimate arrangement.
+
+  So there is **no reliable stand-level payment fact**. What one stand's payment methods can
+  honestly describe is the stand's own seller; extending that list to a hosted seller asserts
+  something nobody stated. Today `sales_location_payment_methods` is keyed on the stand alone
+  (measured 2026-08-15: Tian Tian's list is Cash, Check, Venmo, trade), which is correct only
+  because every stand currently has exactly one seller. **Payment gains the provider dimension the
+  rest of Phase B's facts already have.**
+
+  **The common case is a shared cash box, and the default must follow it.** At an unattended stand
+  one box is the usual arrangement, so a hosted seller taking cash is presumed to use the host's
+  box unless someone says otherwise. Making sharing an exception that must be recorded would push
+  the typical arrangement through extra steps — the same mistake as forcing a venue to invent a
+  seller. A hosted seller with their own lockbox states that instead.
+
+  What stays deliberately unmodelled is the *digital* overlap: whether a host's Venmo also covers a
+  hosted seller's goods is frequently unsettled between the two farmers themselves. Cash in a
+  shared box needs no agreement — the money is separated when the box is emptied — but a payment
+  naming an account is that account holder's claim to make. So it is recorded when they state it,
+  left silent when they have not, and a customer is never told a hosted seller accepts an
+  instrument that seller never claimed.
 - **A stock-out report goes to every provider whose current confirmed inventory contradicts it —
   no question is asked.** The customer is never made to name a seller: at an unattended stand with
   two coolers they usually did not notice whose goods were whose, and a guess routes a false alarm
@@ -392,9 +632,48 @@ constraint-layer change, not an additive one. (The contract previously said eigh
   suppresses only `queued` outbox rows, which is what makes it idempotent and what keeps a
   farmer's existing answer and an already-sent message intact.
 
+#### Phase C.0 — the seller root (records only, no behavior change)
+
+**Added 2026-08-14 by §the stand-and-sellers correction. It lands BEFORE C.1 and is a hard gate**,
+for the reason the phase order already states: each phase requires its constraints, readers, and
+honest failure replies before the next begins. C.1's invitation flow must write against a settled
+identity model, not reshape one underneath itself.
+
+This phase was separated after the work was scoped and measured, because it is not a correction
+attached to C.1 — it is a re-rooting of the product's core identity record. Measured against
+production, 2026-08-14: **40 farms, 7 direct foreign keys onto `farms`, 9 composite
+`(authorization, farm)` keys, 14 authorizations, 39 invitations, 41 farm emails, 35 farm links, 38
+stands, 249 usual items.** Every one of those keys says *this actor acts for this farm* and must
+come to say *this actor acts for this seller*.
+
+Scope:
+
+1. `farms` becomes `sellers`; the brand facts (name, description, photo, map projection,
+   coordinates, test/retired flags) move with it. The 38 owner farms are one-per-stand duplicates
+   of the stand name, so each becomes that stand's own seller.
+2. `sales_locations.owner_farm_id` is removed and replaced by the **self-pointer** — the one nested
+   seller that *is* the stand, NULL for a venue like Morgan Hill. It is constrained to a seller that
+   actually sells at that stand, so public suppression can follow a fact instead of a name match.
+3. `stand_providers.seller_id` becomes `NOT NULL`; the native-slot arm of
+   `stand_providers_hosting_lifecycle_coherent` and the `create_native_stand_provider` trigger go.
+4. The nine composite keys re-root onto `(authorization, seller)`.
+5. `visibleFarms` becomes seller-rooted. **Public output stays byte-identical** — same golden-output
+   gate Phase A used, against a populated database.
+6. Migration `0042` is **replaced, not migrated past**: no database anywhere has applied it
+   (verified 2026-08-14 against the Neon ledger — 42 rows, `0000`–`0041` — and against every local
+   database, max applied count 40).
+
+Two stray farms carry no stand and are not listings: one test farm and one delivery probe. The
+migration must handle them without inventing stands for them.
+
+**This is the largest single production data change F-114 makes.** One migration performs the whole
+reshape against 38 live stands, and it is irreversible in practice. It ships only after its
+populated-schema test asserts exact row effects and every added constraint is sabotage-proved.
+
 #### Phase C — behavior
 
-1. Hosted-seller invitation, acceptance, approval provenance, and scoped access grants.
+1. Hosted-seller invitation, acceptance, and approval provenance. **No access grants** — see
+   §there is no second permission system.
 2. Per-provider inventory writes; stand-owner observation of a hosted seller's stock; owner-only stand
    closure.
 3. Per-provider SMS targeting, confirmation binding, and stock-out disambiguation.

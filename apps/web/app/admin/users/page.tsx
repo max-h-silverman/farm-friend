@@ -38,7 +38,7 @@ export default async function UsersPage() {
   }
 
   const { db } = publicReadContext();
-  const [users, requests, farms] = await Promise.all([
+  const [users, requests, sellers] = await Promise.all([
     listUsersForAdministration(db),
     listOpenFarmerOnboardingRequests(db),
     listFarmsForApproval(db),
@@ -56,9 +56,9 @@ export default async function UsersPage() {
           farmId: request.farmId,
           farmName: request.farmName,
         }))}
-        // Retired farms are not offered: inviting a farmer to take over a farm VIGA has taken
+        // Retired sellers are not offered: inviting a farmer to take over a farm VIGA has taken
         // down would produce a link that onboards someone onto nothing.
-        farms={farms
+        sellers={sellers
           .filter((farm) => !farm.retired)
           .map((farm) => ({ farmId: farm.farmId, name: farm.name }))}
       />

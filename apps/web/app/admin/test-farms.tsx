@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { AdminRecoveryError } from "./admin-shell";
 
-// F-074's operator surface: which farms are fake, and which phones may see them.
+// F-074's operator surface: which sellers are fake, and which phones may see them.
 //
 // Two lists in one component because they are one job — "set up a rehearsal" — and splitting
 // them would make an operator hold the connection between them in their head. Neither list is
@@ -23,13 +23,13 @@ export interface TestPhoneRow {
 const FAILED = "That change did not go through. Reload and try again.";
 
 export function TestFarms({
-  farms,
+  sellers,
   phones,
 }: {
-  farms: TestFarmRow[];
+  sellers: TestFarmRow[];
   phones: TestPhoneRow[];
 }) {
-  const [farmRows, setFarmRows] = useState(farms);
+  const [farmRows, setFarmRows] = useState(sellers);
   const [phoneRows, setPhoneRows] = useState(phones);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -54,7 +54,7 @@ export function TestFarms({
   async function setTestFarm(farmId: string, isTestFarm: boolean) {
     begin(farmId);
     try {
-      const response = await fetch("/api/admin/farms", {
+      const response = await fetch("/api/admin/sellers", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
@@ -149,15 +149,15 @@ export function TestFarms({
       <p className="admin-note">
         A test farm is hidden from the island map and from customer texts. You can see one by
         adding <code>?hidden=true</code> to the map address, or by texting from a number on the
-        list below. Anyone who knows that web address can see test farms, so never use this to
+        list below. Anyone who knows that web address can see test sellers, so never use this to
         hide a real farm.
       </p>
 
-      <h3>Test farms ({testFarms.length})</h3>
+      <h3>Test sellers ({testFarms.length})</h3>
       {testFarms.length === 0 ? (
-        <p className="admin-empty-state">No test farms. Customers see every farm.</p>
+        <p className="admin-empty-state">No test sellers. Customers see every farm.</p>
       ) : (
-        <ul className="admin-farms">
+        <ul className="admin-sellers">
           {testFarms.map((row) => (
             <li key={row.farmId} className="admin-farm">
               <div>
@@ -177,8 +177,8 @@ export function TestFarms({
       )}
 
       <details className="admin-secondary-disclosure">
-        <summary>Mark a farm as a test farm ({realFarms.length} real farms)</summary>
-        <ul className="admin-farms">
+        <summary>Mark a farm as a test farm ({realFarms.length} real sellers)</summary>
+        <ul className="admin-sellers">
           {realFarms.map((row) => (
             <li key={row.farmId} className="admin-farm">
               <div>
@@ -196,9 +196,9 @@ export function TestFarms({
         </ul>
       </details>
 
-      <h3>Phones that can see test farms ({phoneRows.length})</h3>
+      <h3>Phones that can see test sellers ({phoneRows.length})</h3>
       <p className="admin-note">
-        A number on this list sees test farms in its text replies. It gets no other access — it
+        A number on this list sees test sellers in its text replies. It gets no other access — it
         cannot publish, approve, or read anything a normal number cannot.
       </p>
       <form className="admin-inline-form" onSubmit={(event) => void addPhone(event)}>
@@ -217,9 +217,9 @@ export function TestFarms({
         </button>
       </form>
       {phoneRows.length === 0 ? (
-        <p className="admin-empty-state">No numbers yet. Test farms are web-only for now.</p>
+        <p className="admin-empty-state">No numbers yet. Test sellers are web-only for now.</p>
       ) : (
-        <ul className="admin-farms">
+        <ul className="admin-sellers">
           {phoneRows.map((row) => (
             <li key={row.id} className="admin-farm">
               {/*

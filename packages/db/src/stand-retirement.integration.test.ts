@@ -120,16 +120,16 @@ describe("stand retirement (integration)", () => {
         'onboarding-form-1', ${t0.toISOString()})
     `;
 
-    const farms = await sql()`insert into farms (name) values ('Retiring Farm') returning id`;
-    ids.farm = farms[0]?.id as string;
+    const sellers = await sql()`insert into sellers (name) values ('Retiring Farm') returning id`;
+    ids.farm = sellers[0]?.id as string;
 
     await sql()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${ids.farm}, ${ids.farmerContact}, ${t0.toISOString()}, ${t0.toISOString()})
     `;
 
     const locations = await sql()`
-      insert into sales_locations (owner_farm_id, kind, name, timezone, visitability,
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
         offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible)
       values (${ids.farm}, 'farm_stand', 'Retiring Stand', 'America/Los_Angeles', 'visitable',
@@ -141,7 +141,7 @@ describe("stand retirement (integration)", () => {
     // A SECOND stand on the same farm. Retirement is per-stand, and the only way to prove that
     // is to have a sibling that must survive it untouched.
     const siblings = await sql()`
-      insert into sales_locations (owner_farm_id, kind, name, timezone, visitability,
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
         offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible)
       values (${ids.farm}, 'farm_stand', 'Surviving Stand', 'America/Los_Angeles', 'visitable',
@@ -207,12 +207,12 @@ describe("stand retirement (integration)", () => {
     // it inside `confirmInventoryPublication` rather than anywhere a caller could skip.
     const authority = await sql()`
       select count(*)::int as n from farmer_authorizations
-      where farm_id = ${ids.farm as string} and revoked_at is null
+      where seller_id = ${ids.farm as string} and revoked_at is null
     `;
     expect(authority[0]?.n, "the farmer must still be authorized").toBe(1);
     const approval = await sql()`
-      select count(*)::int as n from farm_approvals
-      where farm_id = ${ids.farm as string} and revoked_at is null
+      select count(*)::int as n from seller_approvals
+      where seller_id = ${ids.farm as string} and revoked_at is null
     `;
     expect(approval[0]?.n, "the farm must still be approved").toBe(1);
 

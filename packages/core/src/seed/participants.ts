@@ -1,4 +1,4 @@
-// F-064 — host farms stated in VIGA's records.
+// F-064 — host sellers stated in VIGA's records.
 //
 // A stand often hosts other sellers: a bakery, a neighbour's eggs, another grower's flowers. The
 // public card renders these under "Also selling here" and the admin table under "Other sellers
@@ -16,7 +16,7 @@
 // against the real 2026 answers, and the parser keeps only what looks like a name.
 //
 // These are display strings, never identities. There is deliberately no matching against seeded
-// farms: F-050 has no confirmed linking flow, and resolving "Kareli Farm" to a Farm Friend
+// sellers: F-050 has no confirmed linking flow, and resolving "Kareli Farm" to a Farm Friend
 // account would fabricate a relationship neither party agreed to.
 
 /**
@@ -85,7 +85,7 @@ function cleanName(raw: string): string {
 }
 
 /**
- * Read the host farms a stand states, from either export's phrasing.
+ * Read the host sellers a stand states, from either export's phrasing.
  *
  * Returns display strings in the order stated, without duplicates. Returns EMPTY rather than
  * guessing whenever the answer names no farm — a blank label, a non-answer, or prose.

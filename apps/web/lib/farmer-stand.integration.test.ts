@@ -95,13 +95,13 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       values (${`+1206555${digits}`}, ${contactHash})
       on conflict (phone_hash) do nothing
     `;
-    const farms = await sql()`
-      insert into farms (name) values (${`Web Farm ${randomUUID()}`}) returning id
+    const sellers = await sql()`
+      insert into sellers (name) values (${`Web Farm ${randomUUID()}`}) returning id
     `;
-    const farmId = farms[0]?.id as string;
+    const farmId = sellers[0]?.id as string;
     const locations = await sql()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
@@ -647,14 +647,14 @@ describe("the farmer web surface behind a standing link (integration)", () => {
   });
 
   describe("a leaked link CANNOT change ownership or authorization (1, 2)", () => {
-    it("leaves farms, authorizations, approvals, and administrators untouched", async () => {
+    it("leaves sellers, authorizations, approvals, and administrators untouched", async () => {
       const { token, farmId, authorizationId } = await farmer();
 
       const before = await sql()`
         select
-          (select count(*)::int from farms) as farms,
+          (select count(*)::int from sellers) as sellers,
           (select count(*)::int from farmer_authorizations) as authorizations,
-          (select count(*)::int from farm_approvals) as approvals,
+          (select count(*)::int from seller_approvals) as approvals,
           (select count(*)::int from administrators) as administrators,
           (select count(*)::int from farmer_links) as links,
           (select count(*)::int from farmer_onboarding_requests) as requests
@@ -666,9 +666,9 @@ describe("the farmer web surface behind a standing link (integration)", () => {
 
       const after = await sql()`
         select
-          (select count(*)::int from farms) as farms,
+          (select count(*)::int from sellers) as sellers,
           (select count(*)::int from farmer_authorizations) as authorizations,
-          (select count(*)::int from farm_approvals) as approvals,
+          (select count(*)::int from seller_approvals) as approvals,
           (select count(*)::int from administrators) as administrators,
           (select count(*)::int from farmer_links) as links,
           (select count(*)::int from farmer_onboarding_requests) as requests
@@ -677,10 +677,10 @@ describe("the farmer web surface behind a standing link (integration)", () => {
 
       // And the holder's OWN authorization is byte-identical — it cannot even widen itself.
       const authorization = await sql()`
-        select farm_id, contact_id, phone_verified_at, authorized_at, revoked_at
+        select seller_id, contact_id, phone_verified_at, authorized_at, revoked_at
         from farmer_authorizations where id = ${authorizationId}
       `;
-      expect(authorization[0]?.farm_id).toBe(farmId);
+      expect(authorization[0]?.seller_id).toBe(farmId);
       expect(authorization[0]?.revoked_at).toBeNull();
     });
   });
@@ -861,8 +861,8 @@ describe("the farmer web surface behind a standing link (integration)", () => {
       const proposed = await propose(d, token);
 
       await sql()`
-        update farm_approvals set revoked_at = ${at(4).toISOString()}
-        where farm_id = ${farmId} and revoked_at is null
+        update seller_approvals set revoked_at = ${at(4).toISOString()}
+        where seller_id = ${farmId} and revoked_at is null
       `;
 
       const result = await confirmFromLink(d, {

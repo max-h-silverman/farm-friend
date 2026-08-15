@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { parseHostedParticipants } from "./participants";
 
-// F-064 — host farms stated in VIGA's records.
+// F-064 — host sellers stated in VIGA's records.
 //
 // A stand often hosts other sellers: a bakery, a neighbour's eggs, another grower's flowers.
 // The public card already renders an "Also selling here" section and the admin table an "Other
@@ -45,13 +45,13 @@ describe("parseHostedParticipants", () => {
   });
 
   describe("what is NOT a hosted farm", () => {
-    it("reads a bare label with nothing after it as no farms", () => {
+    it("reads a bare label with nothing after it as no sellers", () => {
       // A real map line is exactly "Hosting:" — the volunteer left it blank. Publishing an
       // empty-string participant would render a blank bullet under "Also selling here".
       expect(parseHostedParticipants("Hosting:")).toEqual([]);
     });
 
-    it("reads the form's non-answers as no farms", () => {
+    it("reads the form's non-answers as no sellers", () => {
       // "No" and "N/A" answer the question rather than name a seller. Published verbatim they
       // would put a farm called "No" on a customer's card.
       expect(parseHostedParticipants("No")).toEqual([]);

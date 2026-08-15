@@ -49,7 +49,7 @@ describe("F-051 durable farmer target context (integration)", () => {
   beforeEach(async () => {
     await client()`
       truncate farmer_target_menu_options, farmer_target_contexts,
-        sales_locations, farmer_authorizations, contacts, farms
+        sales_locations, farmer_authorizations, contacts, sellers
       restart identity cascade
     `;
   });
@@ -146,16 +146,16 @@ describe("F-051 durable farmer target context (integration)", () => {
     farmName: string,
     locationName: string,
   ): Promise<{ authorizationId: string; farmId: string; locationId: string }> {
-    const farms = await client()`insert into farms (name) values (${farmName}) returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values (${farmName}) returning id`;
+    const farmId = sellers[0]?.id as string;
     const authorizations = await client()`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       ) values (${farmId}, ${contactId}, ${T0}, ${T0}) returning id
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${farmId}, 'farm_stand', ${locationName}, 'America/Los_Angeles', 'visitable', 'produce', '1 Target Way', 47.44, -122.46,
@@ -446,7 +446,7 @@ describe("F-051 durable farmer target context (integration)", () => {
     const first = await target(contactId, "Many Stands Farm", "North Stand");
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${first.farmId}, 'farm_stand', 'South Stand', 'America/Los_Angeles', 'visitable', 'produce', '2 Target Way', 47.45, -122.47,

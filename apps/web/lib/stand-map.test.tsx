@@ -142,7 +142,7 @@ describe("farm-map poster treatment", () => {
     render(<StandMap stands={[]} />);
 
     expect(screen.getByText(
-      "Note: This map may contain recent inventory updates, but neither VIGA nor individual farms can guarantee product availability.",
+      "Note: This map may contain recent inventory updates, but neither VIGA nor individual sellers can guarantee product availability.",
     )).toHaveClass("map-note");
   });
 
@@ -1404,12 +1404,12 @@ describe("phone sheet actions", () => {
 });
 
 describe("structured links and payment methods (F-061)", () => {
-  // `farm_links` and `sales_location_payment_methods` were correctly-shaped tables with NO
+  // `seller_links` and `sales_location_payment_methods` were correctly-shaped tables with NO
   // writer and NO reader. The seeder is now the writer; these assert the reader, because a
   // populated table nothing reads is still invisible to the customer it was for.
   //
   // The card previously recovered a single website by matching a "Website: …" line inside the
-  // description prose. Measured over the real corpus, the farms state 34 links across 24
+  // description prose. Measured over the real corpus, the sellers state 34 links across 24
   // stands — Instagram and Facebook among them — and that regex could surface only the subset
   // written as a labelled "Website:" line. Every other link a farm listed was silently dropped.
 

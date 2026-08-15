@@ -89,8 +89,8 @@ describe("F-049 forward migration from populated pre-change schema (integration)
       insert into administrators (email, contact_id, authorized_at)
       values ('board@vigavashon.org', ${contact(adminHash)}, ${NOW}) returning id
     `;
-    const farms = await client()`insert into farms (name) values ('Pre-F049 Farm') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into farms (name) values ('Pre-F049 Farm') returning id`;
+    const farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
         farm_id, kind, name, public_address, public_latitude, public_longitude,
@@ -175,11 +175,11 @@ describe("F-049 forward migration from populated pre-change schema (integration)
       select source from inventory_revisions where id = ${before[0]?.revision_id as string}
     `).toEqual([{ source: "sms" }]);
     expect(await client()`
-      select name, owner_farm_id, timezone, visitability, offering_type
+      select name, own_seller_id, timezone, visitability, offering_type
       from sales_locations where id = ${locationId}
     `).toEqual([{
       name: "Existing Stand",
-      owner_farm_id: farmId,
+      own_seller_id: farmId,
       timezone: "America/Los_Angeles",
       visitability: "visitable",
       offering_type: "produce",

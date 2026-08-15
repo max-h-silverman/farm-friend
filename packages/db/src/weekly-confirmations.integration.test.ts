@@ -54,13 +54,13 @@ describe("F-062 weekly confirmations (integration)", () => {
     await migrationClient.end({ timeout: 5 });
     sql = postgres(url.toString(), { max: 1 });
 
-    const farms = await client()`
-      insert into farms (name) values ('Weekly Farm') returning id
+    const sellers = await client()`
+      insert into sellers (name) values ('Weekly Farm') returning id
     `;
-    farmId = farms[0]?.id as string;
+    farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -177,9 +177,9 @@ describe("F-062 weekly confirmations (integration)", () => {
   });
 
   describe("a farm naming itself differently in the weekly form (F-062)", () => {
-    // Farmers do not retype their full listing name every week. Three of the 2026 weekly farms
+    // Farmers do not retype their full listing name every week. Three of the 2026 weekly sellers
     // reached NO stand under an exact key — each a real submission that reached nobody — and max
-    // confirmed all three are the same farms under a different spelling.
+    // confirmed all three are the same sellers under a different spelling.
 
     it("resolves a name that is a word-prefix of exactly one stand, and says so", async () => {
       // The real shape: "Venison Valley Farm" for "Venison Valley Farm & Creamery" — the farmer

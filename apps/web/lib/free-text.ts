@@ -208,7 +208,7 @@ async function handleCustomerInquiry(
     occurredAt: Date;
   },
 ): Promise<FreeTextResult> {
-  // F-074 — whether this sender may see test farms, resolved by CODE from the sender hash
+  // F-074 — whether this sender may see test sellers, resolved by CODE from the sender hash
   // BEFORE the model runs. The model never receives this boolean and never sees the hash; it
   // selects from whatever retrieval returned, so a test farm the filter excluded cannot be
   // named however directly the question asks for it.
@@ -306,7 +306,7 @@ async function standBelongsToSender(
   const rows = await db.sql`
     select 1
     from sales_locations l
-    join farmer_authorizations a on a.farm_id = l.owner_farm_id
+    join farmer_authorizations a on a.seller_id = l.own_seller_id
     join contacts c on c.id = a.contact_id
     where l.id = ${input.salesLocationId}
       and c.phone_hash = ${input.senderHash}
@@ -348,14 +348,14 @@ function foldForMatching(value: string): string {
  * every stand shares must not count — otherwise "the farm stand is out of eggs" scores a hit
  * against most of the island and the highest score wins by accident.
  *
- * Derived from the live corpus, not invented: "farm"/"farms" appear in more than half the 36
+ * Derived from the live corpus, not invented: "farm"/"sellers" appear in more than half the 36
  * live stand names, and "garden(s)"/"stand" in several more. It is a stop-list for SCORING
  * only — a stand named entirely from these words is still matchable by tier 1, which compares
  * whole names.
  */
 const GENERIC_NAME_WORDS: ReadonlySet<string> = new Set([
   "farm",
-  "farms",
+  "sellers",
   "farmstand",
   "stand",
   "garden",

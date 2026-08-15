@@ -7,7 +7,7 @@
 //
 //   form responses  →  2026-current details (hours, season, stocking, website, social), and
 //                      NO COORDINATES AT ALL
-//   map export      →  coordinates, and the farms that did not submit a 2026 form
+//   map export      →  coordinates, and the sellers that did not submit a 2026 form
 //   offerings JSON  →  human-reviewed structured facts about what each stand usually carries
 //
 // This is the composition point: it reads both, joins them by name (`match-stands.ts`), parses
@@ -62,9 +62,9 @@ import {
 } from "../src/ingest-guard";
 
 /**
- * Coordinates for farms that submitted a 2026 form but appear in NO map row.
+ * Coordinates for sellers that submitted a 2026 form but appear in NO map row.
  *
- * Three such farms: they state real street addresses, so they are genuinely visitable, but the
+ * Three such sellers: they state real street addresses, so they are genuinely visitable, but the
  * legacy map export predates them and has no point. A seed-time lookup is explicitly permitted
  * (B-002 — the prohibition is on a RUNTIME geocoder, and F-017's tripwire still forbids one);
  * these were resolved once against OpenStreetMap and verified by max.
@@ -232,7 +232,7 @@ function toSeedInput(stand: JoinedStand, usuallySells: readonly string[]): {
   });
   const paymentMethods = [...new Set(mapLines.flatMap((line) => parsePaymentMethods(line)))];
 
-  // F-064 — host farms, from the map's `Hosting:` prose. The profile form has no hosting
+  // F-064 — host sellers, from the map's `Hosting:` prose. The profile form has no hosting
   // question (measured against the real header, 2026-08-07), so the map is the only source
   // here. The weekly form asks it as its own column and is a separate, later feed.
   //
@@ -353,7 +353,7 @@ function toSeedInput(stand: JoinedStand, usuallySells: readonly string[]): {
   }
 
   // Supplements are looked up through the SAME normalization the join matches on, never by raw
-  // name. Two of these farms carry VIGA's inline annotation ("Lavender Hill Farm *does not accept
+  // name. Two of these sellers carry VIGA's inline annotation ("Lavender Hill Farm *does not accept
   // VIGA Bucks*"), so a raw-string lookup misses them silently — the entry is present, the farm
   // is still refused, and nothing reports the mismatch. That happened on the first attempt here.
   const key = matchStandName(stand.name);

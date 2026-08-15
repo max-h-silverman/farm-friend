@@ -164,7 +164,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
           {success}
         </p>
       )}
-      <ul className="admin-farms">
+      <ul className="admin-sellers">
         {rows.map((row) => (
           <li key={row.flagId} className="admin-farm admin-flag">
             <div className="admin-flag-main">

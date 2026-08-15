@@ -14,7 +14,7 @@ import { asStandCards } from "../stand-cards";
 // Everything about a farm, in one place.
 //
 // This screen replaces six presentations of the same entity that were spread across two
-// pages: the approval queue, the flat stand index, the test-farm toggle, "farms with no one
+// pages: the approval queue, the flat stand index, the test-farm toggle, "sellers with no one
 // to update them", the farmer-access roster, and the invite form's farm dropdown. Each named
 // the farm differently and none of them linked to the others, so "what is going on with this
 // farm?" was a cross-referencing exercise.
@@ -32,7 +32,7 @@ export const dynamic = "force-dynamic";
 export default async function FarmsPage() {
   const cookie = headers().get("cookie") ?? "";
   const administrator = await resolveAdministrator(
-    new Request("https://farm-friend.internal/admin/farms", {
+    new Request("https://farm-friend.internal/admin/sellers", {
       headers: cookie === "" ? {} : { cookie },
     }),
   );
@@ -42,7 +42,7 @@ export default async function FarmsPage() {
   }
 
   const { db, clock } = publicReadContext();
-  const [farms, stands, authorizations, awaiting] = await Promise.all([
+  const [sellers, stands, authorizations, awaiting] = await Promise.all([
     listFarmsForApproval(db),
     listStandsForAdministration(db),
     listFarmerAuthorizations(db),
@@ -51,7 +51,7 @@ export default async function FarmsPage() {
 
   // `listStandsForAdministration` carries the farm NAME rather than its id, so stands are
   // grouped by name. That is safe only because the name is what the operator sees on both
-  // sides; if two farms ever share a name the grouping would merge them, which is why the
+  // sides; if two sellers ever share a name the grouping would merge them, which is why the
   // farm card shows its stand count on the summary — a wrong count is visible immediately.
   const standsByFarm = new Map<string, ReturnType<typeof asStandCards>>();
   for (const stand of asStandCards(stands)) {
@@ -78,7 +78,7 @@ export default async function FarmsPage() {
 
   const awaitingByFarm = new Map(awaiting.map((row) => [row.farmId, row]));
 
-  const cards: AdminFarmCard[] = farms.map((farm) => {
+  const cards: AdminFarmCard[] = sellers.map((farm) => {
     const waiting = awaitingByFarm.get(farm.farmId);
     return {
       farmId: farm.farmId,
@@ -105,7 +105,7 @@ export default async function FarmsPage() {
   const needSetupLink = awaiting.length;
 
   return (
-    <AdminShell currentPath="/admin/farms">
+    <AdminShell currentPath="/admin/sellers">
       <h2 className="admin-section-title">Farms</h2>
       <p className="admin-note">
         Everything VIGA knows about a farm, and everything you can do about it. What a stand
@@ -115,17 +115,17 @@ export default async function FarmsPage() {
         <p className="admin-attention-summary" role="status">
           {[
             waitingApproval > 0
-              ? `${waitingApproval} ${waitingApproval === 1 ? "farm is" : "farms are"} waiting for approval`
+              ? `${waitingApproval} ${waitingApproval === 1 ? "farm is" : "sellers are"} waiting for approval`
               : null,
             needSetupLink > 0
-              ? `${needSetupLink} ${needSetupLink === 1 ? "farm has" : "farms have"} nobody who can update ${needSetupLink === 1 ? "it" : "them"}`
+              ? `${needSetupLink} ${needSetupLink === 1 ? "farm has" : "sellers have"} nobody who can update ${needSetupLink === 1 ? "it" : "them"}`
               : null,
           ]
             .filter((part) => part !== null)
             .join(" · ")}
         </p>
       )}
-      <FarmList farms={cards} />
+      <FarmList sellers={cards} />
     </AdminShell>
   );
 }

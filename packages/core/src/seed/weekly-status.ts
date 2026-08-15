@@ -4,7 +4,7 @@ import type { RejectedStand } from "./stand-csv";
 // F-062 — VIGA's weekly stock form, the third CSV and the one nothing has ever read.
 //
 // WHAT IT IS. `Farm Stand Weekly Status (Responses) 2024 - Form Responses 1.csv`: 734 submissions
-// from 49 farms across four seasons (2020, 2024, 2025, 2026). One row per farm per week, filled
+// from 49 sellers across four seasons (2020, 2024, 2025, 2026). One row per farm per week, filled
 // in by the farmer. For 2026 the availability question is answered on all 70 rows.
 //
 // WHY IT BECOMES A CONFIRMATION. A farmer has been filling in this form for years and has not
@@ -248,7 +248,7 @@ export function parseWeeklyStatus(
    *
    * NOT the raw string the farmer typed. One farmer really did submit as "Fruits Des Vignes
    * Farm" in April and "Fruits des Vignes Farm" in July, and a raw-string key makes those two
-   * farms — so an April row survives as current stock for a stand that does not exist. The same
+   * sellers — so an April row survives as current stock for a stand that does not exist. The same
    * normalization the join downstream uses is the one that has to run here, or "latest per farm"
    * is a claim about a key rather than about a farm.
    *

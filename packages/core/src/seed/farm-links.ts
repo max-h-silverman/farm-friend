@@ -1,6 +1,6 @@
 // F-061 — links and payment methods, from VIGA's two exports into the two tables that hold them.
 //
-// Both `farm_links` and `sales_location_payment_methods` were correctly shaped and completely
+// Both `seller_links` and `sales_location_payment_methods` were correctly shaped and completely
 // unused: no writer, no reader, verified in both directions. This file is the writer. The reader
 // is the public listing query — a populated table nothing reads is still invisible.
 //
@@ -15,7 +15,7 @@
 //      (`@aeggysfarm`), sentinel non-answers (`None`, `Nope`, `na`), several links in one cell,
 //      and free text that names no destination at all (`vashon garlic`).
 //
-// That messiness is not cosmetic: `farm_links_absolute_http_url` refuses anything that is not
+// That messiness is not cosmetic: `seller_links_absolute_http_url` refuses anything that is not
 // `^https?://…`, and a refusal aborts the whole seed transaction. Every shape below was chosen
 // against a real cell, and `parseFarmLinks` emits only URLs Postgres will accept.
 
@@ -143,7 +143,7 @@ function fragments(cell: string): string[] {
 /**
  * Read every link a farm states, farmer's own answer first.
  *
- * Deduplicated by URL, because `farm_links_farm_url_unique` refuses a repeat — and a refusal
+ * Deduplicated by URL, because `seller_links_farm_url_unique` refuses a repeat — and a refusal
  * aborts the seed transaction rather than skipping one row.
  */
 export function parseFarmLinks(source: FarmLinkSource): FarmLink[] {

@@ -16,16 +16,16 @@ const CLOCK = { now: () => new Date("2026-08-06T12:00:00Z") };
 // F-078 — "no public read path returns an email", proven BY EFFECT.
 //
 // This is the acceptance criterion that a schema cannot enforce and a source scan cannot
-// honestly prove. `farm_emails` has no `is_public` column and no display column; whether an
+// honestly prove. `seller_emails` has no `is_public` column and no display column; whether an
 // address reaches a customer is a property of the QUERIES, and the only way to know is to put
 // a real address in a real database and look at what the real reader returns.
 //
 // **Why not a source grep.** A test asserting `public-listing.ts` does not contain the string
-// "farm_emails" passes the moment someone selects the column through a join, an alias, or a
+// "seller_emails" passes the moment someone selects the column through a join, an alias, or a
 // `select *` — and it also passes if the reader is deleted entirely. The property is about
 // returned BYTES, so the assertion is against returned bytes.
 //
-// **Verifying is not publishing.** Six of VIGA's farms answered "No" to putting contact email
+// **Verifying is not publishing.** Six of VIGA's sellers answered "No" to putting contact email
 // on the printed map and two left it blank, and all of them still authenticate. That is only
 // coherent if storage and publication are genuinely separate, which is what this file measures.
 
@@ -61,17 +61,17 @@ describe("F-078 farm email privacy (integration)", () => {
     db = createDb(url.toString());
 
     const now = new Date("2026-08-06T12:00:00Z");
-    const farms = await sql()`
-      insert into farms (name, created_at) values ('Lavender Hill Farm', ${now.toISOString()})
+    const sellers = await sql()`
+      insert into sellers (name, created_at) values ('Lavender Hill Farm', ${now.toISOString()})
       returning id
     `;
-    const farmId = farms[0]?.id as string;
+    const farmId = sellers[0]?.id as string;
 
     // A real, public, visitable stand — so the public reader genuinely returns this farm and
     // an absent email cannot be explained by the farm simply not being on the map.
     await sql()`
       insert into sales_locations
-        (owner_farm_id, name, kind, timezone, visitability, offering_type,
+        (own_seller_id, name, kind, timezone, visitability, offering_type,
          public_address, public_latitude, public_longitude, is_public,
          farm_bucks_accepted, farm_bucks_eligible)
       values
@@ -80,7 +80,7 @@ describe("F-078 farm email privacy (integration)", () => {
     `;
 
     await sql()`
-      insert into farm_emails (farm_id, email, email_hash, added_at)
+      insert into seller_emails (seller_id, email, email_hash, added_at)
       values (${farmId}, ${FARMER_EMAIL}, ${hashEmail(FARMER_EMAIL, SALT)},
               ${now.toISOString()})
     `;
@@ -99,7 +99,7 @@ describe("F-078 farm email privacy (integration)", () => {
     // Asserted FIRST and deliberately. Every assertion below is of the form "the email is not
     // there" — and all of them would pass against a database where the insert silently failed.
     // This is what makes the rest evidence rather than a tautology.
-    const rows = await sql()`select email, email_hash from farm_emails`;
+    const rows = await sql()`select email, email_hash from seller_emails`;
     expect(rows).toHaveLength(1);
     expect(rows[0]?.email).toBe(FARMER_EMAIL);
     expect(rows[0]?.email_hash).toBe(hashEmail(FARMER_EMAIL, SALT));
@@ -110,7 +110,7 @@ describe("F-078 farm email privacy (integration)", () => {
    *
    * **This is the level the assertion has to be at, and a sabotage proved it.** An earlier
    * version of this file asserted on the objects `listPublicStands` returns. Selecting the
-   * email straight into that query — `(select fe.email from farm_emails …) as leaked_email`,
+   * email straight into that query — `(select fe.email from seller_emails …) as leaked_email`,
    * the exact shape a careless join would take — left all four tests PASSING.
    *
    * The reason is a REAL ARCHITECTURAL PROPERTY worth stating: `serializePublicStand` is an
@@ -153,7 +153,7 @@ describe("F-078 farm email privacy (integration)", () => {
     expect(await servedBytes()).not.toContain(hashEmail(FARMER_EMAIL, SALT));
   });
 
-  it("no table but farm_emails holds the address anywhere in the database", async () => {
+  it("no table but seller_emails holds the address anywhere in the database", async () => {
     // The "exactly one column" half of Golden Rule #5. A future writer copying the address
     // into a contact row, a description, or an audit payload would defeat every check above
     // while each of them still passed.
@@ -162,7 +162,7 @@ describe("F-078 farm email privacy (integration)", () => {
       from information_schema.columns
       where table_schema = 'public'
         and data_type in ('text', 'character varying')
-        and not (table_name = 'farm_emails' and column_name = 'email')
+        and not (table_name = 'seller_emails' and column_name = 'email')
     `) as unknown as Array<{ table_name: string; column_name: string }>;
 
     for (const { table_name, column_name } of columns) {

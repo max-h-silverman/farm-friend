@@ -475,7 +475,7 @@ describe("openNow — how season, hours and days compose", () => {
 
 describe("openNow — coordinates", () => {
   it("falls back to the island for a stand with no coordinate of its own", () => {
-    // F-038's contact-only farms have no pin. Vashon is small enough that the sun is the same
+    // F-038's contact-only sellers have no pin. Vashon is small enough that the sun is the same
     // across it, so a missing coordinate must not cost a stand its daylight judgement.
     const dawnToDusk = {
       season: { kind: "year_round" },

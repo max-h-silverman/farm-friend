@@ -101,7 +101,7 @@ function codeOnly(source: string): string {
  * lives entirely inside a backtick string.
  *
  * **This was found by discovering the F-078 raw-email tripwire could not fail.** It ran
- * `/\bfarm_emails\b/` over `codeOnly` output, so it detected NO reader of the table at all —
+ * `/\bseller_emails\b/` over `codeOnly` output, so it detected NO reader of the table at all —
  * not even the two its own allowlist named. It had been green since it shipped, for a reason
  * entirely unrelated to the property it claimed. Comments are still stripped, so a file that
  * merely explains the rule does not trip it.
@@ -367,7 +367,7 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
    *
    * Golden Rule #5 puts raw personal data out of model context, and email is the second kind
    * of personal data Farm Friend holds. Today `packages/ai` contains no reference to
-   * `farm_emails` at all, which is the right state — but "no reference today" is a fact about
+   * `seller_emails` at all, which is the right state — but "no reference today" is a fact about
    * the current code, and only a tripwire keeps it true. Retrieval and projections are exactly
    * where a well-meant "so the model can tell them who to contact" change would land.
    *
@@ -384,7 +384,7 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
     const offenders = modelSources.filter((path) => {
       // SQL-preserving: a table name lives inside a tagged template, which `codeOnly` blanks.
       const source = codeAndSqlOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
-      return /\bfarm_emails\b|\bfarmEmails\b|\bemail_hash\b|\bemailHash\b/.test(source);
+      return /\bseller_emails\b|\bsellerEmails\b|\bemail_hash\b|\bemailHash\b/.test(source);
     });
     expect(offenders).toEqual([]);
   });
@@ -415,7 +415,7 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
       const source = codeAndSqlOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
       // `schema.ts` declares the table; declaring is not reading.
       if (path === "packages/db/src/schema.ts") return false;
-      return /\bfarm_emails\b|\bfarmEmails\b/.test(source);
+      return /\bseller_emails\b|\bsellerEmails\b/.test(source);
     });
     expect(offenders).toEqual([]);
   });
@@ -437,7 +437,7 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
 
     const offenders = modelSources.filter((path) => {
       const source = codeAndSqlOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
-      return /\bfarm_email_verifications\b|\bfarmEmailVerifications\b|\bcode_hash\b|\bcodeHash\b|\bgrant_hash\b|\bgrantHash\b/.test(
+      return /\bseller_email_verifications\b|\bsellerEmailVerifications\b|\bcode_hash\b|\bcodeHash\b|\bgrant_hash\b|\bgrantHash\b/.test(
         source,
       );
     });
@@ -457,7 +457,7 @@ describe("no runtime geocoder or map provider (F-017, narrowed by F-069)", () =>
       if (VERIFICATION_READER_ALLOWLIST.includes(path)) return false;
       if (path === "packages/db/src/schema.ts") return false;
       const source = codeAndSqlOnly(readFileSync(new URL(path, repositoryRoot), "utf8"));
-      return /\bfarm_email_verifications\b/.test(source);
+      return /\bseller_email_verifications\b/.test(source);
     });
     expect(offenders).toEqual([]);
   });
@@ -762,7 +762,7 @@ describe("SMS inventory is never gated on farm type (F-038)", () => {
     // `coherentVisitability` when writing a LISTING — not to gate publication. That reason
     // holds only while it writes no inventory. If it ever gained one, the exclusion above
     // would be carving a hole in exactly the path this guards, and the branch it already
-    // contains would become a real gate on which farms may publish.
+    // contains would become a real gate on which sellers may publish.
     //
     // Anchored to the inventory-write constructs specifically. This file DOES write listing
     // facts, so a generic write pattern would fire on its legitimate purpose and say nothing.

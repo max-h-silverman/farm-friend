@@ -77,7 +77,7 @@ describe("migrate script (integration)", () => {
       expect(tables).toEqual(
         expect.arrayContaining([
           "contacts",
-          "farms",
+          "sellers",
           "administrators",
           "admin_sessions",
           "sms_messages",

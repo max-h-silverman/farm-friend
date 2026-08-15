@@ -100,13 +100,13 @@ describe("F-114 one open proposal per sender per provider (integration)", () => 
       `;
     }
 
-    const farms = await db`insert into farms (name) values ('Morgan Hill') returning id`;
-    farmId = farms[0]?.id as string;
+    const morganhillSeller = await db`insert into sellers (name) values ('Morgan Hill') returning id`;
+    farmId = morganhillSeller[0]?.id as string;
 
     const mkLocation = async (name: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           is_public, farm_bucks_accepted, farm_bucks_eligible,
           public_address, public_latitude, public_longitude
         ) values (
@@ -124,17 +124,17 @@ describe("F-114 one open proposal per sender per provider (integration)", () => 
     const nativeProvider = async (locationId: string): Promise<string> => {
       const rows = await db`
         select id from stand_providers
-        where sales_location_id = ${locationId} and seller_id is null
+        where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})
       `;
       return rows[0]?.id as string;
     };
     nativeProviderA = await nativeProvider(locationA);
     nativeProviderB = await nativeProvider(locationB);
 
-    const sellers = await db`
+    const fernhornbakeSeller = await db`
       insert into sellers (name) values ('Fernhorn Bakery') returning id
     `;
-    const sellerId = sellers[0]?.id as string;
+    const sellerId = fernhornbakeSeller[0]?.id as string;
     const hosted = await db`
       insert into stand_providers (
         sales_location_id, seller_id, lifecycle_state, invited_at, accepted_at,

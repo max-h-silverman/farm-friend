@@ -60,8 +60,8 @@ export default async function StandPage({
     );
   }
 
-  const farms = await db.sql`
-    select name from farms where id = ${stand.farmId}
+  const sellers = await db.sql`
+    select name from sellers where id = ${stand.farmId}
   `;
   const locations = await db.sql`
     select name from sales_locations where id = ${stand.salesLocationId}
@@ -111,7 +111,7 @@ export default async function StandPage({
       <header>
         <h1>{(locations[0]?.name as string | undefined) ?? "Your stand"}</h1>
         <p className="farmer-form-note">
-          {(farms[0]?.name as string | undefined) ?? ""}
+          {(sellers[0]?.name as string | undefined) ?? ""}
         </p>
       </header>
 

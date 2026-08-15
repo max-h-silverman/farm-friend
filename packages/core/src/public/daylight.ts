@@ -21,7 +21,7 @@
  *
  * The island is small enough that the sun is effectively the same across it — end to end,
  * sunrise differs by well under a minute — so a stand missing coordinates (F-038's
- * contact-only farms) can honestly use the island's centre rather than being excluded from a
+ * contact-only sellers) can honestly use the island's centre rather than being excluded from a
  * daylight judgement for want of a pin.
  */
 export const VASHON = { latitude: 47.4471, longitude: -122.4594 } as const;

@@ -163,7 +163,7 @@ describe("F-056 forward migration from populated pre-change schema (integration)
     `).toHaveLength(0);
     expect(await sql`
       select
-        (select administrator_id from farm_approvals where id = ${approvalId}) as approval_admin,
+        (select administrator_id from seller_approvals where id = ${approvalId}) as approval_admin,
         (select actor_administrator_id from audit_events where id = ${auditId}) as audit_admin,
         (select resolved_by_administrator_id from stand_data_flags where id = ${standFlagId}) as stand_admin,
         (select reviewed_by_administrator_id from stock_out_reports where id = ${reportId}) as report_admin,

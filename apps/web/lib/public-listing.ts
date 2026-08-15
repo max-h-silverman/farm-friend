@@ -194,7 +194,7 @@ export interface PublicStand {
   /**
    * The farm's website and social links (F-061).
    *
-   * `farm_links` held a correct schema and had NO writer and NO reader — verified in both
+   * `seller_links` held a correct schema and had NO writer and NO reader — verified in both
    * directions; its only non-schema appearances were integration-test cleanup lists. The seeder
    * is now the writer and this is the reader, because a populated table nothing reads is still
    * invisible to the customer it was for.
@@ -216,7 +216,7 @@ export interface PublicStand {
 export interface PublicStandLink {
   /** What a person reads — "Website", "Instagram", "Facebook". */
   label: string;
-  /** Always absolute; `farm_links_absolute_http_url` refuses anything else. */
+  /** Always absolute; `seller_links_absolute_http_url` refuses anything else. */
   url: string;
 }
 
@@ -437,8 +437,8 @@ export async function listPublicStands(
             json_build_object('label', link.label, 'url', link.url)
             order by link.sort_order asc, link.label asc
           )
-          from farm_links link
-          where link.farm_id = f.id
+          from seller_links link
+          where link.seller_id = f.id
         ),
         '[]'::json
       ) as links,
@@ -470,7 +470,7 @@ export async function listPublicStands(
       e.price_text as price_text,
       e.approximation as approximation
     from sales_locations l
-    join farms f on f.id = l.owner_farm_id
+    join sellers f on f.id = l.own_seller_id
     -- B-074 — the currency rule comes from the shared reader. LEFT, and that is load-bearing
     -- (B-013): a stand with no current revision stays on the map with no recency and no items.
     ${currentInventoryJoin({ locationAlias: "l", revisionAlias: "r", kind: "left" })}
@@ -674,11 +674,11 @@ export async function handleStandsRequest(
  * Read the deliberate-viewer decision out of a request URL (F-074).
  *
  * Stated once and shared by the API route and the page, so the two surfaces cannot disagree
- * about what asking for test farms looks like. Exactly `?hidden=true` counts — `hidden=1`,
+ * about what asking for test sellers looks like. Exactly `?hidden=true` counts — `hidden=1`,
  * `hidden`, and `hidden=TRUE` do not, because a filter that leaks on a near-miss is worse than
  * one that is strict and predictable.
  *
- * This is a query parameter, NOT a credential. Anyone who guesses it sees test farms, which is
+ * This is a query parameter, NOT a credential. Anyone who guesses it sees test sellers, which is
  * acceptable only because a test farm holds no real data.
  */
 export function viewerScopeFromUrl(url: string): PublicViewerScope {

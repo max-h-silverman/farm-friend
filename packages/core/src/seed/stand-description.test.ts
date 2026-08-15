@@ -43,7 +43,7 @@ describe("buildStandDescription", () => {
 
   describe("facts that have their own column never appear in the prose", () => {
     it("drops a line that only restates the hours", () => {
-      // `Open Hours & Days` is its own column for 29 of 31 farms and renders as its own field.
+      // `Open Hours & Days` is its own column for 29 of 31 sellers and renders as its own field.
       // Repeating it here is what produced the on-screen contradiction.
       expect(
         buildStandDescription({
@@ -54,7 +54,7 @@ describe("buildStandDescription", () => {
       ).toBe("Eggs, honey, and jam.");
     });
 
-    it("drops a line that only restates a link, which farm_links now holds", () => {
+    it("drops a line that only restates a link, which seller_links now holds", () => {
       expect(
         buildStandDescription({
           generalInformation: "Website: www.example.com\nInstagram: @example\nLamb and wool.",
@@ -179,7 +179,7 @@ describe("buildStandDescription", () => {
     });
   });
 
-  // Measured against the REAL production corpus on 2026-08-07 — all 34 farms carrying a
+  // Measured against the REAL production corpus on 2026-08-07 — all 34 sellers carrying a
   // description, read from `neondb`. The existing rules removed 53% of the text and left 26
   // lines that are still pure restatement. Every fixture below is a real line, copied verbatim,
   // because these labels were invisible to fixtures invented from the doc's description.
@@ -194,7 +194,7 @@ describe("buildStandDescription", () => {
     });
 
     it("drops a 'Generally Offers:' line, which stand_items now holds", () => {
-      // THE BIGGEST ONE — 13 of 34 farms. It duplicates the exact field the onboarding form
+      // THE BIGGEST ONE — 13 of 34 sellers. It duplicates the exact field the onboarding form
       // asks a farmer to fill in, so a farmer who types their items sees their own list AND
       // VIGA's older one on the same card, free to disagree. Tian Tian's live card shows
       // "Usually sells: gailan, bok choy, perilla, a choy" directly above prose repeating them.
@@ -210,7 +210,7 @@ describe("buildStandDescription", () => {
     it("drops 'Generally Offers' however the sheet punctuated it", () => {
       // Hand-typed, so the separator is inconsistent across the corpus: a colon, a semicolon
       // (Sherman Creek), no colon at all (Useful Bear), and lowercase 'offers' (Littlest Bird,
-      // Peach Tree Hill). Matching only "Generally Offers:" leaves four farms' lines printing.
+      // Peach Tree Hill). Matching only "Generally Offers:" leaves four sellers' lines printing.
       for (const line of [
         "Generally Offers: Fresh Cut Flowers",
         "Generally offers: Year round eggs, frozen lamb and pork.",
@@ -223,7 +223,7 @@ describe("buildStandDescription", () => {
     });
 
     it("drops a 'Hosting' line, with or without its colon", () => {
-      // 7 farms. Who else sells at this stand is a real fact and a genuinely useful one, but it
+      // 7 sellers. Who else sells at this stand is a real fact and a genuinely useful one, but it
       // is a LIST OF OTHER FARMS pasted into one farm's prose — it belongs in a field of its
       // own, not in the farm's voice. Until it has one, printing it here attributes another
       // farm's goods to this listing with no way to keep the two in step.

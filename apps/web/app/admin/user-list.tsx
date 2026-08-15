@@ -6,7 +6,7 @@ export interface AdminUserRow {
   userId: string;
   senderMask: string;
   isFarmer: boolean;
-  farms: string[];
+  sellers: string[];
 }
 
 export function UserList({ users }: { users: AdminUserRow[] }) {
@@ -43,7 +43,7 @@ export function UserList({ users }: { users: AdminUserRow[] }) {
                 <span className={`admin-access-pill${user.isFarmer ? " admin-access-pill--active" : ""}`}>
                   {user.isFarmer ? "Farmer" : "Regular user"}
                 </span>
-                {user.isFarmer ? <span>Can update: {user.farms.join(", ")}</span> : null}
+                {user.isFarmer ? <span>Can update: {user.sellers.join(", ")}</span> : null}
               </div>
             </li>
           ))}

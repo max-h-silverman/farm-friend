@@ -43,7 +43,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await client()`truncate contacts, farms restart identity cascade`;
+    await client()`truncate contacts, sellers restart identity cascade`;
   });
 
   function client(): Sql {
@@ -82,17 +82,17 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       insert into contacts (phone_e164, phone_hash, created_at)
       values ('+12065550155', ${senderHash}, ${T0}) returning id
     `;
-    const farms = await client()`insert into farms (name) values ('Target Farm') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values ('Target Farm') returning id`;
+    const farmId = sellers[0]?.id as string;
     const authorizations = await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${contacts[0]?.id as string}, ${T0}, ${T0}) returning id
     `;
     const locations: string[] = [];
     for (const name of names) {
       const inserted = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         ) values (${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce', '1 Stand Way', 47.44, -122.46, false, false)
         returning id
@@ -378,15 +378,15 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       insert into contacts (phone_e164, phone_hash, created_at)
       values (${owner.phone}, ${owner.hash}, ${T0}) returning id
     `;
-    const farms = await client()`insert into farms (name) values (${name}) returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values (${name}) returning id`;
+    const farmId = sellers[0]?.id as string;
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${contacts[0]?.id as string}, ${T0}, ${T0})
     `;
     const inserted = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
         public_latitude, public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable',
                 'produce', '2 Stand Way', 47.44, -122.46, false, false)

@@ -74,8 +74,8 @@ describe("F-052 forward migration from populated pre-prompt schema (integration)
   }
 
   it("assigns the reviewed island timezone to existing locations and invents no preferences", async () => {
-    const farms = await client()`insert into farms (name) values ('Existing Farm') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into farms (name) values ('Existing Farm') returning id`;
+    const farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
         owner_farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
@@ -98,7 +98,7 @@ describe("F-052 forward migration from populated pre-prompt schema (integration)
     expect(await client()`select proposal_id from scheduled_inventory_prompt_subjects`).toHaveLength(0);
     await expect(client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (${farmId}, 'farm_stand', 'Unreviewed Zone', 'visitable', 'produce', '3 Existing Way', 47.46, -122.48, false, false)
     `).rejects.toThrow(/timezone|null value/i);

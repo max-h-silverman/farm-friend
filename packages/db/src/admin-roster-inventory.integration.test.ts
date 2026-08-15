@@ -12,7 +12,7 @@ import type { Sql } from "./sql";
   B-074 — the VIGA admin roster actually returns a stand's current inventory.
 
   THE GAP THIS CLOSES. `listStandsForAdministration` is the ONE read behind both admin refresh
-  surfaces — the farms page and `/api/admin/stands`. Its `currentItems` column had exactly one
+  surfaces — the sellers page and `/api/admin/stands`. Its `currentItems` column had exactly one
   assertion in the whole suite, and that assertion was `currentItems: []` on a stand that had
   never published. It would have stayed green if the column returned an empty array for every
   stand in the corpus, which is precisely the regression B-074's edit to this query could cause:
@@ -52,13 +52,13 @@ describe("B-074 admin roster current inventory (integration)", () => {
     sql = postgres(url.toString(), { max: 5 });
 
     const db = sql;
-    const farms = await db`insert into farms (name) values ('Roster Farm') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await db`insert into sellers (name) values ('Roster Farm') returning id`;
+    const farmId = sellers[0]?.id as string;
 
     const mkStand = async (name: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           is_public, farm_bucks_accepted, farm_bucks_eligible,
           public_address, public_latitude, public_longitude
         ) values (
@@ -76,11 +76,11 @@ describe("B-074 admin roster current inventory (integration)", () => {
     // whose items must.
     const old = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, source, published_at, is_current, superseded_at
+        seller_id, sales_location_id, provider_id, source, published_at, is_current, superseded_at
       ) values (
         ${farmId}, ${standId},
         (select id from stand_providers
-          where sales_location_id = ${standId} and seller_id is null), 'viga', now() - interval '9 days', false, now() - interval '1 day'
+          where sales_location_id = ${standId} and seller_id = (select own_seller_id from sales_locations where id = ${standId})), 'viga', now() - interval '9 days', false, now() - interval '1 day'
       ) returning id
     `;
     await db`
@@ -91,11 +91,11 @@ describe("B-074 admin roster current inventory (integration)", () => {
 
     const current = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, source, published_at, is_current
+        seller_id, sales_location_id, provider_id, source, published_at, is_current
       ) values (
         ${farmId}, ${standId},
         (select id from stand_providers
-          where sales_location_id = ${standId} and seller_id is null), 'viga', now() - interval '3 hours', true
+          where sales_location_id = ${standId} and seller_id = (select own_seller_id from sales_locations where id = ${standId})), 'viga', now() - interval '3 hours', true
       ) returning id
     `;
     await db`

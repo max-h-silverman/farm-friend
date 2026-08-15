@@ -59,11 +59,11 @@ describe("F-066 stand items (integration)", () => {
     // A pool, not a single connection: the contention test needs genuinely parallel sessions.
     sql = postgres(url.toString(), { max: 10 });
 
-    const farms = await client()`insert into farms (name) values ('Item Farm') returning id`;
-    farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values ('Item Farm') returning id`;
+    farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -76,7 +76,7 @@ describe("F-066 stand items (integration)", () => {
     locationId = locations[0]?.id as string;
     const others = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -106,7 +106,7 @@ describe("F-066 stand items (integration)", () => {
     const rows = await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
       values (${location}, (select id from stand_providers
-        where sales_location_id = ${location} and seller_id is null), ${name}, ${options.usuallyCarried ?? false})
+        where sales_location_id = ${location} and seller_id = (select own_seller_id from sales_locations where id = ${location})), ${name}, ${options.usuallyCarried ?? false})
       on conflict do nothing
       returning id
     `;
@@ -123,7 +123,7 @@ describe("F-066 stand items (integration)", () => {
         client()`
           insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
           values (${locationId}, (select id from stand_providers
-            where sales_location_id = ${locationId} and seller_id is null), 'rhubarb', false)
+            where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), 'rhubarb', false)
         `,
       ).rejects.toThrow();
     });
@@ -179,7 +179,7 @@ describe("F-066 stand items (integration)", () => {
           client()`
             insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
             values (${locationId}, (select id from stand_providers
-              where sales_location_id = ${locationId} and seller_id is null), ${blank}, false)
+              where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${blank}, false)
           `,
           `${JSON.stringify(blank)} must be refused`,
         ).rejects.toThrow(/stand_items_display_name_not_blank/);
@@ -286,12 +286,12 @@ describe("F-066 stand items (integration)", () => {
       // unique index enforces.
       const revision = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, source, published_at, is_current
+          seller_id, sales_location_id, provider_id, source, published_at, is_current
         )
         values (
 ${farmId}, ${locationId},
 (select id from stand_providers
-  where sales_location_id = ${locationId} and seller_id is null), 'viga', now(), true)
+  where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), 'viga', now(), true)
         returning id
       `;
       const revisionId = revision[0]?.id as string;
@@ -325,12 +325,12 @@ ${farmId}, ${locationId},
       // immutability guard has been weakened and the reason for that design is gone.
       const revision = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, source, published_at, is_current
+          seller_id, sales_location_id, provider_id, source, published_at, is_current
         )
         values (
 ${farmId}, ${otherLocationId},
 (select id from stand_providers
-  where sales_location_id = ${otherLocationId} and seller_id is null), 'viga', now(), true)
+  where sales_location_id = ${otherLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${otherLocationId})), 'viga', now(), true)
         returning id
       `;
       const revisionId = revision[0]?.id as string;
@@ -354,12 +354,12 @@ ${farmId}, ${otherLocationId},
       // card must still read the way June read.
       const revision = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, source, published_at, is_current
+          seller_id, sales_location_id, provider_id, source, published_at, is_current
         )
         values (
 ${farmId}, ${locationId},
 (select id from stand_providers
-  where sales_location_id = ${locationId} and seller_id is null), 'viga', now() - interval '40 days', false)
+  where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), 'viga', now() - interval '40 days', false)
         returning id
       `;
       const revisionId = revision[0]?.id as string;

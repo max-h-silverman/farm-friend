@@ -10,7 +10,7 @@ import {
 // B-002 — joining the 2026 form export to the map export.
 //
 // Neither file can seed a visitable location alone: the form has the current details and NO
-// coordinates, the map export has coordinates and the farms that did not submit a 2026 form. The
+// coordinates, the map export has coordinates and the sellers that did not submit a 2026 form. The
 // join is by NAME, and the names differ between the files.
 //
 // Every fixture below is a real pair from the corpus. The measured outcome over all 32 form rows
@@ -43,7 +43,7 @@ describe("matchStandName", () => {
     );
   });
 
-  it("does NOT match two different farms that share a distinguishing word", () => {
+  it("does NOT match two different sellers that share a distinguishing word", () => {
     // THE case that decides the whole design. A similarity-scored matcher ranked Lavender Hill
     // against Flora Hill at 0.33 — its best candidate, because both are "<word> Hill Farm". Any
     // threshold low enough to be useful elsewhere would accept it, and Lavender Hill would seed
@@ -64,9 +64,9 @@ describe("matchStandName", () => {
     // adding "hill" to the generic list still leaves "lavender" ≠ "flora", so the names stay
     // distinct and `.not.toBe` is satisfied while the guard it describes is gone.
     //
-    // What actually protects those farms is that the discriminating word SURVIVES normalization.
+    // What actually protects those sellers is that the discriminating word SURVIVES normalization.
     // So assert that directly, on the words the corpus's near-collisions turn on. This fails the
-    // moment one of them is dropped — which is the change that would make two farms collide.
+    // moment one of them is dropped — which is the change that would make two sellers collide.
     for (const word of ["hill", "tree", "forest", "creek", "moon", "gate"]) {
       expect(matchStandName(`Alpha ${word} Farm`).split(" ")).toContain(word);
     }
@@ -78,7 +78,7 @@ describe("matchStandName", () => {
 
   it("is usable as a lookup key for hand-supplied seed data", () => {
     // The supplemental coordinate/address tables in the seeder are keyed by this function, not by
-    // the raw name. Two of the four farms needing a hand-supplied point carry VIGA's inline
+    // the raw name. Two of the four sellers needing a hand-supplied point carry VIGA's inline
     // annotation — "Lavender Hill Farm *does not accept VIGA Bucks*" — so a raw-string table
     // silently misses them, which is exactly what happened on the first attempt: the entry was
     // present, the farm was still refused, and nothing reported a mismatch.
@@ -98,7 +98,7 @@ describe("matchStandName", () => {
 
   it("refuses to collapse a name to nothing", () => {
     // "Farm Stand" is entirely generic words. Stripping them all leaves an empty key that would
-    // match every other empty key — one silent equivalence class swallowing unrelated farms.
+    // match every other empty key — one silent equivalence class swallowing unrelated sellers.
     expect(() => matchStandName("Farm Stand")).toThrow(/generic/i);
     expect(() => matchStandName("   ")).toThrow(/generic/i);
   });
@@ -106,7 +106,7 @@ describe("matchStandName", () => {
 
 describe("standDisplayName", () => {
   it("strips VIGA's inline annotation, which is not part of the farm's name", () => {
-    // Four farms carry it in the 2026 export. Seeded verbatim, the map would render
+    // Four sellers carry it in the 2026 export. Seeded verbatim, the map would render
     // "Flora Hill *does not accept VIGA Bucks*" as the farm's NAME — an editorial note about
     // payment presented as what the farm calls itself.
     //
@@ -256,7 +256,7 @@ describe("joinStandSources", () => {
   });
 
   it("never matches one map row to two form rows", () => {
-    // A duplicate key would seed two farms at one point, or silently drop one. Whichever way it
+    // A duplicate key would seed two sellers at one point, or silently drop one. Whichever way it
     // resolved, the corpus count would be wrong with nothing reporting it.
     const { joined, refused } = joinStandSources({
       form: [
@@ -274,8 +274,8 @@ describe("joinStandSources", () => {
 
 describe("resolveStandKey — a farm naming itself differently across forms (F-062)", () => {
   // The weekly form is filled in by hand, week after week, and farmers do not retype their full
-  // listing name. Three of the 2026 weekly farms matched no seeded stand, and max confirmed all
-  // three are the same farms under different spellings:
+  // listing name. Three of the 2026 weekly sellers matched no seeded stand, and max confirmed all
+  // three are the same sellers under different spellings:
   //
   //   "Venison Valley Farm"  →  Venison Valley Farm & Creamery   (trailing words dropped)
   //   "Ostara"               →  Ostara Farm & Flowers            (trailing words dropped)
@@ -312,9 +312,9 @@ describe("resolveStandKey — a farm naming itself differently across forms (F-0
   });
 
   it("REFUSES a prefix that matches more than one seeded stand", () => {
-    // THE WHOLE SAFETY PROPERTY. Two farms sharing a leading word is not hypothetical — this is
+    // THE WHOLE SAFETY PROPERTY. Two sellers sharing a leading word is not hypothetical — this is
     // the shape "Cedar" takes if VIGA ever lists both "Cedar Grove Farm" and "Cedar Ridge Farm".
-    // A prefix that names two farms names NEITHER: guessing publishes one farm's stock on the
+    // A prefix that names two sellers names NEITHER: guessing publishes one farm's stock on the
     // other's card, which is the failure the exact key was chosen to prevent.
     //
     // Both candidates must be REAL prefixes of the key, or this test passes without ever

@@ -193,7 +193,7 @@ describe("farmer onboarding listing endpoint", () => {
 
   it("refuses an invitation that names NO FARM", async () => {
     // An invitation with no farm is the path that still needs a human (a bare SIGNUP, or a
-    // link minted before farms were named at invite time). There is nothing to write a
+    // link minted before sellers were named at invite time). There is nothing to write a
     // listing against, and inventing a farm here would grant exactly what the invited path
     // is careful never to grant.
     const save = saver();

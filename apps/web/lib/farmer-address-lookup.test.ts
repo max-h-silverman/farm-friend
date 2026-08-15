@@ -285,7 +285,7 @@ describe("farmer address lookup endpoint", () => {
 
     it("REFUSES a farm that already has a farmer, before spending a provider call", async () => {
       // The lookup closes for a farm as soon as it has a farmer, so the billed surface shrinks
-      // as farms onboard rather than staying open to every farm forever.
+      // as sellers onboard rather than staying open to every farm forever.
       const spend = lookup();
       const response = await handleAddressLookupPost(
         deps(loader(), spend, undefined, claimer({ status: "already_onboarded" })),

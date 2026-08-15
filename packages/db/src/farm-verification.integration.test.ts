@@ -64,7 +64,7 @@ describe("F-079 farm email verification (integration)", () => {
     db = createDb(url.toString());
 
     for (const name of ["Lavender Hill Farm", "Holmestead"]) {
-      await sql()`insert into farms (name, created_at) values (${name}, ${NOW.toISOString()})`;
+      await sql()`insert into sellers (name, created_at) values (${name}, ${NOW.toISOString()})`;
     }
     await ingestFarmEmails(
       database(),
@@ -75,9 +75,9 @@ describe("F-079 farm email verification (integration)", () => {
       SALT,
       NOW,
     );
-    const farms = await sql()`select id, name from farms order by name`;
-    lavenderId = (farms.find((f) => f.name === "Lavender Hill Farm")?.id ?? "") as string;
-    holmesteadId = (farms.find((f) => f.name === "Holmestead")?.id ?? "") as string;
+    const sellers = await sql()`select id, name from sellers order by name`;
+    lavenderId = (sellers.find((f) => f.name === "Lavender Hill Farm")?.id ?? "") as string;
+    holmesteadId = (sellers.find((f) => f.name === "Holmestead")?.id ?? "") as string;
   }, 120_000);
 
   afterAll(async () => {
@@ -90,7 +90,7 @@ describe("F-079 farm email verification (integration)", () => {
   });
 
   beforeEach(async () => {
-    await sql()`delete from farm_email_verifications`;
+    await sql()`delete from seller_email_verifications`;
   });
 
   describe("finding the farm an address may verify", () => {
@@ -140,7 +140,7 @@ describe("F-079 farm email verification (integration)", () => {
       // a query log. Proven by planting a row whose hash is deliberately not the hash of its
       // own address — a raw-address lookup would find it and a hash lookup cannot.
       await sql()`
-        insert into farm_emails (farm_id, email, email_hash, added_at)
+        insert into seller_emails (seller_id, email, email_hash, added_at)
         values (${holmesteadId}, 'decoy@example.com',
                 ${hashEmail("something-else@example.com", SALT)}, ${NOW.toISOString()})
       `;
@@ -150,7 +150,7 @@ describe("F-079 farm email verification (integration)", () => {
         salt: SALT,
       });
       expect(found).toBe(false);
-      await sql()`delete from farm_emails where email = 'decoy@example.com'`;
+      await sql()`delete from seller_emails where email = 'decoy@example.com'`;
     });
   });
 
@@ -166,7 +166,7 @@ describe("F-079 farm email verification (integration)", () => {
       expect(issued.status).toBe("issued");
       if (issued.status !== "issued") return;
 
-      const rows = await sql()`select * from farm_email_verifications`;
+      const rows = await sql()`select * from seller_email_verifications`;
       expect(rows).toHaveLength(1);
       // The plaintext code appears NOWHERE in the row.
       expect(JSON.stringify(rows[0])).not.toContain(issued.code);
@@ -199,8 +199,8 @@ describe("F-079 farm email verification (integration)", () => {
       // rather than her abandoned first attempt locking the farm (see the test below).
       expect(second.status).toBe("issued");
       const live = await sql()`
-        select count(*)::int as n from farm_email_verifications
-        where farm_id = ${lavenderId} and consumed_at is null
+        select count(*)::int as n from seller_email_verifications
+        where seller_id = ${lavenderId} and consumed_at is null
       `;
       expect(live).toEqual([{ n: 1 }]);
     });
@@ -240,8 +240,8 @@ describe("F-079 farm email verification (integration)", () => {
 
       // STILL exactly one live code — the invariant is unchanged, the winner is not.
       const live = await sql()`
-        select id from farm_email_verifications
-        where farm_id = ${lavenderId} and consumed_at is null
+        select id from seller_email_verifications
+        where seller_id = ${lavenderId} and consumed_at is null
       `;
       expect(live).toHaveLength(1);
       if (second.status !== "issued") throw new Error(second.status);
@@ -250,7 +250,7 @@ describe("F-079 farm email verification (integration)", () => {
       // The superseded row is retained rather than deleted: it is the record that a code was
       // issued and never used, which is what an operator reads when a farmer reports this.
       const all = await sql()`
-        select count(*)::int as n from farm_email_verifications where farm_id = ${lavenderId}
+        select count(*)::int as n from seller_email_verifications where seller_id = ${lavenderId}
       `;
       expect(all).toEqual([{ n: 2 }]);
     });
@@ -302,7 +302,7 @@ describe("F-079 farm email verification (integration)", () => {
       expect(second.status).toBe("issued");
     });
 
-    it("lets two DIFFERENT farms hold live codes at the same time", async () => {
+    it("lets two DIFFERENT sellers hold live codes at the same time", async () => {
       // The index is scoped to the farm; one farmer verifying must not block another.
       const a = await issueVerificationCode(database(), {
         farmId: lavenderId,
@@ -340,7 +340,7 @@ describe("F-079 farm email verification (integration)", () => {
 
       const issued = attempts.filter((a) => a.status === "issued");
       expect(issued).toHaveLength(1);
-      expect(await sql()`select count(*)::int as n from farm_email_verifications`).toEqual([
+      expect(await sql()`select count(*)::int as n from seller_email_verifications`).toEqual([
         { n: 1 },
       ]);
     });
@@ -351,8 +351,8 @@ describe("F-079 farm email verification (integration)", () => {
       // Rows are planted directly so the window boundary is exercised without waiting an hour.
       for (const minutesAgo of [5, 30, 59, 61, 400]) {
         await sql()`
-          insert into farm_email_verifications
-            (farm_id, email_hash, code_hash, issued_at, expires_at, consumed_at)
+          insert into seller_email_verifications
+            (seller_id, email_hash, code_hash, issued_at, expires_at, consumed_at)
           values (${lavenderId}, ${hashEmail("cathy@example.com", SALT)},
                   ${hashVerificationCode("000000", SALT)},
                   ${new Date(NOW.getTime() - minutesAgo * 60_000).toISOString()},
@@ -376,8 +376,8 @@ describe("F-079 farm email verification (integration)", () => {
       // budget silently, and the farm-wide limit must still see both.
       for (const email of ["cathy@example.com", "info@example.com"]) {
         await sql()`
-          insert into farm_email_verifications
-            (farm_id, email_hash, code_hash, issued_at, expires_at, consumed_at)
+          insert into seller_email_verifications
+            (seller_id, email_hash, code_hash, issued_at, expires_at, consumed_at)
           values (${lavenderId}, ${hashEmail(email, SALT)},
                   ${hashVerificationCode("000000", SALT)},
                   ${NOW.toISOString()},
@@ -398,8 +398,8 @@ describe("F-079 farm email verification (integration)", () => {
     it("refuses issuance once the farm's window budget is spent", async () => {
       for (let i = 0; i < MAX_CODES_PER_WINDOW; i += 1) {
         await sql()`
-          insert into farm_email_verifications
-            (farm_id, email_hash, code_hash, issued_at, expires_at, consumed_at)
+          insert into seller_email_verifications
+            (seller_id, email_hash, code_hash, issued_at, expires_at, consumed_at)
           values (${lavenderId}, ${hashEmail("cathy@example.com", SALT)},
                   ${hashVerificationCode("000000", SALT)},
                   ${new Date(NOW.getTime() - (i + 1) * 60_000).toISOString()},
@@ -508,7 +508,7 @@ describe("F-079 farm email verification (integration)", () => {
       // Both effects landed together: a consume that succeeded while the grant write failed
       // would spend the farmer's only code and hand them nothing.
       const rows = await sql()`
-        select consumed_at, grant_hash, grant_expires_at from farm_email_verifications
+        select consumed_at, grant_hash, grant_expires_at from seller_email_verifications
         where id = ${issued.id}
       `;
       expect(rows[0]?.consumed_at).not.toBeNull();

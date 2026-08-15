@@ -153,7 +153,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
           {success}
         </p>
       )}
-      <ul className="admin-farms">
+      <ul className="admin-sellers">
         {rows.map((row) => (
           <li key={row.flagId} className="admin-farm">
             <div>

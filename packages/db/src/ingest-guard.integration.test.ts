@@ -58,28 +58,28 @@ describe("F-064 ingest guard (integration)", () => {
     expect(fingerprint.databaseName).toBe(databaseName);
     expect(fingerprint.migrationsApplied).toBeGreaterThan(0);
     // A freshly migrated database is empty. These counts are the whole point: an operator who
-    // believes they are seeding an empty database can see that it holds 35 farms.
-    expect(fingerprint.farms).toBe(0);
+    // believes they are seeding an empty database can see that it holds 35 sellers.
+    expect(fingerprint.sellers).toBe(0);
     expect(fingerprint.salesLocations).toBe(0);
     expect(fingerprint.inventoryRevisions).toBe(0);
   });
 
   it("counts real rows once they exist", async () => {
-    const farms = await client()`insert into farms (name) values ('Guard Farm') returning id`;
+    const sellers = await client()`insert into sellers (name) values ('Guard Farm') returning id`;
     await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
-        ${farms[0]?.id as string}, 'farm_stand', 'Guard Stand', 'America/Los_Angeles',
+        ${sellers[0]?.id as string}, 'farm_stand', 'Guard Stand', 'America/Los_Angeles',
         'visitable', 'produce', '1 Guard Way', 47.4, -122.4, false, false
       )
     `;
 
     const fingerprint = await fingerprintDatabase(client());
-    expect(fingerprint.farms).toBe(1);
+    expect(fingerprint.sellers).toBe(1);
     expect(fingerprint.salesLocations).toBe(1);
   });
 

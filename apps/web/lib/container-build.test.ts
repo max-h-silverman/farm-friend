@@ -146,7 +146,7 @@ describe("every route module IMPORTS with no environment at all", () => {
     "../app/api/farmer/address-lookup/route",
     "../app/api/farmer/listing/route",
     "../app/api/farmer/onboarding/route",
-    "../app/api/admin/farms/route",
+    "../app/api/admin/sellers/route",
     "../app/api/admin/stands/route",
     "../app/api/admin/test-farm-phones/route",
   ];

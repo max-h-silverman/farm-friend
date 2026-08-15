@@ -37,7 +37,7 @@ function testDatabaseUrl(baseUrl: string, databaseName: string): string {
 const expectedTables = [
   "admin_login_failures",
   "admin_sessions",
-  // F-074 — who may see test farms over SMS. Hashes only; no raw number, because nothing on
+  // F-074 — who may see test sellers over SMS. Hashes only; no raw number, because nothing on
   // this path ever sends to it.
   "administrator_phones",
   "administrators",
@@ -45,16 +45,6 @@ const expectedTables = [
   "closure_revisions",
   "consent_transition_watermarks",
   "contacts",
-  "farm_approvals",
-  // F-079 — an issued verification code, and the publish grant redeeming it produces. Hashed at
-  // rest like every other credential; the email HASH only, never a second copy of the address.
-  // Its partial unique index is what makes "one live code per farm" a database guarantee.
-  "farm_email_verifications",
-  // F-078 — the email roster VIGA already holds, so a farmer can prove who they are without a
-  // volunteer vouching for them. Raw address in exactly one column read only by the send path;
-  // the hash is the only lookup key. Golden Rule #5, applied to a second kind of personal data.
-  "farm_emails",
-  "farm_links",
   "farmer_authorizations",
   "farmer_invitations",
   // F-040 — the two records that close the chain from "a farmer texts us" to "that farmer
@@ -64,7 +54,6 @@ const expectedTables = [
   "farmer_onboarding_requests",
   "farmer_target_contexts",
   "farmer_target_menu_options",
-  "farms",
   "flags",
   "inventory_entries",
   "inventory_prompt_preferences",
@@ -83,9 +72,19 @@ const expectedTables = [
   "sales_location_payment_methods",
   "sales_locations",
   "scheduled_inventory_prompt_subjects",
-  // F-114 — a reusable public brand identity, shared by one or more people. Deliberately NOT
-  // rooted on `farms`: the stands that host other sellers today host bakeries and makers that
-  // are not farms and will never have a listing of their own.
+  "seller_approvals",
+  // F-079 — an issued verification code, and the publish grant redeeming it produces. Hashed at
+  // rest like every other credential; the email HASH only, never a second copy of the address.
+  // Its partial unique index is what makes "one live code per farm" a database guarantee.
+  "seller_email_verifications",
+  // F-078 — the email roster VIGA already holds, so a farmer can prove who they are without a
+  // volunteer vouching for them. Raw address in exactly one column read only by the send path;
+  // the hash is the only lookup key. Golden Rule #5, applied to a second kind of personal data.
+  "seller_emails",
+  "seller_links",
+  // F-114 Phase C.0 — the identity record, renamed from `farms`. One brand: a farm, a bakery, a
+  // maker. Phase B's separate `sellers` table merged into this one when the correction removed
+  // the `farms` authority root, so there is exactly one identity table, not two.
   "sellers",
   "sender_states",
   "sms_consents",
@@ -235,7 +234,7 @@ describe("clean launch database foundation (integration)", () => {
     `;
     expect(tableRows.map((row) => row.tablename)).toEqual(expectedTables);
 
-    const farmCount = await db()`select count(*)::integer as count from farms`;
+    const farmCount = await db()`select count(*)::integer as count from sellers`;
     expect(farmCount[0]?.count).toBe(0);
 
     const journal = JSON.parse(
@@ -315,7 +314,7 @@ describe("clean launch database foundation (integration)", () => {
     `).toHaveLength(0);
 
     const farmRows = await db()`
-      insert into farms (name, map_projection, public_latitude, public_longitude)
+      insert into sellers (name, map_projection, public_latitude, public_longitude)
       values
         ('Exact Projection Farm', 'exact', 47.45, -122.46),
         ('Approximate Projection Farm', 'approximate', 47.46, -122.47),
@@ -330,7 +329,7 @@ describe("clean launch database foundation (integration)", () => {
 
     await expect(
       db()`
-        insert into farms (
+        insert into sellers (
           name, map_projection, public_latitude, public_longitude
         )
         values ('Invalid Hidden Projection', 'hidden', 47.4, -122.4)
@@ -338,7 +337,7 @@ describe("clean launch database foundation (integration)", () => {
     ).rejects.toThrow();
     await expect(
       db()`
-        insert into farms (
+        insert into sellers (
           name, map_projection, public_latitude, public_longitude
         )
         values ('Incomplete Approximation', 'approximate', 47.4, null)
@@ -347,7 +346,7 @@ describe("clean launch database foundation (integration)", () => {
 
     const authorizationRows = await db()`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       )
       values (${storedId("farm")}, ${storedId(farmerHash)}, ${now}, ${later})
       returning id
@@ -355,7 +354,7 @@ describe("clean launch database foundation (integration)", () => {
     ids.authorization = authorizationRows[0]?.id as string;
 
     const approvalRows = await db()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${storedId("farm")}, ${storedId("administrator")}, ${later})
       returning id
     `;
@@ -364,7 +363,7 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into farmer_authorizations (
-          farm_id, contact_id, phone_verified_at, authorized_at, revoked_at
+          seller_id, contact_id, phone_verified_at, authorized_at, revoked_at
         )
         values (
           ${storedId("Approximate Projection Farm")},
@@ -381,14 +380,14 @@ describe("clean launch database foundation (integration)", () => {
       from information_schema.tables
       where table_schema = 'public'
         and table_name in (
-          'administrators', 'farmer_authorizations', 'farm_approvals'
+          'administrators', 'farmer_authorizations', 'seller_approvals'
         )
       order by table_name
     `;
     expect(authorityTables.map((row) => row.table_name)).toEqual([
       "administrators",
-      "farm_approvals",
       "farmer_authorizations",
+      "seller_approvals",
     ]);
   });
 
@@ -400,7 +399,7 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
@@ -413,7 +412,7 @@ describe("clean launch database foundation (integration)", () => {
 
     const locationRows = await db()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       )
       values
@@ -435,7 +434,7 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
           public_longitude, farm_bucks_accepted, farm_bucks_eligible
         )
         values (
@@ -451,7 +450,7 @@ describe("clean launch database foundation (integration)", () => {
     // row that does not exist until onboarding saves.
     await db()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       )
       values (
@@ -471,7 +470,7 @@ describe("clean launch database foundation (integration)", () => {
       values (${storedId("location")}, 'cash'), (${storedId("location")}, 'card')
     `;
     await db()`
-      insert into farm_links (farm_id, label, url)
+      insert into seller_links (seller_id, label, url)
       values (${storedId("farm")}, 'Farm website', 'https://example.test/farm')
     `;
 
@@ -677,7 +676,7 @@ describe("clean launch database foundation (integration)", () => {
       values (
         ${farmerHash}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${db().json({ items: [] })},
         1, true, false, true, ${tomorrow}, ${storedId("prompt1")}, 1, ${later}
       )
       returning id
@@ -693,7 +692,7 @@ describe("clean launch database foundation (integration)", () => {
         values (
           ${farmerHash}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${db().json({ items: [] })},
           1, true, false, true
         )
       `,
@@ -720,13 +719,13 @@ describe("clean launch database foundation (integration)", () => {
   it("keeps inventory publication-only, current per location, and immutable", async () => {
     const revisionRows = await db()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id,
+        seller_id, sales_location_id, provider_id, proposal_id,
         published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
         ${storedId("farm")}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${storedId("proposal1")},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${storedId("proposal1")},
         ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${later}
       )
       returning id
@@ -771,7 +770,7 @@ describe("clean launch database foundation (integration)", () => {
       values (
         ${farmerHash}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null),
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})),
         ${db().json({ items: [{ name: "Revised item" }] })},
         1, true, false, true, 'accepted', ${tomorrow},
         ${secondPromptId}, 1, ${later}, 'yes', 'accept-2', ${later}
@@ -783,13 +782,13 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id,
+          seller_id, sales_location_id, provider_id, proposal_id,
           published_by_authorization_id, farm_approval_id, source, published_at
         )
         values (
           ${storedId("farm")}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${secondProposalId},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${secondProposalId},
           ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${tomorrow}
         )
       `,
@@ -802,13 +801,13 @@ describe("clean launch database foundation (integration)", () => {
     `;
     await db()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id,
+        seller_id, sales_location_id, provider_id, proposal_id,
         published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
         ${storedId("farm")}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${secondProposalId},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${secondProposalId},
         ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${tomorrow}
       )
     `;
@@ -881,7 +880,7 @@ describe("clean launch database foundation (integration)", () => {
   it("binds a stock-out report's usual-offering reference to the same stand", async () => {
     const items = await db()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
-      values (${storedId("location")}, (select id from stand_providers where sales_location_id = ${storedId("location")} and seller_id is null), 'Duck eggs', false)
+      values (${storedId("location")}, (select id from stand_providers where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), 'Duck eggs', false)
       returning id
     `;
     const itemId = items[0]?.id as string;
@@ -1039,7 +1038,7 @@ describe("clean launch database foundation (integration)", () => {
     ): Promise<void> {
       const columns = Object.keys(fields);
       const base = `insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible${columns.length ? ", " + columns.map((c) => `"${c}"`).join(", ") : ""}
       ) values (
         '${storedId("farm")}', 'farm_stand', 'Constraint Probe ${randomUUID()}', 'America/Los_Angeles', 'visitable', 'produce', '9 Probe Way',
@@ -1219,7 +1218,7 @@ describe("clean launch database foundation (integration)", () => {
     beforeAll(async () => {
       const rows = await db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${storedId("farm")}, 'farm_stand', 'Specialty Probe Stand', 'America/Los_Angeles', 'visitable', 'produce', '11 Specialty Way',
@@ -1237,7 +1236,7 @@ describe("clean launch database foundation (integration)", () => {
       await db()`
         insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
         values (${unconfirmedLocation}, (select id from stand_providers
-          where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'eggs', true, 0), (${unconfirmedLocation}, (select id from stand_providers where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'lamb', true, 1)
+          where sales_location_id = ${unconfirmedLocation} and seller_id = (select own_seller_id from sales_locations where id = ${unconfirmedLocation})), 'eggs', true, 0), (${unconfirmedLocation}, (select id from stand_providers where sales_location_id = ${unconfirmedLocation} and seller_id = (select own_seller_id from sales_locations where id = ${unconfirmedLocation})), 'lamb', true, 1)
       `;
 
       const rows = await db()`
@@ -1257,7 +1256,7 @@ describe("clean launch database foundation (integration)", () => {
         db()`
           insert into stand_items (sales_location_id, provider_id, display_name)
           values (${unconfirmedLocation}, (select id from stand_providers
-            where sales_location_id = ${unconfirmedLocation} and seller_id is null), '   ')
+            where sales_location_id = ${unconfirmedLocation} and seller_id = (select own_seller_id from sales_locations where id = ${unconfirmedLocation})), '   ')
         `,
       ).rejects.toThrow(/stand_items_display_name_not_blank/);
       // The unique index makes re-seeding safe rather than duplicative — and, unlike the
@@ -1266,14 +1265,14 @@ describe("clean launch database foundation (integration)", () => {
         db()`
           insert into stand_items (sales_location_id, provider_id, display_name)
           values (${unconfirmedLocation}, (select id from stand_providers
-            where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'eggs')
+            where sales_location_id = ${unconfirmedLocation} and seller_id = (select own_seller_id from sales_locations where id = ${unconfirmedLocation})), 'eggs')
         `,
       ).rejects.toThrow(/stand_items_one_per_provider_name/);
       await expect(
         db()`
           insert into stand_items (sales_location_id, provider_id, display_name)
           values (${unconfirmedLocation}, (select id from stand_providers
-            where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'EGGS')
+            where sales_location_id = ${unconfirmedLocation} and seller_id = (select own_seller_id from sales_locations where id = ${unconfirmedLocation})), 'EGGS')
         `,
       ).rejects.toThrow(/stand_items_one_per_provider_name/);
     });
@@ -1311,7 +1310,7 @@ describe("clean launch database foundation (integration)", () => {
     beforeAll(async () => {
       const rows = await db()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${storedId("farm")}, 'farm_stand', 'Flag Probe Stand', 'America/Los_Angeles', 'visitable', 'produce', '12 Flag Way',

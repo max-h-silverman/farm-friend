@@ -8,7 +8,7 @@ export type FarmerTargetPurpose = "update" | "link" | "settings";
 
 export interface FarmerTarget {
   authorizationId: string;
-  ownerFarmId: string;
+  ownerSellerId: string;
   salesLocationId: string;
   locationName: string;
 }
@@ -36,7 +36,7 @@ export type SelectFarmerTargetResult =
 
 type TargetRow = {
   authorization_id: string;
-  owner_farm_id: string;
+  owner_seller_id: string;
   sales_location_id: string;
   location_name: string;
 };
@@ -44,7 +44,7 @@ type TargetRow = {
 function targetFromRow(row: TargetRow): FarmerTarget {
   return {
     authorizationId: row.authorization_id,
-    ownerFarmId: row.owner_farm_id,
+    ownerSellerId: row.owner_seller_id,
     salesLocationId: row.sales_location_id,
     locationName: row.location_name,
   };
@@ -107,7 +107,7 @@ async function lockLiveTargets(tx: Tx, senderHash: string): Promise<TargetRow[]>
     select auth.id as authorization_id, location.id as sales_location_id
     from farmer_authorizations as auth
     join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location on location.owner_farm_id = auth.farm_id
+    join sales_locations as location on location.own_seller_id = auth.seller_id
     where contact.phone_hash = ${senderHash}
       and auth.revoked_at is null
     order by location.id, auth.id
@@ -137,12 +137,12 @@ async function lockLiveTargets(tx: Tx, senderHash: string): Promise<TargetRow[]>
   return (await tx`
     select
       auth.id as authorization_id,
-      auth.farm_id as owner_farm_id,
+      auth.seller_id as owner_seller_id,
       location.id as sales_location_id,
       location.name as location_name
     from farmer_authorizations as auth
     join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location on location.owner_farm_id = auth.farm_id
+    join sales_locations as location on location.own_seller_id = auth.seller_id
     where contact.phone_hash = ${senderHash}
       and auth.revoked_at is null
     order by lower(location.name), location.id, auth.id
@@ -185,7 +185,7 @@ async function storeSelection(
   await tx`
     update farmer_target_contexts
     set selected_authorization_id = ${target.authorizationId},
-        selected_owner_farm_id = ${target.ownerFarmId},
+        selected_owner_seller_id = ${target.ownerSellerId},
         selected_sales_location_id = ${target.salesLocationId},
         selected_provider_id = ${providerId},
         selected_at = ${occurredAt},
@@ -201,7 +201,7 @@ async function clearSelection(
 ): Promise<void> {
   await tx`
     update farmer_target_contexts
-    set selected_authorization_id = null, selected_owner_farm_id = null,
+    set selected_authorization_id = null, selected_owner_seller_id = null,
         selected_sales_location_id = null, selected_provider_id = null,
         selected_at = null, updated_at = ${occurredAt}
     where sender_hash = ${senderHash}
@@ -227,7 +227,7 @@ export async function resolveFarmerTarget(
     }
     const targets = (await lockLiveTargets(tx, input.senderHash)).map(targetFromRow);
     const contexts = await tx`
-      select selected_authorization_id, selected_owner_farm_id,
+      select selected_authorization_id, selected_owner_seller_id,
         selected_sales_location_id, selected_at
       from farmer_target_contexts
       where sender_hash = ${input.senderHash}
@@ -237,7 +237,7 @@ export async function resolveFarmerTarget(
     const selected = targets.find(
       (target) =>
         target.authorizationId === context.selected_authorization_id &&
-        target.ownerFarmId === context.selected_owner_farm_id &&
+        target.ownerSellerId === context.selected_owner_seller_id &&
         target.salesLocationId === context.selected_sales_location_id,
     );
 
@@ -282,11 +282,11 @@ export async function resolveFarmerTarget(
       });
       await tx`
         insert into farmer_target_menu_options (
-          sender_hash, option_number, authorization_id, owner_farm_id,
+          sender_hash, option_number, authorization_id, owner_seller_id,
           sales_location_id, provider_id
         ) values (
           ${input.senderHash}, ${option.optionNumber}, ${option.authorizationId},
-          ${option.ownerFarmId}, ${option.salesLocationId}, ${providerId}
+          ${option.ownerSellerId}, ${option.salesLocationId}, ${providerId}
         )
       `;
     }
@@ -319,7 +319,7 @@ export async function selectFarmerTarget(
     }
 
     const options = await tx`
-      select authorization_id, owner_farm_id, sales_location_id
+      select authorization_id, owner_seller_id, sales_location_id
       from farmer_target_menu_options
       where sender_hash = ${input.senderHash} and option_number = ${input.optionNumber}
     `;
@@ -333,17 +333,17 @@ export async function selectFarmerTarget(
     const live = (await tx`
       select
         auth.id as authorization_id,
-        auth.farm_id as owner_farm_id,
+        auth.seller_id as owner_seller_id,
         location.id as sales_location_id,
         location.name as location_name
       from farmer_target_menu_options as menu
       join farmer_authorizations as auth
         on auth.id = menu.authorization_id
-        and auth.farm_id = menu.owner_farm_id
+        and auth.seller_id = menu.owner_seller_id
       join contacts as contact on contact.id = auth.contact_id
       join sales_locations as location
         on location.id = menu.sales_location_id
-        and location.owner_farm_id = menu.owner_farm_id
+        and location.own_seller_id = menu.owner_seller_id
       where menu.sender_hash = ${input.senderHash}
         and menu.option_number = ${input.optionNumber}
         and contact.phone_hash = ${input.senderHash}
@@ -382,7 +382,7 @@ export async function listFarmerSettingsTargets(
       preference.cadence
     from farmer_authorizations as auth
     join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location on location.owner_farm_id = auth.farm_id
+    join sales_locations as location on location.own_seller_id = auth.seller_id
     left join farmer_target_contexts as context
       on context.sender_hash = contact.phone_hash
     left join inventory_prompt_preferences as preference
@@ -427,12 +427,12 @@ export async function selectFarmerTargetForAuthorization(
     const rows = (await tx`
       select
         auth.id as authorization_id,
-        auth.farm_id as owner_farm_id,
+        auth.seller_id as owner_seller_id,
         location.id as sales_location_id,
         location.name as location_name
       from farmer_authorizations as auth
       join contacts as contact on contact.id = auth.contact_id
-      join sales_locations as location on location.owner_farm_id = auth.farm_id
+      join sales_locations as location on location.own_seller_id = auth.seller_id
       where auth.id = ${input.authorizationId}
         and contact.phone_hash = ${input.senderHash}
         and location.id = ${input.salesLocationId}

@@ -127,8 +127,8 @@ describe("operator review queues (integration)", () => {
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         outbox_work, consent_transition_watermarks, sms_consents, sender_states,
         stock_out_reports, flags, audit_events, model_runs,
-        farm_approvals, farmer_authorizations, sales_location_payment_methods,
-        farm_links, sales_locations, administrators, farms, contacts,
+        seller_approvals, farmer_authorizations, sales_location_payment_methods,
+        seller_links, sales_locations, administrators, sellers, contacts,
         admin_sessions
       restart identity cascade
     `;
@@ -149,14 +149,14 @@ describe("operator review queues (integration)", () => {
     `;
     ids.administrator = admins[0]?.id as string;
 
-    const farms = await client()`
-      insert into farms (name) values ('Provo Farms') returning id
+    const sellers = await client()`
+      insert into sellers (name) values ('Provo Farms') returning id
     `;
-    ids.farm = farms[0]?.id as string;
+    ids.farm = sellers[0]?.id as string;
 
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
@@ -722,13 +722,13 @@ describe("operator review queues (integration)", () => {
       // nothing actionable.
       const authorizations = await client()`
         insert into farmer_authorizations (
-          farm_id, contact_id, phone_verified_at, authorized_at
+          seller_id, contact_id, phone_verified_at, authorized_at
         )
         values (${id("farm")}, ${id(farmerHash)}, ${T0}, ${T0})
         returning id
       `;
       const approvals = await client()`
-        insert into farm_approvals (farm_id, administrator_id, approved_at)
+        insert into seller_approvals (seller_id, administrator_id, approved_at)
         values (${id("farm")}, ${id("administrator")}, ${T0})
         returning id
       `;
@@ -743,20 +743,20 @@ describe("operator review queues (integration)", () => {
         values (
           ${farmerHash}, ${id("location")},
         (select id from stand_providers
-          where sales_location_id = ${id("location")} and seller_id is null), '{}'::jsonb, 1,
+          where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), '{}'::jsonb, 1,
           true, false, 'invalidated', true, ${T0}
         )
         returning id
       `;
       const revisions = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+          seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at, is_current
         )
         values (
           ${id("farm")}, ${id("location")},
         (select id from stand_providers
-          where sales_location_id = ${id("location")} and seller_id is null), ${proposals[0]?.id as string},
+          where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), ${proposals[0]?.id as string},
           ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, 'sms', ${T0}, true
         )
         returning id
@@ -783,7 +783,7 @@ describe("operator review queues (integration)", () => {
     it("resolves the item name of a report against a usual offering", async () => {
       const items = await client()`
         insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
-        values (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id is null), 'Duck eggs', false)
+        values (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), 'Duck eggs', false)
         returning id
       `;
       const reports = await client()`
@@ -924,7 +924,7 @@ describe("operator review queues (integration)", () => {
         select
           coalesce((
             select json_agg(json_build_object(
-              'id', r.id, 'farm', r.farm_id, 'location', r.sales_location_id,
+              'id', r.id, 'farm', r.seller_id, 'location', r.sales_location_id,
               'current', r.is_current, 'published', r.published_at,
               'superseded', r.superseded_at, 'approval', r.farm_approval_id
             ) order by r.id)
@@ -940,10 +940,10 @@ describe("operator review queues (integration)", () => {
           ), '[]'::json)::text as entries,
           coalesce((
             select json_agg(json_build_object(
-              'id', a.id, 'farm', a.farm_id, 'approved', a.approved_at,
+              'id', a.id, 'farm', a.seller_id, 'approved', a.approved_at,
               'revoked', a.revoked_at
             ) order by a.id)
-            from farm_approvals a
+            from seller_approvals a
           ), '[]'::json)::text as approvals
       `;
       return JSON.stringify(rows[0]);
@@ -954,13 +954,13 @@ describe("operator review queues (integration)", () => {
       // A snapshot of nothing is trivially unchanged and would prove nothing.
       const authorizations = await client()`
         insert into farmer_authorizations (
-          farm_id, contact_id, phone_verified_at, authorized_at
+          seller_id, contact_id, phone_verified_at, authorized_at
         )
         values (${id("farm")}, ${id(farmerHash)}, ${T0}, ${T0})
         returning id
       `;
       const approvals = await client()`
-        insert into farm_approvals (farm_id, administrator_id, approved_at)
+        insert into seller_approvals (seller_id, administrator_id, approved_at)
         values (${id("farm")}, ${id("administrator")}, ${T0})
         returning id
       `;
@@ -972,20 +972,20 @@ describe("operator review queues (integration)", () => {
         values (
           ${farmerHash}, ${id("location")},
         (select id from stand_providers
-          where sales_location_id = ${id("location")} and seller_id is null), '{}'::jsonb, 1,
+          where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), '{}'::jsonb, 1,
           true, false, 'invalidated', true, ${T0}
         )
         returning id
       `;
       const revisions = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+          seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at, is_current
         )
         values (
           ${id("farm")}, ${id("location")},
         (select id from stand_providers
-          where sales_location_id = ${id("location")} and seller_id is null), ${proposals[0]?.id as string},
+          where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), ${proposals[0]?.id as string},
           ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, 'sms', ${T0}, true
         )
         returning id
@@ -1045,13 +1045,13 @@ describe("operator review queues (integration)", () => {
       // Only the farmer's confirmed revision changes what a stand shows.
       const authorizations = await client()`
         insert into farmer_authorizations (
-          farm_id, contact_id, phone_verified_at, authorized_at
+          seller_id, contact_id, phone_verified_at, authorized_at
         )
         values (${id("farm")}, ${id(farmerHash)}, ${T0}, ${T0})
         returning id
       `;
       const approvals = await client()`
-        insert into farm_approvals (farm_id, administrator_id, approved_at)
+        insert into seller_approvals (seller_id, administrator_id, approved_at)
         values (${id("farm")}, ${id("administrator")}, ${T0})
         returning id
       `;
@@ -1063,20 +1063,20 @@ describe("operator review queues (integration)", () => {
         values (
           ${farmerHash}, ${id("location")},
         (select id from stand_providers
-          where sales_location_id = ${id("location")} and seller_id is null), '{}'::jsonb, 1,
+          where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), '{}'::jsonb, 1,
           true, false, 'invalidated', true, ${T0}
         )
         returning id
       `;
       const revisions = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+          seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at, is_current
         )
         values (
           ${id("farm")}, ${id("location")},
         (select id from stand_providers
-          where sales_location_id = ${id("location")} and seller_id is null), ${proposals[0]?.id as string},
+          where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), ${proposals[0]?.id as string},
           ${authorizations[0]?.id as string}, ${approvals[0]?.id as string}, 'sms', ${T0}, true
         )
         returning id
@@ -1318,7 +1318,7 @@ describe("operator review queues (integration)", () => {
 
       await client()`
         insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-        values (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id is null), 'bok choy', true, 0), (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id is null), 'eggs', true, 1)
+        values (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), 'bok choy', true, 0), (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id = (select own_seller_id from sales_locations where id = ${id("location")})), 'eggs', true, 1)
       `;
       const flagId = await openStandDataFlag();
 

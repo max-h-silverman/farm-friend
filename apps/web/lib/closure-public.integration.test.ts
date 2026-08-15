@@ -98,8 +98,8 @@ describe("one closure projection across public discovery and customer SMS (integ
     await client()`
       truncate table closure_revisions, pending_result_lists, inventory_entries,
         inventory_revisions, inventory_publication_proposals, outbox_work,
-        farm_approvals, farmer_authorizations, sales_locations, administrators,
-        farms, contacts restart identity cascade
+        seller_approvals, farmer_authorizations, sales_locations, administrators,
+        sellers, contacts restart identity cascade
     `;
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash) values
@@ -111,19 +111,19 @@ describe("one closure projection across public discovery and customer SMS (integ
       insert into administrators (email, authorized_at)
       values ('board@vigavashon.org', ${T0}) returning id
     `;
-    const farms = await client()`insert into farms (name) values ('Reader Farm') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values ('Reader Farm') returning id`;
+    const farmId = sellers[0]?.id as string;
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${contact(farmerHash)}, ${T0}, ${T0})
     `;
     await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${farmId}, ${admins[0]?.id as string}, ${T0})
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible, season_kind, open_hours_kind
       ) values (
         ${farmId}, 'farm_stand', 'Reader Stand', 'America/Los_Angeles', 'visitable', 'produce', '10 Reader Road', 47.44, -122.46,
@@ -133,7 +133,7 @@ describe("one closure projection across public discovery and customer SMS (integ
     ids.location = locations[0]?.id as string;
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), 'Honey', true, 0)
+      values (${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), 'Honey', true, 0)
     `;
     const inventory = await openOrReviseProposal(database(), {
       senderHash: farmerHash,

@@ -49,7 +49,7 @@ function response(status: number, payload: Record<string, unknown> = {}): Respon
 describe("the shared administrator shell", () => {
   it("navigates by subject: a farm, a message, a person", () => {
     render(
-      <AdminShell currentPath="/admin/farms">
+      <AdminShell currentPath="/admin/sellers">
         <p>Stands</p>
       </AdminShell>,
     );
@@ -57,7 +57,7 @@ describe("the shared administrator shell", () => {
     expect(
       screen.getAllByRole("link", { name: /^(farms|messages|users)$/i }),
     ).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Farms" })).toHaveAttribute("href", "/admin/farms");
+    expect(screen.getByRole("link", { name: "Farms" })).toHaveAttribute("href", "/admin/sellers");
     expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute("href", "/admin/messages");
     expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
 
@@ -396,7 +396,7 @@ describe("administrator language", () => {
         />
         <FarmerQueue
           requests={[]}
-          farms={[]}
+          sellers={[]}
         />
       </>,
     );
@@ -429,8 +429,8 @@ describe("the user list", () => {
     render(
       <UserList
         users={[
-          { userId: "user-1", senderMask: "(•••) •••-0701", isFarmer: true, farms: ["Example Farm"] },
-          { userId: "user-2", senderMask: "(•••) •••-0702", isFarmer: false, farms: [] },
+          { userId: "user-1", senderMask: "(•••) •••-0701", isFarmer: true, sellers: ["Example Farm"] },
+          { userId: "user-2", senderMask: "(•••) •••-0702", isFarmer: false, sellers: [] },
         ]}
       />,
     );
@@ -454,8 +454,8 @@ describe("the user list", () => {
     render(
       <UserList
         users={[
-          { userId: "user-1", senderMask: "(•••) •••-0701", isFarmer: true, farms: ["Example Farm"] },
-          { userId: "user-2", senderMask: "(•••) •••-0702", isFarmer: false, farms: [] },
+          { userId: "user-1", senderMask: "(•••) •••-0701", isFarmer: true, sellers: ["Example Farm"] },
+          { userId: "user-2", senderMask: "(•••) •••-0702", isFarmer: false, sellers: [] },
         ]}
       />,
     );
@@ -482,7 +482,7 @@ describe("administrator queue interactions", () => {
 
     render(
       <ApprovalQueue
-        farms={[
+        sellers={[
           {
             farmId: "farm-1",
             name: "Example Farm",
@@ -497,7 +497,7 @@ describe("administrator queue interactions", () => {
     await user.click(screen.getByRole("button", { name: "Approve farm" }));
     expect(await screen.findByRole("status")).toHaveTextContent("Example Farm is approved");
 
-    await user.click(screen.getByText("Approved farms (1)"));
+    await user.click(screen.getByText("Approved sellers (1)"));
     await user.click(screen.getByRole("button", { name: "Remove approval" }));
     expect(screen.getByText(/existing map listings will stay visible/i)).toBeTruthy();
     await user.click(screen.getAllByRole("button", { name: "Remove approval" })[1]!);
@@ -509,13 +509,13 @@ describe("administrator queue interactions", () => {
   });
 
   // F-067 — the empty queue is the NORMAL state now that an invited farmer's redemption
-  // approves their farm. An operator seeing "no farms to approve yet" would reasonably wonder
+  // approves their farm. An operator seeing "no sellers to approve yet" would reasonably wonder
   // what had failed, so the empty state has to say why it is empty. Asserted rather than left
   // to review because it is a claim about how the system behaves, not decoration.
   it("explains that an empty approval queue is expected, not a failure", () => {
     render(
       <ApprovalQueue
-        farms={[
+        sellers={[
           {
             farmId: "farm-1",
             name: "Already Approved Farm",
@@ -538,7 +538,7 @@ describe("administrator queue interactions", () => {
 
     render(
       <ApprovalQueue
-        farms={[
+        sellers={[
           {
             farmId: "farm-1",
             name: "Example Farm",
@@ -550,11 +550,11 @@ describe("administrator queue interactions", () => {
       />,
     );
 
-    await user.click(screen.getByText("Approved farms (1)"));
+    await user.click(screen.getByText("Approved sellers (1)"));
     await user.click(screen.getByRole("button", { name: "Remove approval" }));
     await user.click(screen.getAllByRole("button", { name: "Remove approval" })[1]!);
     await user.click(screen.getByRole("button", { name: "Approve farm" }));
-    await user.click(screen.getByText("Approved farms (1)"));
+    await user.click(screen.getByText("Approved sellers (1)"));
 
     expect(screen.queryByText(/existing map listings will stay visible/i)).toBeNull();
   });
@@ -576,7 +576,7 @@ describe("administrator queue interactions", () => {
         requests={[
           { requestId: "request-1", senderMask: "(•••) •••-0701", requestedAt: "2026-08-01T10:00:00Z" },
         ]}
-        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+        sellers={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
 
@@ -606,7 +606,7 @@ describe("administrator queue interactions", () => {
     render(
       <FarmerQueue
         requests={[]}
-        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+        sellers={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
 
@@ -647,7 +647,7 @@ describe("administrator queue interactions", () => {
     render(
       <FarmerQueue
         requests={[]}
-        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+        sellers={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
 
@@ -686,7 +686,7 @@ describe("administrator queue interactions", () => {
     render(
       <FarmerQueue
         requests={[]}
-        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+        sellers={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
 
@@ -737,7 +737,7 @@ describe("administrator queue interactions", () => {
     render(
       <FarmerQueue
         requests={[]}
-        farms={[{ farmId: "farm-1", name: "Example Farm" }]}
+        sellers={[{ farmId: "farm-1", name: "Example Farm" }]}
       />,
     );
 
@@ -771,7 +771,7 @@ describe("administrator queue interactions", () => {
       value: { writeText: vi.fn(async () => undefined) },
     });
 
-    render(<FarmList farms={[waitingFarm]} />);
+    render(<FarmList sellers={[waitingFarm]} />);
 
     await user.click(screen.getAllByText("Waiting Farm")[0] as HTMLElement);
     // The operator must not be left thinking the old link can be recovered — it cannot, and
@@ -821,7 +821,7 @@ describe("administrator queue interactions", () => {
     );
     Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
 
-    render(<FarmList farms={[waitingFarm]} />);
+    render(<FarmList sellers={[waitingFarm]} />);
     await user.click(screen.getAllByText("Waiting Farm")[0] as HTMLElement);
     await user.click(screen.getByRole("button", { name: "New setup link for Waiting Farm" }));
 
@@ -833,7 +833,7 @@ describe("administrator queue interactions", () => {
     const user = userEvent.setup();
     render(
       <FarmList
-        farms={[
+        sellers={[
           {
             ...waitingFarm,
             farmId: "farm-covered",

@@ -18,7 +18,7 @@
 //
 // The same reason `farmer-link.ts` gives: a signed self-contained grant keeps verifying after
 // the fact with nothing able to say otherwise. Here the token's hash points at the consumed
-// `farm_email_verifications` row, which already records the farm and the instant — so the
+// `seller_email_verifications` row, which already records the farm and the instant — so the
 // grant's validity is a per-request database question, and there is no second credential table.
 
 export const PUBLISH_GRANT_COOKIE = "ff_publish_grant";

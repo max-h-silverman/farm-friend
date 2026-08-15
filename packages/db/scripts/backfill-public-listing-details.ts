@@ -78,9 +78,9 @@ try {
   await sql.begin(async (tx) => {
     const rows = await tx`
       select l.id as location_id, l.name, l.farm_bucks_accepted, l.farm_bucks_eligible,
-             f.id as farm_id, f.description
+             f.id as seller_id, f.description
       from sales_locations l
-      join farms f on f.id = l.owner_farm_id
+      join sellers f on f.id = l.own_seller_id
     `;
     const byKey = new Map<string, (typeof rows)[number]>();
     for (const row of rows) {
@@ -113,8 +113,8 @@ try {
         descriptionsFilled += 1;
         if (apply) {
           await tx`
-            update farms set description = ${details.description}
-            where id = ${row.farm_id} and description is null
+            update sellers set description = ${details.description}
+            where id = ${row.seller_id} and description is null
           `;
         }
       }

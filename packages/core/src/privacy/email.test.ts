@@ -41,7 +41,7 @@ describe("hashEmail", () => {
   });
 
   it("produces the 64-char hex digest the CHECK constraint requires", () => {
-    // `farm_emails_hash_is_digest` refuses anything else, so a hash of the wrong shape is a
+    // `seller_emails_hash_is_digest` refuses anything else, so a hash of the wrong shape is a
     // row that can never be written rather than one that silently never matches.
     expect(hashEmail("cathy@example.com", "salt")).toMatch(/^[0-9a-f]{64}$/);
   });

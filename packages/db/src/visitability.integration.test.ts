@@ -58,12 +58,12 @@ describe.skipIf(!databaseUrl)("visitability and offering type (integration)", ()
     sql = postgres(target.toString(), { max: 1, onnotice: () => {} });
     await migrate(drizzle(sql), { migrationsFolder: migrationsDir });
 
-    const farms = await sql`
-      insert into farms (name)
+    const sellers = await sql`
+      insert into sellers (name)
       values ('F-038 Farm')
       returning id
     `;
-    farmId = farms[0]!.id as string;
+    farmId = sellers[0]!.id as string;
   });
 
   afterAll(async () => {
@@ -85,7 +85,7 @@ describe.skipIf(!databaseUrl)("visitability and offering type (integration)", ()
   }) {
     return db()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )

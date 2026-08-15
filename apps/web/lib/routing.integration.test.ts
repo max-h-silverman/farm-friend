@@ -226,8 +226,8 @@ describe("inbound routing end to end (integration)", () => {
       truncate table provider_inbox_events, sms_messages, outbox_work, sms_consents,
         consent_transition_watermarks, sender_states, inventory_publication_proposals,
         inventory_revisions, inventory_entries, flags, farmer_authorizations,
-        farm_approvals, admin_login_failures, admin_sessions, administrators,
-        sales_locations, farms, contacts
+        seller_approvals, admin_login_failures, admin_sessions, administrators,
+        sales_locations, sellers, contacts
       restart identity cascade
     `;
     await client()`
@@ -673,11 +673,11 @@ describe("inbound routing end to end (integration)", () => {
         insert into administrators (email, authorized_at)
         values ('board@vigavashon.org', ${at(0)}) returning id
       `;
-      const farms = await client()`
-        insert into farms (name) values (${`Invited ${randomUUID()}`}) returning id
+      const sellers = await client()`
+        insert into sellers (name) values (${`Invited ${randomUUID()}`}) returning id
       `;
       const created = await createFarmerInvitation(database(), {
-        farmId: farms[0]?.id as string,
+        farmId: sellers[0]?.id as string,
         channel: "sms",
         administratorId: administrators[0]?.id as string,
         occurredAt: at(0),
@@ -1105,7 +1105,7 @@ describe("inbound routing end to end (integration)", () => {
     /** An approved farm with one location and one verified authorized farmer. */
     async function seedFarmer(): Promise<{ locationId: string; farmId: string }> {
       const farm = await client()`
-        insert into farms (name) values ('Test Farm') returning id
+        insert into sellers (name) values ('Test Farm') returning id
       `;
       const farmId = farm[0]?.id as string;
 
@@ -1117,7 +1117,7 @@ describe("inbound routing end to end (integration)", () => {
 
       const location = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${farmId}, 'farm_stand', 'Test Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Test Rd', 47.45, -122.46,
@@ -1129,12 +1129,12 @@ describe("inbound routing end to end (integration)", () => {
       `;
       await client()`
         insert into farmer_authorizations (
-          farm_id, contact_id, phone_verified_at, authorized_at
+          seller_id, contact_id, phone_verified_at, authorized_at
         )
         values (${farmId}, ${contact[0]?.id as string}, ${at(-60)}, ${at(-59)})
       `;
       await client()`
-        insert into farm_approvals (farm_id, administrator_id, approved_at)
+        insert into seller_approvals (seller_id, administrator_id, approved_at)
         values (${farmId}, ${admin[0]?.id as string}, ${at(-58)})
       `;
       return { locationId: location[0]?.id as string, farmId };
@@ -1368,11 +1368,11 @@ describe("inbound routing end to end (integration)", () => {
       const pagedStands: string[] = [];
       for (let index = 0; index < 9; index += 1) {
         const farm = await client()`
-          insert into farms (name) values (${`Paging Farm ${index}`}) returning id
+          insert into sellers (name) values (${`Paging Farm ${index}`}) returning id
         `;
         const stand = await client()`
           insert into sales_locations (
-            owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+            own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
             farm_bucks_accepted, farm_bucks_eligible
           )
           values (${farm[0]?.id as string}, 'farm_stand', ${`Paging Stand ${index}`}, 'America/Los_Angeles', 'visitable', 'produce',
@@ -1383,7 +1383,7 @@ describe("inbound routing end to end (integration)", () => {
         await client()`
           insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
           values (${standId}, (select id from stand_providers
-            where sales_location_id = ${standId} and seller_id is null), 'eggs', true, 0)
+            where sales_location_id = ${standId} and seller_id = (select own_seller_id from sales_locations where id = ${standId})), 'eggs', true, 0)
         `;
         pagedStands.push(offeringFactId(standId));
       }
@@ -1508,7 +1508,7 @@ describe("inbound routing end to end (integration)", () => {
         values (
 ${farmerHash}, ${locationId},
           (select id from stand_providers
-            where sales_location_id = ${locationId} and seller_id is null), ${client().json({ entries: [] })}, 1,
+            where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${client().json({ entries: [] })}, 1,
           true, false, true, 'accepted',
           ${prompt[0]?.id as string}, 1, ${at(-31)},
           ${new Date(T0.getTime() + 3_600_000)}, 'yes', ${`ev-${randomUUID()}`},
@@ -1517,20 +1517,20 @@ ${farmerHash}, ${locationId},
         returning id
       `;
       const auth = await client()`
-        select id from farmer_authorizations where farm_id = ${farmId} limit 1
+        select id from farmer_authorizations where seller_id = ${farmId} limit 1
       `;
       const approval = await client()`
-        select id from farm_approvals where farm_id = ${farmId} limit 1
+        select id from seller_approvals where seller_id = ${farmId} limit 1
       `;
       const revision = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+          seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at, is_current
         )
         values (
 ${farmId}, ${locationId},
 (select id from stand_providers
-  where sales_location_id = ${locationId} and seller_id is null), ${proposal[0]?.id as string},
+  where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${proposal[0]?.id as string},
                 ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${at(-30)}, true)
         returning id
       `;

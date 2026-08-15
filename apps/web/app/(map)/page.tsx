@@ -17,7 +17,7 @@ export const dynamic = "force-dynamic";
 
 // F-074 — `?hidden=true` reaches a server component as `searchParams`, not as a URL, so the
 // page reads the parameter itself rather than sharing `viewerScopeFromUrl` with the API route.
-// The RULE both surfaces obey — which farms a scope may see — is shared where it matters, in
+// The RULE both surfaces obey — which sellers a scope may see — is shared where it matters, in
 // `visibleFarms`; what differs here is only how Next hands over the query string.
 //
 // A repeated parameter arrives as an array. That is not `"true"`, so it does not open the door

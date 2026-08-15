@@ -50,7 +50,7 @@ describe("farmer stand-link request (integration)", () => {
   const SALT = "test-salt";
 
   async function farm(name: string): Promise<string> {
-    const rows = await sql()`insert into farms (name) values (${name}) returning id`;
+    const rows = await sql()`insert into sellers (name) values (${name}) returning id`;
     return rows[0]?.id as string;
   }
 
@@ -58,7 +58,7 @@ describe("farmer stand-link request (integration)", () => {
   async function stand(farmId: string, name: string): Promise<string> {
     const rows = await sql()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, is_public,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
@@ -165,7 +165,7 @@ describe("farmer stand-link request (integration)", () => {
     const links = await sql()`
       select farmer_link.token_hash from farmer_links as farmer_link
       join farmer_authorizations as auth on auth.id = farmer_link.authorization_id
-      where auth.farm_id = ${farmId} and farmer_link.revoked_at is null
+      where auth.seller_id = ${farmId} and farmer_link.revoked_at is null
     `;
     expect(links).toHaveLength(1);
     const body = queued[0]?.body as string;
@@ -198,7 +198,7 @@ describe("farmer stand-link request (integration)", () => {
       select farmer_link.sales_location_id
       from farmer_links as farmer_link
       join farmer_authorizations as auth on auth.id = farmer_link.authorization_id
-      where auth.farm_id = ${farmId} and farmer_link.revoked_at is null
+      where auth.seller_id = ${farmId} and farmer_link.revoked_at is null
     `;
     expect(links).toHaveLength(1);
     expect(links[0]?.sales_location_id).toBe(salesLocationId);
@@ -256,7 +256,7 @@ describe("farmer stand-link request (integration)", () => {
     await onboardFarmer(farmId, phone);
 
     const authorizations = await sql()`
-      select id from farmer_authorizations where farm_id = ${farmId} and revoked_at is null
+      select id from farmer_authorizations where seller_id = ${farmId} and revoked_at is null
     `;
     await revokeFarmerAuthorization(database(), {
       authorizationId: authorizations[0]?.id as string,

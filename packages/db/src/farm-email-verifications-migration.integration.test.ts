@@ -20,12 +20,12 @@ const NOW = new Date("2026-08-06T12:00:00Z");
 const DIGEST = "a".repeat(64);
 const OTHER_DIGEST = "b".repeat(64);
 
-describe("migration 0025 farm_email_verifications (integration)", () => {
+describe("migration 0025 seller_email_verifications (integration)", () => {
   let adminClient: ReturnType<typeof postgres> | undefined;
   let client: ReturnType<typeof postgres> | undefined;
   let databaseName = "";
   let farmId = "";
-  let otherFarmId = "";
+  let otherSellerId = "";
 
   const sql = () => {
     if (!client) throw new Error("no database client");
@@ -34,7 +34,7 @@ describe("migration 0025 farm_email_verifications (integration)", () => {
 
   const insert = async (overrides: Record<string, unknown> = {}) => {
     const row = {
-      farm_id: farmId,
+      seller_id: farmId,
       email_hash: DIGEST,
       code_hash: OTHER_DIGEST,
       issued_at: NOW.toISOString(),
@@ -46,10 +46,10 @@ describe("migration 0025 farm_email_verifications (integration)", () => {
       ...overrides,
     };
     return sql()`
-      insert into farm_email_verifications
-        (farm_id, email_hash, code_hash, issued_at, expires_at, consumed_at, attempt_count,
+      insert into seller_email_verifications
+        (seller_id, email_hash, code_hash, issued_at, expires_at, consumed_at, attempt_count,
          grant_hash, grant_expires_at)
-      values (${row.farm_id as string}, ${row.email_hash as string},
+      values (${row.seller_id as string}, ${row.email_hash as string},
               ${row.code_hash as string}, ${row.issued_at as string},
               ${row.expires_at as string}, ${row.consumed_at},
               ${row.attempt_count as number},
@@ -71,13 +71,13 @@ describe("migration 0025 farm_email_verifications (integration)", () => {
     client = postgres(url.toString(), { max: 2 });
     await migrate(drizzle(client), { migrationsFolder: migrationsDir });
 
-    const farms = await sql()`
-      insert into farms (name, created_at)
+    const sellers = await sql()`
+      insert into sellers (name, created_at)
       values ('Constraint Farm', ${NOW.toISOString()}), ('Other Farm', ${NOW.toISOString()})
       returning id, name
     `;
-    farmId = (farms.find((f) => f.name === "Constraint Farm")?.id ?? "") as string;
-    otherFarmId = (farms.find((f) => f.name === "Other Farm")?.id ?? "") as string;
+    farmId = (sellers.find((f) => f.name === "Constraint Farm")?.id ?? "") as string;
+    otherSellerId = (sellers.find((f) => f.name === "Other Farm")?.id ?? "") as string;
   }, 120_000);
 
   afterAll(async () => {
@@ -91,13 +91,13 @@ describe("migration 0025 farm_email_verifications (integration)", () => {
   it("ACCEPTS a valid row — the control that stops 'refuses everything' reading as success", async () => {
     const rows = await insert();
     expect(rows).toHaveLength(1);
-    await sql()`delete from farm_email_verifications`;
+    await sql()`delete from seller_email_verifications`;
   });
 
   it("REFUSES an email hash that is not a 64-character lowercase hex digest", async () => {
     for (const bad of ["", "short", "A".repeat(64), "g".repeat(64), "a".repeat(63), "a".repeat(65)]) {
       await expect(insert({ email_hash: bad }), bad).rejects.toThrow(
-        /farm_email_verifications_email_hash_is_digest/,
+        /seller_email_verifications_email_hash_is_digest/,
       );
     }
   });
@@ -105,7 +105,7 @@ describe("migration 0025 farm_email_verifications (integration)", () => {
   it("REFUSES a code hash that is not a 64-character lowercase hex digest", async () => {
     for (const bad of ["", "short", "A".repeat(64), "z".repeat(64)]) {
       await expect(insert({ code_hash: bad }), bad).rejects.toThrow(
-        /farm_email_verifications_code_hash_is_digest/,
+        /seller_email_verifications_code_hash_is_digest/,
       );
     }
   });
@@ -114,17 +114,17 @@ describe("migration 0025 farm_email_verifications (integration)", () => {
     // Exactly-at-issue is dead on arrival: the farmer would be refused a code the records show
     // as valid. A backwards clock produces precisely this row.
     await expect(insert({ expires_at: NOW.toISOString() })).rejects.toThrow(
-      /farm_email_verifications_expires_after_issue/,
+      /seller_email_verifications_expires_after_issue/,
     );
     await expect(
       insert({ expires_at: new Date(NOW.getTime() - 1000).toISOString() }),
-    ).rejects.toThrow(/farm_email_verifications_expires_after_issue/);
+    ).rejects.toThrow(/seller_email_verifications_expires_after_issue/);
   });
 
   it("REFUSES a code consumed before it was issued", async () => {
     await expect(
       insert({ consumed_at: new Date(NOW.getTime() - 1000).toISOString() }),
-    ).rejects.toThrow(/farm_email_verifications_consumed_after_issue/);
+    ).rejects.toThrow(/seller_email_verifications_consumed_after_issue/);
   });
 
   it("ACCEPTS a NULL consumed_at, because 'not yet consumed' must be legal", async () => {
@@ -133,21 +133,21 @@ describe("migration 0025 farm_email_verifications (integration)", () => {
     // silently inverts a guard when the intent is the opposite.
     const rows = await insert({ consumed_at: null });
     expect(rows).toHaveLength(1);
-    await sql()`delete from farm_email_verifications`;
+    await sql()`delete from seller_email_verifications`;
   });
 
   it("REFUSES a negative attempt count", async () => {
     await expect(insert({ attempt_count: -1 })).rejects.toThrow(
-      /farm_email_verifications_attempts_not_negative/,
+      /seller_email_verifications_attempts_not_negative/,
     );
   });
 
   it("REFUSES a second LIVE code for the same farm", async () => {
     await insert();
     await expect(insert({ code_hash: "c".repeat(64) })).rejects.toThrow(
-      /farm_email_verifications_one_live_per_farm/,
+      /seller_email_verifications_one_live_per_seller/,
     );
-    await sql()`delete from farm_email_verifications`;
+    await sql()`delete from seller_email_verifications`;
   });
 
   it("PERMITS a new code once the previous one is consumed — the index is PARTIAL", async () => {
@@ -156,52 +156,52 @@ describe("migration 0025 farm_email_verifications (integration)", () => {
     await insert({ consumed_at: NOW.toISOString() });
     const rows = await insert({ code_hash: "c".repeat(64) });
     expect(rows).toHaveLength(1);
-    await sql()`delete from farm_email_verifications`;
+    await sql()`delete from seller_email_verifications`;
   });
 
-  it("PERMITS two different farms to hold live codes simultaneously", async () => {
+  it("PERMITS two different sellers to hold live codes simultaneously", async () => {
     await insert();
-    const rows = await insert({ farm_id: otherFarmId });
+    const rows = await insert({ seller_id: otherSellerId });
     expect(rows).toHaveLength(1);
-    await sql()`delete from farm_email_verifications`;
+    await sql()`delete from seller_email_verifications`;
   });
 
   it("REFUSES a row naming a farm that does not exist", async () => {
-    await expect(insert({ farm_id: randomUUID() })).rejects.toThrow(/farm_id/);
+    await expect(insert({ seller_id: randomUUID() })).rejects.toThrow(/seller_id/);
   });
 
   it("REFUSES a grant hash that is not a digest", async () => {
     await expect(
       insert({ grant_hash: "nope", grant_expires_at: new Date(NOW.getTime() + 1000).toISOString() }),
-    ).rejects.toThrow(/farm_email_verifications_grant_hash_is_digest/);
+    ).rejects.toThrow(/seller_email_verifications_grant_hash_is_digest/);
   });
 
   it("REFUSES a grant with no expiry, and an expiry with no grant — BOTH directions", async () => {
     // A coherence PAIR. The one-directional form passes on NULL and would enforce nothing,
     // which is 0023's lesson: a grant that never ages out is a standing key to the listing.
     await expect(insert({ grant_hash: "c".repeat(64), grant_expires_at: null })).rejects.toThrow(
-      /farm_email_verifications_grant_coherent/,
+      /seller_email_verifications_grant_coherent/,
     );
     await expect(
       insert({
         grant_hash: null,
         grant_expires_at: new Date(NOW.getTime() + 1000).toISOString(),
       }),
-    ).rejects.toThrow(/farm_email_verifications_grant_coherent/);
+    ).rejects.toThrow(/seller_email_verifications_grant_coherent/);
   });
 
   it("ACCEPTS a row with neither a grant nor an expiry — an unredeemed code", async () => {
     const rows = await insert({ grant_hash: null, grant_expires_at: null });
     expect(rows).toHaveLength(1);
-    await sql()`delete from farm_email_verifications`;
+    await sql()`delete from seller_email_verifications`;
   });
 
   it("holds NO raw email column at all, read from the real schema", async () => {
-    // Golden Rule #5 — the raw address lives in exactly one column (`farm_emails.email`).
+    // Golden Rule #5 — the raw address lives in exactly one column (`seller_emails.email`).
     // Read from `information_schema` rather than from the schema file's word.
     const columns = await sql()`
       select column_name from information_schema.columns
-      where table_name = 'farm_email_verifications'
+      where table_name = 'seller_email_verifications'
     `;
     const names = columns.map((c) => c.column_name as string);
     expect(names).toContain("email_hash");

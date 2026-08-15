@@ -151,7 +151,7 @@ async function resolveAuthorizedRecipient(
   const rows = await tx`
     select c.phone_hash
     from sales_locations l
-    join farmer_authorizations a on a.farm_id = l.owner_farm_id
+    join farmer_authorizations a on a.seller_id = l.own_seller_id
     join contacts c on c.id = a.contact_id
     where l.id = ${salesLocationId}
       and a.revoked_at is null
