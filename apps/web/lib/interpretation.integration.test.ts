@@ -582,10 +582,10 @@ ${farmerHash}, ${ids.location},
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${ids.farm}, ${ids.location}, ${proposal[0]?.id as string},
+      values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${proposal[0]?.id as string},
               ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${T0})
       returning id
     `;
@@ -868,8 +868,8 @@ ${farmerHash}, ${ids.location},
     async function publishTwoItems() {
       const revision = await client()`
         insert into inventory_revisions
-          (farm_id, sales_location_id, published_at, is_current, source)
-        values (${ids.farm}, ${ids.location}, ${T0}, true, 'viga')
+          (farm_id, sales_location_id, provider_id, published_at, is_current, source)
+        values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${T0}, true, 'viga')
         returning id
       `;
       return client()`

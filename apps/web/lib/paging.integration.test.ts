@@ -183,7 +183,10 @@ describe("SMS result paging end to end (integration)", () => {
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${"7".repeat(64)}, ${locationId}, ${client().json({ entries: [] })}, 1,
+        ${"7".repeat(64)}, ${locationId},
+        (select id from stand_providers
+          where sales_location_id = ${locationId} and seller_id is null),
+        ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted', ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3_600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
       )
@@ -195,12 +198,11 @@ describe("SMS result paging end to end (integration)", () => {
         farm_approval_id, source, published_at
       )
       values (
-${farmId}, ${locationId},
-          (select id from stand_providers
-            where sales_location_id = ${locationId} and seller_id is null),
-(select id from stand_providers
-  where sales_location_id = ${locationId} and seller_id is null), ${proposal[0]?.id as string},
-              ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${hoursAgo(2)})
+        ${farmId}, ${locationId},
+        (select id from stand_providers
+          where sales_location_id = ${locationId} and seller_id is null),
+        ${proposal[0]?.id as string},
+        ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${hoursAgo(2)})
       returning id
     `;
     await client()`
@@ -644,8 +646,12 @@ ${farmId}, ${locationId},
     await askForEggs(customerHash, T0);
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      select id, 'kale', true, 1 from sales_locations
-      where id = any(${locationIds.slice(5, 9)})
+      select l.id,
+        (select id from stand_providers
+          where sales_location_id = l.id and seller_id is null),
+        'kale', true, 1
+      from sales_locations l
+      where l.id = any(${locationIds.slice(5, 9)})
     `;
     // A second, smaller question. Its list is what MORE must page through afterwards.
     await askFor(["kale"], customerHash, at(5));

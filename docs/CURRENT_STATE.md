@@ -81,7 +81,26 @@
   unchanged and Phase A is the gate for Phase B. The enumeration lives in
   `docs/plans/farmer-behavior-architecture-plan.md` §phase A and is what the gate tests — never a
   remembered count.
-- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. This release adds no migration.
+- **A stand now has providers** (F-114 Phase B). `stand_providers` holds one row per seller-at-stand
+  with a nullable seller reference — NULL is the stand's own **native brand slot**, which is what
+  every existing stand got exactly one of. `sellers` is the reusable brand identity beside it.
+  Inventory revisions, usual items, proposals, farmer links, prompt preferences, scheduled prompts,
+  and SMS targeting all carry a provider; `inventory_revisions_one_current_per_location` became
+  **one-current-per-provider** and `stand_items_one_per_location_name` became
+  **one-per-provider-per-name**, both in the migration that added the column. **Output is unchanged**
+  — every write goes to the native slot, which is the stand behaving as it always did. Hosted-seller
+  behavior (invitation, per-provider publication, the seller list, item-first cards) is Phase C and
+  is NOT built.
+- **The pending-change defect is fixed.** One open SMS confirmation per person **per
+  provider-at-stand**, not per person. Someone affiliated with sellers at two stands is no longer
+  locked out of one by texting the other.
+- **Pause/revoke/close invalidation exists** (`packages/db/src/provider-invalidation.ts`). It closes
+  that provider's open confirmations and suppresses its queued reminders; a stand shutdown does all
+  of them. It never rewrites a proposal the farmer already answered and never marks a sent message
+  suppressed.
+- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042_multi_seller_stand_providers`
+  is written and locally verified but NOT applied to production** — it is the first migration this
+  work owes a deploy.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a` — the SAME image as the
   previous revisions; F-113 changed configuration only. Plan assertions 61/61 (the new one asserts
@@ -97,8 +116,17 @@
 
 ## Verification
 
-- **2,063 unit tests pass; 7 corpus-only tests skip.** **981 integration tests across 66 files pass**
-  against disposable local Postgres databases (2026-08-14).
+- **2,063 unit tests pass; 7 corpus-only tests skip.** **1,037 integration tests across 70 files
+  pass** against disposable local Postgres databases (2026-08-15).
+- **F-114 Phase B's constraints are sabotage-proved, not merely present.** 36 cases assert the exact
+  row each new index and CHECK was written to refuse, and five deliberate breakages were each caught
+  by the suite: a non-partial native-slot index, a one-directional `reminder_coherent`, a dropped
+  `coalesce` on the empty day array, one-current keyed on the stand, and `stand_items` keyed on the
+  stand. Two more sabotages cover the invalidation's provider scoping and its already-answered guard.
+- **The migration is verified against a POPULATED copy of the pre-0042 schema** — 11 assertions on
+  exact row effects, including a retired stand that still owns revisions and a never-published stand,
+  plus a re-run proving it is a no-op. It creates zero seller identities: `sales_location_participants`
+  stays display-only history, never auto-linked.
 - The map loads inside VIGA's iframe on the custom domain — confirmed in a browser by max,
   2026-08-14, and VIGA's live page read back serving the new `src`. `frame-ancestors` needed no
   change: it already permitted `'self'`, which the custom host becomes.
@@ -189,6 +217,20 @@
   roster's `currentItems` had exactly one test in the whole suite, and it checked `[]` on a
   never-published stand — so a query returning nothing for every farm would have passed. When a
   reader's only coverage is its empty case, it has no coverage; assert a populated value.
+- **`drizzle-kit generate` writes a migration that passes on an empty database and fails on a real
+  one.** It emits `ADD COLUMN … NOT NULL` with no default and no backfill; against any table that
+  already holds a row that is an instant 23502. Every migration adding a required column must add it
+  nullable, backfill, then `SET NOT NULL` — and must be tested against a POPULATED copy of the
+  previous schema, because an empty-schema test is green for this entire class of defect.
+- **`inventory_revisions` has a trigger that refuses almost every UPDATE.**
+  `guard_inventory_revision_history` permits exactly one transition — superseding a current
+  revision — so a backfill cannot touch the table at all. `0042` disables it for one statement,
+  re-enables it immediately, and widens it to cover the new column. Do not weaken the guard; it is a
+  Golden Rule #1 protection.
+- **The schema vocabulary forbids certain words outright**, `provenance` among them
+  (`schema.integration.test.ts` §removes forbidden concepts). It scans schema text, the index file,
+  `0000`, and the snapshot — so a constraint NAME or even a doc comment trips it. The camelCase key
+  `sourceProvenance` survives only because the pattern is `\bprovenance\b`.
 - **A stale local server can serve headers that the config no longer describes.** While verifying the
   map headers, a `curl` returned a 200 with no headers at all against a build whose manifest clearly
   contained them — a server process left running from before the rebuild. The config assertion and

@@ -365,6 +365,33 @@ constraint-layer change, not an additive one. (The contract previously said eigh
    invalidate that provider's open confirmations and queued reminders — stand closure invalidating
    all of them — which is what makes the re-open confirmation in §facts and authority possible.
 
+##### Phase B as built (2026-08-15)
+
+- `sellers` and `stand_providers` are the two new records. `stand_providers` carries the nullable
+  seller reference (native = NULL), the three lifecycle states, the approving actor, its own
+  schedule/season mirroring `sales_locations`, and its own reminder cadence and recipient.
+- **`sales_locations_create_native_provider` is a trigger, not a line in the two writers that
+  create stands.** A stand with no native slot can hold no inventory and no usual items at all, and
+  the failure would surface far from the writer that caused it. The number of writers that must
+  remember this is now zero.
+- **`stand_providers_location_fk` is `cascade`, not `restrict`.** The native slot has no existence
+  apart from its stand. VIGA *retires* stands rather than deleting them, so a hosted seller's
+  history is protected by the stand row never being deleted — not by this constraint.
+- The migration adds every column NULLABLE, backfills, and only then sets `NOT NULL`.
+  `drizzle-kit generate` emitted `ADD COLUMN … NOT NULL` with no default and no backfill, which
+  **passes on an empty database and fails on a populated one** — the exact defect the
+  populated-schema requirement exists to catch.
+- `inventory_revisions_guard_history` refused the backfill outright: it permits exactly one
+  transition. The trigger is disabled for that one statement, re-enabled immediately, and then
+  **widened to cover `provider_id`**, so the new column is as immutable as the columns beside it.
+- Naming: the schema vocabulary forbids the word *provenance*
+  (`schema.integration.test.ts` §forbidden concepts), so the constraint is
+  `stand_providers_approval_source_coherent`, matching the existing `source` vocabulary.
+- `invalidateProviderWork` (item 8) is ONE function with an optional `providerId`: omitted means
+  the stand closed and every provider is invalidated. It closes only `open` proposals and
+  suppresses only `queued` outbox rows, which is what makes it idempotent and what keeps a
+  farmer's existing answer and an already-sent message intact.
+
 #### Phase C — behavior
 
 1. Hosted-seller invitation, acceptance, approval provenance, and scoped access grants.

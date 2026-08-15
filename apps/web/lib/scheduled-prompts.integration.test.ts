@@ -109,10 +109,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
     `;
     const revisions = await handle().sql`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       ) values (
-        ${ids.farm}, ${ids.location}, ${baselineProposal[0]?.id as string},
+        ${ids.farm}, ${ids.location},
+        (select id from stand_providers
+          where sales_location_id = ${ids.location} and seller_id is null), ${baselineProposal[0]?.id as string},
         ${ids.authorization}, ${ids.approval}, 'sms', ${BASE}
       ) returning id
     `;
@@ -226,10 +228,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
       `;
       const revision = await handle().sql`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at
         ) values (
-          ${farmId}, ${salesLocationId}, ${baselineProposal[0]?.id as string},
+          ${farmId}, ${salesLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${salesLocationId} and seller_id is null), ${baselineProposal[0]?.id as string},
           ${authorizationId}, ${approvalId}, 'sms', ${BASE}
         ) returning id
       `;
@@ -376,10 +380,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
     `;
     await handle().sql`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       ) values (
-        ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
+        ${fixture.farmId}, ${fixture.salesLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${proposal[0]?.id as string},
         ${fixture.authorizationId}, ${fixture.approvalId}, 'sms', ${changedAt}
       )
     `;
@@ -688,10 +694,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
       `;
       await handle().sql`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at
         ) values (
-          ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
+          ${fixture.farmId}, ${fixture.salesLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${proposal[0]?.id as string},
           ${fixture.authorizationId}, ${fixture.approvalId}, 'sms', ${changedAt}
         )
       `;

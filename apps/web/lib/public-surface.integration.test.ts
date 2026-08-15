@@ -176,10 +176,10 @@ ${farmerHash}, ${ids.location},
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${ids.farm}, ${ids.location}, ${proposal[0]?.id as string},
+      values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${proposal[0]?.id as string},
               ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${publishedAt})
       returning id
     `;
@@ -1165,7 +1165,7 @@ ${farmerHash}, ${ids.location},
         await client()`
           insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
           values (${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${item}, true, ${index})
-          on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+          on conflict (provider_id, (lower(btrim(display_name, E' \t\r\n'))))
           do update set usually_carried = true, sort_order = excluded.sort_order
         `;
       }
@@ -1249,14 +1249,17 @@ ${farmerHash}, ${ids.location},
     ): Promise<void> {
       await client()`
         insert into stand_items (
-          sales_location_id, display_name, usually_carried, sort_order,
+          sales_location_id, provider_id, display_name, usually_carried, sort_order,
           price_amount, price_quantity, price_unit, price_basis
         )
         values (
-          ${ids.location}, ${item}, true, 0,
+          ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null),
+          ${item}, true, 0,
           ${price.amount}, ${price.quantity}, ${price.unit}, ${price.basis}
         )
-        on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+        on conflict (provider_id, (lower(btrim(display_name, E' \t\r\n'))))
         do update set
           usually_carried = true,
           price_amount = excluded.price_amount,

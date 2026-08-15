@@ -134,12 +134,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id,
+        authorization_id, owner_farm_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 1, ${preference.preferenceId}, ${preference.version},
-        ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+        ${ids.authorization}, ${ids.farm}, ${ids.location},
+        (select id from stand_providers
+          where sales_location_id = ${ids.location} and seller_id is null), true,
         ${new Date(NOW.getTime() + 7 * 86_400_000)}, ${outbox[0]?.id as string},
         false, ${NOW}
       )
@@ -224,12 +226,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id,
+        authorization_id, owner_farm_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 0, ${preferenceId}, 1,
-        ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+        ${ids.authorization}, ${ids.farm}, ${ids.location},
+        (select id from stand_providers
+          where sales_location_id = ${ids.location} and seller_id is null), true,
         ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
         false, ${NOW}
       )
@@ -237,12 +241,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id,
+        authorization_id, owner_farm_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 1, ${preferenceId}, 0,
-        ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+        ${ids.authorization}, ${ids.farm}, ${ids.location},
+        (select id from stand_providers
+          where sales_location_id = ${ids.location} and seller_id is null), true,
         ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
         false, ${NOW}
       )
@@ -250,12 +256,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id,
+        authorization_id, owner_farm_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 1, ${preferenceId}, 1,
-        ${ids.authorization}, ${ids.farm}, ${ids.location}, false,
+        ${ids.authorization}, ${ids.farm}, ${ids.location},
+        (select id from stand_providers
+          where sales_location_id = ${ids.location} and seller_id is null), false,
         ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
         false, ${NOW}
       )
@@ -263,12 +271,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id,
+        authorization_id, owner_farm_id, sales_location_id, provider_id,
         inventory_base_revision_id, closure_base_is_first_instruction,
         due_slot_at, outbox_work_id, offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 1, ${preferenceId}, 1,
-        ${ids.authorization}, ${ids.farm}, ${ids.location}, null, true,
+        ${ids.authorization}, ${ids.farm}, ${ids.location},
+        (select id from stand_providers
+          where sales_location_id = ${ids.location} and seller_id is null), null, true,
         ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
         true, ${NOW}
       )
@@ -326,12 +336,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       await tx`
         insert into scheduled_inventory_prompt_subjects (
           proposal_id, proposal_version, preference_id, preference_version,
-          authorization_id, owner_farm_id, sales_location_id,
+          authorization_id, owner_farm_id, sales_location_id, provider_id,
           closure_base_is_first_instruction, due_slot_at, outbox_work_id,
           offers_same, created_at
         ) values (
           ${proposals[0]!}, 1, ${preference.preferenceId}, ${preference.version},
-          ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+          ${ids.authorization}, ${ids.farm}, ${ids.location},
+        (select id from stand_providers
+          where sales_location_id = ${ids.location} and seller_id is null), true,
           ${dueSlot}, ${outboxes[0]!}, false, ${NOW}
         )
       `;
@@ -344,12 +356,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       const losingOutcome = (async () => claimant`
           insert into scheduled_inventory_prompt_subjects (
             proposal_id, proposal_version, preference_id, preference_version,
-            authorization_id, owner_farm_id, sales_location_id,
+            authorization_id, owner_farm_id, sales_location_id, provider_id,
             closure_base_is_first_instruction, due_slot_at, outbox_work_id,
             offers_same, created_at
           ) values (
             ${proposals[1]!}, 1, ${preference.preferenceId}, ${preference.version},
-            ${ids.authorization}, ${ids.farm}, ${ids.location}, true,
+            ${ids.authorization}, ${ids.farm}, ${ids.location},
+        (select id from stand_providers
+          where sales_location_id = ${ids.location} and seller_id is null), true,
             ${dueSlot}, ${outboxes[1]!}, false, ${NOW}
           )
         `)().then(

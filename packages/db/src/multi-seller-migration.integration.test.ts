@@ -268,6 +268,16 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     expect(rows).toHaveLength(4);
     for (const row of rows) expect(row.providers).toBe(1);
 
+    // The NEVER-PUBLISHED stand gets one too. A backfill driven by the revision table rather
+    // than by `sales_locations` would skip it, and the stand would then be unable to publish
+    // its first inventory ever — 18 of 37 stands publish none today, so this is the common
+    // case rather than an edge one.
+    const quiet = await client()`
+      select p.id from stand_providers p
+      where p.sales_location_id = ${quietLocationId} and p.seller_id is null
+    `;
+    expect(quiet).toHaveLength(1);
+
     // The retired stand's native row exists specifically because its revision needs one.
     const retired = await client()`
       select p.id from stand_providers p

@@ -720,11 +720,13 @@ describe("clean launch database foundation (integration)", () => {
   it("keeps inventory publication-only, current per location, and immutable", async () => {
     const revisionRows = await db()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id,
+        farm_id, sales_location_id, provider_id, proposal_id,
         published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
-        ${storedId("farm")}, ${storedId("location")}, ${storedId("proposal1")},
+        ${storedId("farm")}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${storedId("proposal1")},
         ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${later}
       )
       returning id
@@ -781,11 +783,13 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id,
+          farm_id, sales_location_id, provider_id, proposal_id,
           published_by_authorization_id, farm_approval_id, source, published_at
         )
         values (
-          ${storedId("farm")}, ${storedId("location")}, ${secondProposalId},
+          ${storedId("farm")}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${secondProposalId},
           ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${tomorrow}
         )
       `,
@@ -798,11 +802,13 @@ describe("clean launch database foundation (integration)", () => {
     `;
     await db()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id,
+        farm_id, sales_location_id, provider_id, proposal_id,
         published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
-        ${storedId("farm")}, ${storedId("location")}, ${secondProposalId},
+        ${storedId("farm")}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${secondProposalId},
         ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${tomorrow}
       )
     `;
@@ -1262,14 +1268,14 @@ describe("clean launch database foundation (integration)", () => {
           values (${unconfirmedLocation}, (select id from stand_providers
             where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'eggs')
         `,
-      ).rejects.toThrow(/stand_items_one_per_location_name/);
+      ).rejects.toThrow(/stand_items_one_per_provider_name/);
       await expect(
         db()`
           insert into stand_items (sales_location_id, provider_id, display_name)
           values (${unconfirmedLocation}, (select id from stand_providers
             where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'EGGS')
         `,
-      ).rejects.toThrow(/stand_items_one_per_location_name/);
+      ).rejects.toThrow(/stand_items_one_per_provider_name/);
     });
 
     it("cannot make a stand look confirmed", async () => {

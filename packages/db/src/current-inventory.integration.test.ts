@@ -131,9 +131,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
     // legitimately null instead of manufacturing an authorization chain the test never reads.
     const superseded = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current, superseded_at
+        farm_id, sales_location_id, provider_id, source, published_at, is_current, superseded_at
       ) values (
-        ${farmId}, ${richLocationId}, 'viga', now() - interval '10 days',
+        ${farmId}, ${richLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${richLocationId} and seller_id is null), 'viga', now() - interval '10 days',
         false, now() - interval '2 days'
       ) returning id
     `;
@@ -148,9 +150,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
 
     const current = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current
+        farm_id, sales_location_id, provider_id, source, published_at, is_current
       ) values (
-        ${farmId}, ${richLocationId}, 'viga', now() - interval '2 days', true
+        ${farmId}, ${richLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${richLocationId} and seller_id is null), 'viga', now() - interval '2 days', true
       ) returning id
     `;
     currentRevisionId = current[0]?.id as string;
@@ -169,9 +173,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
 
     await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current
+        farm_id, sales_location_id, provider_id, source, published_at, is_current
       ) values (
-        ${farmId}, ${emptyLocationId}, 'viga', now() - interval '1 day', true
+        ${farmId}, ${emptyLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${emptyLocationId} and seller_id is null), 'viga', now() - interval '1 day', true
       )
     `;
   }, 60_000);
