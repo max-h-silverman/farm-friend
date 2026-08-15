@@ -147,14 +147,32 @@ Two requirements fall out, and both are already satisfied by the records:
 - **"Without overriding Kelsey's"** — `stand_providers` plus one-current-per-provider. Zoe's
   update cannot touch Kelsey's because they are different rows. Built in Phase B, kept by C.0.
 - **"Without telling Kelsey"** — Zoe is authorized in her own right and texts her own updates.
-  Nothing routes through the host, and the host is not notified.
+  Nothing routes through the host, and the host is not notified. This is Zoe's arrangement rather
+  than a universal rule: see the optional host stock rights below.
 
-**Therefore a stand-level authorization does NOT confer inventory rights over other sellers at
-that stand.** An earlier framing asked whether it should; VIGA's requirement answers no, because
-that is precisely the "telling Kelsey" coupling they want removed. Stand facts and a seller's
-goods are separate authorities. (§facts and authority separately permits a stand owner to *observe*
-a hosted seller's stock — marking something sold out is a physical observation, not a claim about
-someone else's commerce — and that is unchanged here.)
+**A stand-level authorization does not confer inventory rights over other sellers by default — but
+the relationship may carry them, at the seller's option** (max, 2026-08-15).
+
+The rights are **a property of the hosting relationship, not of the stand and not of the role**.
+Some hosted sellers want the host restocking on their behalf: a baker who drops off at dawn and
+would rather the host mark the last loaf gone than be texted about it. Zoe specifically does not.
+Both are legitimate, so the `stand_providers` row that binds a seller to a stand carries whether
+that seller's stock may be updated by the stand's own authorized phones.
+
+Two things this must not become:
+
+- **Not a default.** An invitation that silently conferred stock rights would make acceptance mean
+  more than it says, which §hosting and approval lifecycle already forbids: *acceptance never
+  grants more access than the explicit scopes attached to the relationship.* Off unless the seller
+  turns it on.
+- **Not a general permission.** It covers current stock only. A host may never change a hosted
+  seller's identity, prices, payment, pause, or participation — §facts and authority is unchanged,
+  and those need separate authorization for that seller.
+
+This is also distinct from the observation right §facts and authority already grants: marking an
+item sold out is a physical observation of an empty cooler, available to a stand owner regardless.
+What the relationship optionally adds is the ability to *state stock*, which is a claim about
+someone else's goods and therefore theirs to permit.
 
 #### There is no second permission system, and no "grant"
 
