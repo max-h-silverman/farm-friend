@@ -150,9 +150,12 @@ describe("F-066 stand items backfill (integration)", () => {
     // ONLY in a confirmation and in no standing claim anywhere.
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current
+        farm_id, sales_location_id, provider_id, source, published_at, is_current
       )
-      values (${farmId}, ${locationId}, 'viga', now() - interval '3 days', true)
+      values (
+${farmId}, ${locationId},
+(select id from stand_providers
+  where sales_location_id = ${locationId} and seller_id is null), 'viga', now() - interval '3 days', true)
       returning id
     `;
     const revisionId = revision[0]?.id as string;

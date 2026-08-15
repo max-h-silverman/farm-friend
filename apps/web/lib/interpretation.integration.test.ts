@@ -558,13 +558,15 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     `;
     const proposal = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication, state,
         activation_outbox_id, activated_version, activated_at, expires_at,
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${farmerHash}, ${ids.location}, ${client().json({ entries: [] })}, 1,
+${farmerHash}, ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null), ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', 'seed-event', ${T0}

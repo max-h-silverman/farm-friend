@@ -3,7 +3,7 @@ import {
   type Clock,
   type PromptCadence,
 } from "@farm-friend/core";
-import { readCurrentRevisionRef } from "./current-inventory";
+import { readCurrentRevisionRef, readNativeProviderId } from "./current-inventory";
 import type { Db } from "./index";
 import { lockKnownSenderState } from "./farmer-targeting";
 
@@ -68,8 +68,14 @@ export async function setInventoryPromptPreference(
       where sales_location_id = ${input.salesLocationId}
       for update
     `;
+    // F-114 Phase B — a cadence belongs to a provider. This path is the farmer saving their
+    // own stand's preference, which is the native slot.
+    const providerId = await readNativeProviderId(tx, {
+      salesLocationId: input.salesLocationId,
+    });
     const currentRevision = await readCurrentRevisionRef(tx, {
       salesLocationId: input.salesLocationId,
+      providerId,
       lock: false,
     });
     const previous = existing[0] as Record<string, unknown> | undefined;
@@ -87,10 +93,10 @@ export async function setInventoryPromptPreference(
     const saved = previous === undefined
       ? await tx`
           insert into inventory_prompt_preferences (
-            owner_farm_id, sales_location_id, designated_authorization_id,
-            cadence, version, next_due_at, updated_at
+            owner_farm_id, sales_location_id, provider_id,
+            designated_authorization_id, cadence, version, next_due_at, updated_at
           ) values (
-            ${location.owner_farm_id as string}, ${input.salesLocationId},
+            ${location.owner_farm_id as string}, ${input.salesLocationId}, ${providerId},
             ${input.authorizationId}, ${input.cadence}, 1, ${nextDueAt}, ${now}
           ) returning id, version
         `

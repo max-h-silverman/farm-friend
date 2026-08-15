@@ -1,4 +1,5 @@
 import { matchStandName, resolveStandKey } from "@farm-friend/core";
+import { readNativeProviderId } from "./current-inventory";
 import type { Sql, Tx } from "./sql";
 
 // B-002 — loading VIGA's reference stand data.
@@ -392,6 +393,10 @@ async function seedOfferingsInTransaction(
       continue;
     }
 
+    // F-114 Phase B — seeded usual items are the stand's own, so the native slot.
+    const seedItemProviderId = await readNativeProviderId(tx, {
+      salesLocationId: location.id,
+    });
     for (const [index, item] of offering.items.entries()) {
       // F-066 — the unique index is the arbiter, not a prior read: two writers naming the
       // same new item share no parent row to lock, and a row that does not exist yet cannot
@@ -406,9 +411,11 @@ async function seedOfferingsInTransaction(
       // value. Display name and sort order are left alone: a re-run must never revert an
       // edit a farmer or operator made, which is the rule this seeder has always held.
       const result = await tx`
-        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-        values (${location.id}, ${item}, true, ${index})
-        on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+        insert into stand_items (
+          sales_location_id, provider_id, display_name, usually_carried, sort_order
+        )
+        values (${location.id}, ${seedItemProviderId}, ${item}, true, ${index})
+        on conflict (provider_id, (lower(btrim(display_name, E' \t\r\n'))))
         do update set usually_carried = true
         where not stand_items.usually_carried
         returning id
@@ -753,11 +760,15 @@ export async function seedWeeklyConfirmations(
         `;
       }
 
+      // F-114 Phase B — a seeded revision is the stand's own statement, so the native slot.
+      const seedRevisionProviderId = await readNativeProviderId(tx, {
+        salesLocationId: location.id,
+      });
       const revision = await tx`
         insert into inventory_revisions (
-          farm_id, sales_location_id, source, published_at
+          farm_id, sales_location_id, provider_id, source, published_at
         )
-        select owner_farm_id, id, 'viga', ${submission.statedOn}
+        select owner_farm_id, id, ${seedRevisionProviderId}, 'viga', ${submission.statedOn}
         from sales_locations where id = ${location.id}
         returning id
       `;

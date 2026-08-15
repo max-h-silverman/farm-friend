@@ -9,7 +9,7 @@ import {
   issueFarmerInviteToken,
   maskPhoneSuffix,
 } from "@farm-friend/core";
-import { readCurrentRevisionRef } from "./current-inventory";
+import { readCurrentRevisionRef, readNativeProviderId } from "./current-inventory";
 import type { Db } from "./index";
 import { seedDefaultPromptPreference } from "./onboarding-listing";
 import type { Sql, Tx } from "./sql";
@@ -618,8 +618,13 @@ async function publishPendingStockIn(
     `for update` for the reason `activateWebProposal` locks the same row: two redemptions must
     never both read the same incumbent as current and both insert a successor.
   */
+  // F-114 Phase B — onboarding publishes for the stand's NATIVE slot: the farmer is setting up
+  // their own stand under its own name. A hosted seller's first publication goes through the
+  // hosting flow (Phase C.1), not this one.
+  const providerId = await readNativeProviderId(tx, { salesLocationId });
   const current = await readCurrentRevisionRef(tx, {
     salesLocationId,
+    providerId,
     lock: true,
   });
   const currentRevisionId = current?.revisionId;
@@ -633,12 +638,13 @@ async function publishPendingStockIn(
 
   const revisions = await tx`
     insert into inventory_revisions (
-      farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-      farm_approval_id, source, published_at
+      farm_id, sales_location_id, provider_id, proposal_id,
+      published_by_authorization_id, farm_approval_id, source, published_at
     )
     values (
-      ${input.farmId}, ${salesLocationId}, null, ${input.authorizationId},
-      ${farmApprovalId}, 'web', ${input.occurredAt.toISOString()}
+      ${input.farmId}, ${salesLocationId}, ${providerId}, null,
+      ${input.authorizationId}, ${farmApprovalId}, 'web',
+      ${input.occurredAt.toISOString()}
     )
     returning id
   `;
@@ -1471,13 +1477,20 @@ async function issueFarmerLinkIn(
   `;
 
   const token = issueFarmerLinkToken();
+  // F-114 Phase B — a standing link opens ONE listing, so it names whose. A farmer link is
+  // issued for the farmer's own stand, hence the native slot; a hosted seller's link is issued
+  // by the hosting flow (Phase C.1) against their own provider.
+  const linkProviderId = await readNativeProviderId(tx, {
+    salesLocationId: input.salesLocationId,
+  });
   const inserted = await tx`
     insert into farmer_links (
-      token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+      token_hash, authorization_id, owner_farm_id, sales_location_id,
+      provider_id, issued_at
     )
     values (
       ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${ownerFarmId},
-      ${input.salesLocationId},
+      ${input.salesLocationId}, ${linkProviderId},
       ${input.occurredAt.toISOString()}
     )
     returning id

@@ -17,6 +17,7 @@ import {
 import {
   openOrReviseProposal,
   readCurrentInventory,
+  readNativeProviderId,
   type Db,
 } from "@farm-friend/db";
 
@@ -134,7 +135,10 @@ async function compositionState(
   `;
   const pendingRow = pending[0] as Record<string, unknown> | undefined;
 
-  const current = await readCurrentInventory(db, { salesLocationId });
+  // F-114 Phase B — the base a farmer's next SMS edit composes against is their own
+  // listing, so the native slot. A hosted seller composes against theirs in Phase C.2.
+  const providerId = await readNativeProviderId(db, { salesLocationId });
+  const current = await readCurrentInventory(db, { salesLocationId, providerId });
 
   const publishedInventory: InventoryCompositionBase = current
     ? {

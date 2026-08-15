@@ -142,18 +142,24 @@ const queryable = (db: InventoryReader): Sql =>
  */
 export async function readCurrentRevisionRef(
   db: InventoryReader,
-  input: { salesLocationId: string; lock: boolean },
+  input: { salesLocationId: string; providerId: string; lock: boolean },
 ): Promise<CurrentRevisionRef | null> {
   const sql = queryable(db);
+  // Keyed on the PROVIDER (F-114 Phase B). Keyed on the stand, a hosted seller publishing would
+  // read the HOST's revision as the incumbent it supersedes — the silently-wrong output Phase A
+  // consolidated these sites to make impossible. `sales_location_id` stays in the predicate so
+  // the composite key is exercised and a provider from another stand matches nothing.
   const rows = input.lock
     ? await sql`
         select id, published_at from inventory_revisions
-        where sales_location_id = ${input.salesLocationId} and is_current
+        where sales_location_id = ${input.salesLocationId}
+          and provider_id = ${input.providerId} and is_current
         for update
       `
     : await sql`
         select id, published_at from inventory_revisions
-        where sales_location_id = ${input.salesLocationId} and is_current
+        where sales_location_id = ${input.salesLocationId}
+          and provider_id = ${input.providerId} and is_current
       `;
   const row = rows[0] as Record<string, unknown> | undefined;
   if (row === undefined) return null;
@@ -161,6 +167,36 @@ export async function readCurrentRevisionRef(
     revisionId: row.id as string,
     publishedAt: row.published_at as Date,
   };
+}
+
+/**
+ * The id of a stand's NATIVE provider — the stand selling under its own name (F-114 Phase B).
+ *
+ * Every stand has exactly one, guaranteed by `stand_providers_one_native_per_location` and
+ * created with the stand by the `sales_locations_create_native_provider` trigger. So this
+ * throws rather than returning null: a stand with no native slot is a broken invariant, not an
+ * ordinary absence, and a caller that silently skipped publication would hide it.
+ *
+ * It lives at this seam because "whose inventory" is the question this module owns. Every writer
+ * that published stand-wide before Phase B now publishes for this provider, which is what keeps
+ * output byte-identical: the native slot IS the stand as it always behaved.
+ */
+export async function readNativeProviderId(
+  db: InventoryReader,
+  input: { salesLocationId: string },
+): Promise<string> {
+  const sql = queryable(db);
+  const rows = await sql`
+    select id from stand_providers
+    where sales_location_id = ${input.salesLocationId} and seller_id is null
+  `;
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (row === undefined) {
+    throw new Error(
+      `sales location ${input.salesLocationId} has no native provider row`,
+    );
+  }
+  return row.id as string;
 }
 
 /**
@@ -173,11 +209,12 @@ export async function readCurrentRevisionRef(
  */
 export async function readCurrentInventory(
   db: InventoryReader,
-  input: { salesLocationId: string },
+  input: { salesLocationId: string; providerId: string },
 ): Promise<CurrentInventory | null> {
   const sql = queryable(db);
   const ref = await readCurrentRevisionRef(db, {
     salesLocationId: input.salesLocationId,
+    providerId: input.providerId,
     lock: false,
   });
   if (ref === null) return null;

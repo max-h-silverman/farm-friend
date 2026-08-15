@@ -113,11 +113,13 @@ describe("scheduled inventory prompt preferences (integration)", () => {
 
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication
       ) values (
-        ${senderHash}, ${ids.location}, ${handle().sql.json({ items: [] })}, 1,
+        ${senderHash}, ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null), ${handle().sql.json({ items: [] })}, 1,
         true, false, null, true
       ) returning id
     `;
@@ -201,11 +203,13 @@ describe("scheduled inventory prompt preferences (integration)", () => {
 
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication
       ) values (
-        ${senderHash}, ${ids.location}, ${handle().sql.json({ items: [] })}, 1,
+        ${senderHash}, ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null), ${handle().sql.json({ items: [] })}, 1,
         true, false, null, true
       ) returning id
     `;
@@ -286,11 +290,13 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     for (const label of ["winner", "claimant"]) {
       const proposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure,
           base_revision_id, base_is_first_publication, state, closed_at
         ) values (
-          ${senderHash}, ${ids.location}, ${handle().sql.json({ entries: [] })}, 1,
+          ${senderHash}, ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
           true, false, null, true, 'invalidated', ${NOW}
         ) returning id
       `;

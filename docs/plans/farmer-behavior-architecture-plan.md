@@ -313,8 +313,31 @@ constraint-layer change, not an additive one. (The contract previously said eigh
    season, and its own reminder cadence and recipient. Ending a relationship marks the row inactive
    with the date; an unanswered invitation and an ended relationship are both "not public", so a
    fourth `ended` state would add a case to every reader without changing any public output.
-2. Re-root the nine composite keys from `(location, owner_farm)` to `(location, provider)`, so
+2. Re-root the composite keys from `(location, owner_farm)` to `(location, provider)`, so
    authority is carried by the provider relationship rather than by stand ownership.
+
+   **Corrected during Phase B: there are EIGHT such keys, not nine, and SIX of them re-root.**
+   The count of nine double-counted `farmer_target_contexts_selected_location_owner_fk` — the
+   contract's original list of eight cited its `foreignColumns` line (1534) and then named the
+   same constraint again by its declaration line (1531) as the ninth. Eight composite foreign
+   keys reference `(sales_locations.id, sales_locations.owner_farm_id)`; the enumeration is
+   `farmer_links_targeted_location_owner_fk`, `farmer_target_contexts_selected_location_owner_fk`,
+   `farmer_target_menu_options_location_owner_fk`,
+   `inventory_prompt_preferences_location_owner_fk`,
+   `sales_location_participants_location_owner_fk`, `inventory_revisions_location_farm_fk`,
+   `closure_revisions_location_owner_fk`, and `scheduled_prompt_subjects_location_owner_fk`.
+
+   **Two of the eight stay rooted on the stand** (max, 2026-08-15), because they carry stand
+   facts rather than provider facts and re-rooting them would make the record assert something
+   false:
+
+   - `closure_revisions_location_owner_fk` — stand closure is **owner-only and overrides every
+     provider** (§facts and authority). Recording it against the stand's native provider slot
+     would file a fact about the place under one of the sellers at it, and would imply a hosted
+     seller's own row could carry a closure that silences the others.
+   - `sales_location_participants_location_owner_fk` — item 5 **retires** this table as
+     display-only history and a VIGA work queue. Its rows are explicitly never auto-linked to
+     seller identities, so a provider reference is one the migration is forbidden to populate.
 3. Replace `inventory_revisions_one_current_per_location` — keyed on `sales_location_id` alone —
    with one-current-**per-provider**. This index is the specific invariant per-provider inventory
    invalidates; it must be replaced in the same migration that adds the provider column, never

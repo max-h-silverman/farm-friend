@@ -394,9 +394,14 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(location[0]?.id, "no stand to insert into").toBeDefined();
     await expect(
       client()`
-        insert into stand_items (sales_location_id, display_name, usually_carried,
-          price_amount, price_quantity, price_unit, price_basis)
-        values (${location[0]!.id}, 'Bad Eggs', true, 6.00, 1.00, null, 'per')
+        insert into stand_items (sales_location_id, provider_id, display_name,
+          usually_carried, price_amount, price_quantity, price_unit, price_basis)
+        values (
+          ${location[0]!.id},
+          (select id from stand_providers
+            where sales_location_id = ${location[0]!.id} and seller_id is null),
+          'Bad Eggs', true, 6.00, 1.00, null, 'per'
+        )
       `,
     ).rejects.toThrow(/stand_items_price_basis_unit/);
   });

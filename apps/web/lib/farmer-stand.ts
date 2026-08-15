@@ -9,6 +9,7 @@ import {
 import {
   confirmInventoryPublication,
   readCurrentInventory,
+  readNativeProviderId,
   resolveFarmerLink,
   saveSalesLocationParticipants,
   type Db,
@@ -123,7 +124,9 @@ export async function readCurrentStandEntries(
     return payload.entries as StandEntryView[];
   }
 
-  const current = await readCurrentInventory(db, { salesLocationId });
+  // F-114 Phase B — the stand editor prefills the farmer's own listing, so the native slot.
+  const providerId = await readNativeProviderId(db, { salesLocationId });
+  const current = await readCurrentInventory(db, { salesLocationId, providerId });
   // Key ORDER is preserved deliberately. This value is serialized to JSON by the stand API's
   // post-publish refresh, and `JSON.stringify` emits keys in insertion order — so reordering
   // these would change bytes on the wire for a refactor that is required to change none.

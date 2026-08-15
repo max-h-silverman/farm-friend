@@ -104,8 +104,9 @@ describe("F-066 stand items (integration)", () => {
     options: { usuallyCarried?: boolean } = {},
   ): Promise<string | undefined> {
     const rows = await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried)
-      values (${location}, ${name}, ${options.usuallyCarried ?? false})
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
+      values (${location}, (select id from stand_providers
+        where sales_location_id = ${location} and seller_id is null), ${name}, ${options.usuallyCarried ?? false})
       on conflict do nothing
       returning id
     `;
@@ -120,8 +121,9 @@ describe("F-066 stand items (integration)", () => {
       // Not `on conflict do nothing` — this asserts Postgres genuinely REFUSES the row.
       await expect(
         client()`
-          insert into stand_items (sales_location_id, display_name, usually_carried)
-          values (${locationId}, 'rhubarb', false)
+          insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
+          values (${locationId}, (select id from stand_providers
+            where sales_location_id = ${locationId} and seller_id is null), 'rhubarb', false)
         `,
       ).rejects.toThrow();
     });
@@ -175,8 +177,9 @@ describe("F-066 stand items (integration)", () => {
       for (const blank of ["", "   ", "\t\n"]) {
         await expect(
           client()`
-            insert into stand_items (sales_location_id, display_name, usually_carried)
-            values (${locationId}, ${blank}, false)
+            insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
+            values (${locationId}, (select id from stand_providers
+              where sales_location_id = ${locationId} and seller_id is null), ${blank}, false)
           `,
           `${JSON.stringify(blank)} must be refused`,
         ).rejects.toThrow(/stand_items_display_name_not_blank/);
@@ -283,9 +286,12 @@ describe("F-066 stand items (integration)", () => {
       // unique index enforces.
       const revision = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, source, published_at, is_current
+          farm_id, sales_location_id, provider_id, source, published_at, is_current
         )
-        values (${farmId}, ${locationId}, 'viga', now(), true)
+        values (
+${farmId}, ${locationId},
+(select id from stand_providers
+  where sales_location_id = ${locationId} and seller_id is null), 'viga', now(), true)
         returning id
       `;
       const revisionId = revision[0]?.id as string;
@@ -319,9 +325,12 @@ describe("F-066 stand items (integration)", () => {
       // immutability guard has been weakened and the reason for that design is gone.
       const revision = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, source, published_at, is_current
+          farm_id, sales_location_id, provider_id, source, published_at, is_current
         )
-        values (${farmId}, ${otherLocationId}, 'viga', now(), true)
+        values (
+${farmId}, ${otherLocationId},
+(select id from stand_providers
+  where sales_location_id = ${otherLocationId} and seller_id is null), 'viga', now(), true)
         returning id
       `;
       const revisionId = revision[0]?.id as string;
@@ -345,9 +354,12 @@ describe("F-066 stand items (integration)", () => {
       // card must still read the way June read.
       const revision = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, source, published_at, is_current
+          farm_id, sales_location_id, provider_id, source, published_at, is_current
         )
-        values (${farmId}, ${locationId}, 'viga', now() - interval '40 days', false)
+        values (
+${farmId}, ${locationId},
+(select id from stand_providers
+  where sales_location_id = ${locationId} and seller_id is null), 'viga', now() - interval '40 days', false)
         returning id
       `;
       const revisionId = revision[0]?.id as string;

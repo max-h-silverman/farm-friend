@@ -68,10 +68,12 @@ describe("B-032 final proposal and location schema (integration)", () => {
   async function insertWithoutInventoryFlag(): Promise<unknown> {
     return db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_closure, base_is_first_publication, closure_base_is_first_instruction
       ) values (
-        ${contactHash}, ${locationId}, ${db().json({ closure: { result: "reopen" } })},
+        ${contactHash}, ${locationId},
+          (select id from stand_providers
+            where sales_location_id = ${locationId} and seller_id is null), ${db().json({ closure: { result: "reopen" } })},
         1, true, true, true
       )
     `;
@@ -80,10 +82,12 @@ describe("B-032 final proposal and location schema (integration)", () => {
   async function insertWithoutClosureFlag(): Promise<unknown> {
     return db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, base_is_first_publication
       ) values (
-        ${closureOmissionHash}, ${locationId}, ${db().json({ entries: [] })},
+        ${closureOmissionHash}, ${locationId},
+          (select id from stand_providers
+            where sales_location_id = ${locationId} and seller_id is null), ${db().json({ entries: [] })},
         1, true, true
       )
     `;
@@ -92,10 +96,12 @@ describe("B-032 final proposal and location schema (integration)", () => {
   async function insertExactSectionFlags(): Promise<readonly unknown[]> {
     return db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication
       ) values (
-        ${exactFlagsHash}, ${locationId}, ${db().json({ entries: [] })},
+        ${exactFlagsHash}, ${locationId},
+          (select id from stand_providers
+            where sales_location_id = ${locationId} and seller_id is null), ${db().json({ entries: [] })},
         1, true, false, true
       ) returning has_inventory, has_closure
     `;

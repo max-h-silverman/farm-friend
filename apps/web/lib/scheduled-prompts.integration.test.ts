@@ -97,11 +97,13 @@ describe("scheduled inventory prompt pass (integration)", () => {
 
     const baselineProposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication, state, closed_at
       ) values (
-        ${senderHash}, ${ids.location}, ${handle().sql.json({ entries: [] })}, 1,
+        ${senderHash}, ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
         true, false, null, true, 'invalidated', ${BASE}
       ) returning id
     `;
@@ -212,11 +214,13 @@ describe("scheduled inventory prompt pass (integration)", () => {
     if (options?.inventory !== "none") {
       const baselineProposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure,
           base_revision_id, base_is_first_publication, state, closed_at
         ) values (
-          ${fixtureSender}, ${salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
+          ${fixtureSender}, ${salesLocationId},
+          (select id from stand_providers
+            where sales_location_id = ${salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
           true, false, null, true, 'invalidated', ${BASE}
         ) returning id
       `;
@@ -246,12 +250,14 @@ describe("scheduled inventory prompt pass (integration)", () => {
     if (options?.upcomingClosure || options?.unboundedClosure) {
       const closureProposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure,
           base_revision_id, base_is_first_publication,
           closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
         ) values (
-          ${fixtureSender}, ${salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
+          ${fixtureSender}, ${salesLocationId},
+          (select id from stand_providers
+            where sales_location_id = ${salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
           false, true,
           null, null, null, true, 'invalidated', ${BASE}
         ) returning id
@@ -358,11 +364,13 @@ describe("scheduled inventory prompt pass (integration)", () => {
     `;
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication, state, closed_at
       ) values (
-        ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
+        ${fixture.senderHash}, ${fixture.salesLocationId},
+          (select id from stand_providers
+            where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
         true, false, ${fixture.inventoryRevisionId}, false, 'invalidated', ${changedAt}
       ) returning id
     `;
@@ -383,12 +391,14 @@ describe("scheduled inventory prompt pass (integration)", () => {
   ) {
     const proposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication,
         closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
       ) values (
-        ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
+        ${fixture.senderHash}, ${fixture.salesLocationId},
+          (select id from stand_providers
+            where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
         false, true, null, null, null, true, 'invalidated', ${changedAt}
       ) returning id
     `;
@@ -666,11 +676,13 @@ describe("scheduled inventory prompt pass (integration)", () => {
       `;
       const proposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure,
           base_revision_id, base_is_first_publication, state, closed_at
         ) values (
-          ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
+          ${fixture.senderHash}, ${fixture.salesLocationId},
+          (select id from stand_providers
+            where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
           true, false, ${fixture.inventoryRevisionId}, false, 'invalidated', ${changedAt}
         ) returning id
       `;
@@ -686,12 +698,14 @@ describe("scheduled inventory prompt pass (integration)", () => {
     } else if (reason === "closure base") {
       const proposal = await handle().sql`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure,
           base_revision_id, base_is_first_publication,
           closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
         ) values (
-          ${fixture.senderHash}, ${fixture.salesLocationId}, ${handle().sql.json({ entries: [] })}, 1,
+          ${fixture.senderHash}, ${fixture.salesLocationId},
+          (select id from stand_providers
+            where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
           false, true, null, null, null, true, 'invalidated', ${changedAt}
         ) returning id
       `;
@@ -1005,12 +1019,14 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const reopenedAt = new Date("2026-03-15T17:00:01.000Z");
     const reopenProposal = await handle().sql`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication,
         closure_base_revision_id, closure_base_is_first_instruction, state, closed_at
       ) values (
         ${fixture.senderHash}, ${fixture.salesLocationId},
+          (select id from stand_providers
+            where sales_location_id = ${fixture.salesLocationId} and seller_id is null),
         ${handle().sql.json({ closure: { result: "reopen" } })}, 1,
         false, true, null, null, ${fixture.closureRevisionId}, false,
         'invalidated', ${reopenedAt}

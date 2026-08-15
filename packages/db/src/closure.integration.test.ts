@@ -319,11 +319,13 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
       closureFirst: boolean | null;
     }) => client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_is_first_publication, closure_base_is_first_instruction
       ) values (
-        ${farmerHash}, ${ids.location}, ${client().json({ closure: { result: "reopen" } })},
+        ${farmerHash}, ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null), ${client().json({ closure: { result: "reopen" } })},
         1, ${input.hasInventory}, ${input.hasClosure},
         ${input.inventoryFirst}, ${input.closureFirst}
       )

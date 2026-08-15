@@ -737,11 +737,13 @@ describe("operator review queues (integration)", () => {
       // uses `invalidated` — a legal closed state that needs no activation.
       const proposals = await client()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure, state, base_is_first_publication, closed_at
         )
         values (
-          ${farmerHash}, ${id("location")}, '{}'::jsonb, 1,
+          ${farmerHash}, ${id("location")},
+        (select id from stand_providers
+          where sales_location_id = ${id("location")} and seller_id is null), '{}'::jsonb, 1,
           true, false, 'invalidated', true, ${T0}
         )
         returning id
@@ -778,8 +780,8 @@ describe("operator review queues (integration)", () => {
     */
     it("resolves the item name of a report against a usual offering", async () => {
       const items = await client()`
-        insert into stand_items (sales_location_id, display_name, usually_carried)
-        values (${id("location")}, 'Duck eggs', false)
+        insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
+        values (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id is null), 'Duck eggs', false)
         returning id
       `;
       const reports = await client()`
@@ -962,11 +964,13 @@ describe("operator review queues (integration)", () => {
       `;
       const proposals = await client()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure, state, base_is_first_publication, closed_at
         )
         values (
-          ${farmerHash}, ${id("location")}, '{}'::jsonb, 1,
+          ${farmerHash}, ${id("location")},
+        (select id from stand_providers
+          where sales_location_id = ${id("location")} and seller_id is null), '{}'::jsonb, 1,
           true, false, 'invalidated', true, ${T0}
         )
         returning id
@@ -1049,11 +1053,13 @@ describe("operator review queues (integration)", () => {
       `;
       const proposals = await client()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure, state, base_is_first_publication, closed_at
         )
         values (
-          ${farmerHash}, ${id("location")}, '{}'::jsonb, 1,
+          ${farmerHash}, ${id("location")},
+        (select id from stand_providers
+          where sales_location_id = ${id("location")} and seller_id is null), '{}'::jsonb, 1,
           true, false, 'invalidated', true, ${T0}
         )
         returning id
@@ -1305,8 +1311,8 @@ describe("operator review queues (integration)", () => {
       }
 
       await client()`
-        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-        values (${id("location")}, 'bok choy', true, 0), (${id("location")}, 'eggs', true, 1)
+        insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+        values (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id is null), 'bok choy', true, 0), (${id("location")}, (select id from stand_providers where sales_location_id = ${id("location")} and seller_id is null), 'eggs', true, 1)
       `;
       const flagId = await openStandDataFlag();
 

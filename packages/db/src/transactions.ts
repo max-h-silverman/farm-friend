@@ -13,7 +13,7 @@ import {
   projectClosure,
   validatePublicStrings,
 } from "@farm-friend/core";
-import { readCurrentRevisionRef } from "./current-inventory";
+import { readCurrentRevisionRef, readNativeProviderId } from "./current-inventory";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 
@@ -737,6 +737,11 @@ export async function openOrReviseProposal(
       throw new Error("sender is not authorized for this sales location");
     }
 
+    // F-114 Phase B — a proposal belongs to one provider, and the token that confirms it is
+    // bound to that provider. This writer serves the farmer's own stand, so the native slot.
+    const providerId = await readNativeProviderId(tx, {
+      salesLocationId: input.salesLocationId,
+    });
     let baseRevisionId: string | null = null;
     let isFirstPublication: boolean | null = null;
     if (input.entries !== undefined && input.baseIsFirstPublication !== undefined) {
@@ -745,6 +750,7 @@ export async function openOrReviseProposal(
     } else if (input.entries !== undefined) {
       const current = await readCurrentRevisionRef(tx, {
         salesLocationId: input.salesLocationId,
+        providerId,
         lock: false,
       });
       baseRevisionId = current?.revisionId ?? null;
@@ -810,14 +816,15 @@ export async function openOrReviseProposal(
 
     const inserted = await tx`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication,
         closure_base_revision_id, closure_base_is_first_instruction,
         created_at, updated_at
       )
       values (
-        ${input.senderHash}, ${input.salesLocationId}, ${tx.json(payload)}, 1,
+        ${input.senderHash}, ${input.salesLocationId}, ${providerId},
+        ${tx.json(payload)}, 1,
         ${input.entries !== undefined}, ${input.closure !== undefined},
         ${baseRevisionId}, ${isFirstPublication},
         ${closureBaseRevisionId}, ${closureBaseIsFirstInstruction},
@@ -911,11 +918,15 @@ export async function confirmInventoryPublication(
     // The sender lock makes this preliminary binding stable: proposal revision also takes
     // sender first. The proposal row itself is locked only after location, in shared order.
     const target = await tx`
-      select sales_location_id from inventory_publication_proposals
+      select sales_location_id, provider_id from inventory_publication_proposals
       where id = ${input.proposalId} and sender_hash = ${input.senderHash}
     `;
     if (target.length === 0) return { status: "no_open_proposal" };
     const salesLocationId = target[0]?.sales_location_id as string;
+    // The proposal carries its own provider. Reading it from the row rather than re-deriving it
+    // is what keeps the token context-bound: a confirmation publishes for the listing the
+    // proposal named, not for whatever the stand's native slot happens to be now.
+    const providerId = target[0]?.provider_id as string;
     const location = await tx`
       select owner_farm_id, name, retired_at from sales_locations
       where id = ${salesLocationId}
@@ -955,6 +966,7 @@ export async function confirmInventoryPublication(
 
     const currentRevision = await readCurrentRevisionRef(tx, {
       salesLocationId,
+      providerId,
       lock: false,
     });
     const currentRevisionId = currentRevision?.revisionId ?? null;
@@ -1169,11 +1181,11 @@ export async function confirmInventoryPublication(
     if (proposal.has_inventory === true) {
       const revision = await tx`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id, published_by_authorization_id,
-          farm_approval_id, source, published_at
+          farm_id, sales_location_id, provider_id, proposal_id,
+          published_by_authorization_id, farm_approval_id, source, published_at
         )
         values (
-          ${farmId}, ${salesLocationId}, ${input.proposalId},
+          ${farmId}, ${salesLocationId}, ${providerId}, ${input.proposalId},
           ${authorization[0]?.id as string}, ${approval[0]?.id as string},
           'sms', ${input.occurredAt}
         )
@@ -1381,8 +1393,11 @@ async function lockScheduledDispatchBasis(
     return { kind: "scheduled", valid: false, proposalId };
   }
 
+  // The SUBJECT names the provider this prompt asks about. Re-deriving it would let a prompt
+  // issued for a hosted seller validate against the host's listing.
   const currentInventory = await readCurrentRevisionRef(tx, {
     salesLocationId,
+    providerId: subject.provider_id as string,
     lock: false,
   });
   const currentClosure = await tx`

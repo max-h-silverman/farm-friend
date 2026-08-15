@@ -117,13 +117,15 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     `;
     const proposal = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication, state,
         activation_outbox_id, activated_version, activated_at, expires_at,
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${farmerHash}, ${locationId}, ${client().json({ entries: [] })}, 1,
+${farmerHash}, ${locationId},
+          (select id from stand_providers
+            where sales_location_id = ${locationId} and seller_id is null), ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
@@ -138,10 +140,13 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${farmId}, ${locationId}, ${proposal[0]?.id as string},
+      values (
+${farmId}, ${locationId},
+(select id from stand_providers
+  where sales_location_id = ${locationId} and seller_id is null), ${proposal[0]?.id as string},
               ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${publishedAt})
       returning id
     `;
@@ -223,9 +228,9 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   it("matches each catalog item once and expands it to every supporting stand (B-069)", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Eggs"], hoursAgo(2));
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, 'eggs', true, 0),
-             (${ids.betaLocation!}, 'Eggs', true, 0)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'eggs', true, 0),
+             (${ids.betaLocation!}, (select id from stand_providers where sales_location_id = ${ids.betaLocation!} and seller_id is null), 'Eggs', true, 0)
     `;
 
     const { provider, deps } = inquiryDeps({
@@ -408,7 +413,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
 
   it("renders a bare stand-name overview from its public fields (B-069)", async () => {
     await client()`update sales_locations set name = 'Pinecone Gardens', public_address = '123 Forest Road' where id = ${ids.alphaLocation!}`;
-    await client()`insert into stand_items (sales_location_id, display_name, usually_carried, sort_order) values (${ids.alphaLocation!}, 'Eggs', true, 0)`;
+    await client()`insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order) values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Eggs', true, 0)`;
     await client()`insert into sales_location_payment_methods (sales_location_id, method) values (${ids.alphaLocation!}, 'Cash')`;
     const { provider, deps } = inquiryDeps({});
 
@@ -434,8 +439,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   it("labels a selected stale confirmation honestly", async () => {
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Cucumbers"], hoursAgo(24 * 24));
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, 'Cucumbers', true, 0)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Cucumbers', true, 0)
     `;
     const { deps } = inquiryDeps({
       "catalog-match": JSON.stringify({ matches: ["Cucumbers"] }),
@@ -540,8 +545,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     `;
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale", "Peaches"], hoursAgo(2));
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, 'Garlic', true, 0)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Garlic', true, 0)
     `;
 
     const { deps } = inquiryDeps({
@@ -606,9 +611,9 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     // Kale is BOTH confirmed and usually carried — the corpus shape that made Provo Farms
     // repeat its whole confirmed list back under a second label.
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, 'Kale', true, 0),
-             (${ids.alphaLocation!}, 'Garlic', true, 1)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Kale', true, 0),
+             (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Garlic', true, 1)
     `;
 
     const { provider, deps } = inquiryDeps({});
@@ -701,8 +706,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     `;
     // No confirmation at all — only what the farmer says they usually carry.
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, 'Garlic', true, 0)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Garlic', true, 0)
     `;
 
     const { deps } = inquiryDeps({});
@@ -767,8 +772,8 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     `;
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale", "Peaches"], hoursAgo(2));
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, 'Garlic', true, 0)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Garlic', true, 0)
     `;
     await client()`
       insert into sales_location_payment_methods (sales_location_id, method)
@@ -1165,8 +1170,9 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
     usuallyCarried = false,
   ): Promise<string> {
     const rows = await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried)
-      values (${salesLocationId}, ${displayName}, ${usuallyCarried})
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
+      values (${salesLocationId}, (select id from stand_providers
+        where sales_location_id = ${salesLocationId} and seller_id is null), ${displayName}, ${usuallyCarried})
       returning id
     `;
     return rows[0]?.id as string;

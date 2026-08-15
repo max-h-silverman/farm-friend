@@ -88,10 +88,13 @@ describe("onboarding redemption over an existing current revision (integration)"
     // The VIGA seed: a current revision that exists BEFORE the farmer ever texts.
     const seeded = await sql()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${farmId}, ${salesLocationId}, null, null, null, 'viga', ${now})
+      values (
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), null, null, null, 'viga', ${now})
       returning id
     `;
     await sql()`

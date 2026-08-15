@@ -127,8 +127,9 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     }
     for (const [index, displayName] of offerings.entries()) {
       await client()`
-        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-        values (${locationId}, ${displayName}, false, ${index})
+        insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+        values (${locationId}, (select id from stand_providers
+          where sales_location_id = ${locationId} and seller_id is null), ${displayName}, false, ${index})
       `;
     }
     return locationId;

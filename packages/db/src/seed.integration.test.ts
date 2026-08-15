@@ -681,8 +681,9 @@ describe("seeding VIGA's stands (B-002)", () => {
 
       // The state a confirmation leaves behind: the item exists, but is no standing claim.
       await client`
-        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-        values (${locationId}, 'Rhubarb', false, 0)
+        insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+        values (${locationId}, (select id from stand_providers
+          where sales_location_id = ${locationId} and seller_id is null), 'Rhubarb', false, 0)
       `;
 
       const result = await seedOfferings(client, [
