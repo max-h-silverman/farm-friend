@@ -11,6 +11,7 @@ export * from "./provider-invalidation";
 export * from "./transactions";
 export * from "./admin";
 export * from "./farmer";
+export * from "./hosting";
 export * from "./farm-emails";
 export * from "./farm-verification";
 export * from "./onboarding-listing";
