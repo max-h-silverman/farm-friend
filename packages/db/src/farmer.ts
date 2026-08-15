@@ -9,6 +9,7 @@ import {
   issueFarmerInviteToken,
   maskPhoneSuffix,
 } from "@farm-friend/core";
+import { readCurrentRevisionRef } from "./current-inventory";
 import type { Db } from "./index";
 import { seedDefaultPromptPreference } from "./onboarding-listing";
 import type { Sql, Tx } from "./sql";
@@ -617,12 +618,11 @@ async function publishPendingStockIn(
     `for update` for the reason `activateWebProposal` locks the same row: two redemptions must
     never both read the same incumbent as current and both insert a successor.
   */
-  const current = await tx`
-    select id from inventory_revisions
-    where sales_location_id = ${salesLocationId} and is_current
-    for update
-  `;
-  const currentRevisionId = current[0]?.id as string | undefined;
+  const current = await readCurrentRevisionRef(tx, {
+    salesLocationId,
+    lock: true,
+  });
+  const currentRevisionId = current?.revisionId;
   if (currentRevisionId !== undefined) {
     await tx`
       update inventory_revisions

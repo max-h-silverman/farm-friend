@@ -231,13 +231,16 @@ search was proved against known-present sites before any empty result was believ
 | 7 | `apps/web/lib/scheduled-prompts.ts:148` | one stand | the reminder pass's snapshot and its cadence-reset `published_at` |
 | 8 | `packages/db/src/scheduled-prompts.ts:71` | one stand | the cadence-save path's `published_at` baseline |
 | 9 | `packages/db/src/transactions.ts:746` | one stand | the proposal's inventory base revision when the caller did not supply one |
-| 10 | `packages/db/src/transactions.ts:956` | one stand, locked | the incumbent revision the SMS confirmation supersedes |
-| 11 | `packages/db/src/transactions.ts:1384` | one stand, locked | the scheduled prompt's validity check against the current revision |
-| 12 | `packages/db/src/farmer.ts:621` | one stand, locked | the incumbent revision onboarding redemption supersedes (B-070) |
+| 10 | `packages/db/src/transactions.ts:956` | one stand | the incumbent revision the SMS confirmation supersedes |
+| 11 | `packages/db/src/transactions.ts:1384` | one stand | the scheduled prompt's validity check against the current revision |
+| 12 | `packages/db/src/farmer.ts:621` | one stand, **locked** | the incumbent revision onboarding redemption supersedes (B-070) |
 
-Sites 10–12 read under `for update` inside a writer's transaction; they are enumerated because they
-are the same question and will need the same provider dimension, but the shared reader must preserve
-their locking, not drop it.
+**Only site 12 takes `for update`.** Sites 9–11 run inside a writer's transaction but read the
+revision unlocked; the transaction's serialization comes from the other rows it locks. The shared
+reader therefore takes `lock` as a REQUIRED argument rather than defaulting it either way — a
+default that took the lock would put row locks on read paths, and one that dropped it would silently
+undo B-070. `current-inventory.integration.test.ts` measures the lock with a second session's
+`for update … nowait` rather than trusting the argument.
 
 **Deliberately excluded**, so a later reader does not re-add them by mistake:
 
@@ -252,6 +255,39 @@ their locking, not drop it.
   regardless of currency. Not a current-inventory read.
 - `apps/web/app/stand/[token]/stand-form.tsx:131` — `isCurrentEntry`, a type guard. A textual match
   only.
+
+##### Phase A as built (B-074, 2026-08-14)
+
+`packages/db/src/current-inventory.ts` is the seam. It has **three shapes, not one**, because the
+twelve sites ask one question three ways and a single row type would make every caller carry columns
+it does not use:
+
+- `currentInventoryJoin` / `currentEntriesJoin` — SQL fragments the three corpus-wide surfaces
+  compose into their own larger statements. They select stand, farm, closure, offering and payment
+  facts in ONE round trip; a per-stand call would multiply queries by the corpus and change the
+  ordering each surface depends on. `visibleFarms` is the existing precedent for exactly this.
+- `readCurrentInventory` — the stand-scoped reader: revision plus entries.
+- `readCurrentRevisionRef` — the revision identity alone, with the explicit `lock` above.
+
+`intersectAvailability` owns the stand/provider availability clamp, so no surface computes it alone.
+In Phase A every call passes no provider and gets the stand's answer back; the intersection's rule is
+one-directional — a stand that is not open overrides every provider, and `unknown` PERMITS rather
+than closes, because silence is not a claim that a stand is shut.
+
+**Two corrections the work produced**, both worth carrying into Phase B:
+
+1. `listStandsForAdministration` had to move from a tagged template to `.unsafe()`. In a tagged
+   template an interpolation becomes a **bind parameter**, so composing the shared join sent the
+   clause as a string value and failed with `syntax error at or near "$1"`. Every corpus-wide site
+   that composes a fragment must use `.unsafe()`; the statement carries no parameters of its own.
+2. The roster's `currentItems` column had exactly **one** assertion in the whole suite, and it was
+   `currentItems: []` on a never-published stand — green whatever the column returned.
+   `admin-roster-inventory.integration.test.ts` now asserts populated values, so both admin refresh
+   surfaces (the farms page and `/api/admin/stands`) are covered by effect.
+
+One behavior change, deliberate and strictly narrowing: the shared reader orders entries
+`sort_order asc, id asc`. Two sites already did; two ordered by `sort_order` alone, which is not a
+total order because nothing makes `sort_order` unique per revision. The order is now stated once.
 
 1. ~~Enumerate the real current-inventory read sites, by file and line, in this document.~~ Done above.
 2. Introduce one shared current-inventory reader, parameterized by stand and (later) provider. It

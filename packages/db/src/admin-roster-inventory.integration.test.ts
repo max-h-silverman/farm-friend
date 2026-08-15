@@ -1,0 +1,157 @@
+import { randomUUID } from "node:crypto";
+import { resolve } from "node:path";
+import { drizzle } from "drizzle-orm/postgres-js";
+import { migrate } from "drizzle-orm/postgres-js/migrator";
+import postgres from "postgres";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { listStandsForAdministration } from "./admin";
+import type { Db } from "./index";
+import type { Sql } from "./sql";
+
+/*
+  B-074 — the VIGA admin roster actually returns a stand's current inventory.
+
+  THE GAP THIS CLOSES. `listStandsForAdministration` is the ONE read behind both admin refresh
+  surfaces — the farms page and `/api/admin/stands`. Its `currentItems` column had exactly one
+  assertion in the whole suite, and that assertion was `currentItems: []` on a stand that had
+  never published. It would have stayed green if the column returned an empty array for every
+  stand in the corpus, which is precisely the regression B-074's edit to this query could cause:
+  the statement moved from a tagged template to `.unsafe()` so it could compose the shared join,
+  and in a tagged template that interpolation would have become a bind parameter.
+
+  A populated assertion is the only thing that can tell those two outcomes apart.
+*/
+
+const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
+
+describe("B-074 admin roster current inventory (integration)", () => {
+  let admin: Sql | undefined;
+  let sql: Sql | undefined;
+  let databaseName = "";
+  let standId = "";
+  let unpublishedStandId = "";
+
+  const handle = (): Db => {
+    if (!sql) throw new Error("database not initialized");
+    return { sql, orm: undefined as never, close: async () => {} };
+  };
+
+  beforeAll(async () => {
+    const base = process.env.DATABASE_URL;
+    if (!base) {
+      throw new Error("DATABASE_URL is required; a skipped integration run is not green");
+    }
+    databaseName = `ff_roster_${process.pid}_${randomUUID().replaceAll("-", "")}`;
+    admin = postgres(base, { max: 1 });
+    await admin.unsafe(`create database "${databaseName}"`);
+    const url = new URL(base);
+    url.pathname = `/${databaseName}`;
+    const migrationClient = postgres(url.toString(), { max: 1 });
+    await migrate(drizzle(migrationClient), { migrationsFolder: migrationsDir });
+    await migrationClient.end({ timeout: 5 });
+    sql = postgres(url.toString(), { max: 5 });
+
+    const db = sql;
+    const farms = await db`insert into farms (name) values ('Roster Farm') returning id`;
+    const farmId = farms[0]?.id as string;
+
+    const mkStand = async (name: string): Promise<string> => {
+      const rows = await db`
+        insert into sales_locations (
+          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          is_public, farm_bucks_accepted, farm_bucks_eligible,
+          public_address, public_latitude, public_longitude
+        ) values (
+          ${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles',
+          'visitable', 'produce', true, false, false,
+          ${`${name} Road`}, 47.4473, -122.4590
+        ) returning id
+      `;
+      return rows[0]?.id as string;
+    };
+    standId = await mkStand("Published Stand");
+    unpublishedStandId = await mkStand("Silent Stand");
+
+    // A superseded revision whose items must NOT reach the operator's roster, and a current one
+    // whose items must.
+    const old = await db`
+      insert into inventory_revisions (
+        farm_id, sales_location_id, source, published_at, is_current, superseded_at
+      ) values (
+        ${farmId}, ${standId}, 'viga', now() - interval '9 days', false, now() - interval '1 day'
+      ) returning id
+    `;
+    await db`
+      insert into inventory_entries (
+        inventory_revision_id, sales_location_id, item_name, sort_order
+      ) values (${old[0]?.id as string}, ${standId}, 'WITHDRAWN CHARD', 0)
+    `;
+
+    const current = await db`
+      insert into inventory_revisions (
+        farm_id, sales_location_id, source, published_at, is_current
+      ) values (
+        ${farmId}, ${standId}, 'viga', now() - interval '3 hours', true
+      ) returning id
+    `;
+    await db`
+      insert into inventory_entries (
+        inventory_revision_id, sales_location_id, item_name, quantity, unit,
+        price_text, approximation, sort_order
+      ) values
+        (${current[0]?.id as string}, ${standId}, 'Rhubarb', 4, 'bunch', '$5', 'some', 0),
+        (${current[0]?.id as string}, ${standId}, 'Plums', null, null, null, null, 1)
+    `;
+  }, 60_000);
+
+  afterAll(async () => {
+    await sql?.end({ timeout: 5 });
+    if (admin && databaseName) {
+      await admin.unsafe(`drop database if exists "${databaseName}" with (force)`);
+      await admin.end({ timeout: 5 });
+    }
+  });
+
+  it("returns the published stand's current items with every column populated", async () => {
+    const rows = await listStandsForAdministration(handle());
+    const stand = rows.find((row) => row.standId === standId);
+    expect(stand).toBeDefined();
+    // VALUES, not shape. An assertion that only counted items would survive the column
+    // returning the wrong revision's rows.
+    expect(stand?.currentItems).toEqual([
+      {
+        itemName: "Rhubarb",
+        quantity: 4,
+        unit: "bunch",
+        priceText: "$5",
+        approximation: "some",
+      },
+      {
+        itemName: "Plums",
+        quantity: null,
+        unit: null,
+        priceText: null,
+        approximation: null,
+      },
+    ]);
+  });
+
+  it("never shows the operator a superseded revision's items", async () => {
+    const rows = await listStandsForAdministration(handle());
+    const stand = rows.find((row) => row.standId === standId);
+    expect(stand?.currentItems.map((item) => item.itemName)).not.toContain(
+      "WITHDRAWN CHARD",
+    );
+  });
+
+  it("keeps a never-published stand in the roster with no items", async () => {
+    // The LEFT join is what makes this true, and it is the half of the change that a query
+    // silently returning nothing would also satisfy — so it is asserted alongside the populated
+    // case above, never alone.
+    const rows = await listStandsForAdministration(handle());
+    const silent = rows.find((row) => row.standId === unpublishedStandId);
+    expect(silent).toBeDefined();
+    expect(silent?.currentItems).toEqual([]);
+    expect(rows).toHaveLength(2);
+  });
+});

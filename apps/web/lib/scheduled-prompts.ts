@@ -8,7 +8,12 @@ import {
   type PromptCadence,
   type SnapshotEntry,
 } from "@farm-friend/core";
-import { lockKnownSenderState, type Db } from "@farm-friend/db";
+import {
+  lockKnownSenderState,
+  readCurrentInventory,
+  type CurrentInventoryEntry,
+  type Db,
+} from "@farm-friend/db";
 import { scheduledPromptFitsSms } from "@farm-friend/sms";
 import type { JSONValue } from "postgres";
 
@@ -144,19 +149,15 @@ async function schedulePreference(
       : closureInstruction(closureRow);
     if (projectClosure(closure, now).state === "active") return "deferred";
 
-    const revisions = await tx`
-      select id, published_at from inventory_revisions
-      where sales_location_id = ${salesLocationId} and is_current
-    `;
-    const revision = revisions[0] as Record<string, unknown> | undefined;
-    const revisionId = (revision?.id as string | undefined) ?? null;
+    const current = await readCurrentInventory(tx, { salesLocationId });
+    const revisionId = current?.revisionId ?? null;
 
     // A farmer publication after this preference's stored slot resets the cadence. This is
     // checked under the location lock, so no prompt can race a just-published revision.
     const latestActivity = laterDate(
       preference.updated_at as Date,
       (preference.last_due_slot_at as Date | null) ?? undefined,
-      revision?.published_at as Date | undefined,
+      current?.publishedAt,
     );
     const expectedDue = nextPromptDueSlot({
       cadence: preference.cadence as PromptCadence,
@@ -172,19 +173,11 @@ async function schedulePreference(
       return "ineligible";
     }
 
-    const entryRows = revisionId === null
-      ? []
-      : await tx`
-          select id, item_name, quantity, unit, price_text, approximation
-          from inventory_entries
-          where inventory_revision_id = ${revisionId}
-          order by sort_order asc, id asc
-        `;
-    const entries = entryRows.map(snapshotEntry);
+    const entries = (current?.entries ?? []).map(snapshotEntry);
     const fullBody = renderScheduledInventoryPrompt({
       locationName: location.name as string,
       entries,
-      publishedAt: (revision?.published_at as Date | undefined) ?? null,
+      publishedAt: current?.publishedAt ?? null,
       now,
     });
     const offersSame = revisionId !== null && scheduledPromptFitsSms(fullBody);
@@ -255,16 +248,14 @@ function laterDate(...values: (Date | undefined)[]): Date {
   )));
 }
 
-function snapshotEntry(row: Record<string, unknown>): SnapshotEntry {
+function snapshotEntry(entry: CurrentInventoryEntry): SnapshotEntry {
   return {
-    entryId: row.id as string,
-    itemName: row.item_name as string,
-    ...(row.quantity === null ? {} : { quantity: row.quantity as number }),
-    ...(row.unit === null ? {} : { unit: row.unit as string }),
-    ...(row.price_text === null ? {} : { priceText: row.price_text as string }),
-    ...(row.approximation === null
-      ? {}
-      : { approximation: row.approximation as SnapshotEntry["approximation"] }),
+    entryId: entry.entryId,
+    itemName: entry.itemName,
+    ...(entry.quantity === null ? {} : { quantity: entry.quantity }),
+    ...(entry.unit === null ? {} : { unit: entry.unit }),
+    ...(entry.priceText === null ? {} : { priceText: entry.priceText }),
+    ...(entry.approximation === null ? {} : { approximation: entry.approximation }),
   };
 }
 

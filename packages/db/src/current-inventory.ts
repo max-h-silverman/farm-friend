@@ -1,6 +1,6 @@
 import type { OpenNowAnswer, OpenState } from "@farm-friend/core";
 import type { Db } from "./index";
-import type { Sql } from "./sql";
+import type { Sql, Tx } from "./sql";
 
 /*
   B-074 / F-114 Phase A — the ONE place that answers "what is currently in stock here".
@@ -120,10 +120,16 @@ export interface CurrentRevisionRef {
   publishedAt: Date;
 }
 
-/** Anything that can run a query: a handle, or a transaction inside one. */
-type Queryable = Sql;
+/**
+ * Anything that can run this module's queries: the handle, its raw client, or a transaction.
+ *
+ * A transaction is accepted directly rather than through a cast at each call site, because
+ * sites 10–12 read inside a publishing transaction and their lock is only meaningful there.
+ * Passing `Db` reads outside any transaction, which is what the read-only surfaces want.
+ */
+export type InventoryReader = Db | Sql | Tx;
 
-const queryable = (db: Db | Sql): Queryable =>
+const queryable = (db: InventoryReader): Sql =>
   typeof db === "function" ? (db as Sql) : (db as Db).sql;
 
 /**
@@ -135,7 +141,7 @@ const queryable = (db: Db | Sql): Queryable =>
  * other, so neither is offered.
  */
 export async function readCurrentRevisionRef(
-  db: Db | Sql,
+  db: InventoryReader,
   input: { salesLocationId: string; lock: boolean },
 ): Promise<CurrentRevisionRef | null> {
   const sql = queryable(db);
@@ -166,7 +172,7 @@ export async function readCurrentRevisionRef(
  * two did not; the total order is now stated once and every site inherits it.
  */
 export async function readCurrentInventory(
-  db: Db | Sql,
+  db: InventoryReader,
   input: { salesLocationId: string },
 ): Promise<CurrentInventory | null> {
   const sql = queryable(db);

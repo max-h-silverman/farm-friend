@@ -8,6 +8,7 @@ import {
 } from "@farm-friend/core";
 import {
   confirmInventoryPublication,
+  readCurrentInventory,
   resolveFarmerLink,
   saveSalesLocationParticipants,
   type Db,
@@ -122,27 +123,21 @@ export async function readCurrentStandEntries(
     return payload.entries as StandEntryView[];
   }
 
-  const rows = await db.sql`
-    select entry.id, entry.item_name, entry.quantity, entry.unit,
-      entry.price_text, entry.approximation
-    from inventory_entries entry
-    join inventory_revisions revision on revision.id = entry.inventory_revision_id
-    where revision.sales_location_id = ${salesLocationId} and revision.is_current
-    order by entry.sort_order asc
-  `;
-  return rows.map((row) => {
-    const record = row as Record<string, unknown>;
-    return {
-      entryId: record.id as string,
-      itemName: record.item_name as string,
-      ...(record.quantity !== null ? { quantity: Number(record.quantity) } : {}),
-      ...(record.unit !== null ? { unit: record.unit as string } : {}),
-      ...(record.price_text !== null ? { priceText: record.price_text as string } : {}),
-      ...(record.approximation !== null
-        ? { approximation: record.approximation as "some" | "limited" | "plentiful" }
-        : {}),
-    };
-  });
+  const current = await readCurrentInventory(db, { salesLocationId });
+  // Key ORDER is preserved deliberately. This value is serialized to JSON by the stand API's
+  // post-publish refresh, and `JSON.stringify` emits keys in insertion order — so reordering
+  // these would change bytes on the wire for a refactor that is required to change none.
+  //
+  // Spread conditionally rather than assigning `undefined`, for the reason the original did:
+  // the editor distinguishes an absent field from a null one.
+  return (current?.entries ?? []).map((entry) => ({
+    entryId: entry.entryId,
+    itemName: entry.itemName,
+    ...(entry.quantity !== null ? { quantity: entry.quantity } : {}),
+    ...(entry.unit !== null ? { unit: entry.unit } : {}),
+    ...(entry.priceText !== null ? { priceText: entry.priceText } : {}),
+    ...(entry.approximation !== null ? { approximation: entry.approximation } : {}),
+  }));
 }
 
 export type FarmerStandProposal =

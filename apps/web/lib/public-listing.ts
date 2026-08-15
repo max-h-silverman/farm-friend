@@ -8,7 +8,12 @@ import {
   type Clock,
   type StandItemPrice,
 } from "@farm-friend/core";
-import { visibleFarms, type Db } from "@farm-friend/db";
+import {
+  currentEntriesJoin,
+  currentInventoryJoin,
+  visibleFarms,
+  type Db,
+} from "@farm-friend/db";
 // A TYPE-ONLY import of the browser view model's input shape. It adds no runtime edge (and
 // `map-view.ts` is already inside the public read graph, model-free and asserted so), and it
 // makes the wire format a compiler-checked contract between the server that writes it and the
@@ -466,11 +471,12 @@ export async function listPublicStands(
       e.approximation as approximation
     from sales_locations l
     join farms f on f.id = l.owner_farm_id
-    left join inventory_revisions r
-      on r.sales_location_id = l.id and r.is_current
+    -- B-074 — the currency rule comes from the shared reader. LEFT, and that is load-bearing
+    -- (B-013): a stand with no current revision stays on the map with no recency and no items.
+    ${currentInventoryJoin({ locationAlias: "l", revisionAlias: "r", kind: "left" })}
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
-    left join inventory_entries e on e.inventory_revision_id = r.id
+    ${currentEntriesJoin({ revisionAlias: "r", entryAlias: "e", kind: "left" })}
     -- The entry's stand item, by the same normalized key the unique index enforces. This is
     -- the link, and it is a join rather than a foreign key because inventory_entries refuses
     -- every update — a reference column could never have been backfilled onto published rows

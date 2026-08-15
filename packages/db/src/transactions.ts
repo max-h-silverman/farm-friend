@@ -13,6 +13,7 @@ import {
   projectClosure,
   validatePublicStrings,
 } from "@farm-friend/core";
+import { readCurrentRevisionRef } from "./current-inventory";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 
@@ -742,11 +743,11 @@ export async function openOrReviseProposal(
       baseRevisionId = input.baseRevisionId ?? null;
       isFirstPublication = input.baseIsFirstPublication;
     } else if (input.entries !== undefined) {
-      const current = await tx`
-        select id from inventory_revisions
-        where sales_location_id = ${input.salesLocationId} and is_current
-      `;
-      baseRevisionId = (current[0]?.id as string | undefined) ?? null;
+      const current = await readCurrentRevisionRef(tx, {
+        salesLocationId: input.salesLocationId,
+        lock: false,
+      });
+      baseRevisionId = current?.revisionId ?? null;
       isFirstPublication = baseRevisionId === null;
     }
 
@@ -952,11 +953,11 @@ export async function confirmInventoryPublication(
       return { status: "no_open_proposal" };
     }
 
-    const currentRevision = await tx`
-      select id from inventory_revisions
-      where sales_location_id = ${salesLocationId} and is_current
-    `;
-    const currentRevisionId = (currentRevision[0]?.id as string | undefined) ?? null;
+    const currentRevision = await readCurrentRevisionRef(tx, {
+      salesLocationId,
+      lock: false,
+    });
+    const currentRevisionId = currentRevision?.revisionId ?? null;
     const currentClosure = await tx`
       select id, result, closure_kind, starts_on, closed_through from closure_revisions
       where sales_location_id = ${salesLocationId} and is_current
@@ -1380,10 +1381,10 @@ async function lockScheduledDispatchBasis(
     return { kind: "scheduled", valid: false, proposalId };
   }
 
-  const currentInventory = await tx`
-    select id from inventory_revisions
-    where sales_location_id = ${salesLocationId} and is_current
-  `;
+  const currentInventory = await readCurrentRevisionRef(tx, {
+    salesLocationId,
+    lock: false,
+  });
   const currentClosure = await tx`
     select id, result, closure_kind, starts_on, closed_through
     from closure_revisions
@@ -1406,7 +1407,7 @@ async function lockScheduledDispatchBasis(
   const proposalRow = proposal[0] as Record<string, unknown>;
   const authorizationRow = authorization[0] as Record<string, unknown>;
   const conversationOccurredAt = sender[0]?.conversation_occurred_at as Date | null;
-  const currentInventoryId = (currentInventory[0]?.id as string | undefined) ?? null;
+  const currentInventoryId = currentInventory?.revisionId ?? null;
   const currentClosureId = (closureRow?.id as string | undefined) ?? null;
 
   const valid =

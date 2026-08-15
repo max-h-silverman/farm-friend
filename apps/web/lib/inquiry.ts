@@ -26,7 +26,13 @@ import type {
   SearchStandRequest,
   StandLookupRequest,
 } from "@farm-friend/ai";
-import { savePendingResultList, visibleFarms, type Db } from "@farm-friend/db";
+import {
+  currentEntriesJoin,
+  currentInventoryJoin,
+  savePendingResultList,
+  visibleFarms,
+  type Db,
+} from "@farm-friend/db";
 import { readPublicClosure } from "./closure-projection";
 import { listPublicStands, type PublicStand } from "./public-listing";
 
@@ -274,9 +280,11 @@ async function retrieveCurrentListings(
       c.closed_through::text as closure_closed_through
     from sales_locations l
     join farms f on f.id = l.owner_farm_id
-    join inventory_revisions r
-      on r.sales_location_id = l.id and r.is_current
-    join inventory_entries e on e.inventory_revision_id = r.id
+    -- B-074 — the currency rule comes from the shared reader, not from this query. It is an
+    -- INNER join here deliberately: a stand with no confirmed revision reaches a customer
+    -- through the offerings half below, never as an empty confirmed listing.
+    ${currentInventoryJoin({ locationAlias: "l", revisionAlias: "r", kind: "inner" })}
+    ${currentEntriesJoin({ revisionAlias: "r", entryAlias: "e", kind: "inner" })}
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
     -- F-071 — a stand VIGA retired leaves SMS retrieval too, not just the map. Both surfaces

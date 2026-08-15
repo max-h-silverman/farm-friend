@@ -3,6 +3,7 @@ import {
   type Clock,
   type PromptCadence,
 } from "@farm-friend/core";
+import { readCurrentRevisionRef } from "./current-inventory";
 import type { Db } from "./index";
 import { lockKnownSenderState } from "./farmer-targeting";
 
@@ -67,14 +68,14 @@ export async function setInventoryPromptPreference(
       where sales_location_id = ${input.salesLocationId}
       for update
     `;
-    const currentRevision = await tx`
-      select published_at from inventory_revisions
-      where sales_location_id = ${input.salesLocationId} and is_current
-    `;
+    const currentRevision = await readCurrentRevisionRef(tx, {
+      salesLocationId: input.salesLocationId,
+      lock: false,
+    });
     const previous = existing[0] as Record<string, unknown> | undefined;
     const baseline = laterDate(
       now,
-      currentRevision[0]?.published_at as Date | undefined,
+      currentRevision?.publishedAt,
       previous?.last_due_slot_at as Date | null | undefined,
     );
     const nextDueAt = nextPromptDueSlot({
