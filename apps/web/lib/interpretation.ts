@@ -14,7 +14,11 @@ import {
   type SnapshotEntry,
   type StructuredInventoryEdit,
 } from "@farm-friend/core";
-import { openOrReviseProposal, type Db } from "@farm-friend/db";
+import {
+  openOrReviseProposal,
+  readCurrentInventory,
+  type Db,
+} from "@farm-friend/db";
 
 // Farmer inventory text → the one pending proposal.
 //
@@ -130,44 +134,21 @@ async function compositionState(
   `;
   const pendingRow = pending[0] as Record<string, unknown> | undefined;
 
-  const revisions = await db.sql`
-    select id from inventory_revisions
-    where sales_location_id = ${salesLocationId} and is_current
-  `;
-  const revisionId = revisions[0]?.id as string | undefined;
+  const current = await readCurrentInventory(db, { salesLocationId });
 
-  const entries = revisionId
-    ? await db.sql`
-        select id, item_name, quantity, unit, price_text, approximation
-        from inventory_entries
-        where inventory_revision_id = ${revisionId}
-        order by sort_order asc
-      `
-    : [];
-
-  const publishedInventory: InventoryCompositionBase = revisionId
+  const publishedInventory: InventoryCompositionBase = current
     ? {
-        revisionId,
-        entries: entries.map((row) => {
-      const record = row as Record<string, unknown>;
-      return {
-        entryId: record.id as string,
-        itemName: record.item_name as string,
-        ...(record.quantity !== null ? { quantity: record.quantity as number } : {}),
-        ...(record.unit !== null ? { unit: record.unit as string } : {}),
-        ...(record.price_text !== null
-          ? { priceText: record.price_text as string }
-          : {}),
-        ...(record.approximation !== null
-          ? {
-              approximation: record.approximation as
-                | "some"
-                | "limited"
-                | "plentiful",
-            }
-          : {}),
-      };
-        }),
+        revisionId: current.revisionId,
+        entries: current.entries.map((entry) => ({
+          entryId: entry.entryId,
+          itemName: entry.itemName,
+          ...(entry.quantity !== null ? { quantity: entry.quantity } : {}),
+          ...(entry.unit !== null ? { unit: entry.unit } : {}),
+          ...(entry.priceText !== null ? { priceText: entry.priceText } : {}),
+          ...(entry.approximation !== null
+            ? { approximation: entry.approximation }
+            : {}),
+        })),
       }
     : null;
 

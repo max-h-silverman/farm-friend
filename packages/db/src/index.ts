@@ -6,6 +6,7 @@ import type { Sql } from "./sql";
 export * from "./schema";
 export { schema };
 
+export * from "./current-inventory";
 export * from "./transactions";
 export * from "./admin";
 export * from "./farmer";

@@ -5,6 +5,7 @@ import {
   renderStandItemPrice,
   type StandItemPrice,
 } from "@farm-friend/core";
+import { currentInventoryJoin } from "./current-inventory";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 
@@ -843,7 +844,12 @@ export interface AdminStandRow {
 
 /** Every stand and the operator-relevant facts that describe its current state. */
 export async function listStandsForAdministration(db: Db): Promise<AdminStandRow[]> {
-  const rows = await driver(db)`
+  // `.unsafe` rather than a tagged template, because this query now composes the shared
+  // current-inventory join as SQL TEXT. In a tagged template an interpolation becomes a bind
+  // PARAMETER, which would send the join clause as a string value and fail at parse — the same
+  // reason `listClaimableFarms` composes `visibleFarms` this way. The statement takes no
+  // parameters of its own, so nothing here becomes injectable by the change.
+  const rows = await driver(db).unsafe(`
     select
       location.id as stand_id,
       location.name as stand_name,
@@ -937,8 +943,14 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     join farms farm on farm.id = location.owner_farm_id
     left join farm_approvals approval
       on approval.farm_id = farm.id and approval.revoked_at is null
-    left join inventory_revisions inventory
-      on inventory.sales_location_id = location.id and inventory.is_current
+    -- B-074 — the currency rule comes from the shared reader. LEFT, so a stand with no
+    -- confirmation is still in the operator's roster; the entries are aggregated in the
+    -- correlated subquery above rather than joined, so only the revision join is shared.
+    ${currentInventoryJoin({
+      locationAlias: "location",
+      revisionAlias: "inventory",
+      kind: "left",
+    })}
     left join closure_revisions closure
       on closure.sales_location_id = location.id and closure.is_current
     -- A retired stand is still LISTED here, deliberately: this queue is where an operator
@@ -947,7 +959,7 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     -- working list is not interrupted by stands nobody is serving.
     order by (location.retired_at is not null or farm.retired_at is not null),
       location.name, location.id
-  `;
+  `);
 
   return rows.map((row) => ({
     standId: row.stand_id as string,

@@ -1,6 +1,6 @@
 import type { StockOutModel } from "@farm-friend/ai";
 import { renderStockOutAlert, type Clock } from "@farm-friend/core";
-import { queueOutbox, type Db } from "@farm-friend/db";
+import { queueOutbox, readCurrentInventory, type Db } from "@farm-friend/db";
 
 // Customer stock-out report → private farmer alert.
 //
@@ -92,13 +92,7 @@ async function listedItems(
   db: Db,
   salesLocationId: string,
 ): Promise<MatchCandidate[]> {
-  const entries = await db.sql`
-    select e.id, e.item_name
-    from inventory_entries e
-    join inventory_revisions r on r.id = e.inventory_revision_id
-    where r.sales_location_id = ${salesLocationId} and r.is_current
-    order by e.sort_order asc
-  `;
+  const current = await readCurrentInventory(db, { salesLocationId });
   const offerings = await db.sql`
     select id, display_name
     from stand_items
@@ -106,14 +100,11 @@ async function listedItems(
     order by sort_order asc, display_name asc
   `;
 
-  const candidates: MatchCandidate[] = entries.map((raw) => {
-    const row = raw as Record<string, unknown>;
-    return {
-      entryId: row.id as string,
-      itemName: row.item_name as string,
-      kind: "inventory-entry" as const,
-    };
-  });
+  const candidates: MatchCandidate[] = (current?.entries ?? []).map((entry) => ({
+    entryId: entry.entryId,
+    itemName: entry.itemName,
+    kind: "inventory-entry" as const,
+  }));
 
   const normalize = (name: string) => name.trim().toLowerCase();
   const published = new Set(candidates.map((item) => normalize(item.itemName)));
