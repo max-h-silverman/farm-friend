@@ -122,6 +122,31 @@ relationships on a guess or split one bakery into two identities. Both are fabri
 `sales_location_participants` rows migrate as **retained history and a VIGA work queue**. A person
 resolves each name into a seller and an invitation; code never infers one.
 
+#### There is no second permission system, and no "grant"
+
+**Decided by Max, 2026-08-15.** A phone authorized for a seller is the whole permission
+mechanism, and it already exists as `farmer_authorizations`. **"Stand owner" is not a role** — it
+is what being authorized for the seller a stand points at gets you. Stand authority is *derived*,
+never stored: the existing readers resolve the stand's seller and look up an authorization for it.
+
+Two things follow, and both **reduce** what C.1 builds:
+
+- **C.1 does not build access grants.** An earlier framing of C.1 said "scoped access grants",
+  which imported a permission-system vocabulary this product does not have. The permission that
+  follows an accepted invitation is an ordinary authorization for the seller who accepted. C.1 is
+  invitation, acceptance, and approval — nothing else.
+- **A stand with no seller of its own is VIGA's to maintain**, through the admin tools, exactly as
+  §facts and authority already says locked-out and departing owners are handled. Measured
+  2026-08-15: **no phone has ever been authorized for Morgan Hill**, and its single inventory
+  revision has `source = 'viga'`. There is no caretaker role to model, because there is no
+  caretaker — an earlier draft of this section invented one. Morgan Hill works today because VIGA
+  edits it directly, and that is unchanged by the self-pointer being NULL.
+
+A seller and a phone stay separate records. A seller is a **brand** a customer sees credited and
+searches for; a phone is a **person**. Measured 2026-08-15: 14 live authorizations across 13
+phones, and **one phone already acts for two sellers** — so the many-to-many is current fact, and
+collapsing the two would break a person who exists today.
+
 #### What this does not change
 
 The hosting lifecycle itself — invitation, acceptance, approval source, scoped grants, and the
@@ -550,7 +575,8 @@ populated-schema test asserts exact row effects and every added constraint is sa
 
 #### Phase C — behavior
 
-1. Hosted-seller invitation, acceptance, approval provenance, and scoped access grants.
+1. Hosted-seller invitation, acceptance, and approval provenance. **No access grants** — see
+   §there is no second permission system.
 2. Per-provider inventory writes; stand-owner observation of a hosted seller's stock; owner-only stand
    closure.
 3. Per-provider SMS targeting, confirmation binding, and stock-out disambiguation.
