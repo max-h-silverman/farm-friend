@@ -122,6 +122,40 @@ relationships on a guess or split one bakery into two identities. Both are fabri
 `sales_location_participants` rows migrate as **retained history and a VIGA work queue**. A person
 resolves each name into a seller and an invitation; code never infers one.
 
+#### What VIGA actually asked for — the Venison Valley case
+
+VIGA's own words, relayed by Max 2026-08-15:
+
+> *I also have a request to be able to have two numbers update one farm stand OR have two farms
+> point to one address? For example Venison Valley carries Gracie's Greens. We want Zoe to be able
+> to give her inventory without telling Kelsey. But we also don't want her inventory update to
+> override Kelsey's… There are a couple situations like that where farm stands host other growers.*
+
+**Both proposals in that message are workarounds for a model that could not express hosting**, and
+the built answer is the third thing neither names: one stand, two sellers, separate inventory,
+separate phones. "Two numbers on one stand" loses whose goods are whose; "two farms at one
+address" splits the place in two.
+
+Measured 2026-08-15, the case is exactly as described: **Venison Valley** is a seller with one
+stand and one live authorization (Kelsey). **Gracie's Greens exists only as a display-only
+participant name** — no seller record, no phone, so Zoe can text nothing today. That single row is
+the whole of C.1: turn the name into a seller with its own phone and its own inventory at Kelsey's
+stand.
+
+Two requirements fall out, and both are already satisfied by the records:
+
+- **"Without overriding Kelsey's"** — `stand_providers` plus one-current-per-provider. Zoe's
+  update cannot touch Kelsey's because they are different rows. Built in Phase B, kept by C.0.
+- **"Without telling Kelsey"** — Zoe is authorized in her own right and texts her own updates.
+  Nothing routes through the host, and the host is not notified.
+
+**Therefore a stand-level authorization does NOT confer inventory rights over other sellers at
+that stand.** An earlier framing asked whether it should; VIGA's requirement answers no, because
+that is precisely the "telling Kelsey" coupling they want removed. Stand facts and a seller's
+goods are separate authorities. (§facts and authority separately permits a stand owner to *observe*
+a hosted seller's stock — marking something sold out is a physical observation, not a claim about
+someone else's commerce — and that is unchanged here.)
+
 #### There is no second permission system, and no "grant"
 
 **Decided by Max, 2026-08-15.** A phone authorized for a seller is the whole permission
@@ -133,14 +167,28 @@ Two things follow, and both **reduce** what C.1 builds:
 
 - **C.1 does not build access grants.** An earlier framing of C.1 said "scoped access grants",
   which imported a permission-system vocabulary this product does not have. The permission that
-  follows an accepted invitation is an ordinary authorization for the seller who accepted. C.1 is
-  invitation, acceptance, and approval — nothing else.
-- **A stand with no seller of its own is VIGA's to maintain**, through the admin tools, exactly as
-  §facts and authority already says locked-out and departing owners are handled. Measured
-  2026-08-15: **no phone has ever been authorized for Morgan Hill**, and its single inventory
-  revision has `source = 'viga'`. There is no caretaker role to model, because there is no
-  caretaker — an earlier draft of this section invented one. Morgan Hill works today because VIGA
-  edits it directly, and that is unchanged by the self-pointer being NULL.
+  follows an accepted invitation is an ordinary authorization for the seller who accepted — the
+  same record a farmer already gets. C.1 is invitation, acceptance, and approval; the authorization
+  is the existing mechanism, gaining a stand arm in C.0 for stands with no seller of their own.
+- **An authorization names what it is for: a seller, or a stand.** A stand with no seller of its
+  own still has people who manage it — its hours, closure, description, and who sells there — and
+  they cannot be reached through a seller authorization because there is no seller to name. So the
+  authorization record carries either a seller or a stand, one record with two arms, the way
+  `stand_providers` names a seller or nothing.
+
+  **This corrects a reading error worth recording.** Measured 2026-08-15, no phone has ever been
+  authorized for Morgan Hill and its one inventory revision has `source = 'viga'` — and an earlier
+  draft of this section concluded from that that no such role exists and VIGA simply maintains the
+  stand by hand forever. **That read a transitional state as a permanent one**: VIGA is mid-migration
+  from the old system, and Morgan Hill *will* have one or more people managing it (max, 2026-08-15).
+  It is the same mistake §customer behavior already warns against with the 18 stands publishing no
+  confirmed inventory — a farmer-migration artifact must never be designed around.
+
+  The split is already in the data: **two** tables carry stand-level facts written by an
+  authorization (`closure_revisions`, `sales_location_participants`), and **seven** carry
+  seller-level ones. The two pair against the stand arm; the seven against the seller arm; no
+  existing key loses its guarantee. A seller-authorized phone at its own stand still reaches that
+  stand's facts through the self-pointer, exactly as today.
 
 A seller and a phone stay separate records. A seller is a **brand** a customer sees credited and
 searches for; a phone is a **person**. Measured 2026-08-15: 14 live authorizations across 13
