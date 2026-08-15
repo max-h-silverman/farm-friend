@@ -145,7 +145,7 @@ describe("migration 0025 seller_email_verifications (integration)", () => {
   it("REFUSES a second LIVE code for the same farm", async () => {
     await insert();
     await expect(insert({ code_hash: "c".repeat(64) })).rejects.toThrow(
-      /seller_email_verifications_one_live_per_farm/,
+      /seller_email_verifications_one_live_per_seller/,
     );
     await sql()`delete from seller_email_verifications`;
   });

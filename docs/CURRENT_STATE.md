@@ -16,18 +16,16 @@
   write public claims, authorize publication, resolve open-now state, or choose evidence.
 - **Every public and SMS link is on `farmfriend.vigavashon.org`** (F-113), and `vigavashon.org` DNS
   authenticates VIGA's mail (SPF includes Google; `_dmarc` at `p=none`).
-- **A stand now has providers** (F-114 Phase B, branch merged to `main`, **not deployed**).
-  `stand_providers` holds one row per seller-at-stand with a nullable seller reference — NULL is the
-  stand's **native brand slot**, which every existing stand got exactly one of; `sellers` is the
-  reusable brand identity beside it. Revisions, usual items, proposals, farmer links, prompt
+- **A stand has providers** (F-114 Phase B, merged to `main`, **not deployed**). `stand_providers`
+  holds one row per seller-at-stand; revisions, usual items, proposals, farmer links, prompt
   preferences, scheduled prompts, and SMS targeting all carry a provider.
   `inventory_revisions_one_current_per_location` became **one-current-per-provider** and
-  `stand_items_one_per_location_name` became **one-per-provider-per-name**, both in the migration
-  that added the column. **Output is unchanged** — every write goes to the native slot, which is the
-  stand behaving as it always did. One open SMS confirmation is now per person **per
-  provider-at-stand**, fixing a defect that predates this work. `provider-invalidation.ts` is the
-  pause/revoke/close mechanism that did not exist. **Hosted-seller behavior — invitation,
-  per-provider publication, the seller list, item-first cards — is Phase C and is NOT built.**
+  `stand_items_one_per_location_name` became **one-per-provider-per-name**. One open SMS
+  confirmation is now per person **per provider-at-stand**, fixing a defect that predates this work.
+  `provider-invalidation.ts` is the pause/revoke/close mechanism that did not exist.
+  **Phase B's native brand slot no longer exists** — C.0 replaced it, see below.
+  **Hosted-seller behavior — invitation, per-provider publication, the seller list, item-first
+  cards — is Phase C.1 and is NOT built.**
 - **F-114 Phase C.0 re-roots identity on sellers** (branch `f-114-phase-c0-seller-root`, **not
   merged, not deployed, INCOMPLETE**). Max corrected the model before C.1 was written: a stand has
   a name, metadata, and nested sellers. `farms` is renamed to `sellers` (ids preserved, so every
@@ -38,13 +36,17 @@
   table merged into the renamed record and its `revoked_at` pair went with it — `retired_at`
   already meant that. The contract section that governs this is §the stand-and-sellers correction
   in `docs/plans/farmer-behavior-architecture-plan.md`; it overrides four reviewed decisions.
-- **The C.0 branch does not run yet.** The migration and `schema.ts` are done and proved; **63
-  files still reference the old vocabulary in raw SQL strings** (`owner_farm_id`, `farm_id`,
-  `farms`, `farm_emails`, `farm_approvals`, `farm_links`, `farm_email_verifications`) plus the
-  `/admin/farms` route paths. **Typecheck passes and is not evidence** — drizzle infers column
-  types, so renames propagate silently while raw SQL does not. Two unit tests fail
-  (`migration-metadata.test.ts`): the drizzle snapshot still describes the pre-rename schema and
-  must be regenerated. Integration suites have not been run since the rename.
+- **C.0 is converted and nearly green.** The codebase moved to the seller vocabulary across ~160
+  files; the admin route directories are `/admin/sellers`. Deliberately NOT renamed: `farm_bucks_*`
+  (a VIGA program), `farm_approval_id`, every `farmer_*` table (those name the PERSON acting), the
+  operator-facing **"Farms" tab label**, and `GENERIC_WORDS` in the corpus matcher — where "farms"
+  is an English word farmers type into stand names.
+- **Integration is 979/1046 across 67 of 71 files** (2026-08-15). Four files still fail:
+  `stand-providers-constraints`, `multi-seller-migration`, and `stand-items-backfill` assert Phase
+  B's **native brand slot**, a concept C.0 removed, so they need rewriting rather than repair;
+  `apps/web/lib/scheduled-prompts.integration.test.ts` fails its whole fixture on an undefined
+  `own_seller_id` read whose cause was not found — the column returns a value when queried
+  directly, so the next session should measure inside the running fixture rather than infer.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**.
   **`0042` is NOT applied to production, and its content changed**: the merged
   `0042_multi_seller_stand_providers` was **replaced in place** by `0042_seller_root`, because no
@@ -58,8 +60,9 @@
 
 ## Verification
 
-- **2,063 unit tests pass; 7 corpus-only tests skip. 1,037 integration tests across 70 files pass**
-  against disposable local Postgres databases (2026-08-15).
+- **2,063 unit tests pass; 7 corpus-only tests skip.** Integration is **979/1046 across 67 of 71
+  files** against disposable local Postgres databases (2026-08-15) — see the C.0 entry above for
+  the four that remain.
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19. The
   build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;

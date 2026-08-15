@@ -11,7 +11,81 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-15 (latest) — Records and constraints for multi-seller stands (F-114 Phase B)
+## 2026-08-15 (latest) — The seller root (F-114 Phase C.0)
+
+Started as C.1 (hosted-seller invitation) and became something else within the first hour. Asked how
+a hosted bakery's phone gets authorized when `farmer_authorizations` requires a farm, Max answered
+that farmers *are* sellers — bakers, flower growers, popsicle makers — and that "farmer" was never
+the root. That is a re-rooting of the product's core identity record, so C.1 was set aside and this
+became **Phase C.0**, a hard gate before it.
+
+**The model, arrived at by correction rather than design.** Four exchanges each killed something I
+had just built or proposed:
+
+1. I asked whether to split `sellers` from `farms` or rename. **The corpus answered**: all 38 stands
+   have an owner farm whose name is byte-identical to the stand's, and no farm owns two. The split
+   carries no information — it exists only because `owner_farm_id` was `NOT NULL`.
+2. So I proposed merging stand and brand into one record. **Max rejected it**: Morgan Hill Community
+   Stand *is* a brand — a venue with real identity that sells nothing itself. Merging would have
+   destroyed that. Two records, and the correction records this as a rejected draft so the reasoning
+   does not look tempting again.
+3. I concluded from "no phone has ever been authorized for Morgan Hill" that no stand-manager role
+   exists and VIGA maintains it by hand forever. **That read a transitional state as permanent** —
+   the migration is unfinished, and Morgan Hill *will* have managers. Same error §customer behavior
+   already warns about with the 18 stands publishing no confirmed inventory.
+4. On Tian Tian's shared payment box I moved payment to the stand. **Wrong**: payment acceptance is
+   the seller's own fact — their money, their account — and even the box may not be shared. But a
+   shared box *is* the common arrangement, so it is the default rather than an exception to record.
+
+**What the structure became.** A stand has a name, metadata, and nested sellers. `farms` is renamed
+to `sellers` (renamed, never split — every id survives, so all 16 keys onto it stay valid);
+`owner_farm_id` becomes `own_seller_id`, the **self-pointer** naming which nested seller IS the
+stand, NULL for a venue. The **native brand slot is gone**: `seller_id` is `NOT NULL`, because NULL
+only ever meant "the stand itself" while `farms` was the root. Public suppression follows the
+pointer, never a name match — which is what keeps `Hill Farm` hosted at `Hill Farm Stand` credited
+and a renamed farm suppressed, the two failures §customer behavior named when it rejected matching.
+
+**Migration `0042` was replaced, not migrated past.** No database anywhere had applied it —
+production ledger 42 rows (`0000`–`0041`), every local database at most 40. Migrating onto the
+native-slot model and straight off it would put 38 live stands through two reshapes to reach a state
+they can reach in one.
+
+**Five defects the populated-schema test caught that an empty one would not have**: a composite FK
+created before its unique target; six keys rooted on the column being dropped; two map-projection
+triggers depending on it; 25 constraints and 13 indexes left asserting `farm_*` names on renamed
+`seller_*` tables (renaming a table renames neither); and eight backfill joins still matching the
+removed native slot.
+
+**Typecheck passed while 63 files were broken.** Drizzle infers column types from `schema.ts`, so
+identifier renames propagate invisibly — but raw SQL in tagged templates is just text. A fully green
+`npm run typecheck` across three workspaces meant nothing. The sweep that followed also exposed
+defects the rename did not cause: `readNativeProviderId` still looked up `seller_id is null`;
+**five production sites selected `own_seller_id` and read `.owner_seller_id`**, so every
+authorization lookup silently failed; and two history-immutability triggers still named the dropped
+column.
+
+**One trigger removed, a different one added.** Phase B created a native provider for every stand.
+C.0 cannot: a stand may legitimately have no seller of its own, and the trigger would have to invent
+one. The replacement fires only when a stand *names* its own seller, so a venue gets nothing
+fabricated — proved by inserting a venue and asserting zero providers.
+
+**Verified.** 2,063 unit tests, typecheck, lint, and scripted evals (11/11 critical, 4/4 advisory,
+19/19 adversarial) all pass. Integration is **979/1046 across 67 of 71 files**, up from 423 when the
+sweep began. The migration applies to a populated pre-`0042` schema, is idempotent, and every added
+constraint is sabotage-proved: both projection guards fire in both directions, wrong-seller pairings
+are refused, a null seller is refused, an incoherent lifecycle is refused, a pending invitation is
+admitted. No live eval run is owed — C.0 changed no seam projection, schema, or output contract.
+
+**Owed.** Four integration files. Three (`stand-providers-constraints`, `multi-seller-migration`,
+`stand-items-backfill`) assert the native brand slot and need rewriting rather than repair.
+`apps/web/lib/scheduled-prompts.integration.test.ts` fails its whole fixture on an undefined
+`own_seller_id` read whose cause I did not find — the column returns a value when queried directly,
+so the next session should measure inside the running fixture rather than infer from source, per the
+standing rule about what to do when rendering contradicts source that reads correctly.
+
+**Not deployed, and `0042` is still not applied to production.** Both remain Max's call.
+
+## 2026-08-15 — Records and constraints for multi-seller stands (F-114 Phase B)
 
 Phase B of the multi-seller refactor: the record layer. `sellers` and `stand_providers` now exist,
 and a provider dimension runs through inventory revisions, usual items, proposals, farmer links,
