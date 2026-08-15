@@ -17,6 +17,13 @@ govern address, hours, closure, and visibility; owner authority is not seller pa
 location carries one reviewed timezone used for local scheduled work; launch permits only
 `America/Los_Angeles`.
 
+**Publication authority no longer routes through `owner_farm_id`** (F-114 Phase B). Six of the eight
+composite keys that did now route through `(sales_locations.id, stand_providers.id)` instead, because
+the publisher may be a hosted seller the owner does not control. Two deliberately did NOT move:
+`closure_revisions`, because stand closure is owner-only and overrides every provider — a fact about
+the place — and `sales_location_participants`, which is retired as display-only history and is never
+linked to a seller identity.
+
 **A location is complete or absent, and any farm may have one** (F-088, narrowing F-038).
 `sales_locations_coherent_visitability` requires an address *and* both coordinates together — half a
 pair puts a pin in the ocean, and a point with no address cannot be checked by anyone. Only the

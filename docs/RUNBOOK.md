@@ -197,6 +197,18 @@ Four generator traps, each of which has bitten:
   runner prints "migrations applied". Fix the `when` to follow the previous entry.
 - **It can emit a composite FK before the unique constraint that FK requires**, which fails on a clean
   database. Read the generated SQL top to bottom.
+- **It emits `ADD COLUMN … NOT NULL` with no default and no backfill — which passes on an empty
+  database and fails on a real one.** Against any table that already holds a row that is an instant
+  23502, and the integration suite (which migrates from empty) will not catch it. A migration adding
+  a required column must add it **nullable**, backfill it, then `SET NOT NULL`, so the constraint is
+  proved by the data rather than asserted ahead of it. Test it against a **populated** copy of the
+  previous schema — `packages/db/src/multi-seller-migration.integration.test.ts` is the pattern:
+  apply every migration *except* the new one, insert the awkward rows a real corpus has, then apply
+  the new one alone and assert exact row effects.
+- **A table may carry a trigger that refuses your backfill.** `inventory_revisions` is guarded by
+  `guard_inventory_revision_history`, which permits exactly one transition — superseding a current
+  revision — and raises on every other UPDATE. Disable the trigger for the single backfill statement,
+  re-enable it immediately, and widen the guard to cover any column you added. Do not weaken it.
 
 ### Applying — "migrations applied" is not proof
 
