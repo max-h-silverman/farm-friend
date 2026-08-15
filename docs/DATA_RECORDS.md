@@ -113,7 +113,20 @@ surface far from its cause.
 
 **Which facts live where:** the stand owns coordinates, address, directions, physical access, and
 stand-level closure. The provider owns current and usual inventory, prices, payment, season,
-schedule, pause, one public note, and its reminder cadence and recipient. **Availability is an
+schedule, pause, one public note, and its reminder cadence and recipient.
+
+**Payment is the seller's own fact** — their money, their account — so it belongs to the provider
+like the rest of that list. `sales_location_payment_methods` is still keyed on the stand alone,
+which is correct only while every stand has exactly one seller; it gains the provider dimension
+with the rest of the hosted-seller work. A hosted seller's accepted methods are never inferred from
+the host's list.
+
+Two things this does *not* mean. A **shared cash box is the common arrangement** at an unattended
+stand, so a hosted seller taking cash is presumed to use the host's box unless they say otherwise —
+some set their own lockbox beside it. And whether a host's *digital* payment covers a hosted
+seller's goods is often unsettled between the farmers themselves: cash in a shared box needs no
+agreement because the money is separated when the box is emptied, but an instrument naming an
+account is that holder's claim to make. Recorded when stated, silent when not. **Availability is an
 intersection, never a union** — a provider may be closed inside an open stand and can never be open
 inside a closed one, computed once at `intersectAvailability`.
 

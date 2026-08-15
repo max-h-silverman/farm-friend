@@ -270,7 +270,8 @@ for that brand.
   stand-level closure, and the stand's own descriptive information.
 - **Provider facts**: current and usual inventory, item prices, payment/Farm Bucks rules, season,
   schedule, restocking, visibility/pause, one stand-specific public note, and inventory reminder
-  preferences.
+  preferences. Payment is the seller's own fact — see the payment bullet in §customer behavior for
+  the shared-cash-box default and what stays deliberately unrecorded.
 - **Availability is an intersection, never a union.** A provider's schedule and season are clamped
   to the stand's: a provider may be closed while the stand is open, and can never be open while the
   stand is closed. This is what supports the real case — a hosted seller who takes only cash and
@@ -378,8 +379,38 @@ suppressed price: each provider carries its own price and its own confirmation t
 - `What's at Morgan Hill?` returns the union of its provider inventories. `What does Green Acres
   have out?` filters to that seller across its active stands. `Who has eggs?` returns one result per
   stand and uses that stand's own freshest eggs evidence, never an unrelated stand's update.
-- Payment is explicit per provider. The likely case is a seller-specific payment path, but a
-  relationship may deliberately use a shared stand checkout. A seller's payment may differ by stand.
+- **Payment is per seller, and a shared cash box is the common arrangement — not the only one**
+  (max, 2026-08-15).
+
+  **Payment acceptance is the seller's own fact** — it is their money and their account. Whether
+  Fernhorn Bakery takes Venmo is Fernhorn's to state, not Tian Tian's, and it varies for real:
+  Fernhorn may take cash only while its host takes four methods.
+
+  The Tian Tian case is about **one shared instrument**, not about whether sellers have their own
+  payment: customers pay cash into Tian Tian's box, and *may or may not* also use Tian Tian's Venmo
+  — "not always the case that/how this will overlap" (VIGA). **And even the box may not be shared**
+  (max): a hosted seller may set their own lockbox beside the host's. Two boxes at one stand is a
+  legitimate arrangement.
+
+  So there is **no reliable stand-level payment fact**. What one stand's payment methods can
+  honestly describe is the stand's own seller; extending that list to a hosted seller asserts
+  something nobody stated. Today `sales_location_payment_methods` is keyed on the stand alone
+  (measured 2026-08-15: Tian Tian's list is Cash, Check, Venmo, trade), which is correct only
+  because every stand currently has exactly one seller. **Payment gains the provider dimension the
+  rest of Phase B's facts already have.**
+
+  **The common case is a shared cash box, and the default must follow it.** At an unattended stand
+  one box is the usual arrangement, so a hosted seller taking cash is presumed to use the host's
+  box unless someone says otherwise. Making sharing an exception that must be recorded would push
+  the typical arrangement through extra steps — the same mistake as forcing a venue to invent a
+  seller. A hosted seller with their own lockbox states that instead.
+
+  What stays deliberately unmodelled is the *digital* overlap: whether a host's Venmo also covers a
+  hosted seller's goods is frequently unsettled between the two farmers themselves. Cash in a
+  shared box needs no agreement — the money is separated when the box is emptied — but a payment
+  naming an account is that account holder's claim to make. So it is recorded when they state it,
+  left silent when they have not, and a customer is never told a hosted seller accepts an
+  instrument that seller never claimed.
 - **A stock-out report goes to every provider whose current confirmed inventory contradicts it —
   no question is asked.** The customer is never made to name a seller: at an unattended stand with
   two coolers they usually did not notice whose goods were whose, and a guess routes a false alarm
