@@ -4,6 +4,7 @@ import {
   standItemPriceNeedsUnit,
   type PromptCadence,
 } from "@farm-friend/core";
+import { readNativeProviderId } from "./current-inventory";
 import type { Db } from "./index";
 import {
   coherentAvailability,
@@ -458,15 +459,18 @@ export async function seedDefaultPromptPreference(
   // 10:00-local arithmetic, not restated here.
   const nextDueAt = nextPromptDueSlot({ cadence, timeZone, laterOf: input.occurredAt });
 
+  // F-114 Phase B — a cadence belongs to a provider. Onboarding sets up the farmer's own
+  // stand, so the native slot; the conflict target moves to the provider with it.
+  const preferenceProviderId = await readNativeProviderId(tx, { salesLocationId });
   await tx`
     insert into inventory_prompt_preferences (
-      owner_farm_id, sales_location_id, designated_authorization_id,
+      owner_farm_id, sales_location_id, provider_id, designated_authorization_id,
       cadence, version, next_due_at, updated_at
     ) values (
-      ${input.farmId}, ${salesLocationId}, ${input.authorizationId},
+      ${input.farmId}, ${salesLocationId}, ${preferenceProviderId}, ${input.authorizationId},
       ${cadence}, 1, ${nextDueAt}, ${input.occurredAt}
     )
-    on conflict (sales_location_id) do nothing
+    on conflict (provider_id) do nothing
   `;
 }
 
@@ -690,15 +694,18 @@ async function writeStandingItems(
     stated.push({ name: trimmed, price: normalizePrice(item.price) });
   }
 
-  // Clear the standing claim across the whole stand FIRST, so an item the farmer dropped stops
-  // being claimed. Scoped to this location's rows only.
+  // F-114 Phase B — usual items belong to a provider. This is the farmer editing their own
+  // stand's listing, so the native slot. Scoping the clear to the PROVIDER rather than the
+  // stand is load-bearing: clearing by stand would silently drop a hosted seller's standing
+  // claims every time the host saved their own listing.
+  const itemProviderId = await readNativeProviderId(tx, { salesLocationId });
   await tx`
     update stand_items set usually_carried = false
-    where sales_location_id = ${salesLocationId}
+    where sales_location_id = ${salesLocationId} and provider_id = ${itemProviderId}
   `;
 
   for (const [index, item] of stated.entries()) {
-    // THE INDEX IS THE ARBITER, never a preceding read: `stand_items_one_per_location_name` is
+    // THE INDEX IS THE ARBITER, never a preceding read: `stand_items_one_per_provider_name` is
     // what makes "eggs exists once here" structural, and `select … for update` cannot
     // serialize a row that does not exist yet. `do update` rather than `do nothing` is
     // load-bearing — an item that exists only because a revision confirmed it must BECOME a
@@ -719,15 +726,15 @@ async function writeStandingItems(
     const price = item.price;
     await tx`
       insert into stand_items (
-        sales_location_id, display_name, usually_carried,
+        sales_location_id, provider_id, display_name, usually_carried,
         price_amount, price_quantity, price_unit, price_basis, sort_order
       )
       values (
-        ${salesLocationId}, ${item.name}, true,
+        ${salesLocationId}, ${itemProviderId}, ${item.name}, true,
         ${price?.amount ?? null}, ${price?.quantity ?? null},
         ${price?.unit ?? null}, ${price?.basis ?? null}, ${index}
       )
-      on conflict (sales_location_id, lower(btrim(display_name, E' \t\r\n')))
+      on conflict (provider_id, lower(btrim(display_name, E' \t\r\n')))
       do update set
         usually_carried = true,
         price_amount = ${price?.amount ?? null},

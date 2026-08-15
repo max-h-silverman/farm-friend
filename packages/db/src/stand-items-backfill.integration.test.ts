@@ -152,7 +152,8 @@ describe("F-066 stand items backfill (integration)", () => {
       insert into inventory_revisions (
         farm_id, sales_location_id, source, published_at, is_current
       )
-      values (${farmId}, ${locationId}, 'viga', now() - interval '3 days', true)
+      values (
+${farmId}, ${locationId}, 'viga', now() - interval '3 days', true)
       returning id
     `;
     const revisionId = revision[0]?.id as string;

@@ -67,12 +67,14 @@ describe("F-063 inventory revision provenance (integration)", () => {
     `;
     const rows = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, proposal_version, state,
+        sender_hash, sales_location_id, provider_id, proposal_version, state,
         has_inventory, has_closure, base_is_first_publication,
         payload, created_at, updated_at
       )
       values (
-        ${senderHash}, ${salesLocationId}, 1, 'open',
+${senderHash}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), 1, 'open',
         true, false, true, ${client().json({ entries: [] })}, ${at(0)}, ${at(0)}
       )
       returning id
@@ -215,9 +217,12 @@ describe("F-063 inventory revision provenance (integration)", () => {
   it("accepts a 'viga' row carrying no handset keys, and reads it back", async () => {
     const inserted = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current
+        farm_id, sales_location_id, provider_id, source, published_at, is_current
       )
-      values (${farmId}, ${salesLocationId}, 'viga', ${at(1)}, false)
+      values (
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), 'viga', ${at(1)}, false)
       returning id
     `;
     expect(inserted).toHaveLength(1);
@@ -238,11 +243,13 @@ describe("F-063 inventory revision provenance (integration)", () => {
     const proposalId = await proposal();
     const inserted = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at, is_current
       )
       values (
-        ${farmId}, ${salesLocationId}, ${proposalId}, ${authorizationId},
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), ${proposalId}, ${authorizationId},
         ${approvalId}, 'sms', ${at(2)}, false
       )
       returning id
@@ -267,10 +274,12 @@ describe("F-063 inventory revision provenance (integration)", () => {
       const proposalId = await proposal();
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id, source, published_at, is_current
+          farm_id, sales_location_id, provider_id, proposal_id, source, published_at, is_current
         )
         values (
-          ${farmId}, ${salesLocationId}, ${proposalId}, 'viga', ${at(3)}, false
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), ${proposalId}, 'viga', ${at(3)}, false
         )
       `);
     });
@@ -278,11 +287,13 @@ describe("F-063 inventory revision provenance (integration)", () => {
     it("refuses a 'viga' row carrying a published_by_authorization_id", async () => {
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, published_by_authorization_id, source,
+          farm_id, sales_location_id, provider_id, published_by_authorization_id, source,
           published_at, is_current
         )
         values (
-          ${farmId}, ${salesLocationId}, ${authorizationId}, 'viga', ${at(4)}, false
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), ${authorizationId}, 'viga', ${at(4)}, false
         )
       `);
     });
@@ -290,10 +301,12 @@ describe("F-063 inventory revision provenance (integration)", () => {
     it("refuses a 'viga' row carrying a farm_approval_id", async () => {
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, farm_approval_id, source, published_at, is_current
+          farm_id, sales_location_id, provider_id, farm_approval_id, source, published_at, is_current
         )
         values (
-          ${farmId}, ${salesLocationId}, ${approvalId}, 'viga', ${at(5)}, false
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), ${approvalId}, 'viga', ${at(5)}, false
         )
       `);
     });
@@ -302,11 +315,13 @@ describe("F-063 inventory revision provenance (integration)", () => {
       const proposalId = await proposal();
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id, farm_approval_id, source,
+          farm_id, sales_location_id, provider_id, proposal_id, farm_approval_id, source,
           published_at, is_current
         )
         values (
-          ${farmId}, ${salesLocationId}, ${proposalId}, ${approvalId}, 'sms',
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), ${proposalId}, ${approvalId}, 'sms',
           ${at(6)}, false
         )
       `);
@@ -315,11 +330,13 @@ describe("F-063 inventory revision provenance (integration)", () => {
     it("refuses an 'sms' row missing proposal_id", async () => {
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, published_by_authorization_id, farm_approval_id,
+          farm_id, sales_location_id, provider_id, published_by_authorization_id, farm_approval_id,
           source, published_at, is_current
         )
         values (
-          ${farmId}, ${salesLocationId}, ${authorizationId}, ${approvalId}, 'sms',
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), ${authorizationId}, ${approvalId}, 'sms',
           ${at(7)}, false
         )
       `);
@@ -329,11 +346,13 @@ describe("F-063 inventory revision provenance (integration)", () => {
       const proposalId = await proposal();
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           source, published_at, is_current
         )
         values (
-          ${farmId}, ${salesLocationId}, ${proposalId}, ${authorizationId}, 'sms',
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), ${proposalId}, ${authorizationId}, 'sms',
           ${at(8)}, false
         )
       `);
@@ -344,9 +363,12 @@ describe("F-063 inventory revision provenance (integration)", () => {
       // the biconditional this is exactly the row that slips through.
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, source, published_at, is_current
+          farm_id, sales_location_id, provider_id, source, published_at, is_current
         )
-        values (${farmId}, ${salesLocationId}, 'sms', ${at(9)}, false)
+        values (
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), 'sms', ${at(9)}, false)
       `);
     });
 
@@ -356,9 +378,12 @@ describe("F-063 inventory revision provenance (integration)", () => {
       await expect(
         client()`
           insert into inventory_revisions (
-            farm_id, sales_location_id, published_at, is_current
+            farm_id, sales_location_id, provider_id, published_at, is_current
           )
-          values (${farmId}, ${salesLocationId}, ${at(10)}, false)
+          values (
+${farmId}, ${salesLocationId},
+(select id from stand_providers
+  where sales_location_id = ${salesLocationId} and seller_id is null), ${at(10)}, false)
         `,
       ).rejects.toThrow(/source/);
     });

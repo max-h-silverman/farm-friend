@@ -116,8 +116,9 @@ describe("SMS result paging end to end (integration)", () => {
       const locationId = location[0]?.id as string;
       locationIds.push(locationId);
       await client()`
-        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-        values (${locationId}, 'eggs', true, 0)
+        insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+        values (${locationId}, (select id from stand_providers
+          where sales_location_id = ${locationId} and seller_id is null), 'eggs', true, 0)
       `;
     }
   });
@@ -176,13 +177,16 @@ describe("SMS result paging end to end (integration)", () => {
     `;
     const proposal = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication, state,
         activation_outbox_id, activated_version, activated_at, expires_at,
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${"7".repeat(64)}, ${locationId}, ${client().json({ entries: [] })}, 1,
+        ${"7".repeat(64)}, ${locationId},
+        (select id from stand_providers
+          where sales_location_id = ${locationId} and seller_id is null),
+        ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted', ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3_600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
       )
@@ -190,11 +194,15 @@ describe("SMS result paging end to end (integration)", () => {
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${farmId}, ${locationId}, ${proposal[0]?.id as string},
-              ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${hoursAgo(2)})
+      values (
+        ${farmId}, ${locationId},
+        (select id from stand_providers
+          where sales_location_id = ${locationId} and seller_id is null),
+        ${proposal[0]?.id as string},
+        ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${hoursAgo(2)})
       returning id
     `;
     await client()`
@@ -343,8 +351,8 @@ describe("SMS result paging end to end (integration)", () => {
    */
   async function alsoUsuallySells(index: number, item: string): Promise<void> {
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${locationIds[index]!}, ${item}, true, 1)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${locationIds[index]!}, (select id from stand_providers where sales_location_id = ${locationIds[index]!} and seller_id is null), ${item}, true, 1)
     `;
   }
 
@@ -637,9 +645,13 @@ describe("SMS result paging end to end (integration)", () => {
   it("case 7 — a new question REPLACES the pending list", async () => {
     await askForEggs(customerHash, T0);
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      select id, 'kale', true, 1 from sales_locations
-      where id = any(${locationIds.slice(5, 9)})
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      select l.id,
+        (select id from stand_providers
+          where sales_location_id = l.id and seller_id is null),
+        'kale', true, 1
+      from sales_locations l
+      where l.id = any(${locationIds.slice(5, 9)})
     `;
     // A second, smaller question. Its list is what MORE must page through afterwards.
     await askFor(["kale"], customerHash, at(5));
@@ -705,8 +717,8 @@ describe("SMS result paging end to end (integration)", () => {
       returning id
     `;
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${location[0]?.id as string}, 'eggs', true, 0)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${location[0]?.id as string}, (select id from stand_providers where sales_location_id = ${location[0]?.id as string} and seller_id is null), 'eggs', true, 0)
     `;
 
     const page = await more(customerHash, at(1));
@@ -743,8 +755,9 @@ describe("SMS result paging end to end (integration)", () => {
       where sales_location_id = ${changedId} and lower(display_name) = 'eggs'
     `;
     await client()`
-      insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-      values (${changedId}, 'carrots', true, 1)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+      values (${changedId}, (select id from stand_providers
+        where sales_location_id = ${changedId} and seller_id is null), 'carrots', true, 1)
     `;
 
     const page = await more(customerHash, at(1));

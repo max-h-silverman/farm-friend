@@ -83,6 +83,10 @@ const expectedTables = [
   "sales_location_payment_methods",
   "sales_locations",
   "scheduled_inventory_prompt_subjects",
+  // F-114 — a reusable public brand identity, shared by one or more people. Deliberately NOT
+  // rooted on `farms`: the stands that host other sellers today host bakeries and makers that
+  // are not farms and will never have a listing of their own.
+  "sellers",
   "sender_states",
   "sms_consents",
   "sms_messages",
@@ -90,6 +94,10 @@ const expectedTables = [
   // F-066 — one item vocabulary per stand, carrying both the standing state and the
   // confirmations. `sales_location_offerings` remains only as the 0020 backfill's source.
   "stand_items",
+  // F-114 — one seller's participation at one stand, or (seller_id is null) the stand's own
+  // native brand slot. ONE record with a nullable seller reference, not two behind an
+  // interface: two would double every current-inventory read site.
+  "stand_providers",
   "stock_out_reports",
 ];
 
@@ -662,12 +670,14 @@ describe("clean launch database foundation (integration)", () => {
 
     const proposalRows = await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication,
         expires_at, activation_outbox_id, activated_version, activated_at
       )
       values (
-        ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+        ${farmerHash}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
         1, true, false, true, ${tomorrow}, ${storedId("prompt1")}, 1, ${later}
       )
       returning id
@@ -677,11 +687,13 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure, base_is_first_publication
         )
         values (
-          ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+          ${farmerHash}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
           1, true, false, true
         )
       `,
@@ -708,11 +720,13 @@ describe("clean launch database foundation (integration)", () => {
   it("keeps inventory publication-only, current per location, and immutable", async () => {
     const revisionRows = await db()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id,
+        farm_id, sales_location_id, provider_id, proposal_id,
         published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
-        ${storedId("farm")}, ${storedId("location")}, ${storedId("proposal1")},
+        ${storedId("farm")}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${storedId("proposal1")},
         ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${later}
       )
       returning id
@@ -749,13 +763,15 @@ describe("clean launch database foundation (integration)", () => {
     const secondPromptId = secondPromptRows[0]?.id as string;
     const secondProposalRows = await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication,
         state, expires_at, activation_outbox_id, activated_version,
         activated_at, consumed_token, consumption_provider_event_id, closed_at
       )
       values (
         ${farmerHash}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null),
         ${db().json({ items: [{ name: "Revised item" }] })},
         1, true, false, true, 'accepted', ${tomorrow},
         ${secondPromptId}, 1, ${later}, 'yes', 'accept-2', ${later}
@@ -767,11 +783,13 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id,
+          farm_id, sales_location_id, provider_id, proposal_id,
           published_by_authorization_id, farm_approval_id, source, published_at
         )
         values (
-          ${storedId("farm")}, ${storedId("location")}, ${secondProposalId},
+          ${storedId("farm")}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${secondProposalId},
           ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${tomorrow}
         )
       `,
@@ -784,11 +802,13 @@ describe("clean launch database foundation (integration)", () => {
     `;
     await db()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id,
+        farm_id, sales_location_id, provider_id, proposal_id,
         published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
-        ${storedId("farm")}, ${storedId("location")}, ${secondProposalId},
+        ${storedId("farm")}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${secondProposalId},
         ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${tomorrow}
       )
     `;
@@ -860,8 +880,8 @@ describe("clean launch database foundation (integration)", () => {
   */
   it("binds a stock-out report's usual-offering reference to the same stand", async () => {
     const items = await db()`
-      insert into stand_items (sales_location_id, display_name, usually_carried)
-      values (${storedId("location")}, 'Duck eggs', false)
+      insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
+      values (${storedId("location")}, (select id from stand_providers where sales_location_id = ${storedId("location")} and seller_id is null), 'Duck eggs', false)
       returning id
     `;
     const itemId = items[0]?.id as string;
@@ -1215,8 +1235,9 @@ describe("clean launch database foundation (integration)", () => {
       // `usually_carried` state of a stand item; the property it protects is unchanged, which
       // is why the assertion is the same.
       await db()`
-        insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-        values (${unconfirmedLocation}, 'eggs', true, 0), (${unconfirmedLocation}, 'lamb', true, 1)
+        insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+        values (${unconfirmedLocation}, (select id from stand_providers
+          where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'eggs', true, 0), (${unconfirmedLocation}, (select id from stand_providers where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'lamb', true, 1)
       `;
 
       const rows = await db()`
@@ -1234,24 +1255,27 @@ describe("clean launch database foundation (integration)", () => {
     it("refuses a blank item and duplicate items", async () => {
       await expect(
         db()`
-          insert into stand_items (sales_location_id, display_name)
-          values (${unconfirmedLocation}, '   ')
+          insert into stand_items (sales_location_id, provider_id, display_name)
+          values (${unconfirmedLocation}, (select id from stand_providers
+            where sales_location_id = ${unconfirmedLocation} and seller_id is null), '   ')
         `,
       ).rejects.toThrow(/stand_items_display_name_not_blank/);
       // The unique index makes re-seeding safe rather than duplicative — and, unlike the
       // primary key it replaced, it catches a re-seed that differs only in casing.
       await expect(
         db()`
-          insert into stand_items (sales_location_id, display_name)
-          values (${unconfirmedLocation}, 'eggs')
+          insert into stand_items (sales_location_id, provider_id, display_name)
+          values (${unconfirmedLocation}, (select id from stand_providers
+            where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'eggs')
         `,
-      ).rejects.toThrow(/stand_items_one_per_location_name/);
+      ).rejects.toThrow(/stand_items_one_per_provider_name/);
       await expect(
         db()`
-          insert into stand_items (sales_location_id, display_name)
-          values (${unconfirmedLocation}, 'EGGS')
+          insert into stand_items (sales_location_id, provider_id, display_name)
+          values (${unconfirmedLocation}, (select id from stand_providers
+            where sales_location_id = ${unconfirmedLocation} and seller_id is null), 'EGGS')
         `,
-      ).rejects.toThrow(/stand_items_one_per_location_name/);
+      ).rejects.toThrow(/stand_items_one_per_provider_name/);
     });
 
     it("cannot make a stand look confirmed", async () => {

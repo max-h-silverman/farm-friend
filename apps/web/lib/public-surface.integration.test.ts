@@ -153,13 +153,15 @@ describe("public web surface boundary (integration)", () => {
     `;
     const proposal = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication, state,
         activation_outbox_id, activated_version, activated_at, expires_at,
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${farmerHash}, ${ids.location}, ${client().json({ entries: [] })}, 1,
+${farmerHash}, ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null), ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
@@ -174,10 +176,10 @@ describe("public web surface boundary (integration)", () => {
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${ids.farm}, ${ids.location}, ${proposal[0]?.id as string},
+      values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${proposal[0]?.id as string},
               ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${publishedAt})
       returning id
     `;
@@ -943,8 +945,9 @@ describe("public web surface boundary (integration)", () => {
       `;
       const quietLocationId = quietLocation[0]?.id as string;
       await client()`
-        insert into stand_items (sales_location_id, display_name, usually_carried)
-        values (${quietLocationId}, 'Rhubarb', true)
+        insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
+        values (${quietLocationId}, (select id from stand_providers
+          where sales_location_id = ${quietLocationId} and seller_id is null), 'Rhubarb', true)
       `;
 
       const marked = await setTestFarm(db!, {
@@ -1160,9 +1163,9 @@ describe("public web surface boundary (integration)", () => {
     async function tag(items: string[]): Promise<void> {
       for (const [index, item] of items.entries()) {
         await client()`
-          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-          values (${ids.location}, ${item}, true, ${index})
-          on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+          insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+          values (${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${item}, true, ${index})
+          on conflict (provider_id, (lower(btrim(display_name, E' \t\r\n'))))
           do update set usually_carried = true, sort_order = excluded.sort_order
         `;
       }
@@ -1246,14 +1249,17 @@ describe("public web surface boundary (integration)", () => {
     ): Promise<void> {
       await client()`
         insert into stand_items (
-          sales_location_id, display_name, usually_carried, sort_order,
+          sales_location_id, provider_id, display_name, usually_carried, sort_order,
           price_amount, price_quantity, price_unit, price_basis
         )
         values (
-          ${ids.location}, ${item}, true, 0,
+          ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null),
+          ${item}, true, 0,
           ${price.amount}, ${price.quantity}, ${price.unit}, ${price.basis}
         )
-        on conflict (sales_location_id, (lower(btrim(display_name, E' \t\r\n'))))
+        on conflict (provider_id, (lower(btrim(display_name, E' \t\r\n'))))
         do update set
           usually_carried = true,
           price_amount = excluded.price_amount,
@@ -1487,8 +1493,9 @@ describe("public web surface boundary (integration)", () => {
       const taggedId = second[0]?.id as string;
       for (const [index, item] of ["a", "b", "c", "d", "e"].entries()) {
         await client()`
-          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-          values (${taggedId}, ${item}, true, ${index})
+          insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+          values (${taggedId}, (select id from stand_providers
+            where sales_location_id = ${taggedId} and seller_id is null), ${item}, true, ${index})
         `;
       }
 

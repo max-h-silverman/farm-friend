@@ -139,9 +139,11 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
 
     const links = await client()`
       insert into farmer_links (
-        token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+        token_hash, authorization_id, owner_farm_id, sales_location_id, provider_id, issued_at
       ) values (
-        ${"d".repeat(64)}, ${authorizationId}, ${farmId}, ${locationId}, ${now}
+        ${"d".repeat(64)}, ${authorizationId}, ${farmId}, ${locationId},
+        (select id from stand_providers
+          where sales_location_id = ${locationId} and seller_id is null), ${now}
       ) returning id, owner_farm_id, sales_location_id
     `;
     expect(links).toEqual([{

@@ -76,9 +76,11 @@ describe("B-074 admin roster current inventory (integration)", () => {
     // whose items must.
     const old = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current, superseded_at
+        farm_id, sales_location_id, provider_id, source, published_at, is_current, superseded_at
       ) values (
-        ${farmId}, ${standId}, 'viga', now() - interval '9 days', false, now() - interval '1 day'
+        ${farmId}, ${standId},
+        (select id from stand_providers
+          where sales_location_id = ${standId} and seller_id is null), 'viga', now() - interval '9 days', false, now() - interval '1 day'
       ) returning id
     `;
     await db`
@@ -89,9 +91,11 @@ describe("B-074 admin roster current inventory (integration)", () => {
 
     const current = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current
+        farm_id, sales_location_id, provider_id, source, published_at, is_current
       ) values (
-        ${farmId}, ${standId}, 'viga', now() - interval '3 hours', true
+        ${farmId}, ${standId},
+        (select id from stand_providers
+          where sales_location_id = ${standId} and seller_id is null), 'viga', now() - interval '3 hours', true
       ) returning id
     `;
     await db`

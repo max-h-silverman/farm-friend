@@ -6,110 +6,53 @@
 ## Release state
 
 - Farm Friend is **pre-go-live**. Production serves customer SMS inquiry and paging, farmer stock
-  updates and reminders, stock-out reporting, farmer onboarding/settings, administrator tools,
-  the public stand map/details, and the contact card at `/viga-farm-friend`.
-- **Customer inquiry classifies before it matches catalog values** (B-068/B-069). The first model
-  call sees the message alone and returns a strict route-specific operation. Inventory/payment alone
-  use a second value-only catalog matcher; code validates matches, expands them to every supporting
-  stand and evidence voice, orders, pages, and renders them. Broad, hours, location, overview,
-  clarification, system inquiry, chitchat, and deterministic VIGA Bucks handling make no matcher call.
-- **The SMS answer format is B-062/B-063's:** one entry per stand, name → claims → address, explicit
-  recency, three stands per page, and a bare `Map:` close. Confirmed inventory remains `Last seen`
-  through day 28; usual offerings remain `May have`/`May also have` and cannot displace confirmed
-  evidence for the same item. Open-now returns only stands confirmed open at render time.
-- **A single-stand answer is rendered wholly by code** (B-071). A product-less question about one
-  stand is `overview` and calls no seam; a stand-scoped `inventory` question answers the yes/no and
-  then the same full listing, so a matcher miss can no longer shorten what a farmer published. The
-  offerings line subtracts confirmed items, and single-stand answers carry no `Map:` link.
-- **Broad availability is a first-class operation.** Call #1 sees no catalog, so catalog contents
-  cannot change broad into inventory. Generic inventory nouns remain broad; meaningful categories
-  narrow the catalog. `when do you open?` is a system inquiry, while second-person stand inventory
-  and payment questions remain stand inquiries.
-- **Stand cards lead with availability:** confirmed items or `Nothing confirmed recently`, then
-  Typical Offerings. The shared freshness threshold is 96 hours for SMS and map warnings.
-- **The customer→farmer stock-out path is closed end to end.** A report may name a published item or
-  a usual offering; a clarifying question is held for 15 minutes and then completes the report.
-- **A removed farm leaves every public surface** (B-066). Hidden test farms remain operator-visible;
-  removed real farms do not. `stand_items` holds one item per row corpus-wide (B-067).
-- **The public map link carries `#map`** (F-110). Production refuses to start when the configured URL
-  differs from the constant embedded in customer copy.
-- **Every opt-in keyword offers the contact card** — `JOIN`, `START`, `VIGA` — and farmer onboarding
-  completion sends it beside the listing-live message. Carrier recovery remains `START`.
-- **Code owns closure timing and consequential output.** Models select bounded values; they do not
-  write public claims, authorize publication, resolve mutable open-now state, or choose evidence.
-- **Onboarding survives a seeded stand, and a poisoned inbound message is no longer silent** (B-070).
-  Redemption supersedes an existing current revision before publishing held stock, and only redeems
-  an invitation that existed when the message arrived. `runInboundPass` logs a routing failure by
-  sender hash and event id; recovery is still by lapse, but the silence is gone.
-- **One stock vocabulary at every age, and the age states itself.** An SMS stock line always reads
-  `In stock (…)`; past one week the parenthesis says `over a week ago` rather than a day count.
-  `EXACT_AGE_UNTIL_DAYS` (7) governs wording ONLY — `isStale` (4 days) still decides ranking and the
-  map's stale warning, and `isConfirmationExpired` (28 days) still drops the claim entirely.
-  `renderStockAge` is the single renderer, shared by the paged answer, the single-stand listing, and
-  the item verdict.
-- **A single-stand listing is grouped and dated.** Blank lines separate name / stock / payments /
-  schedule / address; an empty group collapses. A stand with no confirmation says
-  "Nothing confirmed recently." before its standing offerings, and a stand with neither fact no
-  longer omits the stock block silently.
-- **The farmer's proposal prompt asks for its confirmation** — "Reply YES to publish, or NO to
-  discard." The gate itself was always real; the prompt simply never named it. No code-owned reply
-  carries an emoji: one non-GSM-7 character re-encodes a whole message to UCS-2 and doubles its
-  segments (`reply-encoding.test.ts` holds this).
-- **The public map serves security headers** — `frame-ancestors` (VIGA plus self), `nosniff`, and a
-  trimmed referrer.
-- **Every public and SMS link is on `farmfriend.vigavashon.org`** (F-113). `PUBLIC_BASE_URL` is now
-  the custom domain, so onboarding invitations, standing farmer links, settings, and the contact card
-  all carry a subdomain of the domain already in the 10DLC campaign registration — the raw
-  `*.run.app` hostname was the signal behind the antivirus block a farmer reported on 2026-08-14, and
-  the same host in a texted link wrapped around a 64-character token is what carrier filters block.
-  `public_host` lives in tracked `production.tfvars`, NOT the gitignored `terraform.tfvars`: an apply
-  that omits it destroys the mapping and silently reverts the fix. Internal Cloud Tasks/Scheduler
-  traffic stays on `*.run.app` by design, and that host still serves every route, so links already
-  texted keep working. VIGA's iframe points at the new host and pins the origin on its height
-  listener.
-- **`vigavashon.org` DNS now authenticates VIGA's mail.** SPF was missing Google entirely while the
-  domain's MX is Google Workspace, so every message Farm Friend sent as `board@` failed SPF; the
-  record now includes `_spf.google.com` alongside the existing Mandrill and SendGrid senders. A
-  `_dmarc` record exists at `p=none` (monitor only). Both nameserver sets (NS1 and Squarespace)
-  serve identical records — verified, not assumed.
-- **One reader answers "what is currently in stock here"** (B-074, F-114 Phase A). Twelve production
-  sites each hand-wrote the `is_current` predicate keyed on `sales_location_id`; they now compose
-  `packages/db/src/current-inventory.ts` — a SQL fragment for the three corpus-wide surfaces (SMS
-  retrieval, the map, the VIGA admin roster), a stand-scoped row reader, and a revision-ref reader
-  whose `for update` is a **required** argument. `intersectAvailability` owns the stand/provider
-  availability clamp so no surface computes it alone. **No provider column exists yet**; output is
-  unchanged and Phase A is the gate for Phase B. The enumeration lives in
-  `docs/plans/farmer-behavior-architecture-plan.md` §phase A and is what the gate tests — never a
-  remembered count.
-- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. This release adds no migration.
+  updates and reminders, stock-out reporting, farmer onboarding/settings, administrator tools, the
+  public stand map/details, and the contact card at `/viga-farm-friend`.
+- **Customer inquiry classifies before it matches catalog.** One strict classifier sees the message
+  alone; only inventory/payment make a second value-only matcher call. Code validates every match,
+  expands it to every supporting stand and evidence voice, orders, pages, and renders. A single-stand
+  answer is rendered wholly by code and calls no seam for a product-less question.
+- **Code owns closure timing and consequential output.** Models select bounded values; they never
+  write public claims, authorize publication, resolve open-now state, or choose evidence.
+- **Every public and SMS link is on `farmfriend.vigavashon.org`** (F-113), and `vigavashon.org` DNS
+  authenticates VIGA's mail (SPF includes Google; `_dmarc` at `p=none`).
+- **A stand now has providers** (F-114 Phase B, branch merged to `main`, **not deployed**).
+  `stand_providers` holds one row per seller-at-stand with a nullable seller reference — NULL is the
+  stand's **native brand slot**, which every existing stand got exactly one of; `sellers` is the
+  reusable brand identity beside it. Revisions, usual items, proposals, farmer links, prompt
+  preferences, scheduled prompts, and SMS targeting all carry a provider.
+  `inventory_revisions_one_current_per_location` became **one-current-per-provider** and
+  `stand_items_one_per_location_name` became **one-per-provider-per-name**, both in the migration
+  that added the column. **Output is unchanged** — every write goes to the native slot, which is the
+  stand behaving as it always did. One open SMS confirmation is now per person **per
+  provider-at-stand**, fixing a defect that predates this work. `provider-invalidation.ts` is the
+  pause/revoke/close mechanism that did not exist. **Hosted-seller behavior — invitation,
+  per-provider publication, the seller list, item-first cards — is Phase C and is NOT built.**
+- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**.
+  **`0042_multi_seller_stand_providers` is locally verified but NOT applied to production** — the
+  first migration this work owes a deploy, and it must precede the code that requires it.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
-  `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a` — the SAME image as the
-  previous revisions; F-113 changed configuration only. Plan assertions 61/61 (the new one asserts
-  `PUBLIC_BASE_URL` matches the mapped host, so a mapping created without the cutover fails at plan
-  time). Deployed 2026-08-14; neither revision has an error-level log. Verified by effect against the
-  live service: `PUBLIC_BASE_URL` read back from the running config, the map serving 89KB at the root
-  with its three response headers, the contact card and admin login both 200, and the old
-  `*.run.app` host still serving.
-- **B-074 is merged to main but NOT deployed.** It is code-only with no migration and no config
-  change, so production still serves the revisions above; the consolidation reaches production on
-  the next deploy of any kind. Nothing about the live service changed this session.
+  `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
+  neither revision has an error-level log. **B-074 and F-114 Phase B are on `main` and undeployed**;
+  production still serves the revisions above.
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
 ## Verification
 
-- **2,063 unit tests pass; 7 corpus-only tests skip.** **981 integration tests across 66 files pass**
-  against disposable local Postgres databases (2026-08-14).
-- The map loads inside VIGA's iframe on the custom domain — confirmed in a browser by max,
-  2026-08-14, and VIGA's live page read back serving the new `src`. `frame-ancestors` needed no
-  change: it already permitted `'self'`, which the custom host becomes.
-- Typecheck, lint, production web build, and scripted evals pass: critical 11/11, advisory 4/4,
-  adversarial 19/19. The build retains tracked Next configuration/lint warnings (B-008).
+- **2,063 unit tests pass; 7 corpus-only tests skip. 1,037 integration tests across 70 files pass**
+  against disposable local Postgres databases (2026-08-15).
+- Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19. The
+  build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
-  broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5.
+  broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5. Last
+  run 2026-08-14 — **F-114 Phase B changed no seam projection, schema, or output contract**, so no
+  live run was owed for it.
 - The full top-level corpus is 52/53 with only the pre-existing `what is viga` miss. The gate fails
-  on any new miss rather than treating that known baseline as a B-069 regression.
-- Production deployment is verified by immutable digest and revision readback, deploy assertions,
-  health/public/protected-route checks, and served-card wire bytes. No schema change was owed.
+  on any new miss rather than treating that known baseline as a regression.
+- **F-114 Phase B's constraints are sabotage-proved.** 36 cases assert the exact row each new index
+  and CHECK refuses; seven deliberate breakages were each caught by the suite it was aimed at. The
+  migration is verified against a **populated** copy of the pre-`0042` schema — 11 assertions on
+  exact row effects, plus a re-run proving it is a no-op.
 
 ## Standing facts a cold start needs
 
@@ -117,8 +60,8 @@
   carrier recovery fallback. Onboarding inventory publishes only after verified handset redemption.
 - VIGA Farm Bucks is a farmer-owned acceptance claim, stored apart from payment methods. `LINK`,
   `STAND`, and `SETTINGS` retain their deterministic farmer behavior.
-- A dated stock claim has one provenance: `sms`, `web`, or `viga`. `visitability` controls whether
-  a stand gets a map invitation and directions link.
+- A dated stock claim has one source: `sms`, `web`, or `viga`. `visitability` controls whether a
+  stand gets a map invitation and directions link.
 - Inquiry matching receives each unique public item/payment value once and no stand association.
   `pending_result_lists.broad` is written but deliberately unread until that table next migrates.
 - `DEEPINFRA_API_KEY` is VIGA-owned. Live evals intentionally fail provider errors rather than
@@ -127,30 +70,27 @@
   command fails loudly when `DATABASE_URL` is absent. `psql` lives under Homebrew's Postgres 16 path.
 - Migration `when` stamps can land behind their predecessor on this machine; RUNBOOK §Migrations owns
   the repair. Every production plan must include `infra/production.tfvars`.
+- `public_host` lives in tracked `production.tfvars`, NOT the gitignored `terraform.tfvars`: an apply
+  that omits it destroys the domain mapping and silently reverts F-113.
 
 ## Open before go-live
 
+- **`0042` must be applied to production before the code that requires it.** Every writer now
+  supplies `provider_id`; against the un-migrated schema they fail immediately.
 - Finish physical-handset checks: farmer onboarding/consent, contact card, paged SMS, administrator
   and settings flows, F-105 stand details at phone width, Squarespace embeds, and `?hidden=true`.
-  Every texted link now carries `farmfriend.vigavashon.org` (F-113) and none has been read on a
-  handset — confirm an invite or farmer link shows the new host and opens.
-- **B-068/B-069 still need handset confirmation:** `cucumber` must retain Forest Garden's dated
-  evidence — now `In stock (over a week ago)`, not `Last seen` — and representative
-  inventory/broad/payment replies should confirm the reduced model-call path under production
-  transport.
-- **The 2026-08-14 SMS wording changes owe a handset pass.** A grouped stand listing, a stale
-  `In stock (over a week ago)` line, the farmer proposal's `Reply YES to publish, or NO to discard.`,
-  and the emoji-free greeting all shipped verified in integration and against the live model, but no
+  Every texted link now carries `farmfriend.vigavashon.org` and none has been read on a handset.
+- **The 2026-08-14 SMS wording and B-068/B-069/B-071 changes owe a handset pass.** A grouped stand
+  listing, a stale `In stock (over a week ago)` line, the farmer proposal's `Reply YES to publish, or
+  NO to discard.`, the emoji-free greeting, `cucumber` retaining Forest Garden's dated evidence, and
+  the single-stand listing all shipped verified in integration and against the live model — no
   message has been read on a real phone.
-- **The antivirus block is addressed but NOT confirmed cleared.** The custom domain shipped
-  (F-113), which removes the `*.run.app` signal — but no one has re-tested the embed against Webroot,
-  and reputation systems can carry a stale verdict for a while. Worth asking the farmer who reported
-  it on 2026-08-14 to look again. Whether carrier filtering was ever affecting SMS links is unknown:
-  it was never measured, so the SMS half of this is a reasoned fix, not an observed one.
-- **B-071 owes a handset check:** `what's in stock at <stand>?` must list every confirmed item the map
-  shows, and `does <stand> have <item>?` must answer yes/no and then the same full listing. Both were
-  verified against the live model and in integration, not yet over production SMS.
-- **B-066 owes one console check:** remove a test farm, confirm map/SMS disappearance, then restore it.
+- **The antivirus block is addressed but NOT confirmed cleared.** The custom domain removes the
+  `*.run.app` signal, but no one has re-tested the embed against Webroot, and reputation systems
+  carry stale verdicts. Worth asking the farmer who reported it on 2026-08-14 to look again. Whether
+  carrier filtering ever affected SMS links is unknown — never measured, so that half is a reasoned
+  fix, not an observed one.
+- **B-066 owes one console check:** remove a test farm, confirm map/SMS disappearance, then restore.
 - **F-111 Phase 2 handset pass is 2/13.** Remaining cases cover STOP/START, HELP, named-stand inquiry
   and report, farmer own/other-stand reports, both VIGA Bucks shapes, map, a partial stand name,
   open-today, and the unclear reply.
@@ -167,29 +107,39 @@
 
 - RUNBOOK owns migration generation/order, production fingerprinting, seeding, secret rotation,
   immutable-image deployment, and Neon reachability. DEVELOPMENT owns codebase/test gotchas.
-- **A domain mapping reports `Ready: True` before TLS serves.** It ran ~6 minutes ahead on F-113, and
-  a request in that window fails certificate verification — inside an iframe that is a silent blank.
-  Poll the real request for a 200; never cut an embed over on the mapping's status.
-- **Every plan shows two spurious `scaling` updates** (B-073) — a provider artifact, not the
-  container template. Real diffs still have to be read; do not learn to skim "2 to change".
-- **`npm run test:integration` needs `DATABASE_URL` exported** or all 64 files fail instantly with
-  no tests run. That is the suite failing loudly by design, not a defect — RUNBOOK §top has the two
-  export lines.
-- **One emoji doubles a message's cost.** A single non-GSM-7 character re-encodes the WHOLE body to
-  UCS-2, dropping per-segment capacity from 153 to 67 — the greeting billed two segments for 73
-  characters. It is an encoding effect, not a length effect, and invisible by inspection because the
-  emoji renders correctly everywhere it is read. `reply-encoding.test.ts` sweeps every code-owned
-  reply; measure with `estimateSmsSegments` before adding any decoration.
+- **`drizzle-kit generate` writes a migration that passes on an empty database and fails on a real
+  one.** It emits `ADD COLUMN … NOT NULL` with no default and no backfill; against any table already
+  holding a row that is an instant 23502. Add the column nullable, backfill, then `SET NOT NULL` —
+  and test against a POPULATED copy of the previous schema, because an empty-schema test is green
+  for this entire class of defect.
+- **`inventory_revisions` has a trigger that refuses almost every UPDATE.**
+  `guard_inventory_revision_history` permits exactly one transition — superseding a current revision
+  — so a backfill cannot touch the table at all. `0042` disables it for one statement, re-enables it
+  immediately, and widens it to cover the new column. Do not weaken the guard; it is a Golden Rule #1
+  protection.
+- **The schema vocabulary forbids certain words outright**, `provenance` among them
+  (`schema.integration.test.ts` §removes forbidden concepts). It scans schema text, the index file,
+  `0000`, and the snapshot — so a constraint NAME or even a doc comment trips it. The camelCase key
+  `sourceProvenance` survives only because the pattern is `\bprovenance\b`.
 - **A tagged template turns an interpolation into a bind PARAMETER.** Composing shared SQL text into
   a `` driver(db)`…` `` query sends the clause as a string value and dies at parse
   (`syntax error at or near "$1"`). Any query composing `visibleFarms` or the B-074 join fragments
-  must use `.unsafe(…)`. This is invisible to typecheck and to every test that does not run the
-  query against a real database.
-- **An assertion on an empty collection can be green whatever the code returns.** The VIGA admin
-  roster's `currentItems` had exactly one test in the whole suite, and it checked `[]` on a
-  never-published stand — so a query returning nothing for every farm would have passed. When a
-  reader's only coverage is its empty case, it has no coverage; assert a populated value.
-- **A stale local server can serve headers that the config no longer describes.** While verifying the
-  map headers, a `curl` returned a 200 with no headers at all against a build whose manifest clearly
-  contained them — a server process left running from before the rebuild. The config assertion and
-  the wire disagreed, and the wire was stale, not the config. Restart before believing either.
+  must use `.unsafe(…)`. Invisible to typecheck and to every test not run against a real database.
+- **An assertion on an empty collection can be green whatever the code returns.** The admin roster's
+  `currentItems` had one test in the whole suite, checking `[]` on a never-published stand — a query
+  returning nothing for every farm would have passed. When a reader's only coverage is its empty
+  case, it has no coverage; assert a populated value.
+- **One emoji doubles a message's cost.** A single non-GSM-7 character re-encodes the WHOLE body to
+  UCS-2, dropping per-segment capacity from 153 to 67. An encoding effect, not a length effect, and
+  invisible by inspection. `reply-encoding.test.ts` sweeps every code-owned reply; measure with
+  `estimateSmsSegments` before adding any decoration.
+- **`npm run test:integration` needs `DATABASE_URL` exported** or every file fails instantly with no
+  tests run — the suite failing loudly by design. RUNBOOK §top has the two export lines.
+- **A domain mapping reports `Ready: True` before TLS serves** — ~6 minutes ahead on F-113, and a
+  request in that window fails certificate verification; inside an iframe that is a silent blank.
+  Poll the real request for a 200; never cut an embed over on the mapping's status.
+- **Every plan shows two spurious `scaling` updates** (B-073) — a provider artifact, not the
+  container template. Real diffs still have to be read; do not learn to skim "2 to change".
+- **A stale local server can serve headers the config no longer describes.** A `curl` returned a 200
+  with no headers against a build whose manifest clearly contained them — a process left running from
+  before the rebuild. Restart before believing either the config or the wire.

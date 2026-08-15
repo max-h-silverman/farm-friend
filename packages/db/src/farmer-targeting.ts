@@ -1,3 +1,4 @@
+import { readNativeProviderId } from "./current-inventory";
 import type { Db } from "./index";
 import type { Tx } from "./sql";
 
@@ -175,11 +176,18 @@ async function storeSelection(
   target: FarmerTarget,
   occurredAt: Date,
 ): Promise<void> {
+  // F-114 Phase B item 7 — `selected_context_coherent` requires all five columns together, so
+  // a selection states its provider or states nothing. Today every reachable target is the
+  // farmer's own stand, hence the native slot.
+  const providerId = await readNativeProviderId(tx, {
+    salesLocationId: target.salesLocationId,
+  });
   await tx`
     update farmer_target_contexts
     set selected_authorization_id = ${target.authorizationId},
         selected_owner_farm_id = ${target.ownerFarmId},
         selected_sales_location_id = ${target.salesLocationId},
+        selected_provider_id = ${providerId},
         selected_at = ${occurredAt},
         updated_at = ${occurredAt}
     where sender_hash = ${senderHash}
@@ -194,8 +202,8 @@ async function clearSelection(
   await tx`
     update farmer_target_contexts
     set selected_authorization_id = null, selected_owner_farm_id = null,
-        selected_sales_location_id = null, selected_at = null,
-        updated_at = ${occurredAt}
+        selected_sales_location_id = null, selected_provider_id = null,
+        selected_at = null, updated_at = ${occurredAt}
     where sender_hash = ${senderHash}
   `;
 }
@@ -264,12 +272,21 @@ export async function resolveFarmerTarget(
     `;
     const options = targets.map((target, index) => ({ ...target, optionNumber: index + 1 }));
     for (const option of options) {
+      // F-114 Phase B item 7 — a menu option targets a PROVIDER, not a stand. Every target a
+      // farmer can reach today is their own stand, so it resolves to that stand's native slot.
+      // Phase C.3 adds hosted providers to the menu and names the seller where it differs from
+      // the stand; the RECORD takes the dimension here so that change is a query, not a
+      // migration.
+      const providerId = await readNativeProviderId(tx, {
+        salesLocationId: option.salesLocationId,
+      });
       await tx`
         insert into farmer_target_menu_options (
-          sender_hash, option_number, authorization_id, owner_farm_id, sales_location_id
+          sender_hash, option_number, authorization_id, owner_farm_id,
+          sales_location_id, provider_id
         ) values (
           ${input.senderHash}, ${option.optionNumber}, ${option.authorizationId},
-          ${option.ownerFarmId}, ${option.salesLocationId}
+          ${option.ownerFarmId}, ${option.salesLocationId}, ${providerId}
         )
       `;
     }

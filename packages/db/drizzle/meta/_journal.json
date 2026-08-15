@@ -295,6 +295,13 @@
       "when": 1788150407000,
       "tag": "0041_pending_stock_out_reports",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1788150408000,
+      "tag": "0042_multi_seller_stand_providers",
+      "breakpoints": true
     }
   ]
 }

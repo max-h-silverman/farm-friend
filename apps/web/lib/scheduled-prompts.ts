@@ -89,7 +89,7 @@ async function schedulePreference(
     const location = locations[0] as Record<string, unknown>;
 
     const preferences = await tx`
-      select id, designated_authorization_id, cadence, version,
+      select id, provider_id, designated_authorization_id, cadence, version,
              next_due_at, last_due_slot_at, updated_at
       from inventory_prompt_preferences
       where id = ${candidate.preference_id}
@@ -149,7 +149,11 @@ async function schedulePreference(
       : closureInstruction(closureRow);
     if (projectClosure(closure, now).state === "active") return "deferred";
 
-    const current = await readCurrentInventory(tx, { salesLocationId });
+    // F-114 Phase B — the PREFERENCE names the provider this reminder addresses. Reading it
+    // from the row rather than re-deriving it is what lets a hosted seller's cadence prompt
+    // about their own listing rather than the host's.
+    const providerId = preference.provider_id as string;
+    const current = await readCurrentInventory(tx, { salesLocationId, providerId });
     const revisionId = current?.revisionId ?? null;
 
     // A farmer publication after this preference's stored slot resets the cadence. This is
@@ -201,11 +205,12 @@ async function schedulePreference(
 
     const proposal = await tx`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication, created_at, updated_at
       ) values (
-        ${candidate.sender_hash}, ${salesLocationId}, ${tx.json({ entries } as unknown as JSONValue)},
+        ${candidate.sender_hash}, ${salesLocationId}, ${providerId},
+        ${tx.json({ entries } as unknown as JSONValue)},
         1, true, false, ${revisionId}, ${revisionId === null},
         ${now}, ${now}
       ) returning id
@@ -215,14 +220,15 @@ async function schedulePreference(
     await tx`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id,
+        authorization_id, owner_farm_id, sales_location_id, provider_id,
         inventory_base_revision_id, closure_base_revision_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposalId}, 1, ${candidate.preference_id}, ${preference.version as number},
         ${preference.designated_authorization_id as string},
-        ${location.owner_farm_id as string}, ${salesLocationId}, ${revisionId},
+        ${location.owner_farm_id as string}, ${salesLocationId}, ${providerId},
+        ${revisionId},
         ${(closureRow?.id as string | undefined) ?? null}, ${closureRow === undefined},
         ${dueSlotAt}, ${outbox[0]?.id as string}, ${offersSame}, ${now}
       )

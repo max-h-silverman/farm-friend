@@ -17,6 +17,13 @@ govern address, hours, closure, and visibility; owner authority is not seller pa
 location carries one reviewed timezone used for local scheduled work; launch permits only
 `America/Los_Angeles`.
 
+**Publication authority no longer routes through `owner_farm_id`** (F-114 Phase B). Six of the eight
+composite keys that did now route through `(sales_locations.id, stand_providers.id)` instead, because
+the publisher may be a hosted seller the owner does not control. Two deliberately did NOT move:
+`closure_revisions`, because stand closure is owner-only and overrides every provider — a fact about
+the place — and `sales_location_participants`, which is retired as display-only history and is never
+linked to a seller identity.
+
 **A location is complete or absent, and any farm may have one** (F-088, narrowing F-038).
 `sales_locations_coherent_visitability` requires an address *and* both coordinates together — half a
 pair puts a pin in the ocean, and a point with no address cannot be checked by anyone. Only the
@@ -81,6 +88,39 @@ hides nothing from anyone determined to look. A farmer who does not want her add
 **`address_public = false`** (F-088) — a fact about the listing, which is a different kind of thing
 entirely. `contact_only` now says only *"there is no stand to visit"*, and no longer implies an
 unpublished address or an absent pin.
+
+## sellers and stand providers (F-114)
+
+- **sellers** — a reusable public brand identity, shared by one or more people. Deliberately NOT
+  rooted on `farms`: the stands that host other sellers today host bakeries and makers that are not
+  farms and never will have a listing. `farm_id` links a brand to a farm when it *is* one, and is
+  never inferred — the migration is forbidden to link a display name to an identity. VIGA may revoke
+  a seller globally.
+- **stand_providers** — ONE seller's participation at ONE stand, or, when `seller_id is null`, the
+  stand's **native brand slot**: the stand selling under its own name. One record with a nullable
+  column rather than two behind an interface, because two would double every current-inventory read
+  site and reintroduce the agree-by-convention failure Phase A ended. `seller_id is null` is a
+  permanent shape, not a migration shim: every stand today is its own seller and most will stay so.
+
+**Every stand has exactly one native slot**, enforced by a PARTIAL unique index —
+`stand_providers_one_native_per_location` on `sales_location_id where seller_id is null`. A plain
+unique on `(location, seller)` would constrain nothing, because Postgres treats NULLs as distinct
+and every native row would be its own key. It is also the first-insert arbiter for that row.
+
+The slot is created **by a trigger on `sales_locations`**, not by the writers that create stands. A
+stand with no native slot can hold no inventory and no usual items at all, and the failure would
+surface far from its cause.
+
+**Which facts live where:** the stand owns coordinates, address, directions, physical access, and
+stand-level closure. The provider owns current and usual inventory, prices, payment, season,
+schedule, pause, one public note, and its reminder cadence and recipient. **Availability is an
+intersection, never a union** — a provider may be closed inside an open stand and can never be open
+inside a closed one, computed once at `intersectAvailability`.
+
+**Three lifecycle states, not four.** `pending` is an unanswered invitation, `active` is public and
+may publish, `paused` is the seller's own temporary withdrawal. Ending a relationship is `ended_at`,
+because an unanswered invitation and an ended relationship are both "not public" — a fourth state
+would add a case to every reader and change no public output.
 
 ## Farmer identity, access, and invitation
 

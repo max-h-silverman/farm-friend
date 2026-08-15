@@ -237,8 +237,15 @@ async function main(): Promise<void> {
         let next = (highest ?? -1) + 1;
         for (const name of split.insert) {
           await tx`
-            insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-            values (${split.salesLocationId}, ${name}, ${split.usuallyCarried}, ${next})
+            insert into stand_items (
+              sales_location_id, provider_id, display_name, usually_carried, sort_order
+            )
+            values (
+              ${split.salesLocationId},
+              (select id from stand_providers
+                where sales_location_id = ${split.salesLocationId} and seller_id is null),
+              ${name}, ${split.usuallyCarried}, ${next}
+            )
           `;
           next += 1;
         }

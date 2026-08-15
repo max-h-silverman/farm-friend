@@ -1,6 +1,11 @@
 import type { StockOutModel } from "@farm-friend/ai";
 import { renderStockOutAlert, type Clock } from "@farm-friend/core";
-import { queueOutbox, readCurrentInventory, type Db } from "@farm-friend/db";
+import {
+  queueOutbox,
+  readCurrentInventory,
+  readNativeProviderId,
+  type Db,
+} from "@farm-friend/db";
 
 // Customer stock-out report → private farmer alert.
 //
@@ -92,7 +97,11 @@ async function listedItems(
   db: Db,
   salesLocationId: string,
 ): Promise<MatchCandidate[]> {
-  const current = await readCurrentInventory(db, { salesLocationId });
+  // F-114 Phase B — the stock-out matcher's candidates. Phase C.3 widens this to EVERY
+  // provider whose confirmed inventory contradicts the report; Phase B keeps the native slot
+  // so today's output is byte-identical.
+  const providerId = await readNativeProviderId(db, { salesLocationId });
+  const current = await readCurrentInventory(db, { salesLocationId, providerId });
   const offerings = await db.sql`
     select id, display_name
     from stand_items

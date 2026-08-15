@@ -558,13 +558,15 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     `;
     const proposal = await client()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication, state,
         activation_outbox_id, activated_version, activated_at, expires_at,
         consumed_token, consumption_provider_event_id, closed_at
       )
       values (
-        ${farmerHash}, ${ids.location}, ${client().json({ entries: [] })}, 1,
+${farmerHash}, ${ids.location},
+          (select id from stand_providers
+            where sales_location_id = ${ids.location} and seller_id is null), ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', 'seed-event', ${T0}
@@ -580,10 +582,10 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${ids.farm}, ${ids.location}, ${proposal[0]?.id as string},
+      values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${proposal[0]?.id as string},
               ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${T0})
       returning id
     `;
@@ -866,8 +868,8 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     async function publishTwoItems() {
       const revision = await client()`
         insert into inventory_revisions
-          (farm_id, sales_location_id, published_at, is_current, source)
-        values (${ids.farm}, ${ids.location}, ${T0}, true, 'viga')
+          (farm_id, sales_location_id, provider_id, published_at, is_current, source)
+        values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${T0}, true, 'viga')
         returning id
       `;
       return client()`

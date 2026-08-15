@@ -374,11 +374,13 @@ describe("authoritative SMS transaction schema (integration)", () => {
     // An unactivated proposal has no live window at all; expiry is activation-relative.
     const openProposal = await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_is_first_publication
       )
       values (
-        ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+        ${farmerHash}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
         1, true, false, true
       )
       returning id, expires_at
@@ -456,11 +458,14 @@ describe("authoritative SMS transaction schema (integration)", () => {
     `;
     const revisions = await db()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id,
+        farm_id, sales_location_id, provider_id, proposal_id,
         published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
-        ${storedId("farm")}, ${storedId("location")}, ${storedId("proposal1")},
+        ${storedId("farm")}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null),
+        ${storedId("proposal1")},
         ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${t1}
       )
       returning id
@@ -471,12 +476,14 @@ describe("authoritative SMS transaction schema (integration)", () => {
     await expect(
       db()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure, base_revision_id,
           base_is_first_publication
         )
         values (
-          ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+          ${farmerHash}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
           1, true, false, ${storedId("revision1")}, true
         )
       `,
@@ -484,12 +491,14 @@ describe("authoritative SMS transaction schema (integration)", () => {
 
     const bound = await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_revision_id,
         base_is_first_publication
       )
       values (
-        ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+        ${farmerHash}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
         1, true, false, ${storedId("revision1")}, false
       )
       returning id
@@ -513,12 +522,14 @@ describe("authoritative SMS transaction schema (integration)", () => {
     // An invalidated proposal frees the single open slot for its replacement.
     await db()`
       insert into inventory_publication_proposals (
-        sender_hash, sales_location_id, payload, proposal_version,
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
         has_inventory, has_closure, base_revision_id,
         base_is_first_publication
       )
       values (
-        ${farmerHash}, ${storedId("location")}, ${db().json({ items: [] })},
+        ${farmerHash}, ${storedId("location")},
+        (select id from stand_providers
+          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
         2, true, false, ${storedId("revision1")}, false
       )
     `;

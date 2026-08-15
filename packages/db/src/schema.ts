@@ -310,6 +310,38 @@ export const inventoryRevisionSource = pgEnum("inventory_revision_source", [
  */
 export const participantSource = pgEnum("participant_source", ["sms", "viga"]);
 
+/**
+ * Where one seller's participation at one stand currently stands (F-114).
+ *
+ * THREE values, not four. `pending` is an invitation nobody has answered; `active` is public
+ * and may publish; `paused` is the seller's own temporary withdrawal, which hides current
+ * facts without ending the relationship.
+ *
+ * **Ending a relationship is `ended_at`, not a fourth state.** An unanswered invitation and an
+ * ended relationship are both "not public", so a fourth value would add a case to every reader
+ * without changing any public output — and the two facts a reader actually needs (may this
+ * publish, is this public) are already answered by the state plus `ended_at`.
+ */
+export const standProviderLifecycle = pgEnum("stand_provider_lifecycle", [
+  "pending",
+  "active",
+  "paused",
+]);
+
+/**
+ * Who vouched for a seller appearing publicly at a stand (F-114).
+ *
+ * VIGA approval is the real gate — a hosted seller becomes visible on acceptance and approval,
+ * on standing claims alone, before any confirmation exists. `host` records that an already
+ * approved stand owner vouched instead, which produces a visible-but-revocable state rather
+ * than silent publication. The approving actor is recorded precisely so VIGA can revoke what it did
+ * not itself approve.
+ */
+export const standProviderApprovalSource = pgEnum(
+  "stand_provider_approval_source",
+  ["viga", "host"],
+);
+
 export const contacts = pgTable(
   "contacts",
   {
@@ -1039,6 +1071,8 @@ export const farmerLinks = pgTable(
     authorizationId: uuid("authorization_id").notNull(),
     ownerFarmId: uuid("owner_farm_id").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
+    /** Whose listing this link opens (F-114 Phase B). */
+    providerId: uuid("provider_id").notNull(),
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull(),
     /**
      * A link may be revoked individually without withdrawing the farmer's authority — the
@@ -1056,10 +1090,15 @@ export const farmerLinks = pgTable(
       columns: [table.authorizationId, table.ownerFarmId],
       foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
     }).onDelete("restrict"),
-    targetedLocationReference: foreignKey({
-      name: "farmer_links_targeted_location_owner_fk",
-      columns: [table.salesLocationId, table.ownerFarmId],
-      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    /**
+     * F-114 Phase B item 2 — re-rooted to `(provider, location)`. A standing link opens ONE
+     * listing form, and after Phase B a stand has several listings: the link has to name whose
+     * it edits, or a hosted seller's bookmarked link would open the host's inventory.
+     */
+    targetedLocationProviderReference: foreignKey({
+      name: "farmer_links_targeted_location_provider_fk",
+      columns: [table.providerId, table.salesLocationId],
+      foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("restrict"),
     tokenHashUnique: unique("farmer_links_token_hash_unique").on(
       table.tokenHash,
@@ -1500,6 +1539,418 @@ export const salesLocations = pgTable(
 );
 
 /**
+ * A reusable public brand identity, shared by one or more people (F-114).
+ *
+ * A seller may be a farm, a bakery, a maker, or an individual grower — `farms` is deliberately
+ * NOT the authority root here, because the stands that host other sellers today host bakeries
+ * and makers that are not farms and will never have a listing of their own.
+ *
+ * A seller carries no stand facts. Everything stand-specific — inventory, prices, payment,
+ * schedule, pause — lives on the `stand_providers` row that binds this seller to one stand, so
+ * the same seller at four stands has four independent sets of facts and one identity.
+ */
+export const sellers = pgTable(
+  "sellers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /**
+     * The farm this brand belongs to, when it is one. NULL is an ordinary seller — a bakery
+     * with no farm listing — and NOT a lesser one.
+     *
+     * Present so an existing farm's stands and its hosted participation at someone else's
+     * stand resolve to ONE public identity rather than two that happen to share a name. It is
+     * never inferred: §migration forbids auto-linking a display name to an identity.
+     */
+    farmId: uuid("farm_id").references(() => farms.id, { onDelete: "restrict" }),
+    /** VIGA has revoked this seller globally. NULL means live. */
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedByAdministratorId: uuid("revoked_by_administrator_id").references(
+      () => administrators.id,
+      { onDelete: "restrict" },
+    ),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    nameNotBlank: check(
+      "sellers_name_not_blank",
+      sql`length(btrim(${table.name}, E' \t\r\n')) > 0`,
+    ),
+    /**
+     * One seller per farm. A farm's brand identity is singular by construction — a farm
+     * wanting a second brand creates a seller with no `farm_id`, which is exactly what a
+     * separate brand is.
+     */
+    oneSellerPerFarm: uniqueIndex("sellers_one_per_farm")
+      .on(table.farmId)
+      .where(sql`${table.farmId} is not null`),
+    /**
+     * The two revocation columns move together or not at all — a full disjunction rather than
+     * a one-directional test, because a CHECK PASSES on NULL. Asserting only "an actor is
+     * recorded" would admit a seller revoked by nobody.
+     */
+    coherentRevocation: check(
+      "sellers_coherent_revocation",
+      sql`
+        (
+          ${table.revokedAt} is null
+          and ${table.revokedByAdministratorId} is null
+        )
+        or (
+          ${table.revokedAt} is not null
+          and ${table.revokedByAdministratorId} is not null
+        )
+      `,
+    ),
+  }),
+);
+
+/**
+ * ONE seller's participation at ONE stand — or, when `seller_id` is NULL, the stand's own
+ * native brand slot (F-114).
+ *
+ * ## One record, not two
+ *
+ * Native and named participation are one record with a nullable seller reference. The reader
+ * surface is the reason: twelve production sites ask "what is currently in stock here", and two
+ * provider records would double every one of them and reintroduce the agree-by-convention
+ * failure Phase A exists to end. One record means every guarantee — one-current-per-provider,
+ * publication authority, pause, freshness — is stated once and enforced by one constraint set
+ * for both kinds. A newcomer holds one concept.
+ *
+ * `seller_id is null` means the stand selling under its own name. **Native is a brand, not an
+ * absence of one**, and it is a permanent shape rather than a migration shim: every stand today
+ * is its own seller and most will stay that way. A stand has exactly one native slot because it
+ * has exactly one name, which is what `stand_providers_one_native_per_location` enforces.
+ *
+ * ## Why the schedule and season columns are here and not shared with the stand
+ *
+ * **Availability is an intersection, never a union.** A provider's schedule and season are
+ * clamped to the stand's: a provider may be closed while the stand is open, and can never be
+ * open while the stand is closed. That supports the real case — a hosted seller who takes only
+ * cash and locks their box before the stand shuts. These columns mirror `sales_locations`'
+ * because both feed the SAME `openNow` reader through `StandAvailabilityFacts`; the
+ * intersection is computed once, at `intersectAvailability`, never per surface.
+ *
+ * A provider that states nothing is `unknown`, which PERMITS — silence is not a claim that a
+ * seller is shut, so a native row migrated from a stand that stated its hours on the stand
+ * carries none of its own and defers to it.
+ */
+export const standProviders = pgTable(
+  "stand_providers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    salesLocationId: uuid("sales_location_id").notNull(),
+    /** NULL is the native brand slot — see the note above. */
+    sellerId: uuid("seller_id").references(() => sellers.id, {
+      onDelete: "restrict",
+    }),
+    lifecycleState: standProviderLifecycle("lifecycle_state").notNull(),
+
+    // The hosting lifecycle. An owner invites, the seller accepts, and VIGA (or a vouching
+    // approved host) approves before the relationship is public or may publish.
+    invitedAt: timestamp("invited_at", { withTimezone: true }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    approvalSource: standProviderApprovalSource("approval_source"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    /**
+     * Who vouched, when `approval_source = 'host'` — the approved stand owner's authorization.
+     * NULL for `viga`: VIGA's own approval names no farmer.
+     */
+    approvedByAuthorizationId: uuid("approved_by_authorization_id").references(
+      () => farmerAuthorizations.id,
+      { onDelete: "restrict" },
+    ),
+    /** Either side ended it. Not a lifecycle value — see `standProviderLifecycle`. */
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+
+    /** One stand-specific public note, in the seller's own words. */
+    publicNote: text("public_note"),
+
+    // The provider's OWN stated availability, clamped to the stand's at read time. Every
+    // column mirrors its `sales_locations` counterpart, and NULL throughout means "never
+    // said" — which permits, rather than closes.
+    seasonKind: seasonKind("season_kind"),
+    seasonStartMonth: integer("season_start_month"),
+    seasonStartDay: integer("season_start_day"),
+    seasonEndMonth: integer("season_end_month"),
+    seasonEndDay: integer("season_end_day"),
+    seasonNames: text("season_names").array(),
+    openHoursKind: openHoursKind("open_hours_kind"),
+    openFromMinutes: integer("open_from_minutes"),
+    openUntilMinutes: integer("open_until_minutes"),
+    openDays: integer("open_days").array(),
+
+    /**
+     * This provider's own reminder cadence and the ONE authorization it addresses.
+     *
+     * Per provider rather than per stand, and not speculatively: a hosted seller restocking
+     * weekly at a stand whose owner restocks daily needs its own cadence, and the recipient
+     * differs BY CONSTRUCTION — the whole point of hosting is that the seller, not the host,
+     * confirms the seller's goods. One cadence per stand would either spam the host about goods
+     * they do not control or leave the hosted seller unreminded.
+     *
+     * Both NULL means this provider has chosen no cadence; `inventory_prompt_preferences`
+     * remains the stand-level record the scheduler reads, and Phase C moves the pass onto this.
+     */
+    reminderCadence: inventoryPromptCadence("reminder_cadence"),
+    reminderAuthorizationId: uuid("reminder_authorization_id").references(
+      () => farmerAuthorizations.id,
+      { onDelete: "restrict" },
+    ),
+
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (table) => ({
+    /**
+     * `cascade`, not `restrict`. The native slot has no existence apart from its stand — it IS
+     * the stand selling under its own name — so a deleted stand takes it with it, exactly as it
+     * already took that stand's `stand_items` and its stale targeting context.
+     *
+     * This is not a weakening of the hosted-seller guarantee. VIGA RETIRES stands rather than
+     * deleting them (`retired_at`, F-071), precisely so the record of what a farm published
+     * survives; the delete path this covers is test teardown and the seeder's own cleanup. What
+     * protects a hosted seller's history is that the stand row is never deleted at all.
+     */
+    salesLocationReference: foreignKey({
+      name: "stand_providers_location_fk",
+      columns: [table.salesLocationId],
+      foreignColumns: [salesLocations.id],
+    }).onDelete("cascade"),
+    /**
+     * The target of every re-rooted composite foreign key (F-114 Phase B item 2).
+     *
+     * Authority used to route through `(sales_locations.id, sales_locations.owner_farm_id)`.
+     * It now routes through `(stand_providers.id, stand_providers.sales_location_id)`, so
+     * "this record belongs to a provider AT the stand the surface bound" is a database
+     * guarantee rather than a check some future caller might skip. Same shape as
+     * `inventory_entries_id_location_unique` and `stand_items_id_location_unique`.
+     */
+    idAndLocationUnique: unique("stand_providers_id_location_unique").on(
+      table.id,
+      table.salesLocationId,
+    ),
+    /**
+     * A stand has EXACTLY ONE native slot, because it has exactly one name.
+     *
+     * Partial on `seller_id is null` — a plain unique on `(location, seller)` would not
+     * constrain this at all, because Postgres treats NULLs as distinct and every native row
+     * would be its own key. This is also the first-insert ARBITER for the native row: two
+     * concurrent writers both find nothing and both insert, so the winner is decided here by
+     * `insert … on conflict do nothing returning …`, never by a preceding read.
+     */
+    oneNativePerLocation: uniqueIndex("stand_providers_one_native_per_location")
+      .on(table.salesLocationId)
+      .where(sql`${table.sellerId} is null`),
+    /**
+     * A stand admits at most one provider row per seller. One person selling under two brands
+     * at a single stand is not supported; a person needing two brands there needs two sellers.
+     * Partial on `seller_id is not null` so it says nothing about the native slot, which the
+     * index above owns.
+     */
+    oneRowPerSellerPerLocation: uniqueIndex(
+      "stand_providers_one_per_seller_per_location",
+    )
+      .on(table.salesLocationId, table.sellerId)
+      .where(sql`${table.sellerId} is not null`),
+    /** Every corpus-wide reader joins providers to their stand; the live ones are the query. */
+    liveIdx: index("stand_providers_live_idx")
+      .on(table.salesLocationId)
+      .where(sql`${table.endedAt} is null`),
+
+    /**
+     * The NATIVE slot carries no hosting lifecycle, and a NAMED provider carries all of it.
+     *
+     * A biconditional over the whole shape rather than four independent NULL tests, because a
+     * CHECK PASSES on NULL: "an invitation is recorded" alone would admit a native row with an
+     * invitation nobody sent, and its mirror would admit a hosted seller that appeared
+     * publicly with no invitation, no acceptance and no approval — which is the fabricated
+     * authority §migration forbids.
+     *
+     * The native arm is not a degenerate case of the named one. A stand selling under its own
+     * name was never invited by anybody and needs no approval to use its own stand, so
+     * requiring the columns would only be satisfiable by inventing an event that never
+     * happened.
+     */
+    hostingLifecycleCoherent: check(
+      "stand_providers_hosting_lifecycle_coherent",
+      sql`
+        (
+          ${table.sellerId} is null
+          and ${table.invitedAt} is null
+          and ${table.acceptedAt} is null
+          and ${table.approvalSource} is null
+          and ${table.approvedAt} is null
+          and ${table.approvedByAuthorizationId} is null
+          and ${table.lifecycleState} <> 'pending'
+        )
+        or (
+          ${table.sellerId} is not null
+          and ${table.invitedAt} is not null
+          and (
+            (
+              ${table.lifecycleState} = 'pending'
+              and ${table.acceptedAt} is null
+              and ${table.approvalSource} is null
+              and ${table.approvedAt} is null
+            )
+            or (
+              ${table.lifecycleState} in ('active', 'paused')
+              and ${table.acceptedAt} is not null
+              and ${table.acceptedAt} >= ${table.invitedAt}
+              and ${table.approvalSource} is not null
+              and ${table.approvedAt} is not null
+            )
+          )
+        )
+      `,
+    ),
+    /**
+     * A vouching host names the authorization that vouched; VIGA names none. A biconditional,
+     * matching the `sourceProvenance` discipline: an independent test would admit
+     * `approval_source = 'host'` with nobody recorded, which is the whole fact this column
+     * exists to carry.
+     */
+    approvalSourceCoherent: check(
+      "stand_providers_approval_source_coherent",
+      sql`
+        (${table.approvalSource} = 'host') = (${table.approvedByAuthorizationId} is not null)
+        or (
+          ${table.approvalSource} is null
+          and ${table.approvedByAuthorizationId} is null
+        )
+      `,
+    ),
+    /** An ended relationship ended after it began, and the native slot never ends. */
+    endingCoherent: check(
+      "stand_providers_ending_coherent",
+      sql`
+        ${table.endedAt} is null
+        or (
+          ${table.sellerId} is not null
+          and ${table.invitedAt} is not null
+          and ${table.endedAt} >= ${table.invitedAt}
+        )
+      `,
+    ),
+    /** A stated note must say something; "" and NULL must not render identically. */
+    publicNoteNotBlank: check(
+      "stand_providers_public_note_not_blank",
+      sql`
+        ${table.publicNote} is null
+        or length(btrim(${table.publicNote}, E' \t\r\n')) > 0
+      `,
+    ),
+    /**
+     * The provider's cadence and its recipient move together. A cadence with nobody to text is
+     * a reminder that can never be sent; a recipient with no cadence is a preference nobody
+     * stated. Written as a biconditional for the usual reason.
+     */
+    reminderCoherent: check(
+      "stand_providers_reminder_coherent",
+      sql`
+        (${table.reminderCadence} is not null) = (${table.reminderAuthorizationId} is not null)
+      `,
+    ),
+
+    // The availability columns repeat `sales_locations`' rules verbatim, because they answer
+    // the same question through the same reader. A provider whose season or hours were stored
+    // half-stated would load silently and make `openNow` defend against a state no writer
+    // should produce.
+    coherentSeason: check(
+      "stand_providers_coherent_season",
+      sql`
+        (
+          ${table.seasonKind} is null
+          and ${table.seasonStartMonth} is null and ${table.seasonStartDay} is null
+          and ${table.seasonEndMonth} is null and ${table.seasonEndDay} is null
+          and ${table.seasonNames} is null
+        )
+        or (
+          ${table.seasonKind} = 'year_round'
+          and ${table.seasonStartMonth} is null and ${table.seasonEndMonth} is null
+          and ${table.seasonNames} is null
+        )
+        or (
+          ${table.seasonKind} = 'date_range'
+          and ${table.seasonStartMonth} is not null and ${table.seasonStartDay} is not null
+          and ${table.seasonEndMonth} is not null and ${table.seasonEndDay} is not null
+          and ${table.seasonNames} is null
+        )
+        or (
+          ${table.seasonKind} = 'named_season'
+          and ${table.seasonNames} is not null
+          and coalesce(array_length(${table.seasonNames}, 1), 0) > 0
+          and ${table.seasonStartMonth} is null and ${table.seasonEndMonth} is null
+        )
+        or (
+          ${table.seasonKind} = 'open_ended'
+          and ${table.seasonStartMonth} is not null and ${table.seasonStartDay} is not null
+          and ${table.seasonEndMonth} is null and ${table.seasonEndDay} is null
+          and ${table.seasonNames} is null
+        )
+      `,
+    ),
+    validSeasonDates: check(
+      "stand_providers_valid_season_dates",
+      sql`
+        (${table.seasonStartMonth} is null or ${table.seasonStartMonth} between 1 and 12)
+        and (${table.seasonEndMonth} is null or ${table.seasonEndMonth} between 1 and 12)
+        and (${table.seasonStartDay} is null or ${table.seasonStartDay} between 1 and 31)
+        and (${table.seasonEndDay} is null or ${table.seasonEndDay} between 1 and 31)
+      `,
+    ),
+    coherentOpenHours: check(
+      "stand_providers_coherent_open_hours",
+      sql`
+        (
+          ${table.openHoursKind} is null
+          and ${table.openFromMinutes} is null and ${table.openUntilMinutes} is null
+        )
+        or (
+          ${table.openHoursKind} in ('dawn_to_dusk', 'daylight_hours', 'all_day', 'by_appointment')
+          and ${table.openFromMinutes} is null and ${table.openUntilMinutes} is null
+        )
+        or (
+          ${table.openHoursKind} = 'clock_range'
+          and ${table.openFromMinutes} is not null and ${table.openUntilMinutes} is not null
+        )
+        or (
+          ${table.openHoursKind} = 'until_dusk'
+          and ${table.openFromMinutes} is not null and ${table.openUntilMinutes} is null
+        )
+      `,
+    ),
+    validOpenMinutes: check(
+      "stand_providers_valid_open_minutes",
+      sql`
+        (${table.openFromMinutes} is null or ${table.openFromMinutes} between 0 and 1439)
+        and (${table.openUntilMinutes} is null or ${table.openUntilMinutes} between 0 and 1439)
+      `,
+    ),
+    // `coalesce` is load-bearing: `array_length` of an empty array returns NULL, not 0, and a
+    // CHECK passes on NULL — so a bare range test would admit the empty array it forbids.
+    validOpenDays: check(
+      "stand_providers_valid_open_days",
+      sql`
+        ${table.openDays} is null
+        or (
+          coalesce(array_length(${table.openDays}, 1), 0) between 1 and 7
+          and ${table.openDays} <@ array[0,1,2,3,4,5,6]
+        )
+      `,
+    ),
+  }),
+);
+
+/**
  * The sender's current SMS stand plus their one live numbered STAND menu (F-051).
  *
  * The selected pair is convenience, never authority: every consumer joins it back through
@@ -1516,6 +1967,15 @@ export const farmerTargetContexts = pgTable(
     selectedAuthorizationId: uuid("selected_authorization_id"),
     selectedOwnerFarmId: uuid("selected_owner_farm_id"),
     selectedSalesLocationId: uuid("selected_sales_location_id"),
+    /**
+     * WHICH provider at the selected stand this sender is updating (F-114 Phase B item 7).
+     *
+     * Without it a hosted seller at four stands is untargetable: their selection routes through
+     * the HOST's `owner_farm_id`, which is not their farm. The provider is the target; the
+     * owner farm remains only as the pair that proves the authorization and the stand belong
+     * together.
+     */
+    selectedProviderId: uuid("selected_provider_id"),
     selectedAt: timestamp("selected_at", { withTimezone: true }),
     menuIssuedAt: timestamp("menu_issued_at", { withTimezone: true }),
     menuExpiresAt: timestamp("menu_expires_at", { withTimezone: true }),
@@ -1528,10 +1988,11 @@ export const farmerTargetContexts = pgTable(
       columns: [table.selectedAuthorizationId, table.selectedOwnerFarmId],
       foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
     }).onDelete("cascade"),
-    selectedLocationOwnerReference: foreignKey({
-      name: "farmer_target_contexts_selected_location_owner_fk",
-      columns: [table.selectedSalesLocationId, table.selectedOwnerFarmId],
-      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    /** F-114 Phase B item 2 — re-rooted to `(provider, location)`. */
+    selectedLocationProviderReference: foreignKey({
+      name: "farmer_target_contexts_selected_location_provider_fk",
+      columns: [table.selectedProviderId, table.selectedSalesLocationId],
+      foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("cascade"),
     selectedAuthorizationLookup: index(
       "farmer_target_contexts_selected_authorization",
@@ -1539,6 +2000,13 @@ export const farmerTargetContexts = pgTable(
     selectedLocationLookup: index(
       "farmer_target_contexts_selected_location",
     ).on(table.selectedSalesLocationId),
+    /**
+     * A selection is COMPLETE or absent — now including the provider (F-114 Phase B item 7).
+     *
+     * A full disjunction over all five columns rather than per-column tests, because a CHECK
+     * PASSES on NULL: a selection carrying a stand and no provider would be exactly the
+     * ambiguous target this item exists to remove, and it would load silently.
+     */
     selectedContextCoherent: check(
       "farmer_target_contexts_selected_context_coherent",
       sql`
@@ -1546,12 +2014,14 @@ export const farmerTargetContexts = pgTable(
           ${table.selectedAuthorizationId} is null
           and ${table.selectedOwnerFarmId} is null
           and ${table.selectedSalesLocationId} is null
+          and ${table.selectedProviderId} is null
           and ${table.selectedAt} is null
         )
         or (
           ${table.selectedAuthorizationId} is not null
           and ${table.selectedOwnerFarmId} is not null
           and ${table.selectedSalesLocationId} is not null
+          and ${table.selectedProviderId} is not null
           and ${table.selectedAt} is not null
         )
       `,
@@ -1584,6 +2054,12 @@ export const farmerTargetMenuOptions = pgTable(
     authorizationId: uuid("authorization_id").notNull(),
     ownerFarmId: uuid("owner_farm_id").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
+    /**
+     * The provider this numbered option selects (F-114 Phase B item 7). A hosted seller at four
+     * stands gets four options; a stand hosting two sellers offers one option per provider, not
+     * one per stand.
+     */
+    providerId: uuid("provider_id").notNull(),
   },
   (table) => ({
     key: primaryKey({ columns: [table.senderHash, table.optionNumber] }),
@@ -1597,14 +2073,20 @@ export const farmerTargetMenuOptions = pgTable(
       columns: [table.authorizationId, table.ownerFarmId],
       foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
     }).onDelete("cascade"),
-    locationOwnerReference: foreignKey({
-      name: "farmer_target_menu_options_location_owner_fk",
-      columns: [table.salesLocationId, table.ownerFarmId],
-      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    /** F-114 Phase B item 2 — re-rooted to `(provider, location)`. */
+    locationProviderReference: foreignKey({
+      name: "farmer_target_menu_options_location_provider_fk",
+      columns: [table.providerId, table.salesLocationId],
+      foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("cascade"),
+    /**
+     * One number per targetable thing. Keyed on the PROVIDER now, not the stand: a menu
+     * offering a host and a hosted seller at one stand has two distinct options, which the
+     * stand-keyed constraint refused.
+     */
     oneNumberPerPair: unique(
       "farmer_target_menu_options_one_number_per_pair",
-    ).on(table.senderHash, table.authorizationId, table.salesLocationId),
+    ).on(table.senderHash, table.authorizationId, table.providerId),
     positiveOption: check(
       "farmer_target_menu_options_positive_option",
       sql`${table.optionNumber} > 0`,
@@ -1619,6 +2101,12 @@ export const inventoryPromptPreferences = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     ownerFarmId: uuid("owner_farm_id").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
+    /**
+     * Whose reminders these are (F-114 Phase B). Each provider has one cadence and one
+     * designated recipient — a hosted seller restocking weekly at a stand whose owner restocks
+     * daily needs its own, and the recipient differs by construction.
+     */
+    providerId: uuid("provider_id").notNull(),
     designatedAuthorizationId: uuid("designated_authorization_id").notNull(),
     cadence: inventoryPromptCadence("cadence").notNull(),
     version: integer("version").notNull(),
@@ -1627,13 +2115,15 @@ export const inventoryPromptPreferences = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => ({
-    onePerLocation: unique("inventory_prompt_preferences_location_unique").on(
-      table.salesLocationId,
+    /** One cadence per PROVIDER (F-114 Phase B), replacing one per stand. */
+    onePerProvider: unique("inventory_prompt_preferences_provider_unique").on(
+      table.providerId,
     ),
-    locationOwnerReference: foreignKey({
-      name: "inventory_prompt_preferences_location_owner_fk",
-      columns: [table.salesLocationId, table.ownerFarmId],
-      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    /** F-114 Phase B item 2 — re-rooted to `(provider, location)`. */
+    locationProviderReference: foreignKey({
+      name: "inventory_prompt_preferences_location_provider_fk",
+      columns: [table.providerId, table.salesLocationId],
+      foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("restrict"),
     authorizationOwnerReference: foreignKey({
       name: "inventory_prompt_preferences_authorization_owner_fk",
@@ -1789,6 +2279,17 @@ export const standItems = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     salesLocationId: uuid("sales_location_id").notNull(),
+    /**
+     * WHOSE usual item this is (F-114 Phase B item 4).
+     *
+     * This table could not wait for Phase C. **A hosted seller's first published fact is a
+     * usual item, not a confirmation** — a seller becomes visible on acceptance and approval,
+     * on standing claims alone — and usual items are the majority of what customers see: 33 of
+     * 37 stands carry a usual item absent from their published inventory, and 18 publish no
+     * inventory at all (measured 2026-08-11). Without this column a host and a hosted seller
+     * who both usually sell eggs collide on `stand_items_one_per_location_name`.
+     */
+    providerId: uuid("provider_id").notNull(),
     /** The farmer's own words, verbatim: "eggs", "plant starts", "Gailan". */
     displayName: text("display_name").notNull(),
     /** The standing state. Never a date — see the note above. */
@@ -1826,10 +2327,16 @@ export const standItems = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => ({
-    salesLocationReference: foreignKey({
-      name: "stand_items_location_fk",
-      columns: [table.salesLocationId],
-      foreignColumns: [salesLocations.id],
+    /**
+     * F-114 Phase B item 2 — re-rooted from the stand alone to `(provider, location)`, so a
+     * usual item can only belong to a provider AT the stand the surface bound. `cascade` is
+     * preserved from the stand reference it replaces: a provider's usual items are meaningless
+     * without the provider, exactly as they were without the stand.
+     */
+    locationProviderReference: foreignKey({
+      name: "stand_items_location_provider_fk",
+      columns: [table.providerId, table.salesLocationId],
+      foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("cascade"),
     /**
      * The target of `stock_out_reports`' composite reference (B-057), matching the shape
@@ -1913,15 +2420,22 @@ export const standItems = pgTable(
       sql`${table.priceUnit} is null or length(btrim(${table.priceUnit}, E' \t\r\n')) > 0`,
     ),
     /**
-     * One item per stand per name, and the first-insert arbiter for concurrent writers.
+     * One item per PROVIDER per name (F-114 Phase B item 4), and the first-insert arbiter for
+     * concurrent writers.
+     *
+     * Keyed on the stand alone, a host and a hosted seller who both usually sell eggs collided:
+     * the second writer was refused, and the honest answer — two providers each usually carry
+     * eggs, at their own prices — could not be stored at all. The stand-wide question is now
+     * asked by a reader that groups by item across the stand's providers, which is where a
+     * dedupe decision belongs, rather than by an index that forbade the second fact.
      *
      * Normalization is case and surrounding whitespace ONLY, so the profile form's "eggs" and
      * the weekly form's "Eggs" are one item. It must never fold singulars into plurals or
      * synonyms into each other — that is a produce taxonomy, and this index is not where such
      * a decision belongs.
      */
-    onePerLocationName: uniqueIndex("stand_items_one_per_location_name").on(
-      table.salesLocationId,
+    onePerProviderName: uniqueIndex("stand_items_one_per_provider_name").on(
+      table.providerId,
       sql`lower(btrim(${table.displayName}, E' \t\r\n'))`,
     ),
   }),
@@ -2430,6 +2944,14 @@ export const inventoryPublicationProposals = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     senderHash: text("sender_hash").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
+    /**
+     * WHICH provider's listing this confirmation answers for (F-114 Phase B item 6).
+     *
+     * The confirmation token is context-bound, and this is what it is now bound TO. Without it
+     * a `YES` from someone affiliated with two sellers at one stand is ambiguous about which
+     * listing it publishes.
+     */
+    providerId: uuid("provider_id").notNull(),
     payload: jsonb("payload").notNull(),
     proposalVersion: integer("proposal_version").notNull(),
     state: proposalState("state").notNull().default("open"),
@@ -2464,20 +2986,37 @@ export const inventoryPublicationProposals = pgTable(
       columns: [table.senderHash],
       foreignColumns: [contacts.phoneHash],
     }).onDelete("restrict"),
-    salesLocationReference: foreignKey({
-      name: "inventory_proposals_location_fk",
-      columns: [table.salesLocationId],
-      foreignColumns: [salesLocations.id],
+    /** F-114 Phase B item 2 — re-rooted from the stand alone to `(provider, location)`. */
+    locationProviderReference: foreignKey({
+      name: "inventory_proposals_location_provider_fk",
+      columns: [table.providerId, table.salesLocationId],
+      foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("restrict"),
     activationOutboxReference: foreignKey({
       name: "inventory_proposals_activation_outbox_fk",
       columns: [table.activationOutboxId],
       foreignColumns: [outboxWork.id],
     }).onDelete("restrict"),
-    oneOpenPerSender: uniqueIndex(
-      "inventory_publication_proposals_one_open_per_sender",
+    /**
+     * ONE open confirmation per person PER PROVIDER-AT-STAND (F-114 Phase B item 6).
+     *
+     * This fixes a defect that predates the multi-seller work. Keyed on `sender_hash` alone,
+     * the limit on pending SMS changes was per PERSON, not per target: someone affiliated with
+     * sellers at two stands who texted an update for one was locked out of the other until they
+     * replied YES or NO. Multi-seller people are exactly the population this refactor serves.
+     *
+     * The golden rule is unchanged and in fact better served — a confirmation token stays
+     * context- and version-bound, commits exactly once, and expires — but a token can no longer
+     * be ambiguous about which listing it answers for.
+     *
+     * `sales_location_id` is in the key even though `provider_id` already determines it. The
+     * index is what a writer's `on conflict` names, and naming the pair the caller actually
+     * holds keeps the arbiter reachable without a preceding lookup.
+     */
+    oneOpenPerSenderPerProvider: uniqueIndex(
+      "inventory_publication_proposals_one_open_per_provider",
     )
-      .on(table.senderHash)
+      .on(table.senderHash, table.salesLocationId, table.providerId)
       .where(sql`${table.state} = 'open'`),
     activationOutboxUnique: unique(
       "inventory_publication_proposals_activation_outbox_unique",
@@ -2606,6 +3145,13 @@ export const inventoryRevisions = pgTable(
     farmId: uuid("farm_id").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
     /**
+     * WHOSE inventory this is (F-114 Phase B). Every revision belongs to exactly one provider
+     * at the stand — the native brand slot for a stand selling under its own name, or a named
+     * seller. `NOT NULL`: an unattributed revision is the anonymous shared snapshot this
+     * refactor exists to end.
+     */
+    providerId: uuid("provider_id").notNull(),
+    /**
      * The handset chain (F-063). All three are nullable in the column definition and
      * REQUIRED-or-FORBIDDEN by `sourceProvenance` below, according to `source`. Nullability
      * here is not permissiveness: it is what lets one constraint state the whole rule, instead
@@ -2631,15 +3177,38 @@ export const inventoryRevisions = pgTable(
       columns: [table.proposalId],
       foreignColumns: [inventoryPublicationProposals.id],
     }).onDelete("restrict"),
-    oneCurrentPerLocation: uniqueIndex(
-      "inventory_revisions_one_current_per_location",
+    /**
+     * ONE current revision per PROVIDER (F-114 Phase B item 3), replacing
+     * `inventory_revisions_one_current_per_location`.
+     *
+     * This is the specific invariant per-provider inventory invalidates: keyed on the stand
+     * alone, a hosted seller publishing would supersede the host's listing and vice versa. It
+     * was replaced in the SAME migration that added `provider_id`, never dropped ahead of it —
+     * a window with neither index is a window in which two current revisions per stand can be
+     * written and never detected afterwards.
+     *
+     * It is also the ARBITER of a first-inventory race. `select … for update` cannot serialize
+     * a row that does not exist yet, so two concurrent first publications for one provider both
+     * find nothing and both insert; `insert … on conflict do nothing returning id` lets exactly
+     * one win, and the loser's empty result is how it learns it lost. Each claimant needs its
+     * OWN provider row — claimants sharing a stand parent serialize at the first read and
+     * measure the wrong lock.
+     */
+    oneCurrentPerProvider: uniqueIndex(
+      "inventory_revisions_one_current_per_provider",
     )
-      .on(table.salesLocationId)
+      .on(table.providerId)
       .where(sql`${table.isCurrent}`),
-    locationFarmReference: foreignKey({
-      name: "inventory_revisions_location_farm_fk",
-      columns: [table.salesLocationId, table.farmId],
-      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    /**
+     * F-114 Phase B item 2 — authority re-rooted from `(location, owner_farm)` to
+     * `(location, provider)`. A revision belongs to a provider AT this stand; stand ownership
+     * no longer carries publication authority, because the publisher may be a hosted seller
+     * the owner does not control.
+     */
+    locationProviderReference: foreignKey({
+      name: "inventory_revisions_location_provider_fk",
+      columns: [table.providerId, table.salesLocationId],
+      foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("restrict"),
     authorizationFarmReference: foreignKey({
       name: "inventory_revisions_authorization_farm_fk",
@@ -2832,6 +3401,8 @@ export const scheduledInventoryPromptSubjects = pgTable(
     authorizationId: uuid("authorization_id").notNull(),
     ownerFarmId: uuid("owner_farm_id").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
+    /** Whose listing this scheduled prompt asks about (F-114 Phase B). */
+    providerId: uuid("provider_id").notNull(),
     inventoryBaseRevisionId: uuid("inventory_base_revision_id"),
     closureBaseRevisionId: uuid("closure_base_revision_id"),
     closureBaseIsFirstInstruction: boolean(
@@ -2858,10 +3429,11 @@ export const scheduledInventoryPromptSubjects = pgTable(
       columns: [table.authorizationId, table.ownerFarmId],
       foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.farmId],
     }).onDelete("restrict"),
-    locationOwnerReference: foreignKey({
-      name: "scheduled_prompt_subjects_location_owner_fk",
-      columns: [table.salesLocationId, table.ownerFarmId],
-      foreignColumns: [salesLocations.id, salesLocations.ownerFarmId],
+    /** F-114 Phase B item 2 — re-rooted to `(provider, location)`. */
+    locationProviderReference: foreignKey({
+      name: "scheduled_prompt_subjects_location_provider_fk",
+      columns: [table.providerId, table.salesLocationId],
+      foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("restrict"),
     inventoryBaseReference: foreignKey({
       name: "scheduled_prompt_subjects_inventory_base_fk",

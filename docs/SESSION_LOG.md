@@ -11,7 +11,98 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-14 (latest) — One reader for "what's in stock here" (B-074, F-114 Phase A)
+## 2026-08-15 (latest) — Records and constraints for multi-seller stands (F-114 Phase B)
+
+Phase B of the multi-seller refactor: the record layer. `sellers` and `stand_providers` now exist,
+and a provider dimension runs through inventory revisions, usual items, proposals, farmer links,
+prompt preferences, scheduled prompts, and SMS targeting. **Every current output is unchanged** —
+every write goes to the stand's native slot, which is the stand behaving exactly as it always did.
+Hosted-seller *behavior* is Phase C and is deliberately not built.
+
+**One record, not two, and the native slot is a brand.** `seller_id IS NULL` means the stand selling
+under its own name. The contract settled this and Phase B confirmed why it matters at the writer
+level too: one nullable column means one constraint set covers both kinds, and the twelve read sites
+Phase A consolidated stayed one seam instead of two.
+
+**The count correction, and the two keys that did NOT move.** The contract said nine composite
+foreign keys route authority through `(sales_locations.id, owner_farm_id)`. There are **eight** — the
+"ninth" double-counted `farmer_target_contexts_selected_location_owner_fk`, citing its
+`foreignColumns` line in the original list and its declaration line again as the ninth. Of the eight,
+**six re-rooted**. Max decided the other two stay on the stand: `closure_revisions` carries
+stand-level closure, which is owner-only and overrides every provider — a fact about the *place*, not
+about any seller — and `sales_location_participants` is explicitly *retired* as display-only history
+by contract item 5, so a provider reference is one the migration is forbidden to populate. Re-rooting
+either would have made the record assert something false.
+
+**The migration is where the real defects were, and only a populated database found them.**
+
+1. `drizzle-kit generate` emitted `ADD COLUMN … NOT NULL` with no default and no backfill for all
+   eight columns. That **passes on an empty database and fails instantly on a real one** (23502).
+   Against the production corpus — 37 stands with inventory, usual items, links, preferences and
+   proposals — that is every one of those tables. Rewritten to add nullable, backfill, then
+   `SET NOT NULL`, so the constraint is proved by the data rather than asserted ahead of it.
+2. `inventory_revisions_guard_history` refused the backfill outright. That trigger permits exactly
+   ONE transition — superseding a current revision — and raises on everything else. It is a Golden
+   Rule #1 protection and was not weakened: the migration disables it for that single statement,
+   re-enables it immediately, and then **widens it to cover `provider_id`**, so the new column is as
+   immutable as the columns beside it from that point on. Attributing an existing revision to the
+   provider that already published it is not a rewrite of history; nothing published changes.
+3. Nothing created a native provider for a *newly* created stand — only for the ones that existed at
+   migration time. Rather than patching the two writers that create stands and leaving every future
+   writer to remember, the guarantee went into the database as an `AFTER INSERT` trigger. A stand
+   with no native slot can hold no inventory and no usual items at all, and the failure would surface
+   far from its cause. The number of writers that must remember this is now zero.
+4. `stand_providers_location_fk` had to become `cascade`, not `restrict` — deleting a stand was
+   blocked by its own native slot, which broke the existing "a removed location cascades its stale
+   targeting context" behavior. The native slot has no existence apart from its stand. This is not a
+   weakening of the hosted-seller guarantee: VIGA *retires* stands rather than deleting them, so
+   what protects a hosted seller's history is that the stand row is never deleted at all.
+
+**A defect caught while threading the writers.** `saveOnboardingListing` clears standing claims
+before rewriting them, and that clear was scoped to the *stand*. Left alone, it would have silently
+dropped every hosted seller's usual items each time the host saved their own listing. It is now
+scoped to the provider.
+
+**The schema vocabulary forbids the word "provenance."** `schema.integration.test.ts` scans the
+schema text, the index file, `0000`, and the snapshot for a list of banned concepts, and a constraint
+*name* trips it as readily as a column. `stand_providers_approval_provenance_coherent` became
+`stand_providers_approval_source_coherent`, matching the existing `source` vocabulary. The camelCase
+key `sourceProvenance` survives only because the pattern is `\bprovenance\b`.
+
+**The pending-change defect is fixed** (contract item 6). The one-open-proposal index was keyed on
+`sender_hash` alone, so the limit on pending SMS changes was per *person*, not per target — someone
+affiliated with sellers at two stands who texted an update for one was locked out of the other until
+they replied. Now `(sender_hash, sales_location_id, provider_id)`. The regression test was written
+first and watched fail.
+
+**Invalidation (contract item 8) did not exist at all.** Closure was read at send time and nothing
+was ever invalidated, so a provider paused after a prompt went out could still have a live
+confirmation token in someone's phone; answering YES would publish for a listing no longer public.
+`invalidateProviderWork` is ONE function with an optional `providerId` — omitted means the stand
+closed and every provider is invalidated — rather than two near-duplicates. It closes only `open`
+proposals and suppresses only `queued` outbox rows, which is what makes it idempotent, leaves an
+answer the farmer already gave intact, and never marks an already-sent message suppressed. This is
+the guarantee the Phase C re-open confirmation will rest on.
+
+**Phase A paid for itself immediately.** Changing `readCurrentRevisionRef` to take a provider turned
+every stand-scoped read site into a compile error in exactly the five files the enumeration named.
+Without it, those sites would have kept returning stand-wide rows — correct-looking and wrong.
+
+Verified: 1,037 integration tests across 70 files, 2,063 unit tests (7 corpus-only skips), typecheck,
+lint, and scripted evals (critical 11/11, advisory 4/4, adversarial 19/19). **36 sabotage cases**
+assert the exact row each new index and CHECK refuses, and **seven deliberate breakages were each
+caught** by the suite aimed at them: a non-partial native-slot index (the NULL-distinct trap), a
+one-directional `reminder_coherent`, a dropped `coalesce` on the empty day array, one-current keyed
+on the stand, `stand_items` keyed on the stand, invalidation ignoring the provider, and invalidation
+rewriting an answered proposal. The migration is verified against a **populated** copy of the
+pre-`0042` schema with 11 assertions on exact row effects — including a retired stand that still owns
+revisions and a never-published stand — plus a re-run proving it is a no-op. No live-model eval was
+owed: no seam projection, schema, or output contract changed.
+
+Owed: **`0042` is unapplied in production and must land before the code that requires it.** Every
+writer now supplies `provider_id`, so against the un-migrated schema they fail immediately.
+
+## 2026-08-14 — One reader for "what's in stock here" (B-074, F-114 Phase A)
 
 Phase A of the multi-seller refactor: consolidate the hand-written current-inventory reads behind one
 seam, proving output unchanged, before any provider record exists. The contract's own sequencing

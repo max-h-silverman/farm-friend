@@ -1381,8 +1381,9 @@ describe("inbound routing end to end (integration)", () => {
         `;
         const standId = stand[0]?.id as string;
         await client()`
-          insert into stand_items (sales_location_id, display_name, usually_carried, sort_order)
-          values (${standId}, 'eggs', true, 0)
+          insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+          values (${standId}, (select id from stand_providers
+            where sales_location_id = ${standId} and seller_id is null), 'eggs', true, 0)
         `;
         pagedStands.push(offeringFactId(standId));
       }
@@ -1499,13 +1500,15 @@ describe("inbound routing end to end (integration)", () => {
       `;
       const proposal = await client()`
         insert into inventory_publication_proposals (
-          sender_hash, sales_location_id, payload, proposal_version,
+          sender_hash, sales_location_id, provider_id, payload, proposal_version,
           has_inventory, has_closure, base_is_first_publication, state,
           activation_outbox_id, activated_version, activated_at, expires_at,
           consumed_token, consumption_provider_event_id, closed_at
         )
         values (
-          ${farmerHash}, ${locationId}, ${client().json({ entries: [] })}, 1,
+${farmerHash}, ${locationId},
+          (select id from stand_providers
+            where sales_location_id = ${locationId} and seller_id is null), ${client().json({ entries: [] })}, 1,
           true, false, true, 'accepted',
           ${prompt[0]?.id as string}, 1, ${at(-31)},
           ${new Date(T0.getTime() + 3_600_000)}, 'yes', ${`ev-${randomUUID()}`},
@@ -1521,10 +1524,13 @@ describe("inbound routing end to end (integration)", () => {
       `;
       const revision = await client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at, is_current
         )
-        values (${farmId}, ${locationId}, ${proposal[0]?.id as string},
+        values (
+${farmId}, ${locationId},
+(select id from stand_providers
+  where sales_location_id = ${locationId} and seller_id is null), ${proposal[0]?.id as string},
                 ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${at(-30)}, true)
         returning id
       `;

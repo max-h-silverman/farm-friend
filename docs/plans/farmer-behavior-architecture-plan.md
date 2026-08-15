@@ -313,8 +313,31 @@ constraint-layer change, not an additive one. (The contract previously said eigh
    season, and its own reminder cadence and recipient. Ending a relationship marks the row inactive
    with the date; an unanswered invitation and an ended relationship are both "not public", so a
    fourth `ended` state would add a case to every reader without changing any public output.
-2. Re-root the nine composite keys from `(location, owner_farm)` to `(location, provider)`, so
+2. Re-root the composite keys from `(location, owner_farm)` to `(location, provider)`, so
    authority is carried by the provider relationship rather than by stand ownership.
+
+   **Corrected during Phase B: there are EIGHT such keys, not nine, and SIX of them re-root.**
+   The count of nine double-counted `farmer_target_contexts_selected_location_owner_fk` — the
+   contract's original list of eight cited its `foreignColumns` line (1534) and then named the
+   same constraint again by its declaration line (1531) as the ninth. Eight composite foreign
+   keys reference `(sales_locations.id, sales_locations.owner_farm_id)`; the enumeration is
+   `farmer_links_targeted_location_owner_fk`, `farmer_target_contexts_selected_location_owner_fk`,
+   `farmer_target_menu_options_location_owner_fk`,
+   `inventory_prompt_preferences_location_owner_fk`,
+   `sales_location_participants_location_owner_fk`, `inventory_revisions_location_farm_fk`,
+   `closure_revisions_location_owner_fk`, and `scheduled_prompt_subjects_location_owner_fk`.
+
+   **Two of the eight stay rooted on the stand** (max, 2026-08-15), because they carry stand
+   facts rather than provider facts and re-rooting them would make the record assert something
+   false:
+
+   - `closure_revisions_location_owner_fk` — stand closure is **owner-only and overrides every
+     provider** (§facts and authority). Recording it against the stand's native provider slot
+     would file a fact about the place under one of the sellers at it, and would imply a hosted
+     seller's own row could carry a closure that silences the others.
+   - `sales_location_participants_location_owner_fk` — item 5 **retires** this table as
+     display-only history and a VIGA work queue. Its rows are explicitly never auto-linked to
+     seller identities, so a provider reference is one the migration is forbidden to populate.
 3. Replace `inventory_revisions_one_current_per_location` — keyed on `sales_location_id` alone —
    with one-current-**per-provider**. This index is the specific invariant per-provider inventory
    invalidates; it must be replaced in the same migration that adds the provider column, never
@@ -341,6 +364,33 @@ constraint-layer change, not an additive one. (The contract previously said eigh
    send time (`scheduled-prompts.ts:135`) and nothing is invalidated. Pause/revoke/close must
    invalidate that provider's open confirmations and queued reminders — stand closure invalidating
    all of them — which is what makes the re-open confirmation in §facts and authority possible.
+
+##### Phase B as built (2026-08-15)
+
+- `sellers` and `stand_providers` are the two new records. `stand_providers` carries the nullable
+  seller reference (native = NULL), the three lifecycle states, the approving actor, its own
+  schedule/season mirroring `sales_locations`, and its own reminder cadence and recipient.
+- **`sales_locations_create_native_provider` is a trigger, not a line in the two writers that
+  create stands.** A stand with no native slot can hold no inventory and no usual items at all, and
+  the failure would surface far from the writer that caused it. The number of writers that must
+  remember this is now zero.
+- **`stand_providers_location_fk` is `cascade`, not `restrict`.** The native slot has no existence
+  apart from its stand. VIGA *retires* stands rather than deleting them, so a hosted seller's
+  history is protected by the stand row never being deleted — not by this constraint.
+- The migration adds every column NULLABLE, backfills, and only then sets `NOT NULL`.
+  `drizzle-kit generate` emitted `ADD COLUMN … NOT NULL` with no default and no backfill, which
+  **passes on an empty database and fails on a populated one** — the exact defect the
+  populated-schema requirement exists to catch.
+- `inventory_revisions_guard_history` refused the backfill outright: it permits exactly one
+  transition. The trigger is disabled for that one statement, re-enabled immediately, and then
+  **widened to cover `provider_id`**, so the new column is as immutable as the columns beside it.
+- Naming: the schema vocabulary forbids the word *provenance*
+  (`schema.integration.test.ts` §forbidden concepts), so the constraint is
+  `stand_providers_approval_source_coherent`, matching the existing `source` vocabulary.
+- `invalidateProviderWork` (item 8) is ONE function with an optional `providerId`: omitted means
+  the stand closed and every provider is invalidated. It closes only `open` proposals and
+  suppresses only `queued` outbox rows, which is what makes it idempotent and what keeps a
+  farmer's existing answer and an already-sent message intact.
 
 #### Phase C — behavior
 

@@ -62,6 +62,21 @@ describe("B-074 shared current-inventory reader (integration)", () => {
     return sql;
   };
 
+  /**
+   * The stand's native provider — the stand selling under its own name (F-114 Phase B).
+   *
+   * The gate proves output is UNCHANGED, and the native slot is the stand as it always
+   * behaved: every revision this fixture publishes belongs to it, so every assertion below
+   * compares the same rows it compared before the provider dimension existed.
+   */
+  const nativeProvider = async (salesLocationId: string): Promise<string> => {
+    const rows = await client()`
+      select id from stand_providers
+      where sales_location_id = ${salesLocationId} and seller_id is null
+    `;
+    return rows[0]?.id as string;
+  };
+
   beforeAll(async () => {
     const base = process.env.DATABASE_URL;
     if (!base) {
@@ -116,9 +131,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
     // legitimately null instead of manufacturing an authorization chain the test never reads.
     const superseded = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current, superseded_at
+        farm_id, sales_location_id, provider_id, source, published_at, is_current, superseded_at
       ) values (
-        ${farmId}, ${richLocationId}, 'viga', now() - interval '10 days',
+        ${farmId}, ${richLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${richLocationId} and seller_id is null), 'viga', now() - interval '10 days',
         false, now() - interval '2 days'
       ) returning id
     `;
@@ -133,9 +150,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
 
     const current = await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current
+        farm_id, sales_location_id, provider_id, source, published_at, is_current
       ) values (
-        ${farmId}, ${richLocationId}, 'viga', now() - interval '2 days', true
+        ${farmId}, ${richLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${richLocationId} and seller_id is null), 'viga', now() - interval '2 days', true
       ) returning id
     `;
     currentRevisionId = current[0]?.id as string;
@@ -154,9 +173,11 @@ describe("B-074 shared current-inventory reader (integration)", () => {
 
     await db`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current
+        farm_id, sales_location_id, provider_id, source, published_at, is_current
       ) values (
-        ${farmId}, ${emptyLocationId}, 'viga', now() - interval '1 day', true
+        ${farmId}, ${emptyLocationId},
+        (select id from stand_providers
+          where sales_location_id = ${emptyLocationId} and seller_id is null), 'viga', now() - interval '1 day', true
       )
     `;
   }, 60_000);
@@ -187,6 +208,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       `;
       const shared = await readCurrentRevisionRef(client(), {
         salesLocationId: richLocationId,
+          providerId: await nativeProvider(richLocationId),
         lock: false,
       });
       expect(original[0]?.id).toBe(currentRevisionId);
@@ -203,6 +225,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
         `;
         const shared = await readCurrentRevisionRef(tx as unknown as Sql, {
           salesLocationId: richLocationId,
+          providerId: await nativeProvider(richLocationId),
           lock: true,
         });
         expect(shared?.revisionId).toBe(original[0]?.id as string);
@@ -217,6 +240,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       `;
       const shared = await readCurrentRevisionRef(client(), {
         salesLocationId: richLocationId,
+          providerId: await nativeProvider(richLocationId),
         lock: false,
       });
       expect(shared?.publishedAt).toEqual(original[0]?.published_at as Date);
@@ -231,6 +255,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       expect(
         await readCurrentRevisionRef(client(), {
           salesLocationId: unpublishedLocationId,
+          providerId: await nativeProvider(unpublishedLocationId),
           lock: false,
         }),
       ).toBeNull();
@@ -239,6 +264,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
     it("never returns the superseded predecessor", async () => {
       const shared = await readCurrentRevisionRef(client(), {
         salesLocationId: richLocationId,
+          providerId: await nativeProvider(richLocationId),
         lock: false,
       });
       expect(shared?.revisionId).not.toBe(supersededRevisionId);
@@ -251,6 +277,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       const locked = await client().begin(async (tx) => {
         await readCurrentRevisionRef(tx as unknown as Sql, {
           salesLocationId: richLocationId,
+          providerId: await nativeProvider(richLocationId),
           lock: true,
         });
         try {
@@ -268,6 +295,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       const unlocked = await client().begin(async (tx) => {
         await readCurrentRevisionRef(tx as unknown as Sql, {
           salesLocationId: richLocationId,
+          providerId: await nativeProvider(richLocationId),
           lock: false,
         });
         try {
@@ -303,6 +331,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       `;
       const shared = await readCurrentInventory(client(), {
         salesLocationId: richLocationId,
+        providerId: await nativeProvider(richLocationId),
       });
       expect(shared).not.toBeNull();
       expect(shared?.entries.map((e) => e.itemName).sort()).toEqual(
@@ -342,6 +371,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       `;
       const shared = await readCurrentInventory(client(), {
         salesLocationId: richLocationId,
+        providerId: await nativeProvider(richLocationId),
       });
       expect(shared?.revisionId).toBe(revisionId);
       expect(new Set(shared?.entries.map((e) => e.entryId))).toEqual(
@@ -361,6 +391,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       `;
       const shared = await readCurrentInventory(client(), {
         salesLocationId: richLocationId,
+        providerId: await nativeProvider(richLocationId),
       });
       expect(shared?.entries.map((e) => e.entryId)).toEqual(
         original.map((r) => r.id as string),
@@ -377,6 +408,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       for (let i = 0; i < 10; i += 1) {
         const shared = await readCurrentInventory(client(), {
           salesLocationId: richLocationId,
+        providerId: await nativeProvider(richLocationId),
         });
         runs.push((shared?.entries ?? []).map((e) => e.entryId));
       }
@@ -397,12 +429,14 @@ describe("B-074 shared current-inventory reader (integration)", () => {
       // writer composes its next proposal against.
       const empty = await readCurrentInventory(client(), {
         salesLocationId: emptyLocationId,
+        providerId: await nativeProvider(emptyLocationId),
       });
       expect(empty).not.toBeNull();
       expect(empty?.entries).toEqual([]);
       expect(
         await readCurrentInventory(client(), {
           salesLocationId: unpublishedLocationId,
+        providerId: await nativeProvider(unpublishedLocationId),
         }),
       ).toBeNull();
     });
@@ -410,6 +444,7 @@ describe("B-074 shared current-inventory reader (integration)", () => {
     it("never returns the superseded revision's entries", async () => {
       const shared = await readCurrentInventory(client(), {
         salesLocationId: richLocationId,
+        providerId: await nativeProvider(richLocationId),
       });
       expect(shared?.entries.map((e) => e.itemName)).not.toContain("STALE PARSNIPS");
     });
