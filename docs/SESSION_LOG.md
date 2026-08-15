@@ -100,8 +100,9 @@ proved against a known-present term first, after an initial `grep` for `provider
 files returned zero — an empty result that would have "confirmed" the right answer for the wrong
 reason.
 
-Committed as `06e211e`, `3383866`, `b879ea6` and merged. **`0044` joins `0042` and `0043` unapplied
-to production**, and all three remain Max's call.
+Squash-merged as `70b6e1b` (PR #124); merged `main` re-verified at 1124/1124 across 77 files.
+**`0044` joins `0042` and `0043` unapplied to production**, and all three remain Max's call —
+nothing this session is deployed.
 
 ---
 
