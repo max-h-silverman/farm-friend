@@ -72,6 +72,15 @@
   record now includes `_spf.google.com` alongside the existing Mandrill and SendGrid senders. A
   `_dmarc` record exists at `p=none` (monitor only). Both nameserver sets (NS1 and Squarespace)
   serve identical records — verified, not assumed.
+- **One reader answers "what is currently in stock here"** (B-074, F-114 Phase A). Twelve production
+  sites each hand-wrote the `is_current` predicate keyed on `sales_location_id`; they now compose
+  `packages/db/src/current-inventory.ts` — a SQL fragment for the three corpus-wide surfaces (SMS
+  retrieval, the map, the VIGA admin roster), a stand-scoped row reader, and a revision-ref reader
+  whose `for update` is a **required** argument. `intersectAvailability` owns the stand/provider
+  availability clamp so no surface computes it alone. **No provider column exists yet**; output is
+  unchanged and Phase A is the gate for Phase B. The enumeration lives in
+  `docs/plans/farmer-behavior-architecture-plan.md` §phase A and is what the gate tests — never a
+  remembered count.
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. This release adds no migration.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a` — the SAME image as the
@@ -81,11 +90,14 @@
   live service: `PUBLIC_BASE_URL` read back from the running config, the map serving 89KB at the root
   with its three response headers, the contact card and admin login both 200, and the old
   `*.run.app` host still serving.
+- **B-074 is merged to main but NOT deployed.** It is code-only with no migration and no config
+  change, so production still serves the revisions above; the consolidation reaches production on
+  the next deploy of any kind. Nothing about the live service changed this session.
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
 ## Verification
 
-- **2,055 unit tests pass; 7 corpus-only tests skip.** **963 integration tests across 64 files pass**
+- **2,063 unit tests pass; 7 corpus-only tests skip.** **981 integration tests across 66 files pass**
   against disposable local Postgres databases (2026-08-14).
 - The map loads inside VIGA's iframe on the custom domain — confirmed in a browser by max,
   2026-08-14, and VIGA's live page read back serving the new `src`. `frame-ancestors` needed no
@@ -168,6 +180,15 @@
   characters. It is an encoding effect, not a length effect, and invisible by inspection because the
   emoji renders correctly everywhere it is read. `reply-encoding.test.ts` sweeps every code-owned
   reply; measure with `estimateSmsSegments` before adding any decoration.
+- **A tagged template turns an interpolation into a bind PARAMETER.** Composing shared SQL text into
+  a `` driver(db)`…` `` query sends the clause as a string value and dies at parse
+  (`syntax error at or near "$1"`). Any query composing `visibleFarms` or the B-074 join fragments
+  must use `.unsafe(…)`. This is invisible to typecheck and to every test that does not run the
+  query against a real database.
+- **An assertion on an empty collection can be green whatever the code returns.** The VIGA admin
+  roster's `currentItems` had exactly one test in the whole suite, and it checked `[]` on a
+  never-published stand — so a query returning nothing for every farm would have passed. When a
+  reader's only coverage is its empty case, it has no coverage; assert a populated value.
 - **A stale local server can serve headers that the config no longer describes.** While verifying the
   map headers, a `curl` returned a 200 with no headers at all against a build whose manifest clearly
   contained them — a server process left running from before the rebuild. The config assertion and

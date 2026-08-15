@@ -140,6 +140,14 @@ with the guard that protects each.
   shortest possible entry — so it passed both before and after F-107 doubled the worst case to four
   billed segments. A cost or size ceiling must be exercised with the most expensive shape the
   corpus actually produces, not the most convenient one to construct.
+- **A reader whose only coverage is its EMPTY case has no coverage.** `listStandsForAdministration`
+  returns each stand's `currentItems`, and the whole suite asserted that column exactly once — as
+  `currentItems: []`, on a stand that had never published. A query returning nothing for every farm
+  in the corpus would have passed, and both admin refresh surfaces (the farms page and
+  `/api/admin/stands`) depended on it (B-074). An empty expectation is satisfied by a reader that is
+  merely broken; assert a populated value, with the field values spelled out, before trusting a
+  collection-returning reader. Guard:
+  `packages/db/src/admin-roster-inventory.integration.test.ts`.
 - **A test that asserts through the ADMIN reader proves nothing about what customers see.** F-100's
   load-bearing test claimed "every stand under a retired farm goes down" and checked it with
   `listStandsForAdministration` — the one reader that joined `farms.retired_at`. The map, both SMS
@@ -179,6 +187,13 @@ with the guard that protects each.
   matched **no reader of the table at all** — including the two files its own allowlist named. It was
   green from the day it shipped, and the allowlist is what made it look verified. Use `codeAndSqlOnly`
   for SQL identifiers.
+- **Composing shared SQL text into a tagged template sends it as a bind PARAMETER.** A query written
+  `` driver(db)`… ${fragment} …` `` passes the fragment as a *value*, not as SQL, and dies at parse
+  with `syntax error at or near "$1"`. Any statement composing `visibleFarms` or B-074's
+  `currentInventoryJoin`/`currentEntriesJoin` must use `.unsafe(…)` — which is why
+  `listClaimableFarms` and `listStandsForAdministration` are written that way. Typecheck cannot see
+  it and neither can any test that does not run the statement against a real database, so a
+  fragment-composing query needs integration coverage on the day it is written.
 - **A sabotage aimed at the wrong tree is indistinguishable from a test that cannot fail.** A plan JSON
   carries the same resource twice — under `planned_values` and under `resource_changes` — and
   `plan-assertions.py` reads `planned_values`. When a sabotage does not fail, first confirm you edited

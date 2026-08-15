@@ -11,7 +11,76 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-14 (latest) — A custom domain for every public link, and an SPF record that had been failing all along
+## 2026-08-14 (latest) — One reader for "what's in stock here" (B-074, F-114 Phase A)
+
+Phase A of the multi-seller refactor: consolidate the hand-written current-inventory reads behind one
+seam, proving output unchanged, before any provider record exists. The contract's own sequencing
+rationale is the point — after Phase B the reader must return per-provider rows, and a site still
+carrying its own `sales_location_id`-only SQL would keep returning stand-wide rows. Correct-looking
+output that is wrong, on the map and in SMS, with no error anywhere. Consolidating first turns that
+class of defect into one compile-time change.
+
+**The enumeration was the deliverable, and it corrected the contract twice.** The old figure of 26
+was already known bad; the replacement is **12 sites**, listed by file and line in the contract. But
+the contract's "nine files" framing was *also* incomplete — it named `apps/web/lib/scheduled-prompts.ts`
+and missed `packages/db/src/scheduled-prompts.ts`, which runs the same read on the farmer's
+cadence-save path. Searching the nine named files would never have found it; the list came from
+sweeping every production reference to `inventory_revisions` and `inventory_entries` across the repo.
+Five categories of deliberate exclusion are recorded too (closure reads, writers, the seeder, a
+by-id lookup in `review.ts`, and one type-guard false positive in `stand-form.tsx`), so a later
+reader does not re-add them believing they were missed.
+
+Second correction: the contract said sites 10–12 read under `for update`. **Only one does**
+(`farmer.ts:621`, the B-070 supersede). The other three run inside a writer's transaction but read
+the revision unlocked. So `readCurrentRevisionRef` takes `lock` as a **required** argument — a
+default that took it would put row locks on read paths, one that dropped it would silently undo
+B-070 — and the test measures the lock with a second session's `for update … nowait` rather than
+trusting the argument.
+
+**Three shapes, not one.** The twelve sites ask one question three ways, and a single row type would
+make every caller carry columns it does not use. The three corpus-wide surfaces (customer SMS
+retrieval, the public map, the VIGA admin roster) compose a SQL **fragment** into their own larger
+statements — they select stand, farm, closure, offering and payment facts in one round trip, and a
+per-stand call would multiply queries by the corpus and change the ordering each depends on.
+`visibleFarms` is the existing precedent for exactly this shape, adopted for exactly this reason.
+The stand-scoped sites get a row reader; the writers get the revision identity alone.
+
+**Two traps this pass hit, both worth not rediscovering.** `listStandsForAdministration` was a
+**tagged template**, where an interpolation becomes a bind *parameter* — composing the shared join
+sent the clause as a string value and failed with `syntax error at or near "$1"`. It moved to
+`.unsafe()`, matching `listClaimableFarms`; the statement carries no parameters of its own, so
+nothing became injectable. And the roster's `currentItems` column had **one** assertion in the entire
+suite: `currentItems: []` on a never-published stand — green whatever the column returned, including
+returning nothing for every farm in the corpus. That is the precise shape of a test that cannot fail,
+and it was guarding both admin refresh surfaces (the farms page and `/api/admin/stands`).
+`admin-roster-inventory.integration.test.ts` now asserts populated values.
+
+**The availability intersection lives at this seam, deliberately.** The contract requires it computed
+once, because two surfaces computing it separately is the map-and-SMS disagreement the refactor
+exists to end. Its rule is one-directional: a stand that is not open overrides every provider, but an
+open stand does not make a provider open. `unknown` **permits** rather than closes — 5 of 34
+production stands state no season and 12 state no hours, and treating silence as "closed" is the
+certainty-manufacturing this product exists to avoid. In Phase A every call passes no provider and
+gets the stand's own answer, which is a tested identity rather than a placeholder.
+
+One deliberate behavior change, strictly narrowing: entries order `sort_order asc, id asc`
+everywhere. Two sites already did; two ordered by `sort_order` alone, which is not a total order
+because nothing makes `sort_order` unique per revision.
+
+Every new test was sabotaged and confirmed able to fail — including the tagged-template revert, which
+is how that trap was proven real rather than theoretical. Verified: typecheck, lint, production web
+build, scripted evals (11/11 critical, 4/4 advisory, 19/19 adversarial), 2,063 unit tests, 981
+integration tests across 66 files. Live model evals were **not** run and are not owed: the `inquiry.ts`
+diff is its import and its join, with no projection, prompt, or output contract touched. No migration.
+Nothing deployed — Phase A is code-only and rides the next deploy.
+
+This branch also carries the multi-seller contract itself (`eca6c24`, previously only on
+`f-114-multi-seller-architecture`), so merging brings the reviewed contract to main alongside the
+Phase A implementation of it.
+
+---
+
+## 2026-08-14 — A custom domain for every public link, and an SPF record that had been failing all along
 
 max got DNS access to `vigavashon.org` and asked what, beyond a CNAME for the map, was worth adding.
 The question turned out to be scoped too narrowly in two directions.
