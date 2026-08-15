@@ -764,9 +764,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS "stand_items_one_per_provider_name" ON "stand_
 -- constraint exists to refuse, and it loads silently.
 -- ===========================================================================================
 
--- The NATIVE slot carries no hosting lifecycle; a NAMED provider carries all of it. The native
--- arm is not a degenerate case of the named one: a stand selling under its own name was never
--- invited by anybody, so requiring the columns would only be satisfiable by inventing an event.
+-- EVERY provider carries the whole hosting lifecycle. Phase B had a second arm exempting the
+-- native slot; C.0 removed it with the slot, because `create_own_seller_provider` records the
+-- stand's own creation as the invitation and VIGA as the approver — nothing is invented.
 DO $$ BEGIN
  ALTER TABLE "stand_providers" ADD CONSTRAINT "stand_providers_hosting_lifecycle_coherent" CHECK (
   "invited_at" is not null

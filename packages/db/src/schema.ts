@@ -1567,22 +1567,21 @@ export const salesLocations = pgTable(
 
 
 /**
- * ONE seller's participation at ONE stand — or, when `seller_id` is NULL, the stand's own
- * native brand slot (F-114).
+ * ONE seller's participation at ONE stand (F-114).
  *
- * ## One record, not two
+ * ## One record, one kind
  *
- * Native and named participation are one record with a nullable seller reference. The reader
- * surface is the reason: twelve production sites ask "what is currently in stock here", and two
- * provider records would double every one of them and reintroduce the agree-by-convention
- * failure Phase A exists to end. One record means every guarantee — one-current-per-provider,
- * publication authority, pause, freshness — is stated once and enforced by one constraint set
- * for both kinds. A newcomer holds one concept.
+ * Phase B expressed "the stand's own goods" as a **native brand slot** — this row with
+ * `seller_id` NULL — and carried a second arm in every rule to describe it. Phase C.0 removed
+ * the concept: a stand's own goods are simply its own seller, named like any other, and the
+ * seller that IS the stand is recorded by `sales_locations.own_seller_id`, the **self-pointer**.
  *
- * `seller_id is null` means the stand selling under its own name. **Native is a brand, not an
- * absence of one**, and it is a permanent shape rather than a migration shim: every stand today
- * is its own seller and most will stay that way. A stand has exactly one native slot because it
- * has exactly one name; the seller that IS the stand is named by `sales_locations.own_seller_id`.
+ * So `seller_id` is `NOT NULL` and every row here is the same kind of thing. The reader surface
+ * is why this stayed one record rather than becoming two: twelve production sites ask "what is
+ * currently in stock here", and a second provider record would double every one of them and
+ * reintroduce the agree-by-convention failure Phase A exists to end. Every guarantee —
+ * one-current-per-provider, publication authority, pause, freshness — is stated once and
+ * enforced by one constraint set. A newcomer holds one concept.
  *
  * ## Why the schedule and season columns are here and not shared with the stand
  *
@@ -1594,8 +1593,8 @@ export const salesLocations = pgTable(
  * intersection is computed once, at `intersectAvailability`, never per surface.
  *
  * A provider that states nothing is `unknown`, which PERMITS — silence is not a claim that a
- * seller is shut, so a native row migrated from a stand that stated its hours on the stand
- * carries none of its own and defers to it.
+ * seller is shut, so a row migrated from a stand that stated its hours on the stand carries
+ * none of its own and defers to it.
  */
 export const standProviders = pgTable(
   "stand_providers",
@@ -1676,9 +1675,9 @@ export const standProviders = pgTable(
   },
   (table) => ({
     /**
-     * `cascade`, not `restrict`. The native slot has no existence apart from its stand — it IS
-     * the stand selling under its own name — so a deleted stand takes it with it, exactly as it
-     * already took that stand's `stand_items` and its stale targeting context.
+     * `cascade`, not `restrict`. A provider row has no existence apart from the stand it names
+     * — it IS a seller's participation there — so a deleted stand takes it with it, exactly as
+     * it already took that stand's `stand_items` and its stale targeting context.
      *
      * This is not a weakening of the hosted-seller guarantee. VIGA RETIRES stands rather than
      * deleting them (`retired_at`, F-071), precisely so the record of what a farm published
@@ -1724,18 +1723,20 @@ export const standProviders = pgTable(
       .where(sql`${table.endedAt} is null`),
 
     /**
-     * The NATIVE slot carries no hosting lifecycle, and a NAMED provider carries all of it.
+     * EVERY provider carries the whole hosting lifecycle.
      *
      * A biconditional over the whole shape rather than four independent NULL tests, because a
-     * CHECK PASSES on NULL: "an invitation is recorded" alone would admit a native row with an
-     * invitation nobody sent, and its mirror would admit a hosted seller that appeared
-     * publicly with no invitation, no acceptance and no approval — which is the fabricated
-     * authority §migration forbids.
+     * CHECK PASSES on NULL: "an invitation is recorded" alone would admit a row claiming an
+     * accepted state with an invitation nobody sent, and its mirror would admit a hosted seller
+     * that appeared publicly with no invitation, no acceptance and no approval — which is the
+     * fabricated authority §migration forbids.
      *
-     * The native arm is not a degenerate case of the named one. A stand selling under its own
-     * name was never invited by anybody and needs no approval to use its own stand, so
-     * requiring the columns would only be satisfiable by inventing an event that never
-     * happened.
+     * Phase B carried a second arm exempting the native slot from all of this, on the ground
+     * that a stand selling under its own name was never invited by anybody. C.0 removed that
+     * arm with the slot: the stand's own seller is created as an ordinary provider by
+     * `create_own_seller_provider`, which records VIGA as the approver and the stand's own
+     * creation as the invitation, so nothing is invented and the arm describes nothing that
+     * can exist.
      */
     hostingLifecycleCoherent: check(
       "stand_providers_hosting_lifecycle_coherent",
@@ -1774,7 +1775,7 @@ export const standProviders = pgTable(
         )
       `,
     ),
-    /** An ended relationship ended after it began, and the native slot never ends. */
+    /** An ended relationship ended after it began. */
     endingCoherent: check(
       "stand_providers_ending_coherent",
       sql`
@@ -3090,9 +3091,9 @@ export const inventoryRevisions = pgTable(
     sellerId: uuid("seller_id").notNull(),
     salesLocationId: uuid("sales_location_id").notNull(),
     /**
-     * WHOSE inventory this is (F-114 Phase B). Every revision belongs to exactly one provider
-     * at the stand — the native brand slot for a stand selling under its own name, or a named
-     * seller. `NOT NULL`: an unattributed revision is the anonymous shared snapshot this
+     * WHOSE inventory this is (F-114). Every revision belongs to exactly one provider at the
+     * stand — the stand's own seller or a hosted one, which are the same kind of row since
+     * Phase C.0. `NOT NULL`: an unattributed revision is the anonymous shared snapshot this
      * refactor exists to end.
      */
     providerId: uuid("provider_id").notNull(),

@@ -119,7 +119,7 @@ async function schedulePreference(
       from farmer_authorizations as auth
       join contacts as contact on contact.id = auth.contact_id
       where auth.id = ${preference.designated_authorization_id as string}
-        and auth.seller_id = ${location.owner_seller_id as string}
+        and auth.seller_id = ${location.own_seller_id as string}
         and contact.phone_hash = ${candidate.sender_hash}
         and auth.revoked_at is null
       for update of auth
@@ -128,7 +128,7 @@ async function schedulePreference(
 
     const approvals = await tx`
       select id from seller_approvals
-      where seller_id = ${location.owner_seller_id as string} and revoked_at is null
+      where seller_id = ${location.own_seller_id as string} and revoked_at is null
       for update
     `;
     if (approvals.length === 0) return "ineligible";
@@ -227,7 +227,7 @@ async function schedulePreference(
       ) values (
         ${proposalId}, 1, ${candidate.preference_id}, ${preference.version as number},
         ${preference.designated_authorization_id as string},
-        ${location.owner_seller_id as string}, ${salesLocationId}, ${providerId},
+        ${location.own_seller_id as string}, ${salesLocationId}, ${providerId},
         ${revisionId},
         ${(closureRow?.id as string | undefined) ?? null}, ${closureRow === undefined},
         ${dueSlotAt}, ${outbox[0]?.id as string}, ${offersSame}, ${now}

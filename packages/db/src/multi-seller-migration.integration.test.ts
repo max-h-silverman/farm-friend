@@ -6,7 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Sql } from "./sql";
 
 /*
-  F-114 Phase B — the migration against a POPULATED copy of the current schema.
+  F-114 Phase C.0 — the migration against a POPULATED copy of the current schema.
 
   The contract requires this specifically, and the reason is that `drizzle-kit generate`'s output
   passes on an empty database and fails on a real one. Its `ADD COLUMN … uuid NOT NULL` with no
@@ -17,13 +17,30 @@ import type { Sql } from "./sql";
 
   So this file:
 
-    1. Applies migrations 0000–0041 ONLY. That is the schema as it stands before this work.
+    1. Applies migrations 0000–0041 ONLY. That is the schema as it stands before this work, and
+       it still names `farms`, `owner_farm_id`, and `farm_id` — every insert below uses those
+       names deliberately, because that is what production actually holds.
     2. Populates it with the awkward rows a real corpus has — a stand with a current revision AND
        a superseded predecessor, a stand with usual items and no inventory, a never-published
        stand, a retired stand that still owns revisions, a farmer link, a prompt preference, an
        open proposal, and a sender with a selected SMS target.
     3. Applies 0042 alone, against that data.
     4. Asserts EXACT row effects — counts and identities, not "it did not throw".
+
+  ## What C.0 changed about what these assertions say
+
+  Phase B's `0042` created a **native brand slot** — a `stand_providers` row with `seller_id`
+  NULL — for every stand, and this file asserted `seller_id is null` throughout. §the
+  stand-and-sellers correction replaced that migration in place, and the assertions with it:
+
+  - `farms` is RENAMED to `sellers`, ids preserved, so every foreign key keeps pointing at the
+    same rows. This file proves the ids survived rather than trusting the rename.
+  - `owner_farm_id` becomes `own_seller_id`, the **self-pointer**. The migration points every
+    stand at its former owner, because nothing in the data separates "venue" from "seller with
+    one stand" and guessing would be the inference §migration approach forbids. VIGA clears
+    Morgan Hill by hand afterwards.
+  - Each stand's own seller becomes an ordinary provider row, and `seller_id` is NOT NULL. There
+    is no sellerless row left to assert.
 
   ## Why the corpus is deliberately awkward
 
@@ -51,7 +68,7 @@ async function applyFile(db: Sql, fileName: string): Promise<void> {
   }
 }
 
-describe("F-114 Phase B migration against a populated schema (integration)", () => {
+describe("F-114 Phase C.0 migration against a populated schema (integration)", () => {
   let admin: Sql | undefined;
   let sql: Sql | undefined;
   let databaseName = "";
@@ -87,18 +104,21 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     const db = client();
 
     // ---- 1. the schema as it stands BEFORE this work -------------------------------------
+    // Every name below is the PRE-0042 name. Writing `sellers` or `own_seller_id` here would
+    // populate a schema production has never had, and the migration would then be proved
+    // against its own output rather than against the corpus it has to survive.
     expect(thisWork).toHaveLength(1);
     expect(beforeThisWork.length).toBeGreaterThan(40);
     for (const file of beforeThisWork) await applyFile(db, file);
 
     // ---- 2. populate it --------------------------------------------------------------------
-    const sellers = await db`insert into sellers (name) values ('Morgan Hill') returning id`;
-    farmId = sellers[0]?.id as string;
+    const farms = await db`insert into farms (name) values ('Morgan Hill') returning id`;
+    farmId = farms[0]?.id as string;
 
     const mkLocation = async (name: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type,
+          owner_farm_id, kind, name, timezone, visitability, offering_type,
           is_public, farm_bucks_accepted, farm_bucks_eligible,
           public_address, public_latitude, public_longitude
         ) values (
@@ -135,14 +155,14 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
       const rows = current
         ? await db`
             insert into inventory_revisions (
-              seller_id, sales_location_id, source, published_at, is_current
+              farm_id, sales_location_id, source, published_at, is_current
             ) values (
               ${farmId}, ${locationId}, 'viga', now() - ${`${ageDays} days`}::interval, true
             ) returning id
           `
         : await db`
             insert into inventory_revisions (
-              seller_id, sales_location_id, source, published_at, is_current, superseded_at
+              farm_id, sales_location_id, source, published_at, is_current, superseded_at
             ) values (
               ${farmId}, ${locationId}, 'viga', now() - ${`${ageDays} days`}::interval,
               false, now() - interval '1 day'
@@ -183,21 +203,21 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     `;
     const contactId = contacts[0]?.id as string;
     const authorizations = await db`
-      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${contactId}, now(), now()) returning id
     `;
     const authorizationId = authorizations[0]?.id as string;
 
     await db`
       insert into farmer_links (
-        token_hash, authorization_id, owner_seller_id, sales_location_id, issued_at
+        token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
       ) values (
         ${"a".repeat(64)}, ${authorizationId}, ${farmId}, ${richLocationId}, now()
       )
     `;
     await db`
       insert into inventory_prompt_preferences (
-        owner_seller_id, sales_location_id, designated_authorization_id,
+        owner_farm_id, sales_location_id, designated_authorization_id,
         cadence, version, next_due_at, updated_at
       ) values (
         ${farmId}, ${richLocationId}, ${authorizationId},
@@ -222,7 +242,7 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     selectingSenderHash = contacts[0]?.phone_hash as string;
     await db`
       insert into farmer_target_contexts (
-        sender_hash, selected_authorization_id, selected_owner_seller_id,
+        sender_hash, selected_authorization_id, selected_owner_farm_id,
         selected_sales_location_id, selected_at, updated_at
       ) values (
         ${selectingSenderHash}, ${authorizationId}, ${farmId},
@@ -231,7 +251,7 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     `;
     await db`
       insert into farmer_target_menu_options (
-        sender_hash, option_number, authorization_id, owner_seller_id, sales_location_id
+        sender_hash, option_number, authorization_id, owner_farm_id, sales_location_id
       ) values (${selectingSenderHash}, 1, ${authorizationId}, ${farmId}, ${richLocationId})
     `;
 
@@ -257,12 +277,47 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     }
   });
 
-  it("gives every stand exactly one native provider row, retired stands included", async () => {
+  it("renames farms to sellers WITHOUT changing any id", async () => {
+    // The whole reason C.0 renames rather than copies: every foreign key in the schema keeps
+    // pointing at the same rows, so nothing has to be re-linked and nothing can be mis-linked.
+    // A copy-then-swap would pass a count assertion and break every one of those keys.
+    const db = client();
+    const sellers = await db`select id, name from sellers`;
+    expect(sellers).toHaveLength(1);
+    expect(sellers[0]?.id).toBe(farmId);
+    expect(sellers[0]?.name).toBe("Morgan Hill");
+
+    const gone = await db`
+      select table_name from information_schema.tables
+      where table_schema = 'public' and table_name = 'farms'
+    `;
+    expect(gone).toHaveLength(0);
+  });
+
+  it("points every stand's self-pointer at its former owner, and drops the old column", async () => {
+    // The migration deliberately does NOT decide which stands are venues. Nothing in the data
+    // separates "venue" from "seller with one stand", so guessing would be the fabricated
+    // authority §migration approach forbids; VIGA clears Morgan Hill by hand afterwards.
+    const db = client();
+    const rows = await db`
+      select id, own_seller_id from sales_locations order by name asc
+    `;
+    expect(rows).toHaveLength(4);
+    for (const row of rows) expect(row.own_seller_id).toBe(farmId);
+
+    const dropped = await db`
+      select column_name from information_schema.columns
+      where table_name = 'sales_locations' and column_name = 'owner_farm_id'
+    `;
+    expect(dropped).toHaveLength(0);
+  });
+
+  it("gives every stand one provider for its own seller, retired stands included", async () => {
     const rows = await client()`
       select l.id, count(p.id)::int as providers
       from sales_locations l
       left join stand_providers p
-        on p.sales_location_id = l.id and p.seller_id = (select own_seller_id from sales_locations where id = p.sales_location_id)
+        on p.sales_location_id = l.id and p.seller_id = l.own_seller_id
       group by l.id
     `;
     expect(rows).toHaveLength(4);
@@ -274,31 +329,45 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     // case rather than an edge one.
     const quiet = await client()`
       select p.id from stand_providers p
-      where p.sales_location_id = ${quietLocationId} and p.seller_id = (select own_seller_id from sales_locations where id = p.sales_location_id)
+      join sales_locations l on l.id = p.sales_location_id
+      where p.sales_location_id = ${quietLocationId} and p.seller_id = l.own_seller_id
     `;
     expect(quiet).toHaveLength(1);
 
-    // The retired stand's native row exists specifically because its revision needs one.
+    // The retired stand's own-seller row exists specifically because its revision needs one.
     const retired = await client()`
       select p.id from stand_providers p
-      where p.sales_location_id = ${retiredLocationId} and p.seller_id = (select own_seller_id from sales_locations where id = p.sales_location_id)
+      join sales_locations l on l.id = p.sales_location_id
+      where p.sales_location_id = ${retiredLocationId} and p.seller_id = l.own_seller_id
     `;
     expect(retired).toHaveLength(1);
   });
 
-  it("creates no seller identities at all", async () => {
-    // §migration approach: never auto-link a display name to a seller identity. The migration
-    // creates native slots, which have no seller by construction.
-    const sellers = await client()`select count(*)::int as n from sellers`;
-    expect(sellers[0]?.n).toBe(0);
+  it("creates no seller identities beyond the renamed one, and no sellerless provider", async () => {
+    // §migration approach: never auto-link a display name to a seller identity. The 11 live
+    // hosted names migrate as retained history and a VIGA work queue — a person resolves each
+    // one. And with the native slot gone, every provider row names a real seller.
+    const db = client();
+    const sellers = await db`select count(*)::int as n from sellers`;
+    expect(sellers[0]?.n).toBe(1);
 
-    const named = await client()`
-      select count(*)::int as n from stand_providers where seller_id is not null
+    const sellerless = await db`
+      select count(*)::int as n from stand_providers where seller_id is null
     `;
-    expect(named[0]?.n).toBe(0);
+    expect(sellerless[0]?.n).toBe(0);
+
+    // Every provider row points at the seller its own stand names — no hosted relationship was
+    // invented from the participant list.
+    const foreign = await db`
+      select count(*)::int as n
+      from stand_providers p
+      join sales_locations l on l.id = p.sales_location_id
+      where p.seller_id is distinct from l.own_seller_id
+    `;
+    expect(foreign[0]?.n).toBe(0);
   });
 
-  it("attributes every existing revision to its stand's native provider", async () => {
+  it("attributes every existing revision to its stand's own-seller provider", async () => {
     const rows = await client()`
       select v.id, v.is_current, p.sales_location_id, p.seller_id
       from inventory_revisions v
@@ -306,7 +375,7 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
       order by v.published_at asc
     `;
     expect(rows).toHaveLength(3);
-    for (const row of rows) expect(row.seller_id).toBeNull();
+    for (const row of rows) expect(row.seller_id).toBe(farmId);
 
     const byId = new Map(rows.map((row) => [row.id as string, row]));
     expect(byId.get(supersededRevisionId)?.sales_location_id).toBe(richLocationId);
@@ -328,7 +397,7 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     for (const row of rows) expect(row.n).toBe(1);
   });
 
-  it("attributes every usual item to its stand's native provider", async () => {
+  it("attributes every usual item to its stand's own-seller provider", async () => {
     const rows = await client()`
       select i.display_name, p.sales_location_id, p.seller_id
       from stand_items i
@@ -340,7 +409,7 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
       "lamb",
       "plant starts",
     ]);
-    for (const row of rows) expect(row.seller_id).toBeNull();
+    for (const row of rows) expect(row.seller_id).toBe(farmId);
     expect(rows[0]?.sales_location_id).toBe(richLocationId);
     expect(rows[1]?.sales_location_id).toBe(usualOnlyLocationId);
   });
@@ -402,19 +471,28 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
 
   it("retires the participant list without converting it to providers", async () => {
     // §migration approach: participants migrate as retained history and a VIGA work queue, not
-    // as providers. Their composite key deliberately still routes through the stand's owner.
-    const rows = await client()`
+    // as providers. Their composite key re-roots onto the self-pointer with the rest, but the
+    // 11 hosted NAMES are still never linked to a seller identity by code.
+    const db = client();
+    const rows = await db`
       select conname from pg_constraint
-      where conname = 'sales_location_participants_location_owner_fk'
+      where conname = 'sales_location_participants_location_own_seller_fk'
     `;
     expect(rows).toHaveLength(1);
+
+    const providers = await db`
+      select count(*)::int as n from stand_providers
+      where seller_id <> ${farmId}
+    `;
+    expect(providers[0]?.n).toBe(0);
   });
 
   it("keeps stand closure rooted on the stand, not on a provider", async () => {
-    // Stand closure is owner-only and overrides every provider — a fact about the place.
+    // Stand closure is a fact about the PLACE and overrides every provider there, so it follows
+    // the self-pointer rather than gaining a provider of its own.
     const kept = await client()`
       select conname from pg_constraint
-      where conname = 'closure_revisions_location_owner_fk'
+      where conname = 'closure_revisions_location_own_seller_fk'
     `;
     expect(kept).toHaveLength(1);
 
@@ -425,12 +503,37 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     expect(absent).toHaveLength(0);
   });
 
+  it("leaves no constraint or index still naming the old vocabulary", async () => {
+    // Renaming a table renames NEITHER its constraints nor its indexes. 25 constraints and 13
+    // indexes were left asserting `farm_*` names on renamed `seller_*` tables, and only a
+    // populated run over the real objects found them — the names are invisible to typecheck.
+    const db = client();
+    const constraints = await db`
+      select conname, conrelid::regclass::text as table_name
+      from pg_constraint
+      where connamespace = 'public'::regnamespace
+        and conname like 'farm%' and conname not like 'farmer%'
+    `;
+    expect(constraints.map((row) => row.conname)).toEqual([]);
+
+    const indexes = await db`
+      select indexname from pg_indexes
+      where schemaname = 'public'
+        and indexname like 'farm%' and indexname not like 'farmer%'
+    `;
+    expect(indexes.map((row) => row.indexname)).toEqual([]);
+  });
+
   it("is re-runnable: applying it twice is a no-op", async () => {
     // The suite applies every file twice and the second run must not throw. `IF NOT EXISTS` and
     // `duplicate_object` guards carry the structural half; the backfill's `ON CONFLICT DO
-    // NOTHING` and its idempotent UPDATEs carry the data half.
+    // NOTHING` and its idempotent UPDATEs carry the data half. `ALTER TABLE … RENAME` has no
+    // `IF EXISTS` form at all, so each rename in 0042 is wrapped in its own existence guard.
     const db = client();
     const before = await db`select count(*)::int as n from stand_providers`;
+    const beforeSelfPointers = await db`
+      select id, own_seller_id from sales_locations order by id asc
+    `;
     for (const file of thisWork) {
       const body = readFileSync(resolve(migrationsDir, file), "utf8");
       for (const statement of body.split("--> statement-breakpoint")) {
@@ -447,5 +550,12 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     }
     const after = await db`select count(*)::int as n from stand_providers`;
     expect(after[0]?.n).toBe(before[0]?.n);
+
+    // A second run must not have cleared or re-pointed the self-pointer either — the backfill
+    // reads `owner_farm_id`, which the first run dropped, so an unguarded re-run would blank it.
+    const afterSelfPointers = await db`
+      select id, own_seller_id from sales_locations order by id asc
+    `;
+    expect(afterSelfPointers).toEqual(beforeSelfPointers);
   });
 });

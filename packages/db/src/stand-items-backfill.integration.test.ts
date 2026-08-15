@@ -24,6 +24,12 @@ import type { Sql } from "./sql";
 //      become ONE item rather than aborting the migration.
 //   4. Published history is not touched. The entries table refuses every update, so a backfill
 //      that tried would abort exactly as F-063's did.
+//
+// The fixture is written in the PRE-0020 vocabulary — `farms`, `owner_farm_id`, `farm_id` — and
+// then every remaining migration is applied on top, F-114 Phase C.0's `0042` included. So the
+// assertions below read the FINAL schema: the rows 0020 wrote have to survive being re-rooted
+// onto per-seller providers twenty-two migrations later, which is a guarantee only a test
+// spanning both ends can make.
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
 const journalPath = resolve(migrationsDir, "meta/_journal.json");
@@ -100,11 +106,15 @@ describe("F-066 stand items backfill (integration)", () => {
     expect(before[0]?.items, "stand_items must NOT exist before 0020").toBeNull();
     expect(before[0]?.offerings).not.toBeNull();
 
-    const sellers = await client()`insert into sellers (name) values ('Backfill Farm') returning id`;
-    farmId = sellers[0]?.id as string;
+    // PRE-0020 NAMES throughout this fixture. `farms` becomes `sellers` and `owner_farm_id`
+    // becomes `own_seller_id` in 0042, twenty-two migrations later — writing those names here
+    // would populate a schema that never existed at this point in history, and 0020's backfill
+    // would then be proved against a corpus production never held.
+    const farms = await client()`insert into farms (name) values ('Backfill Farm') returning id`;
+    farmId = farms[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -117,7 +127,7 @@ describe("F-066 stand items backfill (integration)", () => {
     locationId = locations[0]?.id as string;
     const others = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
+        owner_farm_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -150,10 +160,11 @@ describe("F-066 stand items backfill (integration)", () => {
     // ONLY in a confirmation and in no standing claim anywhere.
     const revision = await client()`
       insert into inventory_revisions (
-        seller_id, sales_location_id, source, published_at, is_current
+        farm_id, sales_location_id, source, published_at, is_current
       )
       values (
-${farmId}, ${locationId}, 'viga', now() - interval '3 days', true)
+        ${farmId}, ${locationId}, 'viga', now() - interval '3 days', true
+      )
       returning id
     `;
     const revisionId = revision[0]?.id as string;
@@ -270,6 +281,34 @@ ${farmId}, ${locationId}, 'viga', now() - interval '3 days', true)
       select count(*)::int as n from sales_location_offerings
     `) as unknown as { n: number }[];
     expect(count?.n).toBe(5);
+  });
+
+  it("re-roots every backfilled item onto its stand's own-seller provider", async () => {
+    // This fixture stops before 0020 and then applies EVERY remaining migration, so the rows
+    // 0020's backfill wrote have to survive 0042's re-rooting too. A backfill that produced
+    // items 0042 could not attribute would fail at `SET NOT NULL` twenty-two migrations later,
+    // and only a test that spans both would see it.
+    const rows = (await client()`
+      select item.display_name, provider.seller_id, location.own_seller_id
+      from stand_items item
+      join stand_providers provider on provider.id = item.provider_id
+      join sales_locations location on location.id = item.sales_location_id
+      where item.sales_location_id = ${locationId}
+    `) as unknown as {
+      display_name: string;
+      seller_id: string;
+      own_seller_id: string;
+    }[];
+    expect(rows.length).toBeGreaterThan(0);
+    for (const row of rows) {
+      expect(row.seller_id).toBe(farmId);
+      expect(row.own_seller_id).toBe(farmId);
+    }
+
+    const unattributed = (await client()`
+      select count(*)::int as n from stand_items where provider_id is null
+    `) as unknown as { n: number }[];
+    expect(unattributed[0]?.n).toBe(0);
   });
 
   it("resolves every published entry to exactly one item", async () => {
