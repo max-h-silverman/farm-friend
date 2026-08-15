@@ -204,7 +204,9 @@ Four generator traps, each of which has bitten:
   proved by the data rather than asserted ahead of it. Test it against a **populated** copy of the
   previous schema — `packages/db/src/multi-seller-migration.integration.test.ts` is the pattern:
   apply every migration *except* the new one, insert the awkward rows a real corpus has, then apply
-  the new one alone and assert exact row effects.
+  the new one alone and assert exact row effects. **Write the fixture in the vocabulary of the
+  schema it populates, not the one the repo is on** — a rename sweep will otherwise drag it forward
+  and prove the migration against its own output instead of against the corpus it must survive.
 - **A table may carry a trigger that refuses your backfill.** `inventory_revisions` is guarded by
   `guard_inventory_revision_history`, which permits exactly one transition — superseding a current
   revision — and raises on every other UPDATE. Disable the trigger for the single backfill statement,

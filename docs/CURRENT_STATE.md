@@ -24,31 +24,23 @@
   confirmation is now per person **per provider-at-stand**, fixing a defect that predates this work.
   `provider-invalidation.ts` is the pause/revoke/close mechanism that did not exist.
   **Phase B's native brand slot no longer exists** — C.0 replaced it, see below.
-  **Hosted-seller behavior — invitation, per-provider publication, the seller list, item-first
-  cards — is Phase C.1 and is NOT built.**
-- **F-114 Phase C.0 re-roots identity on sellers** (branch `f-114-phase-c0-seller-root`, **PR #122
-  open and deliberately unmerged, not deployed**). Max chose to hold it until the last four
-  integration files are green, so `main` never carries a knowingly-red suite — this repo has no CI
-  to flag one. Max corrected the model before C.1 was written: a stand has
-  a name, metadata, and nested sellers. `farms` is renamed to `sellers` (ids preserved, so every
-  key keeps pointing at the same rows); `owner_farm_id` is replaced by `own_seller_id`, the
-  **self-pointer** naming the one nested seller that IS the stand, NULL for a venue like Morgan
-  Hill; `stand_providers.seller_id` becomes NOT NULL and the **native brand slot is gone**. Public
-  suppression now follows the self-pointer instead of a name match. Phase B's separate `sellers`
-  table merged into the renamed record and its `revoked_at` pair went with it — `retired_at`
-  already meant that. The contract section that governs this is §the stand-and-sellers correction
-  in `docs/plans/farmer-behavior-architecture-plan.md`; it overrides four reviewed decisions.
-- **C.0 is converted and nearly green.** The codebase moved to the seller vocabulary across ~160
-  files; the admin route directories are `/admin/sellers`. Deliberately NOT renamed: `farm_bucks_*`
+- **F-114 Phase C.0 re-roots identity on sellers** (**merged to `main` via PR #122, not
+  deployed**). A stand has a name, metadata, and nested sellers. `farms` is renamed to `sellers`
+  (ids preserved, so every key keeps pointing at the same rows); `owner_farm_id` is replaced by
+  `own_seller_id`, the **self-pointer** naming the one nested seller that IS the stand, NULL for a
+  venue like Morgan Hill; `stand_providers.seller_id` is NOT NULL and the **native brand slot is
+  gone**. Public suppression follows the self-pointer instead of a name match. Phase B's separate
+  `sellers` table merged into the renamed record and its `revoked_at` pair went with it —
+  `retired_at` already meant that. The contract section that governs this is §the
+  stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; it overrides
+  four reviewed decisions.
+- **C.0 is converted and green.** The codebase moved to the seller vocabulary across ~160 files;
+  the admin route directories are `/admin/sellers`. Deliberately NOT renamed: `farm_bucks_*`
   (a VIGA program), `farm_approval_id`, every `farmer_*` table (those name the PERSON acting), the
   operator-facing **"Farms" tab label**, and `GENERIC_WORDS` in the corpus matcher — where "farms"
   is an English word farmers type into stand names.
-- **Integration is 979/1046 across 67 of 71 files** (2026-08-15). Four files still fail:
-  `stand-providers-constraints`, `multi-seller-migration`, and `stand-items-backfill` assert Phase
-  B's **native brand slot**, a concept C.0 removed, so they need rewriting rather than repair;
-  `apps/web/lib/scheduled-prompts.integration.test.ts` fails its whole fixture on an undefined
-  `own_seller_id` read whose cause was not found — the column returns a value when queried
-  directly, so the next session should measure inside the running fixture rather than infer.
+- **Hosted-seller behavior — invitation, per-provider publication, the seller list, item-first
+  cards — is Phase C.1 and is NOT built.**
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**.
   **`0042` is NOT applied to production, and its content changed**: the merged
   `0042_multi_seller_stand_providers` was **replaced in place** by `0042_seller_root`, because no
@@ -56,15 +48,14 @@
   at most 40). Production therefore never sees the native-slot model at all.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
-  neither revision has an error-level log. **B-074 and F-114 Phase B are on `main` and undeployed**;
-  production still serves the revisions above.
+  neither revision has an error-level log. **B-074 and F-114 Phases B and C.0 are on `main` and
+  undeployed**; production still serves the revisions above.
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
 ## Verification
 
-- **2,063 unit tests pass; 7 corpus-only tests skip.** Integration is **979/1046 across 67 of 71
-  files** against disposable local Postgres databases (2026-08-15) — see the C.0 entry above for
-  the four that remain.
+- **2,063 unit tests pass; 7 corpus-only tests skip.** Integration is **1057/1057 across 71 of 71
+  files** against disposable local Postgres databases (2026-08-15).
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19. The
   build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
@@ -73,10 +64,19 @@
   live run was owed for it.
 - The full top-level corpus is 52/53 with only the pre-existing `what is viga` miss. The gate fails
   on any new miss rather than treating that known baseline as a regression.
-- **F-114 Phase B's constraints are sabotage-proved.** 36 cases assert the exact row each new index
-  and CHECK refuses; seven deliberate breakages were each caught by the suite it was aimed at. The
-  migration is verified against a **populated** copy of the pre-`0042` schema — 11 assertions on
-  exact row effects, plus a re-run proving it is a no-op.
+- **F-114's constraints are sabotage-proved.** 43 cases assert the exact row each index and CHECK
+  refuses, now including C.0's replacements for the removed native slot: `seller_id` NOT NULL, no
+  sellerless row anywhere, no `%native%` index, a venue getting zero fabricated providers, and
+  `create_own_seller_provider` firing on insert, on a later self-pointer change, and idempotently
+  on a no-op save. `0042` is verified against a **populated** copy of the pre-`0042` schema in that
+  schema's own vocabulary — 13 assertions on exact row effects, including id preservation across
+  the rename and no constraint or index left carrying the old names, plus a re-run proving it is a
+  no-op. Thirteen deliberate breakages across the two suites were each caught by the case aimed at
+  them.
+- **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only. It is
+  the renamed `farms_name_not_blank` and predates F-114; seventeen `*_not_blank` CHECKs share it.
+  The suite asserts that measured truth in two cases rather than the constraint's name; **B-076**
+  files the sweep, and the admitting case is marked INVERT WHEN FIXED.
 
 ## Standing facts a cold start needs
 
@@ -129,6 +129,21 @@
 
 ## Traps worth not rediscovering
 
+- **Vitest's tail names the wrong file, and a rename defect hides in `select`/read mismatch.** The
+  scheduled-prompt failure was diagnosed as an undefined `own_seller_id` in the *db package*
+  because that is what the last stack in the output pointed at. It was the SECOND failure; the
+  FIRST, 45 lines earlier in the same log, named the real site — `apps/web/lib/scheduled-prompts.ts`
+  — and carried its bind parameters (`[uuid, undefined, hash]`), which identified the exact query.
+  Capture the whole run to a file and read failure `[1/N]`, never the tail. The defect itself is
+  the rename trap's twin: the query `select`s `own_seller_id` and the code reads
+  `.owner_seller_id`, so there is no error until the undefined reaches a bind parameter, far from
+  the mismatch. Grep for every `.owner_*` read after any column rename.
+- **A historical migration test written in the CURRENT vocabulary proves nothing.** Two suites stop
+  at an earlier schema and populate it; the C.0 sweep renamed their fixtures to `sellers` and
+  `own_seller_id`, against databases that still had `farms` and `owner_farm_id`. Had the names
+  happened to exist, the migration would have been proved against its own output rather than
+  against the corpus it has to survive. A fixture's vocabulary must match the schema it populates,
+  not the schema the repo is on.
 - **A schema rename passes typecheck and breaks every raw SQL string.** Renaming `farms` to
   `sellers` and `owner_farm_id` to `own_seller_id` produced a fully green `npm run typecheck`
   across all three workspaces while 63 non-test files still named the old columns inside tagged

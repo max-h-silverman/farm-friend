@@ -11,7 +11,68 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-15 (latest) — The seller root (F-114 Phase C.0)
+## 2026-08-15 (latest) — The last four files, and one column name (F-114 Phase C.0)
+
+Closed out C.0's remaining four integration files and merged PR #122. Integration is now
+**1057/1057 across 71 of 71 files**.
+
+**The undefined read was a sixth site, not a mystery.** The previous session left
+`scheduled-prompts.integration.test.ts` failing on an undefined `own_seller_id` with the cause
+unfound, having verified the column returns a value when queried directly. It did — the column was
+never the problem. `apps/web/lib/scheduled-prompts.ts` *selects* `own_seller_id` and then *reads*
+`location.owner_seller_id`, three times. The previous session's own note records finding five such
+sites in production code and fixing them; this was a sixth it missed, in the worker pass rather than
+the db package.
+
+What actually found it was refusing to keep reading source. The stack pointed at
+`transactions.ts:1323`, which is a red herring — that is the *second* failure in the file, and the
+first one, 45 lines further down the log, named the real site with its bind parameters attached
+(`[uuid, undefined, hash]`). Reading the whole captured log rather than its tail was the entire
+diagnosis. A probe against a real migrated database confirmed the column was fine before any fix
+was written, which is what ruled out every schema theory in one step.
+
+**The three historical suites were rewritten, not repaired — and the rewrite is where the value
+was.** Each asserted Phase B's native brand slot, a concept C.0 deleted. Repairing them would have
+produced tests that pass without proving anything.
+
+- `stand-providers-constraints` now proves the *replacement*: `seller_id` NOT NULL refuses the
+  sellerless row (23502, not a partial unique index), no sellerless row exists anywhere including
+  the ones the migration wrote, no `%native%` index survives, the self-pointer is nullable and a
+  venue gets **zero** fabricated providers, and `create_own_seller_provider` fires on insert, on a
+  later self-pointer change, and idempotently on a no-op save. The availability and note cases each
+  attack their own real relationship rather than reaching for the sellerless row as a cheap insert.
+- `multi-seller-migration` and `stand-items-backfill` both populated their fixtures in the **current**
+  vocabulary while deliberately stopping at an **earlier** schema — `sellers` and `own_seller_id`
+  against a database that still had `farms` and `owner_farm_id`. The C.0 sweep renamed them along
+  with everything else, which is exactly wrong for a historical migration test: it would prove the
+  migration against its own output. Both are now written in the vocabulary of the schema they
+  actually populate, and `multi-seller-migration` gained assertions that the rename preserved every
+  id and that no constraint or index still carries the old names.
+- `stand-items-backfill` stops before `0020` and then applies everything through `0042`, so it now
+  also asserts that the rows `0020` wrote survive being re-rooted onto per-seller providers
+  twenty-two migrations later. Nothing was checking that span.
+
+**Six deliberate breakages, six caught.** `seller_id` made nullable; the trigger narrowed to
+INSERT-only; the self-pointer backfill replaced with a no-op; the provider backfill filtered to
+exclude retired stands; the constraint-rename sweep neutered; the `stand_items` attribution
+filtered to usually-carried. Two of them killed the migration outright rather than failing an
+assertion, which is the honest outcome — a retired stand's revision has no provider to point at,
+exactly as that fixture's comment predicts.
+
+**A defect measured and deliberately not fixed.** `sellers_name_not_blank` admits a name made of
+tabs and newlines: `trim()` with no second argument strips spaces only. It is the renamed
+`farms_name_not_blank` and C.0 changed nothing but its name, and **seventeen** `*_not_blank` CHECKs
+in the schema share the flaw — one already-correct exception, `stand_providers_public_note_not_blank`,
+was written properly during Phase B after a tab-and-newline note got through. Fixing one of
+seventeen would leave two behaviours for one rule, so the suite asserts the *measured* truth in two
+cases (empty and space-only refused; tab-and-newline admitted, marked INVERT WHEN FIXED) and
+**B-076** files the sweep. The test now states what the database does rather than what a constraint
+name implies.
+
+**Merged.** Max approved push and merge; PR #122 is merged and `main` carries C.0. Still not
+deployed, and `0042` is still not applied to production — both remain his call.
+
+## 2026-08-15 — The seller root (F-114 Phase C.0)
 
 Started as C.1 (hosted-seller invitation) and became something else within the first hour. Asked how
 a hosted bakery's phone gets authorized when `farmer_authorizations` requires a farm, Max answered
