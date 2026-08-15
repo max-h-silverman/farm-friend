@@ -1,7 +1,442 @@
 # Farmer-Behavior Architecture Plan
 
-Status: adversarially reviewed against the historical response corpus, authoritative docs, current
-implementation, and PM work on 2026-07-31. Product decisions are settled.
+Status: closure, `SAME`, targeting, settings, and scheduling were adversarially reviewed and built.
+The hosted-seller portion was reopened on 2026-08-14 and is now an implementation contract
+(§multi-seller stand architecture). Nothing in it is open for design; where it and the historical
+plan below disagree, the contract wins.
+
+## Multi-seller stand architecture: implementation contract
+
+Several VIGA stands host more than one seller today. This is current fact, not anticipated growth.
+The contract below replaces this plan's historical participant, guest-access, shared-inventory, and
+shared seller-schedule/payment assumptions. The ten open questions that stood here are resolved in
+§resolved questions; nothing in this section is still open for design.
+
+### Product model
+
+- A **user** is one person reached through a verified account/phone. A user may act for several
+  sellers and stands.
+- A **seller** is a reusable public brand identity shared by one or more users. A seller may be a
+  farm, bakery, maker, individual grower, or another kind of provider; `farm` is not the authority
+  root. **One person selling under two brands at a single stand is not supported** — a stand admits
+  at most one provider row per seller, and a person needing two brands there needs two sellers.
+- A **stand** and **location** remain one core record: one physical sales point with its pin,
+  address, visitor directions, physical access state, and other shared place facts. There is no
+  parent destination/site record. If separately managed stands ever share coordinates, the map may
+  cluster their pins without merging their facts.
+- A stand has one or more **providers**. A provider is one seller's participation at one stand, or —
+  when the seller reference is empty — the stand's **native brand slot**: the stand selling as
+  itself, under its own name. Native is a brand, not an absence of one. A stand has exactly one
+  native slot because it has exactly one name, so "how many native providers may a stand have" is
+  not a question the model has to answer.
+- The same seller may participate at many stands; each relationship remains independent.
+
+No name, shared address, nearby pin, common land, or existing prose implies any relationship. Every
+seller/stand link is explicit and time-bounded.
+
+### One provider record, not two
+
+**Decision (former open question 9).** Native and named participation are **one record with a
+nullable seller reference**, not two records behind a shared interface.
+
+The reader surface is the reason. §the consolidation enumerates the hand-written current-inventory
+query sites; two provider records would double every one of them and reintroduce the
+agree-by-convention failure this refactor exists to end. One record with a nullable column means every guarantee —
+one-current-per-provider, publication authority, pause, freshness — is stated once and enforced by
+one constraint set for both kinds. A newcomer holds one concept.
+
+`seller_id IS NULL` means the native brand slot — the stand selling under its own name. That is the
+entire difference, and it is a permanent shape rather than a migration shim: every stand today is
+its own seller, and most will stay that way.
+
+The optional primary-seller link the discovery contemplated (a native provider that also "counts as"
+some seller's goods) is **not built**. It is the two-records design wearing a nullable column: it
+makes one row answer to two identities and forces every reader to ask which one applies. A stand
+whose owner wants credit under a *different* brand than the stand's name creates a named provider
+for that brand.
+
+### Facts and authority
+
+- **Stand facts**: coordinates, address, visitor directions, physical access/lock state,
+  stand-level closure, and the stand's own descriptive information.
+- **Provider facts**: current and usual inventory, item prices, payment/Farm Bucks rules, season,
+  schedule, restocking, visibility/pause, one stand-specific public note, and inventory reminder
+  preferences.
+- **Availability is an intersection, never a union.** A provider's schedule and season are clamped
+  to the stand's: a provider may be closed while the stand is open, and can never be open while the
+  stand is closed. This is what supports the real case — a hosted seller who takes only cash and
+  locks their box before the stand shuts. The intersection is computed once, at the Phase A reader
+  seam; two surfaces computing it separately is the map-and-SMS disagreement this refactor exists to
+  end.
+- A stand shutdown overrides every provider, and renders **nothing itemized** — no seller's items
+  show, hosted or native. A closed stand is locked, so no one's goods are buyable there; the hosted
+  seller's items remain on their own seller page and at their other stands. Hosted sellers are
+  **not** notified: closure is planned, and the host communicates with their sellers directly.
+- Every active stand has at least one user owner. **There is no owner-transfer or owner-recovery
+  flow, and none is built here** — VIGA repairs a locked-out or departing owner by hand through the
+  existing admin tools. The earlier claim that an existing recovery path extends to sellers was
+  false; no such path exists in the codebase.
+- Stand owners invite/revoke users by phone. Grants are scoped to whole-stand management or a
+  selected provider's inventory. Users may hold owner/editor roles inside multiple sellers.
+- **A seller has authorized phones, not internal roles.** Anyone authorized for a seller may do
+  anything that seller may do. Seller-internal owner/editor tiers were **cut as speculative**: no
+  VIGA farm has asked to give someone partial access, and the tiers would be a second permission
+  system running alongside the stand-owner grants. Limited access gets built when a farm asks.
+- Stand owners and whole-stand managers may update any provider's **current stock** as a physical
+  observation. They may not change a hosted seller's identity, prices, payment, pause, or
+  participation unless separately authorized for that seller.
+- Each provider has one reminder cadence and one designated recipient. Other authorized users may
+  still update it manually.
+- **A paused provider is offered re-opening, never refused.** Pausing invalidates that provider's
+  open confirmations. A confirmation reply or a fresh inventory update arriving while paused does not
+  publish silently and is not rejected: it triggers a new confirmation stating the consequence —
+  *"Publishing this update will re-open your listing. Reply YES to confirm, NO to cancel."* One rule
+  for both cases. The seller decides what they meant; code never infers it.
+
+**Reminder cadence is per provider, not per stand** (former open question, flagged as possible
+speculative building). Per-provider is not speculation here: a hosted seller restocking weekly at a
+stand whose owner restocks daily needs its own cadence, and the recipient differs by construction —
+the whole point of hosting is that the seller, not the host, confirms the seller's goods. One
+cadence per stand would either spam the host about goods they do not control or leave the hosted
+seller unreminded. The cadence record hangs off the provider because the provider is who it addresses.
+
+### Hosting and approval lifecycle
+
+- A stand owner invites a hosted seller and the seller accepts before the relationship becomes
+  public or can publish inventory. Either side may end it; the seller may pause/resume without
+  ending it. Ending or pausing hides current public facts without deleting history.
+- VIGA approval is required before a seller appears publicly. A VIGA invitation counts as approval.
+  An already approved stand owner may vouch for a hosted seller; the approval records that
+  provenance, and VIGA may revoke the seller globally.
+- Public participation and edit access are separate. Acceptance never grants more access than the
+  explicit user/role scopes attached to the relationship.
+- Native contributors update native inventory without creating seller identities. A named provider
+  requires a seller identity so the provider can be found across stands.
+
+### Customer behavior
+
+**Two public list views: stands and sellers. Stands is the default.** The map remains a map of
+stands; sellers get a browse list and a detail page, not pins. The two views are one reader in two
+groupings — stand detail groups by item with sellers nested beneath; seller detail groups by stand
+with that seller's items nested beneath.
+
+The seller list survived an over-engineering cut and is **not** optional. A hosted-only seller —
+one who sells exclusively at other people's stands, like a bakery with no stand of its own — has no
+pin and no stand card of its own. The seller list is that seller's **only** discovery path, so it
+carries search and shows where each seller is currently selling. Without it, naming hosted sellers
+in public output credits them without making them findable.
+
+**Seller naming in public output.** Every inventory line belongs to a provider. **The native brand
+slot renders unlabeled; every named seller is credited by name — including one the stand's owner
+also owns.** The rule is the slot, not the person and not the string: a stand owner who sells under
+a separate brand deliberately created that brand, so it is named on the card and findable in the
+seller list. Suppression applies to exactly one line per stand, the native one, where a label would
+merely echo the stand's own name:
+
+```
+Morgan Hill Stand
+  Eggs $8 — confirmed 2 hrs ago
+  Tian Tian: eggs $7 — confirmed yesterday
+```
+
+The suppression is a slot rule on rendering, never a "host line first" rule and never a name match.
+**Name matching was rejected as a defect**: seller names are free text, and the corpus normalizes
+only case and whitespace — "Morgan Hill Farm" at "Morgan Hill Stand" would not match and the stand's
+own goods would be credited by name on its own card, while any looser rule would erase a genuine
+hosted seller called "Hill Farm" at "Hill Farm Stand". A stand whose native slot currently holds
+nothing renders hosted sellers only, with no empty native line and no implication that the stand
+itself has stock:
+
+```
+Morgan Hill Stand
+  Tian Tian: eggs $7 — confirmed yesterday
+  Cascade Bakery: eggs $9 — confirmed 3 hrs ago
+```
+
+This resolves the different-price/different-freshness collision without a price range or a
+suppressed price: each provider carries its own price and its own confirmation time, always.
+
+- Stand details stay centered on one `In stock` card, item-first: each item appears once and its
+  supporting providers nest beneath it with their own price and freshness. No three duplicate
+  `Tomatoes` rows.
+- A provider with no fresh confirmation stays visible with honest usual/stale/no-current-listing
+  language; unknown, usual, and current are never collapsed.
+- **A hosted seller's usual items are public before any confirmation exists.** A hosted seller
+  becomes visible on acceptance and VIGA approval, on standing claims alone — so **VIGA approval is
+  the real gate**, not first confirmation, and a host's vouching produces a visible-but-revocable
+  state rather than silent publication. Such a line renders in the usual register with **no
+  timestamp** and never as a bare item line that could read as current stock.
+- `What's at Morgan Hill?` returns the union of its provider inventories. `What does Green Acres
+  have out?` filters to that seller across its active stands. `Who has eggs?` returns one result per
+  stand and uses that stand's own freshest eggs evidence, never an unrelated stand's update.
+- Payment is explicit per provider. The likely case is a seller-specific payment path, but a
+  relationship may deliberately use a shared stand checkout. A seller's payment may differ by stand.
+- **A stock-out report goes to every provider whose current confirmed inventory contradicts it —
+  no question is asked.** The customer is never made to name a seller: at an unattended stand with
+  two coolers they usually did not notice whose goods were whose, and a guess routes a false alarm
+  to the wrong farmer. The test is **contradiction, not recency**: a provider already claiming the
+  item is out agrees with the report and is skipped; a provider claiming it is available is told,
+  whether they confirmed five minutes or three weeks ago. A provider with no confirmed claim on the
+  item — usual-only, or never listed — is **not** notified, and the report is filed for VIGA.
+  Customer reports remain private signals and never mutate published inventory.
+
+  *Transitional, not a design constraint:* 18 of 37 stands publish no confirmed inventory at all
+  today (measured 2026-08-11), so their reports currently reach no farmer and land in VIGA's queue.
+  This is a farmer-migration artifact that resolves as stands confirm inventory. It is deliberately
+  **not** designed around — routing reports to non-claimants would bake a transitional condition
+  into permanent behavior.
+- **Public output never attributes an observation to its observer.** When a stand owner marks a
+  hosted seller's item sold out, the card shows the item and its timestamp exactly as it would for
+  the seller's own update. Provenance is recorded on the revision for audit and for the seller's own
+  view; it does not render on the map or in SMS.
+- A seller at several stands may explicitly name the stand in an update; that target overrides
+  remembered context. Otherwise use the last explicitly selected valid stand, name it in the
+  preview, and bind confirmation to that exact provider/stand.
+
+### Phase order
+
+Phases are strictly ordered. Each requires its constraints, readers, concurrency tests, and honest
+failure replies before the next begins.
+
+#### Phase A — consolidate the current-inventory reader (no behavior change)
+
+**Approved and non-negotiable: this lands first, proving output unchanged, before any record
+changes.**
+
+"What is currently in stock at this stand" is hand-written across non-test files, every one keyed on
+`sales_location_id` alone with no provider dimension. They agree today only by convention and
+comment discipline. Once a stand has several providers, any site missed makes the map and SMS
+disagree.
+
+**The enumeration below replaces every earlier count.** The figure of 26 was never reproducible, and
+the "nine files" framing was itself incomplete — it named `apps/web/lib/scheduled-prompts.ts` but
+missed `packages/db/src/scheduled-prompts.ts`, which runs the same read on the farmer's cadence-save
+path. The number is not the point; the list is. **The golden-output gate tests this list, never a
+remembered count.**
+
+##### The enumerated current-inventory read sites (established 2026-08-14)
+
+Established by reading every production reference to `inventory_revisions` and `inventory_entries`
+across `apps/`, `packages/`, `evals/`, and `scripts/` — not by searching the nine named files. The
+search was proved against known-present sites before any empty result was believed.
+
+| # | Site | Scope | What it reads |
+|---|---|---|---|
+| 1 | `apps/web/lib/inquiry.ts:277` | corpus-wide | customer SMS retrieval — current entries for every public stand |
+| 2 | `apps/web/lib/public-listing.ts:469` | corpus-wide | the public map/stand cards — current entries, left-joined so an unconfirmed stand still lists |
+| 3 | `packages/db/src/admin.ts:940` | corpus-wide | **VIGA admin stand roster** — `current_items` for the farms page and `/api/admin/stands` refresh |
+| 4 | `apps/web/lib/farmer-stand.ts:129` | one stand | **the farmer stand/settings editor prefill and its post-publish refresh** (`readCurrentStandEntries`) |
+| 5 | `apps/web/lib/stockout.ts:98` | one stand | the stock-out matcher's published-item candidates |
+| 6 | `apps/web/lib/interpretation.ts:134` | one stand | the SMS composition base a farmer's next edit is composed against |
+| 7 | `apps/web/lib/scheduled-prompts.ts:148` | one stand | the reminder pass's snapshot and its cadence-reset `published_at` |
+| 8 | `packages/db/src/scheduled-prompts.ts:71` | one stand | the cadence-save path's `published_at` baseline |
+| 9 | `packages/db/src/transactions.ts:746` | one stand | the proposal's inventory base revision when the caller did not supply one |
+| 10 | `packages/db/src/transactions.ts:956` | one stand, locked | the incumbent revision the SMS confirmation supersedes |
+| 11 | `packages/db/src/transactions.ts:1384` | one stand, locked | the scheduled prompt's validity check against the current revision |
+| 12 | `packages/db/src/farmer.ts:621` | one stand, locked | the incumbent revision onboarding redemption supersedes (B-070) |
+
+Sites 10–12 read under `for update` inside a writer's transaction; they are enumerated because they
+are the same question and will need the same provider dimension, but the shared reader must preserve
+their locking, not drop it.
+
+**Deliberately excluded**, so a later reader does not re-add them by mistake:
+
+- Every `is_current` mention on `closure_revisions` (`inquiry.ts:281,353`, `public-listing.ts:472`,
+  `interpretation.ts:177`, `scheduled-prompts.ts:139`, `admin.ts:943`, `transactions.ts:761,962,1390`).
+  Closure is a different question with its own revision stream; consolidating it here would widen
+  Phase A past its gate.
+- Every writer's `set is_current = false` (`farmer.ts:629`, `transactions.ts:1162,1205`,
+  `seed.ts:751`). These publish; they do not read.
+- `packages/db/src/seed.ts:735` — a seeding script, not a runtime surface.
+- `packages/db/src/review.ts:436` — resolves a stock-out report's referenced entry **by id**,
+  regardless of currency. Not a current-inventory read.
+- `apps/web/app/stand/[token]/stand-form.tsx:131` — `isCurrentEntry`, a type guard. A textual match
+  only.
+
+1. ~~Enumerate the real current-inventory read sites, by file and line, in this document.~~ Done above.
+2. Introduce one shared current-inventory reader, parameterized by stand and (later) provider. It
+   also owns the **stand-provider availability intersection**, so no surface computes it alone.
+3. Move every enumerated site onto it. Golden-output tests over a populated database prove
+   byte-identical results before and after, per site.
+4. The consolidation ships and is verified on its own. No provider column exists yet.
+
+Sequencing rationale: after Phase B the reader must return per-provider rows, and a site still
+carrying its own SQL would silently keep returning stand-wide rows — correct-looking output that is
+wrong. Consolidating first turns that class of bug into a compile-time change at one seam.
+
+#### Phase B — records and constraints
+
+`owner_farm_id` is welded into the constraint layer: **nine composite foreign keys route authority
+through `(sales_locations.id, sales_locations.owner_farm_id)`**. Provider ≠ owner is therefore a
+constraint-layer change, not an additive one. (The contract previously said eight, counting only
+`schema.ts` lines 1061, 1534, 1602, 1635, 1699, 2642, 2771, 2864. The ninth is
+`farmer_target_contexts_selected_location_owner_fk` at 1531 — see item 6.)
+
+1. Add `stand_providers`: one row per seller-at-stand, with a nullable seller reference (native),
+   lifecycle state (**pending/active/paused** — three, not four), approval provenance, schedule and
+   season, and its own reminder cadence and recipient. Ending a relationship marks the row inactive
+   with the date; an unanswered invitation and an ended relationship are both "not public", so a
+   fourth `ended` state would add a case to every reader without changing any public output.
+2. Re-root the nine composite keys from `(location, owner_farm)` to `(location, provider)`, so
+   authority is carried by the provider relationship rather than by stand ownership.
+3. Replace `inventory_revisions_one_current_per_location` — keyed on `sales_location_id` alone —
+   with one-current-**per-provider**. This index is the specific invariant per-provider inventory
+   invalidates; it must be replaced in the same migration that adds the provider column, never
+   dropped ahead of it.
+4. **Give `stand_items` a provider dimension in this same migration.** The contract previously
+   overlooked this table. It is what a stand *usually carries*, it is stand-keyed, and
+   `stand_items_one_per_location_name` (schema.ts:1923) admits exactly one row per stand per
+   normalized name — so a host and a hosted seller who both usually sell eggs collide. The index
+   becomes one-per-**provider**-per-name. This cannot be deferred: **a hosted seller's first
+   published fact is a usual item**, not a confirmation, and usual items are the majority of what
+   customers see (33 of 37 stands carry a usual item absent from published inventory; 18 publish no
+   inventory at all — schema.ts:2922). `stock_out_reports` holds a composite foreign key into
+   `(stand_items.id, sales_location_id)` (schema.ts:2964) that must be re-rooted with it.
+5. Retire `sales_location_participants` as display-only seller names. Its rows are **not**
+   auto-linked to seller identities (see §migration).
+6. Widen `inventory_publication_proposals_one_open_per_sender` — see §the pending-change defect.
+7. **Add the provider dimension to SMS targeting.** `farmer_target_contexts` (schema.ts:1510) and
+   `farmer_target_menu_options` bind `(authorization, owner_farm, location)` with no provider, and
+   the menu renders stand names alone (`farmer-targeting.ts:46`). A hosted seller at four stands is
+   therefore untargetable: their selection routes through the *host's* `owner_farm_id`, which is not
+   their farm. Both records take the provider, the menu names the seller where it differs from the
+   stand, and `farmer_target_contexts_selected_context_coherent` (1542) is rewritten to include it.
+8. **Invalidation on pause, revocation, and closure.** No mechanism exists today: closure is read at
+   send time (`scheduled-prompts.ts:135`) and nothing is invalidated. Pause/revoke/close must
+   invalidate that provider's open confirmations and queued reminders — stand closure invalidating
+   all of them — which is what makes the re-open confirmation in §facts and authority possible.
+
+#### Phase C — behavior
+
+1. Hosted-seller invitation, acceptance, approval provenance, and scoped access grants.
+2. Per-provider inventory writes; stand-owner observation of a hosted seller's stock; owner-only stand
+   closure.
+3. Per-provider SMS targeting, confirmation binding, and stock-out disambiguation.
+4. Per-provider reminder cadence and the scheduler pass.
+5. Stand and seller public list/detail views.
+
+### The pending-change defect
+
+**Defect, not a feature — fix scoped into Phase B.**
+`inventory_publication_proposals_one_open_per_sender` is a unique index on `sender_hash` alone,
+where `state = 'open'`. The limit on pending SMS changes is therefore **per person, not per target**.
+
+Someone affiliated with sellers at two stands who texts an update for one is locked out of the other
+until they reply YES or NO. **Multi-seller people are exactly the population this refactor serves**,
+so the defect is load-bearing here even though it predates the multi-seller work.
+
+Fix: key the index on **person and target** — `(sender_hash, sales_location_id, provider_id)` where
+`state = 'open'`. The row already carries `sales_location_id`, so no new data is required for the
+stand dimension. One open confirmation per person **per provider-at-stand**; the golden rule that a
+confirmation token is context- and version-bound, commits exactly once, and expires is unchanged and
+in fact better served — a token can no longer be ambiguous about which stand it answers for.
+
+Regression test to write first: two open proposals for one sender at two different stands both
+persist; a second open proposal for the same sender **and the same provider** is still refused.
+
+### Migration approach
+
+- Every existing stand gets exactly one provider row, native (`seller_id IS NULL`), carrying its
+  current inventory, **usual items (`stand_items`)**, prices, payment, schedule, and reminder
+  settings unchanged. Every current public and SMS output is byte-identical after migration.
+- **Never auto-link a display name to a seller identity.** `sales_location_participants` rows are
+  free-text names with no confirmed linking flow behind them; name matching would fabricate
+  authority. They migrate as retained history and as a VIGA work queue, not as providers.
+- Existing location/farm links are fingerprinted and reviewed before being treated as owner
+  relationships. Flagged contradictions stay hidden and blocked. An owner is never automatically a
+  seller.
+- No inventory confirmation backfill: revision publication remains recency. Create no closure,
+  preference, provider, or access grant from historical CSV data.
+- Inventory proposals map one-for-one, preserving ID, base, version, tokens, state, and outbox
+  binding, and gain the provider reference of their stand's native provider. Never reinterpret old
+  queued text.
+- The migration runs against a **populated** copy of the current schema and asserts exact row
+  effects. Ambiguous historical relationships are refused, never guessed.
+
+### Resolved questions
+
+The ten questions that stood open here are closed. Product/UX answers came from Max; the rest were
+technical calls made under this contract.
+
+1. **Records/constraints/lock order** — §phase order B. Lock order is stand → provider → revision,
+   matching the existing outermost-first discipline.
+2. **Primary-seller/native link transfer** — **not built.** §one provider record. Native means
+   unbranded; a stand wanting brand credit creates a named provider.
+3. **Onboarding/recovery flows** — onboarding is Phase C.1. **Recovery: corrected.** The claim that
+   an existing owner-recovery path extends unchanged was false — no owner-transfer or -recovery flow
+   exists in the codebase. VIGA repairs these by hand through the admin tools, and nothing is built
+   here. This blocks nothing.
+4. **Migration** — §migration approach.
+5. **Public card/detail behavior** — §customer behavior. Two list views, item-first stand detail,
+   stand-first seller detail, host name suppressed **by ownership, not by name match** (corrected).
+6. **SMS answer copy/paging** — §customer behavior. Provider lines carry their own price and
+   freshness; existing three-stands-per-message paging is unchanged, and a multi-provider stand
+   consumes its extra lines within its own stand block rather than displacing another stand.
+7. **Stock-out recipients** — **corrected: no question is asked.** Notify every provider whose
+   confirmed inventory contradicts the report; skip agreement and skip non-claimants. §customer
+   behavior.
+8. **Revocation/pause/retirement invalidation** — **the mechanism does not exist and is now scoped
+   into Phase B.8**, not assumed. Every state change invalidates queued confirmations and reminders
+   for the affected provider only; stand shutdown invalidates all.
+9. **One record or two** — **one record, nullable seller.** §one provider record.
+10. **F-112 follows** — deferred, deliberately. Follows are not built for sellers or providers in
+    this refactor. Revisit once real hosted providers exist and their publication streams are
+    observable; building three follow targets now is speculative.
+
+### Verification requirements
+
+- Phase A ships with golden-output tests proving every **enumerated** consolidated site returns
+  byte-identical results against a populated database. The enumeration is written down first; the
+  gate tests the list, never a remembered count. This is the gate for Phase B.
+- Prove the availability intersection: a provider closed inside an open stand hides only its own
+  goods; a provider whose hours exceed the stand's is still hidden when the stand is closed.
+- Prove a paused provider's pending confirmation yields the re-open prompt rather than a silent
+  publish or a bare refusal, and that `NO` leaves the listing paused.
+- Prove a stock-out report reaches providers claiming the item available, skips providers already
+  claiming it out, and skips usual-only providers.
+- Prove a hosted seller at several stands can select and publish to each, with the menu naming the
+  seller where it differs from the stand.
+- Test-first with real Postgres constraints and **genuine contention** for owner transfer,
+  invitation acceptance, provider publication, access revocation, and first-inventory races. A
+  first-inventory race per provider is arbitrated by the unique index
+  (`insert … on conflict do nothing returning …`), never by a preceding read — `select … for update`
+  cannot serialize a row that does not exist yet. Each claimant needs its own provider row; sharing
+  a stand parent serializes at the first read and measures the wrong lock.
+- Prove every public and SMS reader derives the same provider facts, item-level evidence, effective
+  availability, and seller/stand visibility from the shared reader.
+- Prove customer reports cannot mutate publication; stand shutdown hides all providers; seller
+  pause/revocation hides only its permitted scope; an unrelated provider's update cannot refresh
+  another provider's item freshness.
+- Prove the host suppression rule against a stand whose host has zero inventory: hosted sellers
+  render, no empty host line, no stand-level stock implied. Prove it against a host and hosted
+  seller with similar names, where a name-match rule would misfire in both directions.
+- Prove the widened pending-proposal index admits two stands for one sender and still refuses two
+  for one provider.
+- Migrate a populated current schema and verify exact row effects, history, approvals,
+  authorizations, pending confirmations, reminders, and public output.
+- Exercise the item-first stand view at phone width with duplicate items, mixed prices/payments,
+  mixed freshness, native-only inventory, hosted-only inventory, and no-current-listing states.
+- Every index and CHECK added here is sabotage-tested: break the code deliberately and confirm the
+  test catches it. A CHECK passes on NULL, so every provider-nullability rule is written as a
+  biconditional, matching the existing `sourceProvenance` discipline.
+
+### Replaced assumptions
+
+- `sales_location_participants` is no longer sufficient as display-only seller names.
+- Inventory is no longer one anonymous shared snapshot per stand. It is independently refreshed per
+  provider, while customer item search deliberately aggregates those claims by stand.
+- A hosted seller does not merely receive access to edit the host's shared inventory. A named seller owns a
+  first-class provider relationship, facts, and query surface at that stand.
+- The existing one-sided onboarding text field cannot create a hosted relationship. Hosting needs
+  invitation, acceptance, approval provenance, and scoped access.
+- The prior statement that one stand schedule/payment state applies to every seller is superseded.
+- The historical Phase 1 line "keep existing inventory one-per-location" is superseded by
+  one-current-per-provider.
+
+## Historical farmer-behavior plan
+
+The hosted-seller portions below are retained only as the record of the earlier design. They are not
+requirements. The unrelated behaviors remain useful implementation history.
 
 ## Executive Decision
 
