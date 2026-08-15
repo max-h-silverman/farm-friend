@@ -26,8 +26,10 @@
   **Phase B's native brand slot no longer exists** — C.0 replaced it, see below.
   **Hosted-seller behavior — invitation, per-provider publication, the seller list, item-first
   cards — is Phase C.1 and is NOT built.**
-- **F-114 Phase C.0 re-roots identity on sellers** (branch `f-114-phase-c0-seller-root`, **not
-  merged, not deployed, INCOMPLETE**). Max corrected the model before C.1 was written: a stand has
+- **F-114 Phase C.0 re-roots identity on sellers** (branch `f-114-phase-c0-seller-root`, **PR #122
+  open and deliberately unmerged, not deployed**). Max chose to hold it until the last four
+  integration files are green, so `main` never carries a knowingly-red suite — this repo has no CI
+  to flag one. Max corrected the model before C.1 was written: a stand has
   a name, metadata, and nested sellers. `farms` is renamed to `sellers` (ids preserved, so every
   key keeps pointing at the same rows); `owner_farm_id` is replaced by `own_seller_id`, the
   **self-pointer** naming the one nested seller that IS the stand, NULL for a venue like Morgan

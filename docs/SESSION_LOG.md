@@ -83,7 +83,9 @@ admitted. No live eval run is owed — C.0 changed no seam projection, schema, o
 so the next session should measure inside the running fixture rather than infer from source, per the
 standing rule about what to do when rendering contradicts source that reads correctly.
 
-**Not deployed, and `0042` is still not applied to production.** Both remain Max's call.
+**PR #122 is open and deliberately unmerged.** Max held it rather than putting four known-failing
+integration files on `main`, which has no CI to flag them. Not deployed, and `0042` is still not
+applied to production — both remain his call.
 
 ## 2026-08-15 — Records and constraints for multi-seller stands (F-114 Phase B)
 
