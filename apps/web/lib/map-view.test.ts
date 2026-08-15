@@ -280,7 +280,7 @@ describe("buildMapView", () => {
       // max's decision, 2026-07-29: ANY farm may participate in SMS inventory. Open Gate Lamb
       // sells goods with real seasonal availability ("butchering in July and November"), so
       // "no place to visit" must never be read as "nothing to publish". A view model that
-      // suppressed items for contact-only farms would silently remove a farmer's published
+      // suppressed items for contact-only sellers would silently remove a farmer's published
       // listing — Golden Rule #1 territory, since only the farmer owns that state.
       const withStock: PublicStandPayload = {
         ...contactOnly,
@@ -1256,7 +1256,7 @@ describe("numberStands (F-043 — the poster's numbered pins)", () => {
 
   it("keeps a farm's number identical when the list is reordered", () => {
     // THE ASSERTION THIS EXISTS FOR — the distance-sort case, stated as an invariant rather
-    // than by re-running the sort: same farms, different input order, same numbers.
+    // than by re-running the sort: same sellers, different input order, same numbers.
     const byName = numbered("Zephyr Farm", "Alpha Farm", "Meadow Farm");
     const byDistance = numbered("Meadow Farm", "Zephyr Farm", "Alpha Farm");
 
@@ -1282,7 +1282,7 @@ describe("numberStands (F-043 — the poster's numbered pins)", () => {
   it("keeps duplicate-named stands stable when the list is reordered", () => {
     // Asserting distinctness above is NOT enough: a sort with no tiebreak still yields
     // distinct numbers, because it falls back to input order. That makes the number
-    // positional again for exactly the farms most likely to be confused — two stands with
+    // positional again for exactly the sellers most likely to be confused — two stands with
     // the same name. Reorder the same stands and each id must keep its number.
     const twoLocations = (order: readonly string[]) =>
       numberStands(

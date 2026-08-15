@@ -65,14 +65,14 @@ describe("onboarding redemption over an existing current revision (integration)"
     `;
     administratorId = administrators[0]?.id as string;
 
-    const farms = await sql()`
-      insert into farms (name) values ('Seeded Farm') returning id
+    const sellers = await sql()`
+      insert into sellers (name) values ('Seeded Farm') returning id
     `;
-    farmId = farms[0]?.id as string;
+    farmId = sellers[0]?.id as string;
 
     const locations = await sql()`
       insert into sales_locations (
-        owner_farm_id, kind, name, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, public_address, public_latitude, public_longitude,
         season_kind, open_hours_kind, open_days, stocking_cadence, visitability,
         offering_type, timezone, farm_bucks_accepted, farm_bucks_eligible
       )
@@ -88,13 +88,13 @@ describe("onboarding redemption over an existing current revision (integration)"
     // The VIGA seed: a current revision that exists BEFORE the farmer ever texts.
     const seeded = await sql()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
       values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), null, null, null, 'viga', ${now})
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), null, null, null, 'viga', ${now})
       returning id
     `;
     await sql()`
@@ -189,8 +189,8 @@ ${farmId}, ${salesLocationId},
     pass just as well against a query that redeemed the wrong one.
   */
   it("redeems the invitation that existed when the message was sent, not a later one", async () => {
-    const farms = await sql()`insert into farms (name) values ('Late Invite Farm') returning id`;
-    const lateFarmId = farms[0]?.id as string;
+    const sellers = await sql()`insert into sellers (name) values ('Late Invite Farm') returning id`;
+    const lateSellerId = sellers[0]?.id as string;
 
     const phone = "+12065550200";
     const phoneHash = hashPhone(phone, "test-phone-salt");
@@ -200,7 +200,7 @@ ${farmId}, ${salesLocationId},
 
     // The invitation the farmer was actually answering: created just before they texted.
     const answered = await createFarmerInvitation(database(), {
-      farmId: lateFarmId,
+      farmId: lateSellerId,
       channel: "email",
       administratorId,
       occurredAt: new Date(textedAt.getTime() - 45_000),
@@ -220,7 +220,7 @@ ${farmId}, ${salesLocationId},
     // A second onboarding pass, created AFTER the farmer's text. Their earlier message cannot
     // be a response to this.
     const later = await createFarmerInvitation(database(), {
-      farmId: lateFarmId,
+      farmId: lateSellerId,
       channel: "sms",
       administratorId,
       occurredAt: new Date(textedAt.getTime() + 12 * 60 * 60 * 1000),

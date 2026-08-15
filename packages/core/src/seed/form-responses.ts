@@ -12,7 +12,7 @@ import type { RejectedStand } from "./stand-csv";
 // The two sources are COMPLEMENTARY, not competing (max, 2026-07-29):
 //
 //   form responses  →  details: hours, season, stocking, website, social, offerings prose
-//   map export      →  COORDINATES (this file has none) and farms that did not submit a 2026 form
+//   map export      →  COORDINATES (this file has none) and sellers that did not submit a 2026 form
 //
 // So this reader deliberately does NOT produce a seedable location on its own. Coordinates are
 // joined from the map export afterwards, and a visitable stand without them is refused there.
@@ -69,7 +69,7 @@ export interface FormResponsesResult {
  *
  * Checked rather than assumed: pointing the loader at the MAP export instead would otherwise
  * yield zero stands, which is indistinguishable from a genuinely empty corpus — and "seeded 0
- * farms" reads like success. Failing loudly is the only honest outcome for a wrong file.
+ * sellers" reads like success. Failing loudly is the only honest outcome for a wrong file.
  */
 const EXPECTED_COLUMNS = [
   "Timestamp",
@@ -156,7 +156,7 @@ function optional(value: string | undefined): string | undefined {
  * "15624 115th AV SW" as address-less during the 2026-07-29 survey, because it did not know
  * "AV" — spurious, and in the dangerous direction: it would have demoted a visitable stand to
  * contact-only and dropped it off the map. The availability parser learned the same lesson by
- * flagging ten farms wrongly.
+ * flagging ten sellers wrongly.
  *
  * So the test is inverted. Assume any stated address is real, and look only for the farmer
  * explicitly describing a NON-location: delivery, ordering, appointment. That fails safe in the

@@ -89,7 +89,7 @@ export interface SeedStandInput {
   /**
    * The farm's website and social links (F-061), already normalized to absolute URLs.
    *
-   * `farm_links_absolute_http_url` refuses anything else, and a refusal aborts the whole seed
+   * `seller_links_absolute_http_url` refuses anything else, and a refusal aborts the whole seed
    * transaction rather than skipping one row — so `parseFarmLinks` does the normalizing and
    * this type carries only what Postgres will accept.
    */
@@ -109,7 +109,7 @@ export interface SeedStandInput {
    * are not a farmer's confirmation, and a database CHECK enforces that split. A farmer takes
    * ownership by editing the list through their own settings page, which writes `'sms'`.
    *
-   * Display text only. Deliberately NOT matched against seeded farms — F-050 has no confirmed
+   * Display text only. Deliberately NOT matched against seeded sellers — F-050 has no confirmed
    * linking flow, so resolving a name to an account would fabricate a relationship.
    */
   participants?: string[];
@@ -251,7 +251,7 @@ async function indexLocationsByMatchKey(sql: Sql | Tx): Promise<Map<string, Loca
     select location.id, location.name, exists (
       select 1
       from farmer_authorizations auth
-      where auth.farm_id = location.owner_farm_id
+      where auth.seller_id = location.own_seller_id
         and auth.revoked_at is null
     ) as farmer_owned
     from sales_locations location
@@ -287,7 +287,7 @@ async function indexLocationsByMatchKey(sql: Sql | Tx): Promise<Map<string, Loca
  *
  * A name whose key is entirely generic words throws from `matchStandName` rather than becoming an
  * empty key, which would otherwise match every other empty key — one silent equivalence class
- * absorbing unrelated farms.
+ * absorbing unrelated sellers.
  */
 function resolveStand(
   byKey: Map<string, LocationMatch>,
@@ -453,7 +453,7 @@ async function seedStandsInTransaction(
     // updated: a farmer may have corrected their listing since the export, and a re-run must
     // not revert their change to VIGA's older text.
     const existing = await tx`
-      select l.id, l.owner_farm_id from sales_locations l
+      select l.id, l.own_seller_id from sales_locations l
       where l.name = ${stand.name} limit 1
     `;
     if (existing.length > 0) {
@@ -472,14 +472,14 @@ async function seedStandsInTransaction(
       // reorders, or removes. The listing itself — address, season, hours, stocking,
       // description — is still never touched here.
       const locationId = existing[0]?.id as string;
-      const ownerFarmId = existing[0]?.owner_farm_id as string;
+      const ownerSellerId = existing[0]?.own_seller_id as string;
 
       // Once a farmer holds a live authorization they own the listing (golden rule #1), and
       // VIGA's older spreadsheet must not add to it behind their back — a payment method or a
       // host they deliberately removed would silently come back on the next run.
       const authorized = await tx`
         select 1 from farmer_authorizations
-        where farm_id = ${ownerFarmId} and revoked_at is null
+        where seller_id = ${ownerSellerId} and revoked_at is null
         limit 1
       `;
       if (authorized.length > 0) {
@@ -487,13 +487,13 @@ async function seedStandsInTransaction(
         continue;
       }
 
-      const added = await writeSideFacts(tx, stand, ownerFarmId, locationId);
+      const added = await writeSideFacts(tx, stand, ownerSellerId, locationId);
       if (added) backfilled++;
       continue;
     }
 
     const farmRows = await tx`
-      insert into farms (name, description) values (${stand.name}, ${stand.description ?? null}) returning id
+      insert into sellers (name, description) values (${stand.name}, ${stand.description ?? null}) returning id
     `;
     const farmId = farmRows[0]!.id as string;
 
@@ -503,7 +503,7 @@ async function seedStandsInTransaction(
 
     const locationRows = await tx`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         visitability, offering_type,
         hours_text, is_public, farm_bucks_accepted, farm_bucks_eligible,
         season_kind, season_start_month, season_start_day, season_end_month,
@@ -526,6 +526,24 @@ async function seedStandsInTransaction(
       ) returning id
     `;
     const locationId = locationRows[0]!.id as string;
+
+    // The stand's own seller becomes an ordinary provider at it (F-114 Phase C.0). Phase B did
+    // this with a trigger on `sales_locations`, which C.0 removed: a stand may legitimately have
+    // NO seller of its own — a venue like Morgan Hill Community Stand — and a trigger would have
+    // to invent one to satisfy itself. So every writer that creates a stand with an own-seller
+    // creates its provider too, and this is one of the two that do.
+    //
+    // `viga` approval with the stand's own timestamps, because a seller selling at its own stand
+    // was not invited by anybody: the lifecycle CHECK requires an invitation and an approval for
+    // every row, and VIGA creating the stand IS the approval.
+    await tx`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state,
+        invited_at, accepted_at, approval_source, approved_at
+      )
+      select ${locationId}, ${farmId}, 'active', now(), now(), 'viga', now()
+      on conflict do nothing
+    `;
 
     await writeSideFacts(tx, stand, farmId, locationId);
 
@@ -606,7 +624,7 @@ async function writeSideFacts(
   // payment methods to the LOCATION (what this stand takes at this table).
   for (const [index, link] of (stand.links ?? []).entries()) {
     const rows = await tx`
-      insert into farm_links (farm_id, label, url, sort_order)
+      insert into seller_links (seller_id, label, url, sort_order)
       values (${farmId}, ${link.label}, ${link.url}, ${index})
       on conflict do nothing
       returning id
@@ -623,7 +641,7 @@ async function writeSideFacts(
     if (rows.length > 0) added = true;
   }
 
-  // F-064 — host farms, written as VIGA's statement rather than the farmer's.
+  // F-064 — host sellers, written as VIGA's statement rather than the farmer's.
   //
   // `on conflict do nothing` against the partial unique index on the normalized name where
   // `retired_at is null`, so a re-run adds no duplicate. That index is also why this never
@@ -632,7 +650,7 @@ async function writeSideFacts(
   for (const participant of stand.participants ?? []) {
     const rows = await tx`
       insert into sales_location_participants (
-        owner_farm_id, sales_location_id, display_name, source, confirmed_at
+        owner_seller_id, sales_location_id, display_name, source, confirmed_at
       )
       values (${farmId}, ${locationId}, ${participant}, 'viga', now())
       on conflict do nothing
@@ -718,7 +736,7 @@ export async function seedWeeklyConfirmations(
 
     for (const submission of submissions) {
       // Exact first, then a stated rename, then an unambiguous word-prefix. Farmers do not
-      // retype their full listing name every week — three of the 2026 weekly farms reached no
+      // retype their full listing name every week — three of the 2026 weekly sellers reached no
       // stand at all under an exact key, and each was a real submission that reached nobody.
       const resolvedKey = resolveStandKey(submission.standName, seededNames, {
         ...(options.formerNames !== undefined ? { formerNames: options.formerNames } : {}),
@@ -766,9 +784,9 @@ export async function seedWeeklyConfirmations(
       });
       const revision = await tx`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, source, published_at
+          seller_id, sales_location_id, provider_id, source, published_at
         )
-        select owner_farm_id, id, ${seedRevisionProviderId}, 'viga', ${submission.statedOn}
+        select own_seller_id, id, ${seedRevisionProviderId}, 'viga', ${submission.statedOn}
         from sales_locations where id = ${location.id}
         returning id
       `;

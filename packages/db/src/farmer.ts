@@ -57,7 +57,7 @@ export type CreateFarmerInvitationResult =
  * Create a one-use onboarding link for an administrator to share.
  *
  * The invitation may name an EXISTING farm (`farmId`) or create a NEW one (`newFarmName`),
- * never both — two different farms for one invitation is an ambiguous instruction, and
+ * never both — two different sellers for one invitation is an ambiguous instruction, and
  * guessing which was meant would bind the farmer to the wrong farm.
  *
  * **Naming the farm here is what makes self-serve onboarding reachable for a new farmer**
@@ -90,13 +90,13 @@ export async function createFarmerInvitation(
     // operator gets a result instead of a constraint violation, and no invitation is minted
     // pointing at a farm that was never created.
     const newFarmName = input.newFarmName?.trim();
-    const requestedFarmId = input.farmId ?? null;
+    const requestedSellerId = input.farmId ?? null;
     if (newFarmName !== undefined) {
-      if (newFarmName === "" || requestedFarmId !== null) {
+      if (newFarmName === "" || requestedSellerId !== null) {
         return { status: "invalid_farm_name" as const };
       }
       const createdFarm = await tx`
-        insert into farms (name) values (${newFarmName}) returning id, name
+        insert into sellers (name) values (${newFarmName}) returning id, name
       `;
       return finishFarmerInvitation(tx, {
         farmId: createdFarm[0]?.id as string,
@@ -107,12 +107,12 @@ export async function createFarmerInvitation(
       });
     }
 
-    const farmId = requestedFarmId;
-    const farms =
+    const farmId = requestedSellerId;
+    const sellers =
       farmId === null
         ? []
-        : await tx`select id, name from farms where id = ${farmId}`;
-    const farmName = (farms[0]?.name as string | undefined) ?? null;
+        : await tx`select id, name from sellers where id = ${farmId}`;
+    const farmName = (sellers[0]?.name as string | undefined) ?? null;
     if (farmId !== null && farmName === null) return { status: "unknown_farm" as const };
 
     return finishFarmerInvitation(tx, {
@@ -143,7 +143,7 @@ async function finishFarmerInvitation(
   const token = issueFarmerInviteToken();
   const inserted = await tx`
     insert into farmer_invitations (
-      farm_id, token_hash, channel, created_by_administrator_id,
+      seller_id, token_hash, channel, created_by_administrator_id,
       created_at, expires_at
     ) values (
       ${input.farmId}, ${hashFarmerInviteToken(token)}, ${input.channel},
@@ -188,9 +188,9 @@ export async function loadFarmerInvitation(
 ): Promise<FarmerInvitationLookup> {
   if (!/^[0-9a-f]{64}$/.test(token)) return { status: "invalid" };
   const rows = await driver(db)`
-    select invitation.id, invitation.farm_id, farm.name as farm_name, invitation.channel
+    select invitation.id, invitation.seller_id, farm.name as farm_name, invitation.channel
     from farmer_invitations as invitation
-    left join farms as farm on farm.id = invitation.farm_id
+    left join sellers as farm on farm.id = invitation.seller_id
     where invitation.token_hash = ${hashFarmerInviteToken(token)}
       and invitation.redeemed_at is null
       and invitation.expires_at > ${now.toISOString()}
@@ -200,7 +200,7 @@ export async function loadFarmerInvitation(
   return {
     status: "active",
     invitationId: row.id as string,
-    farmId: (row.farm_id as string | null) ?? null,
+    farmId: (row.seller_id as string | null) ?? null,
     farmName: (row.farm_name as string | null) ?? null,
     channel: row.channel as FarmerInviteChannel,
   };
@@ -361,8 +361,8 @@ export async function recordSelfIssuedFarmerClaim(
   return driver(db).begin(async (tx) => {
     // The farm must exist — the FK would refuse anyway, but a resolved refusal is what the
     // boundary can turn into an answer.
-    const farms = await tx`select id from farms where id = ${input.farmId}`;
-    if (farms.length === 0) return { status: "invalid" as const };
+    const sellers = await tx`select id from sellers where id = ${input.farmId}`;
+    if (sellers.length === 0) return { status: "invalid" as const };
 
     // Supersede this farm's own open self-issued claim. Scoped to `created_by_administrator_id
     // is null` so a VIGA-issued invitation for the same farm is never touched: that one is an
@@ -370,7 +370,7 @@ export async function recordSelfIssuedFarmerClaim(
     await tx`
       update farmer_invitations
       set redeemed_at = ${input.occurredAt.toISOString()}
-      where farm_id = ${input.farmId}
+      where seller_id = ${input.farmId}
         and created_by_administrator_id is null
         and redeemed_at is null
     `;
@@ -378,7 +378,7 @@ export async function recordSelfIssuedFarmerClaim(
     const token = issueFarmerInviteToken();
     const inserted = await tx`
       insert into farmer_invitations (
-        farm_id, token_hash, channel, created_by_administrator_id,
+        seller_id, token_hash, channel, created_by_administrator_id,
         created_at, expires_at, agreed_to_sms_at, pending_phone_e164, pending_phone_hash,
         pending_stock
       ) values (
@@ -494,7 +494,7 @@ export async function recordFarmerInvitationPendingStock(
       -- The target constraint's two halves, checked here so a caller that has not yet stated a
       -- phone gets a refusal rather than a constraint violation. Held stock with no phone would
       -- never publish: nothing would ever match it to an inbound START.
-      and farm_id is not null
+      and seller_id is not null
       and pending_phone_hash is not null
     returning id
   `;
@@ -535,7 +535,7 @@ export async function recordFarmerInvitationPendingCadence(
     where token_hash = ${hashFarmerInviteToken(input.token)}
       and redeemed_at is null
       and expires_at > ${input.occurredAt.toISOString()}
-      and farm_id is not null
+      and seller_id is not null
     returning id
   `;
   return updated.length > 0 ? { status: "recorded" } : { status: "invalid" };
@@ -587,7 +587,7 @@ async function publishPendingStockIn(
   // the same way, so the confirmation lands on the stand the farmer just described.
   const locations = await tx`
     select id from sales_locations
-    where owner_farm_id = ${input.farmId} and retired_at is null
+    where own_seller_id = ${input.farmId} and retired_at is null
     order by created_at asc
     limit 1
   `;
@@ -598,8 +598,8 @@ async function publishPendingStockIn(
   if (salesLocationId === undefined) return;
 
   const approvals = await tx`
-    select id from farm_approvals
-    where farm_id = ${input.farmId} and revoked_at is null
+    select id from seller_approvals
+    where seller_id = ${input.farmId} and revoked_at is null
   `;
   const farmApprovalId = approvals[0]?.id as string | undefined;
   if (farmApprovalId === undefined) return;
@@ -638,7 +638,7 @@ async function publishPendingStockIn(
 
   const revisions = await tx`
     insert into inventory_revisions (
-      farm_id, sales_location_id, provider_id, proposal_id,
+      seller_id, sales_location_id, provider_id, proposal_id,
       published_by_authorization_id, farm_approval_id, source, published_at
     )
     values (
@@ -714,7 +714,7 @@ async function queueFarmerAuthorizedNotification(
   */
   const locations = await tx`
     select id from sales_locations
-    where owner_farm_id = ${input.farmId} and retired_at is null
+    where own_seller_id = ${input.farmId} and retired_at is null
     order by created_at asc
   `;
   const salesLocationId = locations[0]?.id as string | undefined;
@@ -786,12 +786,12 @@ export async function authorizeFarmer(
       return { status: "not_an_administrator" as const };
     }
 
-    const farm = await tx`select id from farms where id = ${input.farmId}`;
+    const farm = await tx`select id from sellers where id = ${input.farmId}`;
     if (farm.length === 0) return { status: "unknown_farm" as const };
 
     const requests = await tx`
       select request.contact_hash, contact.id as contact_id,
-        invitation.farm_id as invitation_farm_id
+        invitation.seller_id as invitation_farm_id
       from farmer_onboarding_requests as request
       join contacts as contact on contact.phone_hash = request.contact_hash
       left join farmer_invitations as invitation on invitation.id = request.invitation_id
@@ -802,8 +802,8 @@ export async function authorizeFarmer(
     if (request === undefined) return { status: "unknown_request" as const };
     const contactId = request.contact_id as string;
     const contactHash = request.contact_hash as string;
-    const invitationFarmId = (request.invitation_farm_id as string | null | undefined) ?? null;
-    if (invitationFarmId !== null && invitationFarmId !== input.farmId) {
+    const invitationSellerId = (request.invitation_farm_id as string | null | undefined) ?? null;
+    if (invitationSellerId !== null && invitationSellerId !== input.farmId) {
       return { status: "farm_mismatch" as const };
     }
 
@@ -811,7 +811,7 @@ export async function authorizeFarmer(
     // unique index into an error instead of an honest answer.
     const existing = await tx`
       select id from farmer_authorizations
-      where farm_id = ${input.farmId} and contact_id = ${contactId}
+      where seller_id = ${input.farmId} and contact_id = ${contactId}
         and revoked_at is null
       for update
     `;
@@ -819,7 +819,7 @@ export async function authorizeFarmer(
 
     const inserted = await tx`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       )
       values (
         ${input.farmId}, ${contactId}, ${input.occurredAt.toISOString()},
@@ -1073,7 +1073,7 @@ export async function openFarmerOnboardingRequest(
       const invitations =
         invitationToken !== undefined
           ? await tx`
-              select id, agreed_to_sms_at, farm_id, created_by_administrator_id,
+              select id, agreed_to_sms_at, seller_id, created_by_administrator_id,
                 pending_prompt_cadence
               from farmer_invitations
               where token_hash = ${hashFarmerInviteToken(invitationToken)}
@@ -1082,7 +1082,7 @@ export async function openFarmerOnboardingRequest(
               for update
             `
           : await tx`
-              select id, agreed_to_sms_at, farm_id, created_by_administrator_id,
+              select id, agreed_to_sms_at, seller_id, created_by_administrator_id,
                 pending_prompt_cadence
               from farmer_invitations
               where pending_phone_hash = ${pendingPhoneHash!}
@@ -1097,7 +1097,7 @@ export async function openFarmerOnboardingRequest(
       if (invitationId === undefined) return { status: "invalid_invitation" as const };
       const agreedToSmsAt =
         (invitations[0]?.agreed_to_sms_at as Date | null | undefined) ?? null;
-      const invitationFarmId = (invitations[0]?.farm_id as string | null | undefined) ?? null;
+      const invitationSellerId = (invitations[0]?.seller_id as string | null | undefined) ?? null;
       /*
         NULL for a SELF-ISSUED claim (F-098) — nobody issued it, so nobody is credited with
         approving the farm. Typed honestly rather than `as string`: the cast would have carried
@@ -1189,10 +1189,10 @@ export async function openFarmerOnboardingRequest(
       // invitation is now spent, so a crash between the two would leave a farmer consented,
       // unauthorized, and holding a token that can never be redeemed again.
       const authorizationId =
-        invitationFarmId === null || agreedToSmsAt === null
+        invitationSellerId === null || agreedToSmsAt === null
           ? null
           : await authorizeInvitedFarmerIn(tx, {
-              farmId: invitationFarmId,
+              farmId: invitationSellerId,
               contactHash: input.contactHash,
               requestId,
               invitedByAdministratorId,
@@ -1209,10 +1209,10 @@ export async function openFarmerOnboardingRequest(
       // IS the "nobody to attribute this to" case — a farmer who never ticked the agreement,
       // or an invitation naming no farm. Those keep their held stock unpublished, which is the
       // honest outcome rather than a revision signed by nobody.
-      if (authorizationId !== null && invitationFarmId !== null) {
+      if (authorizationId !== null && invitationSellerId !== null) {
         await publishPendingStockIn(tx, {
           invitationId,
-          farmId: invitationFarmId,
+          farmId: invitationSellerId,
           authorizationId,
           occurredAt: input.occurredAt,
         });
@@ -1296,14 +1296,14 @@ async function authorizeInvitedFarmerIn(
   // see "none" and race the partial unique index into an error.
   const existing = await tx`
     select id from farmer_authorizations
-    where farm_id = ${input.farmId} and contact_id = ${contactId}
+    where seller_id = ${input.farmId} and contact_id = ${contactId}
       and revoked_at is null
     for update
   `;
   if (existing.length > 0) return null;
 
   const inserted = await tx`
-    insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+    insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
     values (
       ${input.farmId}, ${contactId}, ${input.occurredAt.toISOString()},
       ${input.occurredAt.toISOString()}
@@ -1313,7 +1313,7 @@ async function authorizeInvitedFarmerIn(
   const authorizationId = inserted[0]?.id as string;
 
   // APPROVE THE FARM TOO. Authorization and approval are two independent gates —
-  // `confirmProposal` checks `farmer_authorizations`, then `farm_approvals`, and returns
+  // `confirmProposal` checks `farmer_authorizations`, then `seller_approvals`, and returns
   // `not_approved` when the second is missing. Granting only the first would leave the farmer
   // authorized, texted "your farm is ready", and refused on their very first update: the same
   // silent dead end this feature closes, moved one step later.
@@ -1327,18 +1327,18 @@ async function authorizeInvitedFarmerIn(
   // paragraph above refuses. A null approver records exactly what happened: this farm published
   // because it claimed itself, and VIGA's revoke is the backstop.
   //
-  // THE INDEX IS THE ARBITER, not a preceding read. `farm_approvals_one_current_per_farm` is a
+  // THE INDEX IS THE ARBITER, not a preceding read. `seller_approvals_one_current_per_farm` is a
   // PARTIAL unique index, and `select … for update` cannot serialize a row that does not exist
   // yet — two concurrent redemptions for one farm would both observe "unapproved" and the second
   // insert would raise. `on conflict do nothing` makes an already-approved farm a no-op instead,
   // which is the same first-insert-race reasoning B-011 and F-050 needed.
   await tx`
-    insert into farm_approvals (farm_id, administrator_id, approved_at)
+    insert into seller_approvals (seller_id, administrator_id, approved_at)
     values (
       ${input.farmId}, ${input.invitedByAdministratorId},
       ${input.occurredAt.toISOString()}
     )
-    on conflict (farm_id) where revoked_at is null do nothing
+    on conflict (seller_id) where revoked_at is null do nothing
   `;
 
   // Settle the ask this answers. Without it the queue would keep showing a request that has
@@ -1454,17 +1454,17 @@ async function issueFarmerLinkIn(
   // Publication lock order: location before authorization. Link issuance names no sender
   // state or proposal, so these are the first two shared resources it can touch.
   const locations = await tx`
-    select id, owner_farm_id from sales_locations
+    select id, own_seller_id from sales_locations
     where id = ${input.salesLocationId}
     for update
   `;
-  const ownerFarmId = locations[0]?.owner_farm_id as string | undefined;
-  if (ownerFarmId === undefined) return null;
+  const ownerSellerId = locations[0]?.own_seller_id as string | undefined;
+  if (ownerSellerId === undefined) return null;
 
   const authorization = await tx`
-    select id, farm_id from farmer_authorizations
+    select id, seller_id from farmer_authorizations
     where id = ${input.authorizationId}
-      and farm_id = ${ownerFarmId}
+      and seller_id = ${ownerSellerId}
       and revoked_at is null
     for update
   `;
@@ -1485,11 +1485,11 @@ async function issueFarmerLinkIn(
   });
   const inserted = await tx`
     insert into farmer_links (
-      token_hash, authorization_id, owner_farm_id, sales_location_id,
+      token_hash, authorization_id, owner_seller_id, sales_location_id,
       provider_id, issued_at
     )
     values (
-      ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${ownerFarmId},
+      ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${ownerSellerId},
       ${input.salesLocationId}, ${linkProviderId},
       ${input.occurredAt.toISOString()}
     )
@@ -1532,7 +1532,7 @@ export async function resolveFarmerLink(
   const rows = await driver(db)`
     select
       auth.id as authorization_id,
-      auth.farm_id,
+      auth.seller_id,
       contact.phone_hash,
       location.id as sales_location_id
     from farmer_links as link
@@ -1541,8 +1541,8 @@ export async function resolveFarmerLink(
     join contacts as contact on contact.id = auth.contact_id
     join sales_locations as location
       on location.id = link.sales_location_id
-      and location.owner_farm_id = link.owner_farm_id
-      and link.owner_farm_id = auth.farm_id
+      and location.own_seller_id = link.owner_seller_id
+      and link.owner_seller_id = auth.seller_id
     where link.token_hash = ${input.tokenHash}
       and link.revoked_at is null
       and auth.revoked_at is null
@@ -1552,7 +1552,7 @@ export async function resolveFarmerLink(
   if (row === undefined) return null;
   return {
     authorizationId: row.authorization_id as string,
-    farmId: row.farm_id as string,
+    farmId: row.seller_id as string,
     salesLocationId: row.sales_location_id as string,
     senderHash: row.phone_hash as string,
   };
@@ -1693,7 +1693,7 @@ export async function listFarmerAuthorizations(
   const rows = await driver(db)`
     select
       auth.id,
-      auth.farm_id,
+      auth.seller_id,
       farm.name as farm_name,
       right(contact.phone_e164, 4) as sender_last_four,
       auth.authorized_at,
@@ -1704,7 +1704,7 @@ export async function listFarmerAuthorizations(
           order by location.name, location.id
         )
         from sales_locations as location
-        where location.owner_farm_id = auth.farm_id
+        where location.own_seller_id = auth.seller_id
       ), '[]'::jsonb) as stands,
       (
         select jsonb_build_object(
@@ -1713,21 +1713,21 @@ export async function listFarmerAuthorizations(
         from farmer_links as link
         join sales_locations as location
           on location.id = link.sales_location_id
-          and location.owner_farm_id = link.owner_farm_id
+          and location.own_seller_id = link.owner_seller_id
         where link.authorization_id = auth.id
-          and link.owner_farm_id = auth.farm_id
+          and link.owner_seller_id = auth.seller_id
           and link.revoked_at is null
         limit 1
       ) as live_link_stand
     from farmer_authorizations as auth
-    join farms as farm on farm.id = auth.farm_id
+    join sellers as farm on farm.id = auth.seller_id
     join contacts as contact on contact.id = auth.contact_id
     order by farm.name, auth.authorized_at
   `;
 
   return rows.map((row) => ({
     authorizationId: row.id as string,
-    farmId: row.farm_id as string,
+    farmId: row.seller_id as string,
     farmName: row.farm_name as string,
     senderMask: maskPhoneSuffix((row.sender_last_four as string | null) ?? null),
     authorizedAt: new Date(row.authorized_at as string),
@@ -1769,7 +1769,7 @@ export interface FarmAwaitingOnboardingRow {
  * nobody who can update it again (so it belongs back on this list).
  *
  * An EXPIRED invitation keeps the farm listed rather than dropping it. A farmer who lost their
- * link usually notices after it lapsed, so hiding those would hide exactly the farms an
+ * link usually notices after it lapsed, so hiding those would hide exactly the sellers an
  * operator came here to find.
  *
  * Carries no token, no hash, and no phone number — an operator needs the farm and the state,
@@ -1789,14 +1789,14 @@ export async function listFarmsAwaitingOnboarding(
       (
         select invitation.expires_at
         from farmer_invitations as invitation
-        where invitation.farm_id = farm.id
+        where invitation.seller_id = farm.id
         order by invitation.created_at desc, invitation.id desc
         limit 1
       ) as invitation_expires_at
-    from farms as farm
+    from sellers as farm
     where not exists (
       select 1 from farmer_authorizations as auth
-      where auth.farm_id = farm.id and auth.revoked_at is null
+      where auth.seller_id = farm.id and auth.revoked_at is null
     )
     order by farm.name, farm.id
   `;
@@ -1821,7 +1821,7 @@ export async function listFarmsAwaitingOnboarding(
 // VIGA's Google form is replaced by one global link with a farm dropdown and NO invitation
 // behind it (max, 2026-08-06). There is no phone roster to verify a claimant against — VIGA
 // never supplied one — so the honour system is the whole claim, and the only thing keeping the
-// door narrow is WHICH farms it can reach.
+// door narrow is WHICH sellers it can reach.
 //
 // **"Claimable" is the same predicate F-071's operator list uses**: a farm nobody can currently
 // publish for, which is the ABSENCE OF A LIVE AUTHORIZATION — never an unredeemed invitation.
@@ -1848,7 +1848,7 @@ const UUID_SHAPE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 const NO_LIVE_FARMER = (alias: string) => `
   not exists (
     select 1 from farmer_authorizations as auth
-    where auth.farm_id = ${alias}.id and auth.revoked_at is null
+    where auth.seller_id = ${alias}.id and auth.revoked_at is null
   )
 `;
 
@@ -1873,7 +1873,7 @@ export async function listClaimableFarms(
 ): Promise<ClaimableFarmRow[]> {
   const rows = await driver(db).unsafe(`
     select farm.id, farm.name
-    from farms as farm
+    from sellers as farm
     where ${NO_LIVE_FARMER("farm")}
       and ${visibleFarms("farm", scope.includeTestFarms)}
     order by farm.name, farm.id
@@ -1909,7 +1909,7 @@ export async function listFarmsForSelfService(
 ): Promise<SelfServiceFarmRow[]> {
   const rows = await driver(db).unsafe(`
     select farm.id, farm.name, not ${NO_LIVE_FARMER("farm")} as onboarded
-    from farms as farm
+    from sellers as farm
     where ${visibleFarms("farm", scope.includeTestFarms)}
     order by farm.name, farm.id
   `);
@@ -1969,7 +1969,7 @@ export async function claimGrandfatheredFarm(
   const rows = await driver(db).unsafe(
     `
       select farm.id, farm.name, farm.description, ${NO_LIVE_FARMER("farm")} as claimable
-      from farms as farm
+      from sellers as farm
       where farm.id = $1
     `,
     [input.farmId],
@@ -2036,8 +2036,8 @@ export async function requestFarmerStandLink(
       select auth.id as authorization_id, location.id as sales_location_id
       from farmer_authorizations as auth
       join contacts as contact on contact.id = auth.contact_id
-      join sales_locations as location on location.owner_farm_id = auth.farm_id
-      where auth.farm_id = ${input.farmId}
+      join sales_locations as location on location.own_seller_id = auth.seller_id
+      where auth.seller_id = ${input.farmId}
         and contact.phone_hash = ${input.contactHash}
         and auth.revoked_at is null
         and location.retired_at is null
@@ -2100,12 +2100,12 @@ export async function listOpenFarmerOnboardingRequests(
       request.id,
       right(contact.phone_e164, 4) as sender_last_four,
       request.requested_at,
-      invitation.farm_id,
+      invitation.seller_id,
       farm.name as farm_name
     from farmer_onboarding_requests as request
     join contacts as contact on contact.phone_hash = request.contact_hash
     left join farmer_invitations as invitation on invitation.id = request.invitation_id
-    left join farms as farm on farm.id = invitation.farm_id
+    left join sellers as farm on farm.id = invitation.seller_id
     where request.settled_at is null
     order by request.requested_at
   `;
@@ -2114,7 +2114,7 @@ export async function listOpenFarmerOnboardingRequests(
     requestId: row.id as string,
     senderMask: maskPhoneSuffix((row.sender_last_four as string | null) ?? null),
     requestedAt: new Date(row.requested_at as string),
-    farmId: (row.farm_id as string | null) ?? null,
+    farmId: (row.seller_id as string | null) ?? null,
     farmName: (row.farm_name as string | null) ?? null,
   }));
 }

@@ -74,7 +74,7 @@ describe("F-063 inventory revision provenance (integration)", () => {
       values (
 ${senderHash}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), 1, 'open',
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), 1, 'open',
         true, false, true, ${client().json({ entries: [] })}, ${at(0)}, ${at(0)}
       )
       returning id
@@ -97,14 +97,14 @@ ${senderHash}, ${salesLocationId},
     await migrationClient.end({ timeout: 5 });
     sql = postgres(url.toString(), { max: 1 });
 
-    const farms = await client()`
-      insert into farms (name) values (${`Provenance ${randomUUID()}`}) returning id
+    const sellers = await client()`
+      insert into sellers (name) values (${`Provenance ${randomUUID()}`}) returning id
     `;
-    farmId = farms[0]?.id as string;
+    farmId = sellers[0]?.id as string;
 
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -125,7 +125,7 @@ ${senderHash}, ${salesLocationId},
 
     const authorizations = await client()`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       )
       values (${farmId}, ${contacts[0]?.id as string}, ${at(0)}, ${at(0)})
       returning id
@@ -140,7 +140,7 @@ ${senderHash}, ${salesLocationId},
       returning id
     `;
     const approvals = await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${farmId}, ${administrators[0]?.id as string}, ${at(0)})
       returning id
     `;
@@ -217,12 +217,12 @@ ${senderHash}, ${salesLocationId},
   it("accepts a 'viga' row carrying no handset keys, and reads it back", async () => {
     const inserted = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, source, published_at, is_current
+        seller_id, sales_location_id, provider_id, source, published_at, is_current
       )
       values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), 'viga', ${at(1)}, false)
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), 'viga', ${at(1)}, false)
       returning id
     `;
     expect(inserted).toHaveLength(1);
@@ -243,13 +243,13 @@ ${farmId}, ${salesLocationId},
     const proposalId = await proposal();
     const inserted = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at, is_current
       )
       values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), ${proposalId}, ${authorizationId},
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${proposalId}, ${authorizationId},
         ${approvalId}, 'sms', ${at(2)}, false
       )
       returning id
@@ -274,12 +274,12 @@ ${farmId}, ${salesLocationId},
       const proposalId = await proposal();
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, source, published_at, is_current
+          seller_id, sales_location_id, provider_id, proposal_id, source, published_at, is_current
         )
         values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), ${proposalId}, 'viga', ${at(3)}, false
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${proposalId}, 'viga', ${at(3)}, false
         )
       `);
     });
@@ -287,13 +287,13 @@ ${farmId}, ${salesLocationId},
     it("refuses a 'viga' row carrying a published_by_authorization_id", async () => {
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, published_by_authorization_id, source,
+          seller_id, sales_location_id, provider_id, published_by_authorization_id, source,
           published_at, is_current
         )
         values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), ${authorizationId}, 'viga', ${at(4)}, false
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${authorizationId}, 'viga', ${at(4)}, false
         )
       `);
     });
@@ -301,12 +301,12 @@ ${farmId}, ${salesLocationId},
     it("refuses a 'viga' row carrying a farm_approval_id", async () => {
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, farm_approval_id, source, published_at, is_current
+          seller_id, sales_location_id, provider_id, farm_approval_id, source, published_at, is_current
         )
         values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), ${approvalId}, 'viga', ${at(5)}, false
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${approvalId}, 'viga', ${at(5)}, false
         )
       `);
     });
@@ -315,13 +315,13 @@ ${farmId}, ${salesLocationId},
       const proposalId = await proposal();
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, farm_approval_id, source,
+          seller_id, sales_location_id, provider_id, proposal_id, farm_approval_id, source,
           published_at, is_current
         )
         values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), ${proposalId}, ${approvalId}, 'sms',
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${proposalId}, ${approvalId}, 'sms',
           ${at(6)}, false
         )
       `);
@@ -330,13 +330,13 @@ ${farmId}, ${salesLocationId},
     it("refuses an 'sms' row missing proposal_id", async () => {
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, published_by_authorization_id, farm_approval_id,
+          seller_id, sales_location_id, provider_id, published_by_authorization_id, farm_approval_id,
           source, published_at, is_current
         )
         values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), ${authorizationId}, ${approvalId}, 'sms',
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${authorizationId}, ${approvalId}, 'sms',
           ${at(7)}, false
         )
       `);
@@ -346,13 +346,13 @@ ${farmId}, ${salesLocationId},
       const proposalId = await proposal();
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+          seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           source, published_at, is_current
         )
         values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), ${proposalId}, ${authorizationId}, 'sms',
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${proposalId}, ${authorizationId}, 'sms',
           ${at(8)}, false
         )
       `);
@@ -363,12 +363,12 @@ ${farmId}, ${salesLocationId},
       // the biconditional this is exactly the row that slips through.
       await refused(client()`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, source, published_at, is_current
+          seller_id, sales_location_id, provider_id, source, published_at, is_current
         )
         values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), 'sms', ${at(9)}, false)
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), 'sms', ${at(9)}, false)
       `);
     });
 
@@ -378,12 +378,12 @@ ${farmId}, ${salesLocationId},
       await expect(
         client()`
           insert into inventory_revisions (
-            farm_id, sales_location_id, provider_id, published_at, is_current
+            seller_id, sales_location_id, provider_id, published_at, is_current
           )
           values (
 ${farmId}, ${salesLocationId},
 (select id from stand_providers
-  where sales_location_id = ${salesLocationId} and seller_id is null), ${at(10)}, false)
+  where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${at(10)}, false)
         `,
       ).rejects.toThrow(/source/);
     });

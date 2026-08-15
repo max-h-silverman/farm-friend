@@ -110,8 +110,8 @@ describe("interpreted inventory → pending proposal (integration)", () => {
     await client()`
       truncate table
         inventory_entries, inventory_revisions, inventory_publication_proposals,
-        outbox_work, farm_approvals, farmer_authorizations, sales_locations,
-        administrators, farms, contacts
+        outbox_work, seller_approvals, farmer_authorizations, sales_locations,
+        administrators, sellers, contacts
       restart identity cascade
     `;
     const contacts = await client()`
@@ -128,21 +128,21 @@ describe("interpreted inventory → pending proposal (integration)", () => {
       insert into administrators (email, authorized_at)
       values ('board@vigavashon.org', ${T0}) returning id
     `;
-    const farms = await client()`
-      insert into farms (name) values ('Interpreted Farm') returning id
+    const sellers = await client()`
+      insert into sellers (name) values ('Interpreted Farm') returning id
     `;
-    ids.farm = farms[0]?.id as string;
+    ids.farm = sellers[0]?.id as string;
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${ids.farm}, ${ids.farmerContact}, ${T0}, ${T0})
     `;
     await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${ids.farm}, ${admins[0]?.id as string}, ${T0})
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (${ids.farm}, 'farm_stand', 'Interpreted Stand', 'America/Los_Angeles', 'visitable', 'produce', '11 Stand Way',
@@ -566,7 +566,7 @@ describe("interpreted inventory → pending proposal (integration)", () => {
       values (
 ${farmerHash}, ${ids.location},
           (select id from stand_providers
-            where sales_location_id = ${ids.location} and seller_id is null), ${client().json({ entries: [] })}, 1,
+            where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', 'seed-event', ${T0}
@@ -575,17 +575,17 @@ ${farmerHash}, ${ids.location},
     `;
 
     const auth = await client()`
-      select id from farmer_authorizations where farm_id = ${ids.farm}
+      select id from farmer_authorizations where seller_id = ${ids.farm}
     `;
     const approval = await client()`
-      select id from farm_approvals where farm_id = ${ids.farm}
+      select id from seller_approvals where seller_id = ${ids.farm}
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
-      values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${proposal[0]?.id as string},
+      values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${proposal[0]?.id as string},
               ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${T0})
       returning id
     `;
@@ -868,8 +868,8 @@ ${farmerHash}, ${ids.location},
     async function publishTwoItems() {
       const revision = await client()`
         insert into inventory_revisions
-          (farm_id, sales_location_id, provider_id, published_at, is_current, source)
-        values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id is null), ${T0}, true, 'viga')
+          (seller_id, sales_location_id, provider_id, published_at, is_current, source)
+        values (${ids.farm}, ${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${T0}, true, 'viga')
         returning id
       `;
       return client()`

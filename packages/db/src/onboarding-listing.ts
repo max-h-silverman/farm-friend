@@ -164,7 +164,7 @@ export interface OnboardingListingInput {
    * reintroduces B-037 one column over — a door that saves hours would silently delete a farm's
    * land acknowledgement as a side effect.
    *
-   * It lives on `farms` rather than `sales_locations` because it describes the FARM, which may
+   * It lives on `sellers` rather than `sales_locations` because it describes the FARM, which may
    * have more than one stand. Same record `renameFarm` writes, for the same reason.
    */
   description?: string | null;
@@ -235,7 +235,7 @@ export async function renameFarm(
   if (name === "") return { status: "invalid_name" };
 
   const rows = await driver(db)`
-    update farms set name = ${name} where id = ${input.farmId} returning id
+    update sellers set name = ${name} where id = ${input.farmId} returning id
   `;
   return rows.length === 0 ? { status: "unknown_farm" } : { status: "saved" };
 }
@@ -308,14 +308,14 @@ export async function saveOnboardingListing(
   return driver(db).begin(async (tx) => {
     // Locked, so two submissions from one farmer — a double-tapped button, a reload — cannot
     // both observe "no stand" and insert one each.
-    const farms = await tx`
-      select id from farms where id = ${input.farmId} for update
+    const sellers = await tx`
+      select id from sellers where id = ${input.farmId} for update
     `;
-    if (farms.length === 0) return { status: "unknown_farm" as const };
+    if (sellers.length === 0) return { status: "unknown_farm" as const };
 
     const existing = await tx`
       select id from sales_locations
-      where owner_farm_id = ${input.farmId}
+      where own_seller_id = ${input.farmId}
       order by created_at asc
       limit 1
     `;
@@ -346,7 +346,7 @@ export async function saveOnboardingListing(
     if (listing.description !== undefined) {
       const description = listing.description?.trim() ?? "";
       await tx`
-        update farms set description = ${description === "" ? null : description}
+        update sellers set description = ${description === "" ? null : description}
         where id = ${input.farmId}
       `;
     }
@@ -426,7 +426,7 @@ export async function seedDefaultPromptPreference(
   // whole publication.
   const authorizations = await tx`
     select id from farmer_authorizations
-    where id = ${input.authorizationId} and farm_id = ${input.farmId}
+    where id = ${input.authorizationId} and seller_id = ${input.farmId}
       and revoked_at is null
   `;
   if (authorizations.length === 0) return;
@@ -440,7 +440,7 @@ export async function seedDefaultPromptPreference(
     input.salesLocationId === null
       ? await tx`
           select id, timezone from sales_locations
-          where owner_farm_id = ${input.farmId} and retired_at is null
+          where own_seller_id = ${input.farmId} and retired_at is null
           order by created_at asc
           limit 1
         `
@@ -464,7 +464,7 @@ export async function seedDefaultPromptPreference(
   const preferenceProviderId = await readNativeProviderId(tx, { salesLocationId });
   await tx`
     insert into inventory_prompt_preferences (
-      owner_farm_id, sales_location_id, provider_id, designated_authorization_id,
+      owner_seller_id, sales_location_id, provider_id, designated_authorization_id,
       cadence, version, next_due_at, updated_at
     ) values (
       ${input.farmId}, ${salesLocationId}, ${preferenceProviderId}, ${input.authorizationId},
@@ -497,7 +497,7 @@ async function insertStand(
   const available = input.availability;
   const rows = await tx`
     insert into sales_locations (
-      owner_farm_id, kind, name, timezone, visitability, offering_type,
+      own_seller_id, kind, name, timezone, visitability, offering_type,
       public_address, address_public, prices_public,
       public_latitude, public_longitude, hours_text,
       season_kind, season_start_month, season_start_day,
@@ -529,7 +529,29 @@ async function insertStand(
     )
     returning id
   `;
-  return rows[0]!.id as string;
+  const locationId = rows[0]!.id as string;
+
+  // The stand's own seller becomes an ordinary provider at it (F-114 Phase C.0). Phase B created
+  // this with a trigger; C.0 removed the trigger because a stand may legitimately have no seller
+  // of its own, and a trigger would have to invent one. This is the second of the two writers
+  // that create a stand, and both create the provider explicitly.
+  //
+  // The timestamps are the onboarding moment and the source is `viga`: a farmer creating their
+  // own stand was not invited to it by anybody, and the lifecycle CHECK requires an invitation
+  // and an approval on every row.
+  await tx`
+    insert into stand_providers (
+      sales_location_id, seller_id, lifecycle_state,
+      invited_at, accepted_at, approval_source, approved_at
+    ) values (
+      ${locationId}, ${input.farmId}, 'active',
+      ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()},
+      'viga', ${input.occurredAt.toISOString()}
+    )
+    on conflict do nothing
+  `;
+
+  return locationId;
 }
 
 /**
@@ -836,7 +858,7 @@ export async function readFarmListingForOnboarding(
   */
   const locations = await driver(db)`
     select id from sales_locations
-    where owner_farm_id = ${input.farmId}
+    where own_seller_id = ${input.farmId}
     order by created_at asc
     limit 1
   `;
@@ -902,7 +924,7 @@ export async function readStandListing(
       ) as items
       , farm.name as farm_name, farm.description as farm_description
     from sales_locations as location
-    join farms as farm on farm.id = location.owner_farm_id
+    join sellers as farm on farm.id = location.own_seller_id
     where location.id = ${input.salesLocationId}
   `;
 

@@ -59,7 +59,7 @@ export async function handleNextPage(
 ): Promise<PagedReply> {
   // F-074 — the sender's privilege is re-read on every MORE rather than saved with the list.
   // A saved list holds identifiers, not entitlement: if the number was removed from the
-  // administrator phone list between the question and this MORE, the test farms drop out of
+  // administrator phone list between the question and this MORE, the test sellers drop out of
   // the remaining pages.
   const scope = {
     includeTestFarms: await isPrivilegedSender(deps.db, { senderHash: input.senderHash }),

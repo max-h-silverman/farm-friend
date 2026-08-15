@@ -711,7 +711,7 @@ export async function openOrReviseProposal(
     // as confirmation — sender, location, proposal, then authorization — before reading
     // either base revision.
     const locations = await tx`
-      select owner_farm_id from sales_locations
+      select own_seller_id from sales_locations
       where id = ${input.salesLocationId}
       for update
     `;
@@ -728,7 +728,7 @@ export async function openOrReviseProposal(
     const ownerAuthorization = await tx`
       select farmer.id from farmer_authorizations as farmer
       join contacts on contacts.id = farmer.contact_id
-      where farmer.farm_id = ${locations[0]?.owner_farm_id as string}
+      where farmer.seller_id = ${locations[0]?.own_seller_id as string}
         and contacts.phone_hash = ${input.senderHash}
         and farmer.revoked_at is null
       for update of farmer
@@ -928,7 +928,7 @@ export async function confirmInventoryPublication(
     // proposal named, not for whatever the stand's native slot happens to be now.
     const providerId = target[0]?.provider_id as string;
     const location = await tx`
-      select owner_farm_id, name, retired_at from sales_locations
+      select own_seller_id, name, retired_at from sales_locations
       where id = ${salesLocationId}
       for update
     `;
@@ -1096,12 +1096,12 @@ export async function confirmInventoryPublication(
 
     // These are the final shared locks. If revocation committed first, the filtered lock
     // returns no row; if confirmation locked first, revocation queues until publication.
-    const farmId = location[0]?.owner_farm_id as string;
+    const farmId = location[0]?.own_seller_id as string;
 
     const authorization = await tx`
       select farmer.id from farmer_authorizations as farmer
       join contacts on contacts.id = farmer.contact_id
-      where farmer.farm_id = ${farmId}
+      where farmer.seller_id = ${farmId}
         and contacts.phone_hash = ${input.senderHash}
         and farmer.revoked_at is null
         and (${scheduledSubject?.authorization_id as string | undefined ?? null}::uuid is null
@@ -1111,8 +1111,8 @@ export async function confirmInventoryPublication(
     if (authorization.length === 0) return { status: "not_authorized" };
 
     const approval = await tx`
-      select id from farm_approvals
-      where farm_id = ${farmId} and revoked_at is null
+      select id from seller_approvals
+      where seller_id = ${farmId} and revoked_at is null
       for update
     `;
     if (approval.length === 0) return { status: "not_approved" };
@@ -1125,7 +1125,7 @@ export async function confirmInventoryPublication(
     // Locked, like the approval above, so a take-down committing mid-confirmation either loses
     // the race and is seen here or wins it and queues behind this publication.
     const farmRetirement = await tx`
-      select retired_at from farms where id = ${farmId} for update
+      select retired_at from sellers where id = ${farmId} for update
     `;
     if (farmRetirement[0]?.retired_at !== null) return { status: "farm_retired" };
 
@@ -1181,7 +1181,7 @@ export async function confirmInventoryPublication(
     if (proposal.has_inventory === true) {
       const revision = await tx`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id,
+          seller_id, sales_location_id, provider_id, proposal_id,
           published_by_authorization_id, farm_approval_id, source, published_at
         )
         values (
@@ -1221,7 +1221,7 @@ export async function confirmInventoryPublication(
       }
       const inserted = await tx`
         insert into closure_revisions (
-          owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+          owner_seller_id, sales_location_id, proposal_id, owner_authorization_id,
           owner_approval_id, result, closure_kind, starts_on, closed_through,
           published_at
         ) values (
@@ -1343,7 +1343,7 @@ async function lockScheduledDispatchBasis(
   if (preflight.length === 0) return { kind: "scheduled", valid: false, proposalId };
   const salesLocationId = preflight[0]?.sales_location_id as string;
   const location = await tx`
-    select owner_farm_id from sales_locations
+    select own_seller_id from sales_locations
     where id = ${salesLocationId}
     for update
   `;
@@ -1363,7 +1363,7 @@ async function lockScheduledDispatchBasis(
     for update
   `;
   const authorization = await tx`
-    select auth.id, auth.farm_id, auth.revoked_at
+    select auth.id, auth.seller_id, auth.revoked_at
     from farmer_authorizations as auth
     join scheduled_inventory_prompt_subjects as subject
       on subject.authorization_id = auth.id
@@ -1374,8 +1374,8 @@ async function lockScheduledDispatchBasis(
   const approval = location.length === 0
     ? []
     : await tx`
-        select id from farm_approvals
-        where farm_id = ${location[0]?.owner_farm_id as string}
+        select id from seller_approvals
+        where seller_id = ${location[0]?.own_seller_id as string}
           and revoked_at is null
         for update
       `;
@@ -1433,8 +1433,8 @@ async function lockScheduledDispatchBasis(
     preferenceRow.designated_authorization_id === subject.authorization_id &&
     (preferenceRow.last_due_slot_at as Date | null)?.getTime() ===
       (subject.due_slot_at as Date).getTime() &&
-    authorizationRow.farm_id === subject.owner_farm_id &&
-    location[0]?.owner_farm_id === subject.owner_farm_id &&
+    authorizationRow.seller_id === subject.owner_seller_id &&
+    location[0]?.own_seller_id === subject.owner_seller_id &&
     currentInventoryId === ((subject.inventory_base_revision_id as string | null) ?? null) &&
     currentClosureId === ((subject.closure_base_revision_id as string | null) ?? null) &&
     projectClosure(closure, now).state !== "active" &&

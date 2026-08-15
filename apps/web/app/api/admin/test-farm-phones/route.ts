@@ -6,9 +6,9 @@ import {
 import { requireAdministrator } from "../../../../lib/admin-guard";
 import { publicReadContext } from "../../../../lib/public-context";
 
-// F-074 — who may see test farms over SMS.
+// F-074 — who may see test sellers over SMS.
 //
-// A route of its own rather than another action on `/api/admin/farms`, because the subject is
+// A route of its own rather than another action on `/api/admin/sellers`, because the subject is
 // genuinely different: that route records decisions about a FARM, and this one manages a
 // credential list. Folding them together would put phone handling in a route that has no
 // business touching a phone number.
@@ -20,7 +20,7 @@ import { publicReadContext } from "../../../../lib/public-context";
 // there is deliberately no raw column at all: that one exists because the outbound sender
 // needs something to send to, and nothing on this path ever sends.
 //
-// What being listed grants: seeing test farms in SMS answers. Nothing else. No route consults
+// What being listed grants: seeing test sellers in SMS answers. Nothing else. No route consults
 // `administrator_phones` for any other decision.
 
 export const dynamic = "force-dynamic";

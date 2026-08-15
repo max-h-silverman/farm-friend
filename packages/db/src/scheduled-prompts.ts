@@ -43,7 +43,7 @@ export async function setInventoryPromptPreference(
     }
 
     const locations = await tx`
-      select id, owner_farm_id, timezone from sales_locations
+      select id, own_seller_id, timezone from sales_locations
       where id = ${input.salesLocationId}
       for update
     `;
@@ -55,7 +55,7 @@ export async function setInventoryPromptPreference(
       from farmer_authorizations as auth
       join contacts as contact on contact.id = auth.contact_id
       where auth.id = ${input.authorizationId}
-        and auth.farm_id = ${location.owner_farm_id as string}
+        and auth.seller_id = ${location.own_seller_id as string}
         and contact.phone_hash = ${input.senderHash}
         and auth.revoked_at is null
       for update of auth
@@ -93,10 +93,10 @@ export async function setInventoryPromptPreference(
     const saved = previous === undefined
       ? await tx`
           insert into inventory_prompt_preferences (
-            owner_farm_id, sales_location_id, provider_id,
+            owner_seller_id, sales_location_id, provider_id,
             designated_authorization_id, cadence, version, next_due_at, updated_at
           ) values (
-            ${location.owner_farm_id as string}, ${input.salesLocationId}, ${providerId},
+            ${location.own_seller_id as string}, ${input.salesLocationId}, ${providerId},
             ${input.authorizationId}, ${input.cadence}, 1, ${nextDueAt}, ${now}
           ) returning id, version
         `

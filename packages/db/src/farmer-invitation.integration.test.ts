@@ -25,7 +25,7 @@ describe("administrator farmer invitations (integration)", () => {
   let databaseName = "";
   let administratorId = "";
   let farmId = "";
-  let otherFarmId = "";
+  let otherSellerId = "";
 
   const now = new Date(Date.now() - 60 * 60 * 1000);
   const sql = () => client as Sql;
@@ -50,11 +50,11 @@ describe("administrator farmer invitations (integration)", () => {
       values ('board@vigavashon.org', ${now}) returning id
     `;
     administratorId = administrators[0]?.id as string;
-    const farms = await sql()`
-      insert into farms (name) values ('Invited Farm'), ('Other Farm') returning id, name
+    const sellers = await sql()`
+      insert into sellers (name) values ('Invited Farm'), ('Other Farm') returning id, name
     `;
-    farmId = farms.find((farm) => farm.name === "Invited Farm")?.id as string;
-    otherFarmId = farms.find((farm) => farm.name === "Other Farm")?.id as string;
+    farmId = sellers.find((farm) => farm.name === "Invited Farm")?.id as string;
+    otherSellerId = sellers.find((farm) => farm.name === "Other Farm")?.id as string;
   }, 30_000);
 
   afterAll(async () => {
@@ -121,10 +121,10 @@ describe("administrator farmer invitations (integration)", () => {
     // its whitespace intact.
     expect(created.farmName).toBe("Misty Hollow Farm");
 
-    const farms = await sql()`select id, name from farms where name = 'Misty Hollow Farm'`;
-    expect(farms.length).toBe(1);
+    const sellers = await sql()`select id, name from sellers where name = 'Misty Hollow Farm'`;
+    expect(sellers.length).toBe(1);
 
-    // Bound, not merely created alongside: the redemption reads `farm_id` from the invitation
+    // Bound, not merely created alongside: the redemption reads `seller_id` from the invitation
     // to decide what to authorize, so an invitation that created a farm without pointing at it
     // would still dead-end in the queue.
     const active = await loadFarmerInvitation(
@@ -134,7 +134,7 @@ describe("administrator farmer invitations (integration)", () => {
     );
     expect(active).toMatchObject({
       status: "active",
-      farmId: farms[0]?.id as string,
+      farmId: sellers[0]?.id as string,
       farmName: "Misty Hollow Farm",
     });
   });
@@ -154,7 +154,7 @@ describe("administrator farmer invitations (integration)", () => {
   });
 
   it("refuses naming a new farm and choosing an existing one at once", async () => {
-    // Two different farms for one invitation is not a preference to resolve — it is an
+    // Two different sellers for one invitation is not a preference to resolve — it is an
     // ambiguous instruction, and guessing which the operator meant would bind the farmer to
     // the wrong farm.
     const created = await createFarmerInvitation(database(), {
@@ -166,8 +166,8 @@ describe("administrator farmer invitations (integration)", () => {
     });
 
     expect(created.status).toBe("invalid_farm_name");
-    const farms = await sql()`select id from farms where name = 'Ambiguous Farm'`;
-    expect(farms.length).toBe(0);
+    const sellers = await sql()`select id from sellers where name = 'Ambiguous Farm'`;
+    expect(sellers.length).toBe(0);
   });
 
   it("refuses authorizing an invited request for a different farm", async () => {
@@ -191,7 +191,7 @@ describe("administrator farmer invitations (integration)", () => {
     if (opened.status !== "opened") throw new Error("request fixture was not opened");
 
     expect(await authorizeFarmer(database(), {
-      farmId: otherFarmId,
+      farmId: otherSellerId,
       requestId: opened.requestId,
       administratorId,
       occurredAt: new Date(now.getTime() + 12_000),

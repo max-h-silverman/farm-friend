@@ -9,7 +9,7 @@ import type { Sql } from "./sql";
   F-114 Phase C.1 — the stand-and-sellers structure.
 
   §the stand-and-sellers correction overrides four decisions the reviewed contract had settled:
-  the `farms` authority root, the native brand slot, stand ownership, and migration `0042`. This
+  the `sellers` authority root, the native brand slot, stand ownership, and migration `0042`. This
   file is the constraint suite for what replaces them.
 
   ## What the structure is
@@ -23,7 +23,7 @@ import type { Sql } from "./sql";
 
   - `seller_id` is NOT NULL. There is no native slot: a stand's own goods are its own seller,
     named like any other. NULL previously meant "the stand itself", which only had meaning while
-    `farms` was the authority root.
+    `sellers` was the authority root.
   - A stand's self-pointer names the ONE nested seller that is the stand. Suppression on the
     public card follows this pointer and compares no strings — which is what makes `Hill Farm`
     hosted at `Hill Farm Stand` stay credited, and a renamed farm stay suppressed.
@@ -212,19 +212,19 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
   });
 
   describe("stand ownership is gone", () => {
-    it("has no owner_farm_id column on sales_locations", async () => {
+    it("has no owner_seller_id column on sales_locations", async () => {
       const db = client();
       const rows = await db`
         select column_name from information_schema.columns
-        where table_name = 'sales_locations' and column_name = 'owner_farm_id'
+        where table_name = 'sales_locations' and column_name = 'owner_seller_id'
       `;
       expect(rows).toHaveLength(0);
     });
 
-    it("has no farms table at all", async () => {
+    it("has no sellers table at all", async () => {
       const db = client();
       const rows = await db`
-        select table_name from information_schema.tables where table_name = 'farms'
+        select table_name from information_schema.tables where table_name = 'sellers'
       `;
       expect(rows).toHaveLength(0);
     });

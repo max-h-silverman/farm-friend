@@ -25,7 +25,7 @@ import {
 export const dynamic = "force-dynamic";
 
 // F-074 — `?hidden=true` is the one thing this route reads off the URL, and it only ever
-// ADDS test farms to the answer. It is a query parameter rather than a credential, which is
+// ADDS test sellers to the answer. It is a query parameter rather than a credential, which is
 // acceptable because a test farm holds no real data; it must never be used to hide a real
 // farm that wants privacy (that is `contact_only` — B-024).
 export async function GET(req: Request): Promise<Response> {

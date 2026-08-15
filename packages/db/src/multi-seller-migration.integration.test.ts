@@ -92,13 +92,13 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     for (const file of beforeThisWork) await applyFile(db, file);
 
     // ---- 2. populate it --------------------------------------------------------------------
-    const farms = await db`insert into farms (name) values ('Morgan Hill') returning id`;
-    farmId = farms[0]?.id as string;
+    const sellers = await db`insert into sellers (name) values ('Morgan Hill') returning id`;
+    farmId = sellers[0]?.id as string;
 
     const mkLocation = async (name: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           is_public, farm_bucks_accepted, farm_bucks_eligible,
           public_address, public_latitude, public_longitude
         ) values (
@@ -135,14 +135,14 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
       const rows = current
         ? await db`
             insert into inventory_revisions (
-              farm_id, sales_location_id, source, published_at, is_current
+              seller_id, sales_location_id, source, published_at, is_current
             ) values (
               ${farmId}, ${locationId}, 'viga', now() - ${`${ageDays} days`}::interval, true
             ) returning id
           `
         : await db`
             insert into inventory_revisions (
-              farm_id, sales_location_id, source, published_at, is_current, superseded_at
+              seller_id, sales_location_id, source, published_at, is_current, superseded_at
             ) values (
               ${farmId}, ${locationId}, 'viga', now() - ${`${ageDays} days`}::interval,
               false, now() - interval '1 day'
@@ -183,21 +183,21 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     `;
     const contactId = contacts[0]?.id as string;
     const authorizations = await db`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${contactId}, now(), now()) returning id
     `;
     const authorizationId = authorizations[0]?.id as string;
 
     await db`
       insert into farmer_links (
-        token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+        token_hash, authorization_id, owner_seller_id, sales_location_id, issued_at
       ) values (
         ${"a".repeat(64)}, ${authorizationId}, ${farmId}, ${richLocationId}, now()
       )
     `;
     await db`
       insert into inventory_prompt_preferences (
-        owner_farm_id, sales_location_id, designated_authorization_id,
+        owner_seller_id, sales_location_id, designated_authorization_id,
         cadence, version, next_due_at, updated_at
       ) values (
         ${farmId}, ${richLocationId}, ${authorizationId},
@@ -222,7 +222,7 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     selectingSenderHash = contacts[0]?.phone_hash as string;
     await db`
       insert into farmer_target_contexts (
-        sender_hash, selected_authorization_id, selected_owner_farm_id,
+        sender_hash, selected_authorization_id, selected_owner_seller_id,
         selected_sales_location_id, selected_at, updated_at
       ) values (
         ${selectingSenderHash}, ${authorizationId}, ${farmId},
@@ -231,7 +231,7 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     `;
     await db`
       insert into farmer_target_menu_options (
-        sender_hash, option_number, authorization_id, owner_farm_id, sales_location_id
+        sender_hash, option_number, authorization_id, owner_seller_id, sales_location_id
       ) values (${selectingSenderHash}, 1, ${authorizationId}, ${farmId}, ${richLocationId})
     `;
 
@@ -262,7 +262,7 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
       select l.id, count(p.id)::int as providers
       from sales_locations l
       left join stand_providers p
-        on p.sales_location_id = l.id and p.seller_id is null
+        on p.sales_location_id = l.id and p.seller_id = (select own_seller_id from sales_locations where id = p.sales_location_id)
       group by l.id
     `;
     expect(rows).toHaveLength(4);
@@ -274,14 +274,14 @@ describe("F-114 Phase B migration against a populated schema (integration)", () 
     // case rather than an edge one.
     const quiet = await client()`
       select p.id from stand_providers p
-      where p.sales_location_id = ${quietLocationId} and p.seller_id is null
+      where p.sales_location_id = ${quietLocationId} and p.seller_id = (select own_seller_id from sales_locations where id = p.sales_location_id)
     `;
     expect(quiet).toHaveLength(1);
 
     // The retired stand's native row exists specifically because its revision needs one.
     const retired = await client()`
       select p.id from stand_providers p
-      where p.sales_location_id = ${retiredLocationId} and p.seller_id is null
+      where p.sales_location_id = ${retiredLocationId} and p.seller_id = (select own_seller_id from sales_locations where id = p.sales_location_id)
     `;
     expect(retired).toHaveLength(1);
   });

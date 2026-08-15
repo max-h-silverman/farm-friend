@@ -11,14 +11,14 @@ import { parseFormResponses } from "./form-responses";
 //
 // The two sources are COMPLEMENTARY, not competing (max, 2026-07-29):
 //   form responses  →  details (hours, season, stocking, contact, offerings prose)
-//   map export      →  COORDINATES, which the form has none of, and farms that did not submit
+//   map export      →  COORDINATES, which the form has none of, and sellers that did not submit
 //
 // So this parser's job is narrow: turn the form file into records, decide `visitability` from
 // what the farmer actually stated, and refuse rather than coerce. Coordinates are joined in
 // later, from the map export.
 //
 // Fixtures below are VERBATIM from the real file, including its defects. That is deliberate —
-// a hand-idealized fixture is how the availability parser came to flag ten farms spuriously.
+// a hand-idealized fixture is how the availability parser came to flag ten sellers spuriously.
 
 const HEADER =
   "Timestamp,Email Address,Farm Name,Address,Contact Name(s),Email Address(es)," +

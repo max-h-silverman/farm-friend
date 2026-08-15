@@ -9,7 +9,7 @@ import { StandDetails, type AdminStandCard } from "./stand-list";
  * One farm, and everything VIGA can do about it.
  *
  * This replaces six separate presentations of the same entity — the approval queue, the stand
- * index, the test-farm toggle, the "farms with no one to update them" list, the farmer-access
+ * index, the test-farm toggle, the "sellers with no one to update them" list, the farmer-access
  * roster, and the invite form's farm dropdown — each of which lived on its own screen with its
  * own vocabulary. An operator asking "what is going on with Misty Hollow Farm?" had to visit
  * four lists and cross-reference them by name.
@@ -74,8 +74,8 @@ function needsAttention(farm: AdminFarmCard): string | null {
   return null;
 }
 
-export function FarmList({ farms }: { farms: AdminFarmCard[] }) {
-  const [rows, setRows] = useState(farms);
+export function FarmList({ sellers }: { sellers: AdminFarmCard[] }) {
+  const [rows, setRows] = useState(sellers);
   const [filter, setFilter] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -101,7 +101,7 @@ export function FarmList({ farms }: { farms: AdminFarmCard[] }) {
   async function post(
     farmId: string,
     body: Record<string, unknown>,
-    endpoint = "/api/admin/farms",
+    endpoint = "/api/admin/sellers",
   ): Promise<Record<string, unknown> | null> {
     setBusy(farmId);
     setSessionExpired(false);
@@ -328,10 +328,10 @@ export function FarmList({ farms }: { farms: AdminFarmCard[] }) {
 
       {visible.length === 0 ? (
         <p className="admin-empty-state">
-          {rows.length === 0 ? "No farms yet." : "No farms match what you typed."}
+          {rows.length === 0 ? "No sellers yet." : "No sellers match what you typed."}
         </p>
       ) : (
-        <ul className="admin-farms">
+        <ul className="admin-sellers">
           {visible.map((farm) => {
             const attention = needsAttention(farm);
             const draft = editing[farm.farmId];
@@ -558,7 +558,7 @@ export function FarmList({ farms }: { farms: AdminFarmCard[] }) {
                           </button>
                         </>
                       ) : (
-                        <ul className="admin-farms">
+                        <ul className="admin-sellers">
                           {live.map((row) => (
                             <li key={row.authorizationId} className="admin-access-card">
                               <div className="admin-card-person">

@@ -40,11 +40,11 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       values ('+12065550191', ${senderHash}) returning id
     `;
     ids.contact = contact[0]?.id as string;
-    const farm = await db.sql`insert into farms (name) values ('Schedule Farm') returning id`;
+    const farm = await db.sql`insert into sellers (name) values ('Schedule Farm') returning id`;
     ids.farm = farm[0]?.id as string;
     const location = await db.sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${ids.farm}, 'farm_stand', 'Schedule Stand', 'America/Los_Angeles', 'visitable', 'produce',
@@ -54,7 +54,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     ids.location = location[0]?.id as string;
     const authorization = await db.sql`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       ) values (${ids.farm}, ${ids.contact}, ${NOW}, ${NOW}) returning id
     `;
     ids.authorization = authorization[0]?.id as string;
@@ -119,7 +119,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       ) values (
         ${senderHash}, ${ids.location},
           (select id from stand_providers
-            where sales_location_id = ${ids.location} and seller_id is null), ${handle().sql.json({ items: [] })}, 1,
+            where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${handle().sql.json({ items: [] })}, 1,
         true, false, null, true
       ) returning id
     `;
@@ -134,14 +134,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id, provider_id,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 1, ${preference.preferenceId}, ${preference.version},
         ${ids.authorization}, ${ids.farm}, ${ids.location},
         (select id from stand_providers
-          where sales_location_id = ${ids.location} and seller_id is null), true,
+          where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), true,
         ${new Date(NOW.getTime() + 7 * 86_400_000)}, ${outbox[0]?.id as string},
         false, ${NOW}
       )
@@ -211,7 +211,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       ) values (
         ${senderHash}, ${ids.location},
           (select id from stand_providers
-            where sales_location_id = ${ids.location} and seller_id is null), ${handle().sql.json({ items: [] })}, 1,
+            where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${handle().sql.json({ items: [] })}, 1,
         true, false, null, true
       ) returning id
     `;
@@ -226,14 +226,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id, provider_id,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 0, ${preferenceId}, 1,
         ${ids.authorization}, ${ids.farm}, ${ids.location},
         (select id from stand_providers
-          where sales_location_id = ${ids.location} and seller_id is null), true,
+          where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), true,
         ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
         false, ${NOW}
       )
@@ -241,14 +241,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id, provider_id,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 1, ${preferenceId}, 0,
         ${ids.authorization}, ${ids.farm}, ${ids.location},
         (select id from stand_providers
-          where sales_location_id = ${ids.location} and seller_id is null), true,
+          where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), true,
         ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
         false, ${NOW}
       )
@@ -256,14 +256,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id, provider_id,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 1, ${preferenceId}, 1,
         ${ids.authorization}, ${ids.farm}, ${ids.location},
         (select id from stand_providers
-          where sales_location_id = ${ids.location} and seller_id is null), false,
+          where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), false,
         ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
         false, ${NOW}
       )
@@ -271,14 +271,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     await expect(handle().sql`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id, provider_id,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
         inventory_base_revision_id, closure_base_is_first_instruction,
         due_slot_at, outbox_work_id, offers_same, created_at
       ) values (
         ${proposal[0]?.id as string}, 1, ${preferenceId}, 1,
         ${ids.authorization}, ${ids.farm}, ${ids.location},
         (select id from stand_providers
-          where sales_location_id = ${ids.location} and seller_id is null), null, true,
+          where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), null, true,
         ${new Date(NOW.getTime() + 14 * 86_400_000)}, ${outbox[0]?.id as string},
         true, ${NOW}
       )
@@ -306,7 +306,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
         ) values (
           ${senderHash}, ${ids.location},
           (select id from stand_providers
-            where sales_location_id = ${ids.location} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
+            where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${handle().sql.json({ entries: [] })}, 1,
           true, false, null, true, 'invalidated', ${NOW}
         ) returning id
       `;
@@ -336,14 +336,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       await tx`
         insert into scheduled_inventory_prompt_subjects (
           proposal_id, proposal_version, preference_id, preference_version,
-          authorization_id, owner_farm_id, sales_location_id, provider_id,
+          authorization_id, owner_seller_id, sales_location_id, provider_id,
           closure_base_is_first_instruction, due_slot_at, outbox_work_id,
           offers_same, created_at
         ) values (
           ${proposals[0]!}, 1, ${preference.preferenceId}, ${preference.version},
           ${ids.authorization}, ${ids.farm}, ${ids.location},
         (select id from stand_providers
-          where sales_location_id = ${ids.location} and seller_id is null), true,
+          where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), true,
           ${dueSlot}, ${outboxes[0]!}, false, ${NOW}
         )
       `;
@@ -356,14 +356,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       const losingOutcome = (async () => claimant`
           insert into scheduled_inventory_prompt_subjects (
             proposal_id, proposal_version, preference_id, preference_version,
-            authorization_id, owner_farm_id, sales_location_id, provider_id,
+            authorization_id, owner_seller_id, sales_location_id, provider_id,
             closure_base_is_first_instruction, due_slot_at, outbox_work_id,
             offers_same, created_at
           ) values (
             ${proposals[1]!}, 1, ${preference.preferenceId}, ${preference.version},
             ${ids.authorization}, ${ids.farm}, ${ids.location},
         (select id from stand_providers
-          where sales_location_id = ${ids.location} and seller_id is null), true,
+          where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), true,
             ${dueSlot}, ${outboxes[1]!}, false, ${NOW}
           )
         `)().then(

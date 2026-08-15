@@ -54,14 +54,14 @@ function formatDate(value: string): string {
 
 export function FarmerQueue({
   requests,
-  farms,
+  sellers,
 }: {
   requests: PendingRequestRow[];
-  farms: FarmOption[];
+  sellers: FarmOption[];
 }) {
   const [pendingRequests, setPendingRequests] = useState(requests);
   const [farmChoice, setFarmChoice] = useState<Record<string, string>>({});
-  const [inviteFarmId, setInviteFarmId] = useState(NEW_FARM);
+  const [inviteSellerId, setInviteFarmId] = useState(NEW_FARM);
   const [newFarmName, setNewFarmName] = useState("");
   const [inviteChannel, setInviteChannel] = useState<FarmerInviteChannel>("sms");
   const [inviteDestination, setInviteDestination] = useState("");
@@ -128,7 +128,7 @@ export function FarmerQueue({
     const { ok } = await post({ action: "authorize", requestId, farmId }, requestId);
     if (!ok) return;
     const farmName =
-      farms.find((farm) => farm.farmId === farmId)?.name ?? "their farm";
+      sellers.find((farm) => farm.farmId === farmId)?.name ?? "their farm";
     setPendingRequests((current) =>
       current.filter((request) => request.requestId !== requestId),
     );
@@ -157,7 +157,7 @@ export function FarmerQueue({
       return;
     }
 
-    const creatingFarm = inviteFarmId === NEW_FARM;
+    const creatingFarm = inviteSellerId === NEW_FARM;
     if (creatingFarm && newFarmName.trim() === "") {
       setError("Name the new farm before preparing the invite.");
       return;
@@ -166,7 +166,7 @@ export function FarmerQueue({
     await mintInvite(
       creatingFarm
         ? { newFarmName: newFarmName.trim() }
-        : { farmId: inviteFarmId },
+        : { farmId: inviteSellerId },
       inviteChannel,
       destination,
       "create_invite",
@@ -308,7 +308,7 @@ export function FarmerQueue({
             <label className="admin-field">
               <span className="sr-only">Farm</span>
               <select
-                value={inviteFarmId}
+                value={inviteSellerId}
                 onChange={(event) => setInviteFarmId(event.target.value)}
               >
                 {/*
@@ -317,14 +317,14 @@ export function FarmerQueue({
                   back into the queue this work removes.
                 */}
                 <option value={NEW_FARM}>New farm</option>
-                {farms.map((farm) => (
+                {sellers.map((farm) => (
                   <option key={farm.farmId} value={farm.farmId}>
                     {farm.name}
                   </option>
                 ))}
               </select>
             </label>
-            {inviteFarmId === NEW_FARM && (
+            {inviteSellerId === NEW_FARM && (
               <label className="admin-field">
                 <span className="admin-control-label">New farm name</span>
                 <input
@@ -399,7 +399,7 @@ export function FarmerQueue({
         {pendingRequests.length === 0 ? (
           <p className="admin-empty-state">No requests.</p>
         ) : (
-          <ul className="admin-farms">
+          <ul className="admin-sellers">
             {pendingRequests.map((request) => (
               <li key={request.requestId} className="admin-farm admin-request-card">
                 <div className="admin-card-person">
@@ -425,7 +425,7 @@ export function FarmerQueue({
                         }
                       >
                         <option value="">Choose a farm…</option>
-                        {farms.map((farm) => (
+                        {sellers.map((farm) => (
                           <option key={farm.farmId} value={farm.farmId}>
                             {farm.name}
                           </option>

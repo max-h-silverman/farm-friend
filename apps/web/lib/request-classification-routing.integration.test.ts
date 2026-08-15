@@ -72,7 +72,7 @@ describe("F-111 request-classification routing (integration)", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await client()`truncate contacts, farms restart identity cascade`;
+    await client()`truncate contacts, sellers restart identity cascade`;
     await client()`truncate pending_stock_out_reports`;
     // The farmer's own stand, and a stand belonging to someone else. The access fork's three
     // rows are only distinguishable with both present.
@@ -109,8 +109,8 @@ describe("F-111 request-classification routing (integration)", () => {
     farmerHash: string,
     published: string[],
   ): Promise<string> {
-    const farms = await client()`insert into farms (name) values (${name}) returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values (${name}) returning id`;
+    const farmId = sellers[0]?.id as string;
     const existing = await client()`select id from contacts where phone_hash = ${farmerHash}`;
     const contactId =
       (existing[0]?.id as string | undefined) ??
@@ -121,12 +121,12 @@ describe("F-111 request-classification routing (integration)", () => {
         `
       )[0]?.id as string);
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, authorized_at, phone_verified_at)
+      insert into farmer_authorizations (seller_id, contact_id, authorized_at, phone_verified_at)
       values (${farmId}, ${contactId}, ${T0}, ${T0})
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
@@ -137,8 +137,8 @@ describe("F-111 request-classification routing (integration)", () => {
     const locationId = locations[0]?.id as string;
     const revisions = await client()`
       insert into inventory_revisions
-        (farm_id, sales_location_id, provider_id, is_current, published_at, source)
-      values (${farmId}, ${locationId}, (select id from stand_providers where sales_location_id = ${locationId} and seller_id is null), true, ${T0}, 'viga') returning id
+        (seller_id, sales_location_id, provider_id, is_current, published_at, source)
+      values (${farmId}, ${locationId}, (select id from stand_providers where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), true, ${T0}, 'viga') returning id
     `;
     for (const [index, itemName] of published.entries()) {
       await client()`

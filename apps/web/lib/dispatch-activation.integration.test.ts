@@ -83,8 +83,8 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
         provider_inbox_events, sms_messages, outbox_dispatch_attempts,
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         outbox_work, consent_transition_watermarks, sms_consents, sender_states,
-        audit_events, farm_approvals, farmer_authorizations, sales_locations,
-        administrators, farms, contacts
+        audit_events, seller_approvals, farmer_authorizations, sales_locations,
+        administrators, sellers, contacts
       restart identity cascade
     `;
 
@@ -101,24 +101,24 @@ describe("atomic dispatch acceptance and proposal activation (B-026)", () => {
       insert into administrators (email, authorized_at)
       values ('board@vigavashon.org', ${T0}) returning id
     `;
-    const farms = await client()`
-      insert into farms (name) values ('B-026 Farm') returning id
+    const sellers = await client()`
+      insert into sellers (name) values ('B-026 Farm') returning id
     `;
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
-      values (${farms[0]?.id as string}, ${farmerContactId}, ${T0}, ${T0}),
-             (${farms[0]?.id as string}, ${secondFarmerContactId}, ${T0}, ${T0})
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${sellers[0]?.id as string}, ${farmerContactId}, ${T0}, ${T0}),
+             (${sellers[0]?.id as string}, ${secondFarmerContactId}, ${T0}, ${T0})
     `;
     await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
-      values (${farms[0]?.id as string}, ${administrators[0]?.id as string}, ${T0})
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
+      values (${sellers[0]?.id as string}, ${administrators[0]?.id as string}, ${T0})
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${farms[0]?.id as string}, 'farm_stand', 'B-026 Stand', 'America/Los_Angeles', 'visitable', 'produce', '26 Atomic Way',
+        ${sellers[0]?.id as string}, 'farm_stand', 'B-026 Stand', 'America/Los_Angeles', 'visitable', 'produce', '26 Atomic Way',
         47.45, -122.46, false, false
       ) returning id
     `;

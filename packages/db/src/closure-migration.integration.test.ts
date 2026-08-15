@@ -89,11 +89,11 @@ describe("F-049 forward migration from populated pre-change schema (integration)
       insert into administrators (email, contact_id, authorized_at)
       values ('board@vigavashon.org', ${contact(adminHash)}, ${NOW}) returning id
     `;
-    const farms = await client()`insert into farms (name) values ('Pre-F049 Farm') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values ('Pre-F049 Farm') returning id`;
+    const farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        farm_id, kind, name, public_address, public_latitude, public_longitude,
+        seller_id, kind, name, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${farmId}, 'farm_stand', 'Existing Stand', '49 Migration Lane', 47.44, -122.46,
@@ -102,11 +102,11 @@ describe("F-049 forward migration from populated pre-change schema (integration)
     `;
     const locationId = locations[0]?.id as string;
     const authorizations = await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${contact(farmerHash)}, ${NOW}, ${NOW}) returning id
     `;
     const approvals = await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${farmId}, ${administrators[0]?.id as string}, ${NOW}) returning id
     `;
     const proposals = await client()`
@@ -121,7 +121,7 @@ describe("F-049 forward migration from populated pre-change schema (integration)
     const proposalId = proposals[0]?.id as string;
     const revisions = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, proposal_id, published_by_authorization_id,
         farm_approval_id, published_at
       ) values (
         ${farmId}, ${locationId}, ${proposalId}, ${authorizations[0]?.id as string},
@@ -175,11 +175,11 @@ describe("F-049 forward migration from populated pre-change schema (integration)
       select source from inventory_revisions where id = ${before[0]?.revision_id as string}
     `).toEqual([{ source: "sms" }]);
     expect(await client()`
-      select name, owner_farm_id, timezone, visitability, offering_type
+      select name, own_seller_id, timezone, visitability, offering_type
       from sales_locations where id = ${locationId}
     `).toEqual([{
       name: "Existing Stand",
-      owner_farm_id: farmId,
+      owner_seller_id: farmId,
       timezone: "America/Los_Angeles",
       visitability: "visitable",
       offering_type: "produce",

@@ -81,7 +81,7 @@ async function schedulePreference(
     const salesLocationId = preflight[0]?.sales_location_id as string;
 
     const locations = await tx`
-      select id, owner_farm_id, name, timezone from sales_locations
+      select id, own_seller_id, name, timezone from sales_locations
       where id = ${salesLocationId}
       for update
     `;
@@ -119,7 +119,7 @@ async function schedulePreference(
       from farmer_authorizations as auth
       join contacts as contact on contact.id = auth.contact_id
       where auth.id = ${preference.designated_authorization_id as string}
-        and auth.farm_id = ${location.owner_farm_id as string}
+        and auth.seller_id = ${location.owner_seller_id as string}
         and contact.phone_hash = ${candidate.sender_hash}
         and auth.revoked_at is null
       for update of auth
@@ -127,8 +127,8 @@ async function schedulePreference(
     if (authorizations.length === 0) return "ineligible";
 
     const approvals = await tx`
-      select id from farm_approvals
-      where farm_id = ${location.owner_farm_id as string} and revoked_at is null
+      select id from seller_approvals
+      where seller_id = ${location.owner_seller_id as string} and revoked_at is null
       for update
     `;
     if (approvals.length === 0) return "ineligible";
@@ -220,14 +220,14 @@ async function schedulePreference(
     await tx`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id, provider_id,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
         inventory_base_revision_id, closure_base_revision_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       ) values (
         ${proposalId}, 1, ${candidate.preference_id}, ${preference.version as number},
         ${preference.designated_authorization_id as string},
-        ${location.owner_farm_id as string}, ${salesLocationId}, ${providerId},
+        ${location.owner_seller_id as string}, ${salesLocationId}, ${providerId},
         ${revisionId},
         ${(closureRow?.id as string | undefined) ?? null}, ${closureRow === undefined},
         ${dueSlotAt}, ${outbox[0]?.id as string}, ${offersSame}, ${now}

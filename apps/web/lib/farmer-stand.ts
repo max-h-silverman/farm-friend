@@ -45,7 +45,7 @@ import { applyInterpretedInventory } from "./interpretation";
 // re-reading both revocation columns on every request. Everything below is scoped to that
 // projection and cannot widen it:
 //
-//   - it cannot change farm ownership — nothing here writes `farms` or `farmer_authorizations`;
+//   - it cannot change farm ownership — nothing here writes `sellers` or `farmer_authorizations`;
 //   - it cannot grant or alter authorization — the only writers are administrator-gated;
 //   - it cannot reach another farm's listing — the location comes from the token's row, never
 //     from the request;

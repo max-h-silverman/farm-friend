@@ -11,7 +11,7 @@ import { parseFarmLinks, parsePaymentMethods } from "./farm-links";
 describe("parseFarmLinks", () => {
   describe("what a farmer actually typed", () => {
     it("adds a scheme to a naked domain, which is how most farmers answered", () => {
-      // `farm_links_absolute_http_url` requires ^https?://, so a naked domain is REFUSED by
+      // `seller_links_absolute_http_url` requires ^https?://, so a naked domain is REFUSED by
       // Postgres. Storing these unchanged would mean silently losing most of the corpus.
       expect(parseFarmLinks({ website: "www.aeggys.com" })).toEqual([
         { label: "Website", url: "https://www.aeggys.com" },
@@ -104,7 +104,7 @@ describe("parseFarmLinks", () => {
     });
 
     it("never emits the same URL twice, however many cells name it", () => {
-      // `farm_links_farm_url_unique` refuses a duplicate, which would abort the whole seed
+      // `seller_links_farm_url_unique` refuses a duplicate, which would abort the whole seed
       // transaction rather than skipping one row.
       expect(
         parseFarmLinks({
@@ -202,7 +202,7 @@ describe("parsePaymentMethods", () => {
     );
   });
 
-  it("reads Zelle, which only two farms mention", () => {
+  it("reads Zelle, which only two sellers mention", () => {
     expect(parsePaymentMethods("Accepts: Venmo, Zelle, Cash and VIGA Farm Bucks")).toEqual([
       "Venmo", "Zelle", "Cash",
     ]);

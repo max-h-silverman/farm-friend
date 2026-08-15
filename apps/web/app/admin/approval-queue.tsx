@@ -4,7 +4,7 @@ import { useState } from "react";
 import { AdminRecoveryError } from "./admin-shell";
 
 // The approval queue's interactive half. It renders what the server already decided the
-// viewer may see and posts decisions back to `/api/admin/farms`, which re-checks authority
+// viewer may see and posts decisions back to `/api/admin/sellers`, which re-checks authority
 // server-side — this component's state is convenience, never authorization.
 
 export interface ApprovalRow {
@@ -29,8 +29,8 @@ function formatApproved(row: ApprovalRow): string {
   return `Approved${when}${who}`;
 }
 
-export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
-  const [rows, setRows] = useState(farms);
+export function ApprovalQueue({ sellers }: { sellers: ApprovalRow[] }) {
+  const [rows, setRows] = useState(sellers);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [sessionExpired, setSessionExpired] = useState(false);
@@ -50,7 +50,7 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
     setSessionExpired(false);
     setSuccess(null);
     try {
-      const response = await fetch("/api/admin/farms", {
+      const response = await fetch("/api/admin/sellers", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ farmId, action }),
@@ -91,7 +91,7 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
   }
 
   if (rows.length === 0) {
-    return <p className="admin-note">No farms yet.</p>;
+    return <p className="admin-note">No sellers yet.</p>;
   }
 
   return (
@@ -114,7 +114,7 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
           Nothing waiting. Invited farmers are approved automatically when they sign up.
         </p>
       ) : (
-      <ul className="admin-farms">
+      <ul className="admin-sellers">
         {waiting.map((row) => (
           <li key={row.farmId} className="admin-farm">
             <div>
@@ -140,8 +140,8 @@ export function ApprovalQueue({ farms }: { farms: ApprovalRow[] }) {
       )}
       {approved.length > 0 && (
         <details className="admin-secondary-disclosure">
-          <summary>Approved farms ({approved.length})</summary>
-          <ul className="admin-farms">
+          <summary>Approved sellers ({approved.length})</summary>
+          <ul className="admin-sellers">
             {approved.map((row) => (
               <li key={row.farmId} className="admin-farm">
                 <div>

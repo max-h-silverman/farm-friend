@@ -278,7 +278,7 @@ export const modelValidationStatus = pgEnum("model_validation_status", [
  * TWO values, not three. The launch import and a later admin edit are the SAME actor — VIGA
  * recording what a farmer told them, through different doors — so they share one value.
  * Attribution for an admin edit belongs to that workflow's own action row, matching how
- * `stock_out_reports.reviewed_by_administrator_id` and `farm_approvals` already work (F-065).
+ * `stock_out_reports.reviewed_by_administrator_id` and `seller_approvals` already work (F-065).
  */
 /**
  * Where a dated stock claim came from, and what evidence each one carries (F-063, F-090).
@@ -480,7 +480,7 @@ export const administratorPhones = pgTable(
   },
   (table) => ({
     // One LIVE listing per number; revoked rows accumulate as history. A partial unique index
-    // rather than a plain unique, for the same reason `farm_approvals` uses one: re-listing a
+    // rather than a plain unique, for the same reason `seller_approvals` uses one: re-listing a
     // number that was removed must be allowed, and must not resurrect the old row.
     oneLivePerPhone: uniqueIndex("administrator_phones_one_live")
       .on(table.phoneHash)
@@ -587,7 +587,7 @@ export const sellers = pgTable(
      * would erase the record of what its stands published and when, which is what the audit
      * trail exists to keep (Golden Rule #1).
      *
-     * Its own column rather than folded into approval or `test_farm_at`, for the reason
+     * Its own column rather than folded into approval or `test_seller_at`, for the reason
      * `retired_at` is its own column on `sales_locations`: approval is a publication gate the
      * seller's own redemption can set, so an operator's take-down expressed through it would
      * be silently cleared the next time anyone was approved.
@@ -674,7 +674,7 @@ export const sellers = pgTable(
  * **Several rows per farm is the normal case, not an edge case.** Five of VIGA's 32 sellers list
  * more than one address, and Lavender Hill lists three, spread across two columns of the form.
  *
- * The CHECK constraints and the normalized unique index live in `0024_farm_emails.sql` and are
+ * The CHECK constraints and the normalized unique index live in `0024_seller_emails.sql` and are
  * proven to genuinely refuse in `farm-emails-migration.integration.test.ts` — drizzle-kit omits
  * CHECK constraints when generating SQL, so a constraint declared only here would be enforced
  * by nothing while this file read as though it were.
@@ -696,12 +696,12 @@ export const sellerEmails = pgTable(
     // `btrim(text)` strips SPACES ONLY — not tabs, not newlines — so the whitespace class is
     // named explicitly. Migration 0020 shipped the naive form and a tab-only value passed it.
     addressNotBlank: check(
-      "farm_emails_address_not_blank",
+      "seller_emails_address_not_blank",
       sql`length(btrim(${table.email}, E' \t\r\n')) > 0`,
     ),
     // A malformed hash is a row nothing can ever look up, and the miss would be silent.
     hashIsDigest: check(
-      "farm_emails_hash_is_digest",
+      "seller_emails_hash_is_digest",
       sql`${table.emailHash} ~ '^[0-9a-f]{64}$'`,
     ),
   }),
@@ -723,7 +723,7 @@ export const sellerEmails = pgTable(
  * (`sellerEmails.email`) read only by the send path (Golden Rule #5).
  *
  * The CHECK constraints and the partial unique index live in
- * `0025_farm_email_verifications.sql` and are proven to genuinely refuse in
+ * `0025_seller_email_verifications.sql` and are proven to genuinely refuse in
  * `farm-email-verifications-migration.integration.test.ts` — drizzle-kit omits both when
  * generating SQL, so rules declared only here would be enforced by nothing.
  */
@@ -755,36 +755,36 @@ export const sellerEmailVerifications = pgTable(
   },
   (table) => ({
     emailHashIsDigest: check(
-      "farm_email_verifications_email_hash_is_digest",
+      "seller_email_verifications_email_hash_is_digest",
       sql`${table.emailHash} ~ '^[0-9a-f]{64}$'`,
     ),
     codeHashIsDigest: check(
-      "farm_email_verifications_code_hash_is_digest",
+      "seller_email_verifications_code_hash_is_digest",
       sql`${table.codeHash} ~ '^[0-9a-f]{64}$'`,
     ),
     // Strict: a row expiring at the instant it was issued is dead on arrival.
     expiresAfterIssue: check(
-      "farm_email_verifications_expires_after_issue",
+      "seller_email_verifications_expires_after_issue",
       sql`${table.expiresAt} > ${table.issuedAt}`,
     ),
     // Passes on NULL DELIBERATELY — "not yet consumed" must be legal. Called out because the
     // same NULL semantics silently invert a guard when the intent is the opposite.
     consumedAfterIssue: check(
-      "farm_email_verifications_consumed_after_issue",
+      "seller_email_verifications_consumed_after_issue",
       sql`${table.consumedAt} is null or ${table.consumedAt} >= ${table.issuedAt}`,
     ),
     attemptsNotNegative: check(
-      "farm_email_verifications_attempts_not_negative",
+      "seller_email_verifications_attempts_not_negative",
       sql`${table.attemptCount} >= 0`,
     ),
     grantHashIsDigest: check(
-      "farm_email_verifications_grant_hash_is_digest",
+      "seller_email_verifications_grant_hash_is_digest",
       sql`${table.grantHash} is null or ${table.grantHash} ~ '^[0-9a-f]{64}$'`,
     ),
     // A COHERENCE PAIR in both directions: the one-directional form passes on NULL and would
     // enforce nothing (0023's lesson). A grant with no expiry never ages out.
     grantCoherent: check(
-      "farm_email_verifications_grant_coherent",
+      "seller_email_verifications_grant_coherent",
       sql`(${table.grantHash} is null) = (${table.grantExpiresAt} is null)`,
     ),
   }),
@@ -1151,15 +1151,15 @@ export const sellerApprovals = pgTable(
     revokedAt: timestamp("revoked_at", { withTimezone: true }),
   },
   (table) => ({
-    idAndFarmUnique: unique("farm_approvals_id_farm_unique").on(
+    idAndFarmUnique: unique("seller_approvals_id_farm_unique").on(
       table.id,
       table.sellerId,
     ),
-    oneCurrentApproval: uniqueIndex("farm_approvals_one_current_per_farm")
+    oneCurrentApproval: uniqueIndex("seller_approvals_one_current_per_farm")
       .on(table.sellerId)
       .where(sql`${table.revokedAt} is null`),
     validRevocation: check(
-      "farm_approvals_valid_revocation",
+      "seller_approvals_valid_revocation",
       sql`${table.revokedAt} is null or ${table.revokedAt} >= ${table.approvedAt}`,
     ),
   }),
@@ -1177,20 +1177,20 @@ export const sellerLinks = pgTable(
     sortOrder: integer("sort_order").notNull().default(0),
   },
   (table) => ({
-    farmUrlUnique: unique("farm_links_farm_url_unique").on(
+    farmUrlUnique: unique("seller_links_farm_url_unique").on(
       table.sellerId,
       table.url,
     ),
     labelNotBlank: check(
-      "farm_links_label_not_blank",
+      "seller_links_label_not_blank",
       sql`length(trim(${table.label})) > 0`,
     ),
     absoluteHttpUrl: check(
-      "farm_links_absolute_http_url",
+      "seller_links_absolute_http_url",
       sql`${table.url} ~ '^https?://[^[:space:]]+$'`,
     ),
     nonnegativeSortOrder: check(
-      "farm_links_nonnegative_sort_order",
+      "seller_links_nonnegative_sort_order",
       sql`${table.sortOrder} >= 0`,
     ),
   }),
@@ -1203,7 +1203,7 @@ export const salesLocations = pgTable(
     /**
      * The one nested seller that IS this stand — the **self-pointer** (F-114 Phase C.0).
      *
-     * This replaces `owner_farm_id`, and it is a different fact. Ownership asserted *who
+     * This replaces `owner_seller_id`, and it is a different fact. Ownership asserted *who
      * controls the place*; this asserts *which of the sellers here is the stand itself*, which
      * is the question public rendering actually has to answer. The card suppresses the line this
      * column names and credits every other seller — following a recorded fact, never a name
@@ -1606,7 +1606,7 @@ export const standProviders = pgTable(
      * The seller selling here. **NOT NULL — there is no native brand slot** (F-114 Phase C.0).
      *
      * A stand's own goods belong to its own seller, named like any other; which seller that is
-     * lives in `sales_locations.own_seller_id`. Phase B made this nullable because `farms` was
+     * lives in `sales_locations.own_seller_id`. Phase B made this nullable because `sellers` was
      * the authority root and NULL was the only way to say "the stand itself"; §the
      * stand-and-sellers correction removed that root, so NULL has nothing left to mean.
      */
@@ -1693,7 +1693,7 @@ export const standProviders = pgTable(
     /**
      * The target of every re-rooted composite foreign key (F-114 Phase B item 2).
      *
-     * Authority used to route through `(sales_locations.id, sales_locations.owner_farm_id)`.
+     * Authority used to route through `(sales_locations.id, sales_locations.owner_seller_id)`.
      * It now routes through `(stand_providers.id, stand_providers.sales_location_id)`, so
      * "this record belongs to a provider AT the stand the surface bound" is a database
      * guarantee rather than a check some future caller might skip. Same shape as
@@ -1916,7 +1916,7 @@ export const farmerTargetContexts = pgTable(
      * WHICH provider at the selected stand this sender is updating (F-114 Phase B item 7).
      *
      * Without it a hosted seller at four stands is untargetable: their selection routes through
-     * the HOST's `owner_farm_id`, which is not their farm. The provider is the target; the
+     * the HOST's `owner_seller_id`, which is not their farm. The provider is the target; the
      * owner farm remains only as the pair that proves the authorization and the stand belong
      * together.
      */
@@ -3104,7 +3104,7 @@ export const inventoryRevisions = pgTable(
      */
     proposalId: uuid("proposal_id"),
     publishedByAuthorizationId: uuid("published_by_authorization_id"),
-    sellerApprovalId: uuid("farm_approval_id"),
+    farmApprovalId: uuid("farm_approval_id"),
     source: inventoryRevisionSource("source").notNull(),
     publishedAt: timestamp("published_at", { withTimezone: true }).notNull(),
     isCurrent: boolean("is_current").notNull().default(true),
@@ -3162,7 +3162,7 @@ export const inventoryRevisions = pgTable(
     }).onDelete("restrict"),
     approvalFarmReference: foreignKey({
       name: "inventory_revisions_approval_farm_fk",
-      columns: [table.sellerApprovalId, table.sellerId],
+      columns: [table.farmApprovalId, table.sellerId],
       foreignColumns: [sellerApprovals.id, sellerApprovals.sellerId],
     }).onDelete("restrict"),
     currentStateCoherent: check(
@@ -3188,19 +3188,19 @@ export const inventoryRevisions = pgTable(
           ${table.source} = 'sms'
           and ${table.proposalId} is not null
           and ${table.publishedByAuthorizationId} is not null
-          and ${table.sellerApprovalId} is not null
+          and ${table.farmApprovalId} is not null
         )
         or (
           ${table.source} = 'web'
           and ${table.proposalId} is null
           and ${table.publishedByAuthorizationId} is not null
-          and ${table.sellerApprovalId} is not null
+          and ${table.farmApprovalId} is not null
         )
         or (
           ${table.source} = 'viga'
           and ${table.proposalId} is null
           and ${table.publishedByAuthorizationId} is null
-          and ${table.sellerApprovalId} is null
+          and ${table.farmApprovalId} is null
         )
       `,
     ),

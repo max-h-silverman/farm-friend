@@ -7,7 +7,7 @@ import { PhoneStep } from "./phone-step";
  * F-072 / F-073 — pick a farm, and be routed by whether it already has a farmer.
  *
  * This replaces the farm list on VIGA's Google weekly-status form. The routing is the whole
- * point: the same list holds farms that need setting up and farms that are already on Farm
+ * point: the same list holds sellers that need setting up and sellers that are already on Farm
  * Friend, and a farmer should not have to know which they are.
  *
  * **A `<select>`, not a radio list.** VIGA's form shows 35 radio buttons, which is a long scroll
@@ -24,10 +24,10 @@ export interface PickableFarm {
 }
 
 export function FarmPicker({
-  farms,
+  sellers,
   basePath,
 }: {
-  farms: PickableFarm[];
+  sellers: PickableFarm[];
   /**
    * Where a claimable farm's link points. Passed in rather than hard-coded because F-079 puts
    * this picker behind a secret path segment, and the onward link must carry that segment or
@@ -35,8 +35,8 @@ export function FarmPicker({
    */
   basePath: string;
 }) {
-  const [farmId, setFarmId] = useState("");
-  const picked = farms.find((farm) => farm.farmId === farmId);
+  const [farmId, setSellerId] = useState("");
+  const picked = sellers.find((farm) => farm.farmId === farmId);
 
   return (
     <div className="farmer-picker">
@@ -47,10 +47,10 @@ export function FarmPicker({
         <select
           id="farm-picker"
           value={farmId}
-          onChange={(event) => setFarmId(event.target.value)}
+          onChange={(event) => setSellerId(event.target.value)}
         >
           <option value="">Choose your farm…</option>
-          {farms.map((farm) => (
+          {sellers.map((farm) => (
             <option key={farm.farmId} value={farm.farmId}>
               {farm.farmName}
             </option>

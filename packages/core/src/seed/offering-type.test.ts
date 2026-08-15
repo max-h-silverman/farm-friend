@@ -37,7 +37,7 @@ describe("classifyOfferingType", () => {
   });
 
   it("leaves an ordinary stand as produce", () => {
-    // The default must hold for the other 30 farms. A classifier that reaches for a special
+    // The default must hold for the other 30 sellers. A classifier that reaches for a special
     // case too eagerly mislabels the corpus in the direction nobody checks.
     expect(
       classifyOfferingType({
@@ -64,7 +64,7 @@ describe("classifyOfferingType", () => {
     //
     // The direction matters: self-service is the defining trait of an unattended honor-system
     // stand, which is most of this corpus. Reading it as "sells services" would mislabel the
-    // most ordinary farms as the rarest type, and on the map tell customers there is nothing
+    // most ordinary sellers as the rarest type, and on the map tell customers there is nothing
     // to buy at a stand full of bouquets.
     expect(
       classifyOfferingType({

@@ -72,7 +72,7 @@ describe("sales-location participant history constraints (integration)", () => {
     await client()`
       truncate table
         sales_location_participants, farmer_authorizations, sender_states,
-        sales_locations, farms, contacts
+        sales_locations, sellers, contacts
       restart identity cascade
     `;
     const contacts = await client()`
@@ -82,27 +82,27 @@ describe("sales-location participant history constraints (integration)", () => {
     `;
     const contact = (hash: string) =>
       contacts.find((row) => row.phone_hash === hash)?.id as string;
-    const farms = await client()`
-      insert into farms (name) values ('Owner Farm'), ('Other Farm') returning id, name
+    const sellers = await client()`
+      insert into sellers (name) values ('Owner Farm'), ('Other Farm') returning id, name
     `;
-    ids.ownerFarm = farms.find((row) => row.name === "Owner Farm")?.id as string;
-    ids.otherFarm = farms.find((row) => row.name === "Other Farm")?.id as string;
+    ids.ownerFarm = sellers.find((row) => row.name === "Owner Farm")?.id as string;
+    ids.otherFarm = sellers.find((row) => row.name === "Other Farm")?.id as string;
     const authorizations = await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values
         (${ids.ownerFarm}, ${contact(ownerHash)}, ${T0}, ${T0}),
         (${ids.otherFarm}, ${contact(otherHash)}, ${T0}, ${T0})
-      returning id, farm_id
+      returning id, seller_id
     `;
     ids.ownerAuthorization = authorizations.find(
-      (row) => row.farm_id === ids.ownerFarm,
+      (row) => row.seller_id === ids.ownerFarm,
     )?.id as string;
     ids.otherAuthorization = authorizations.find(
-      (row) => row.farm_id === ids.otherFarm,
+      (row) => row.seller_id === ids.otherFarm,
     )?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${ids.ownerFarm}, 'farm_stand', 'Shared Stand', 'America/Los_Angeles', 'visitable', 'produce', '50 Participant Way',
@@ -115,7 +115,7 @@ describe("sales-location participant history constraints (integration)", () => {
   async function insertParticipant(displayName = "Guest Growers"): Promise<string> {
     const rows = await client()`
       insert into sales_location_participants (
-        owner_farm_id, sales_location_id, display_name,
+        owner_seller_id, sales_location_id, display_name,
         source, confirmed_by_authorization_id, confirmed_at
       ) values (
         ${ids.ownerFarm}, ${ids.location}, ${displayName},
@@ -133,7 +133,7 @@ describe("sales-location participant history constraints (integration)", () => {
     await expect(
       client()`
         insert into sales_location_participants (
-          owner_farm_id, sales_location_id, display_name,
+          owner_seller_id, sales_location_id, display_name,
           source, confirmed_by_authorization_id, confirmed_at
         ) values (
           ${ids.ownerFarm}, ${ids.location}, 'Wrong Authority',
@@ -244,12 +244,12 @@ describe("sales-location participant history constraints (integration)", () => {
       retiredDisplayNames: [],
     });
     expect(await client()`
-      select owner_farm_id, sales_location_id, display_name,
+      select owner_seller_id, sales_location_id, display_name,
              confirmed_by_authorization_id, confirmed_at, retired_at
       from sales_location_participants order by display_name
     `).toEqual([
       {
-        owner_farm_id: ids.ownerFarm,
+        owner_seller_id: ids.ownerFarm,
         sales_location_id: ids.location,
         display_name: "Guest Growers",
         confirmed_by_authorization_id: ids.ownerAuthorization,
@@ -257,7 +257,7 @@ describe("sales-location participant history constraints (integration)", () => {
         retired_at: null,
       },
       {
-        owner_farm_id: ids.ownerFarm,
+        owner_seller_id: ids.ownerFarm,
         sales_location_id: ids.location,
         display_name: "Island Apiary",
         confirmed_by_authorization_id: ids.ownerAuthorization,
@@ -362,7 +362,7 @@ describe("sales-location participant history constraints (integration)", () => {
   });
 
   it("keeps a matching farm name as unlinked display text", async () => {
-    await client()`insert into farms (name) values ('Guest Growers')`;
+    await client()`insert into sellers (name) values ('Guest Growers')`;
     await saveSalesLocationParticipants(database(), {
       senderHash: ownerHash,
       salesLocationId: ids.location,
@@ -376,10 +376,10 @@ describe("sales-location participant history constraints (integration)", () => {
     const columns = await client()`
       select column_name from information_schema.columns
       where table_schema = 'public' and table_name = 'sales_location_participants'
-        and column_name ~ '(farm_id|profile)'
+        and column_name ~ '(seller_id|profile)'
       order by column_name
     `;
-    expect(columns).toEqual([{ column_name: "owner_farm_id" }]);
+    expect(columns).toEqual([{ column_name: "owner_seller_id" }]);
   });
 
   it("uses the active-name unique index to arbitrate a genuinely contended first insert", async () => {
@@ -389,7 +389,7 @@ describe("sales-location participant history constraints (integration)", () => {
     `;
     const secondAuthorization = await client()`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       ) values (
         ${ids.ownerFarm}, ${secondContact[0]?.id as string}, ${T0}, ${T0}
       ) returning id
@@ -407,7 +407,7 @@ describe("sales-location participant history constraints (integration)", () => {
     const winningTransaction = winner.begin(async (tx) => {
       await tx`
         insert into sales_location_participants (
-          owner_farm_id, sales_location_id, display_name,
+          owner_seller_id, sales_location_id, display_name,
           source, confirmed_by_authorization_id, confirmed_at
         ) values (
           ${ids.ownerFarm}, ${ids.location}, 'Guest Growers',
@@ -422,7 +422,7 @@ describe("sales-location participant history constraints (integration)", () => {
     const losingInsert = (async () =>
       claimant`
         insert into sales_location_participants (
-          owner_farm_id, sales_location_id, display_name,
+          owner_seller_id, sales_location_id, display_name,
           source, confirmed_by_authorization_id, confirmed_at
         ) values (
           ${ids.ownerFarm}, ${ids.location}, ' guest   growers ',

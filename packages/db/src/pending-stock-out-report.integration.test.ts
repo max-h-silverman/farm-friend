@@ -70,16 +70,16 @@ describe("the pending stock-out report a clarification leaves behind (integratio
     await migrationClient.end({ timeout: 5 });
     db = createDb(url);
 
-    const farms = await sql()`
-      insert into farms (name) values ('Alpha Farm') returning id
+    const sellers = await sql()`
+      insert into sellers (name) values ('Alpha Farm') returning id
     `;
     const locations = await sql()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
-        ${farms[0]?.id as string}, 'farm_stand', 'Alpha Stand', 'America/Los_Angeles',
+        ${sellers[0]?.id as string}, 'farm_stand', 'Alpha Stand', 'America/Los_Angeles',
         'visitable', 'produce', '1 Road', 47.44, -122.46, false, false
       )
       returning id

@@ -12,7 +12,7 @@ import { createHash, randomBytes } from "node:crypto";
 // database read cannot recover a live credential.
 
 /**
- * How long an operator session lasts. This is a standing credential to approve farms, so it
+ * How long an operator session lasts. This is a standing credential to approve sellers, so it
  * expires in a working day; re-authenticating requires the configured password.
  */
 export const ADMIN_SESSION_TTL_MS = 12 * 60 * 60 * 1000;

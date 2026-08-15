@@ -213,7 +213,13 @@ BEGIN
         'sellers', 'seller_approvals', 'seller_email_verifications', 'seller_emails', 'seller_links'
       )
   LOOP
-    renamed := regexp_replace(target.name, '^farms?_', 'seller_');
+    -- TWO rules, not one. `farms_*` names belong to the identity table and become `sellers_*`;
+    -- `farm_emails_*` and friends name satellite tables and become `seller_emails_*`. A single
+    -- `^farms?_` → `seller_` collapsed both and produced
+    -- `seller_projection_coordinates_coherent` on a table called `sellers`, which
+    -- `migration-metadata.test.ts` caught by name.
+    renamed := regexp_replace(target.name, '^farms_', 'sellers_');
+    renamed := regexp_replace(renamed, '^farm_', 'seller_');
     renamed := replace(renamed, '_farm_id_farms_id_fk', '_seller_id_sellers_id_fk');
     renamed := replace(renamed, '_farm_', '_seller_');
     renamed := regexp_replace(renamed, '_farm$', '_seller');
@@ -235,7 +241,13 @@ BEGIN
       AND indexname LIKE 'farm%'
       AND indexname NOT LIKE 'farmer%'
   LOOP
-    renamed := regexp_replace(target.name, '^farms?_', 'seller_');
+    -- TWO rules, not one. `farms_*` names belong to the identity table and become `sellers_*`;
+    -- `farm_emails_*` and friends name satellite tables and become `seller_emails_*`. A single
+    -- `^farms?_` → `seller_` collapsed both and produced
+    -- `seller_projection_coordinates_coherent` on a table called `sellers`, which
+    -- `migration-metadata.test.ts` caught by name.
+    renamed := regexp_replace(target.name, '^farms_', 'sellers_');
+    renamed := regexp_replace(renamed, '^farm_', 'seller_');
     renamed := replace(renamed, '_farm_', '_seller_');
     renamed := regexp_replace(renamed, '_farm$', '_seller');
     IF renamed <> target.name AND to_regclass('public.' || renamed) IS NULL THEN
@@ -357,6 +369,69 @@ CREATE TRIGGER "sellers_guard_public_sales_location"
   BEFORE UPDATE OF "map_projection" ON "sellers"
   FOR EACH ROW EXECUTE FUNCTION guard_farm_projection_without_location();--> statement-breakpoint
 
+-- ---- 6b. the two history guards follow the renamed column ------------------------------------
+-- `reject_closure_history_mutation` and `reject_sales_location_participant_history_mutation` both
+-- name `owner_farm_id` in their immutability checks. A renamed column does NOT rewrite a trigger
+-- body, so both would raise `record "new" has no field "owner_farm_id"` on the first UPDATE — the
+-- integration suite caught exactly that.
+--
+-- These are Golden Rule #1 protections (published history is immutable), so they are rewritten
+-- rather than dropped, and the column list is otherwise untouched.
+CREATE OR REPLACE FUNCTION reject_closure_history_mutation() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'published closure revisions cannot be deleted';
+  END IF;
+
+  IF NEW."id" IS DISTINCT FROM OLD."id"
+    OR NEW."owner_seller_id" IS DISTINCT FROM OLD."owner_seller_id"
+    OR NEW."sales_location_id" IS DISTINCT FROM OLD."sales_location_id"
+    OR NEW."proposal_id" IS DISTINCT FROM OLD."proposal_id"
+    OR NEW."owner_authorization_id" IS DISTINCT FROM OLD."owner_authorization_id"
+    OR NEW."owner_approval_id" IS DISTINCT FROM OLD."owner_approval_id"
+    OR NEW."result" IS DISTINCT FROM OLD."result"
+    OR NEW."closure_kind" IS DISTINCT FROM OLD."closure_kind"
+    OR NEW."starts_on" IS DISTINCT FROM OLD."starts_on"
+    OR NEW."closed_through" IS DISTINCT FROM OLD."closed_through"
+    OR NEW."published_at" IS DISTINCT FROM OLD."published_at"
+    OR NOT OLD."is_current"
+    OR NEW."is_current"
+    OR OLD."superseded_at" IS NOT NULL
+    OR NEW."superseded_at" IS NULL
+  THEN
+    RAISE EXCEPTION 'published closure revision history is immutable';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;--> statement-breakpoint
+
+CREATE OR REPLACE FUNCTION reject_sales_location_participant_history_mutation() RETURNS trigger AS $$
+BEGIN
+  IF TG_OP = 'DELETE' THEN
+    RAISE EXCEPTION 'sales-location participant history cannot be deleted';
+  END IF;
+
+  IF OLD."retired_at" IS NOT NULL
+    OR NEW."id" IS DISTINCT FROM OLD."id"
+    OR NEW."owner_seller_id" IS DISTINCT FROM OLD."owner_seller_id"
+    OR NEW."sales_location_id" IS DISTINCT FROM OLD."sales_location_id"
+    OR NEW."display_name" IS DISTINCT FROM OLD."display_name"
+    OR NEW."confirmed_by_authorization_id" IS DISTINCT FROM OLD."confirmed_by_authorization_id"
+    OR NEW."confirmed_at" IS DISTINCT FROM OLD."confirmed_at"
+    OR NEW."created_at" IS DISTINCT FROM OLD."created_at"
+    OR (
+      NEW."retired_at" IS NOT DISTINCT FROM OLD."retired_at"
+      AND NEW."retired_by_authorization_id" IS NOT DISTINCT FROM OLD."retired_by_authorization_id"
+    )
+  THEN
+    RAISE EXCEPTION 'sales-location participant history is immutable except for first retirement';
+  END IF;
+
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;--> statement-breakpoint
+
 -- ---- 7. stand ownership is removed ----------------------------------------------------------
 -- Dropped only AFTER `own_seller_id` is backfilled, constrained, and every dependent key has
 -- moved onto it, so no window exists in which a stand names neither.
@@ -456,6 +531,38 @@ CREATE INDEX IF NOT EXISTS "stand_providers_live_idx" ON "stand_providers" USING
 -- writer, because a stand with no seller of its own is now a legitimate state (Morgan Hill) and a
 -- trigger would have to invent a seller to satisfy it — the exact fabrication part one removes.
 -- ===========================================================================================
+
+-- A stand that NAMES its own seller gets that seller as an ordinary provider, on insert and on
+-- any later change of the self-pointer. This is NOT the trigger Phase B had and C.0 removed:
+-- that one fired for every stand and would have to invent a seller for a venue that has none.
+-- This one fires only when the stand has already said which seller is itself, so it fabricates
+-- nothing — a venue like Morgan Hill sets `own_seller_id` to NULL and no row is created.
+--
+-- It exists because the guarantee is real and belongs next to the data: a stand naming its own
+-- seller but holding no provider row for it can publish no inventory at all, and the failure
+-- surfaces far from the writer that caused it. The two production writers set it explicitly as
+-- well; this makes the number of writers that must remember it zero.
+CREATE OR REPLACE FUNCTION create_own_seller_provider() RETURNS trigger AS $$
+BEGIN
+  IF NEW."own_seller_id" IS NOT NULL THEN
+    INSERT INTO "stand_providers" (
+      "sales_location_id", "seller_id", "lifecycle_state",
+      "invited_at", "accepted_at", "approval_source", "approved_at"
+    )
+    VALUES (
+      NEW."id", NEW."own_seller_id", 'active',
+      NEW."created_at", NEW."created_at", 'viga', NEW."created_at"
+    )
+    ON CONFLICT DO NOTHING;
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;--> statement-breakpoint
+
+DROP TRIGGER IF EXISTS "sales_locations_create_own_seller_provider" ON "sales_locations";--> statement-breakpoint
+CREATE TRIGGER "sales_locations_create_own_seller_provider"
+  AFTER INSERT OR UPDATE OF "own_seller_id" ON "sales_locations"
+  FOR EACH ROW EXECUTE FUNCTION create_own_seller_provider();--> statement-breakpoint
 
 -- Every stand's own seller becomes an ordinary provider at that stand. Guarded on the
 -- self-pointer, so a venue with none (Morgan Hill, once VIGA clears it) simply gets no row here

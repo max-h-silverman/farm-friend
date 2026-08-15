@@ -20,8 +20,8 @@ import {
 //
 // max asked for "edit details / delete a farm" and chose the same meaning he chose for stands
 // in F-071: take it down, keep the records. That is a deliberate design, not a compromise:
-// `farms` is referenced `on delete restrict` by `sales_locations`, `farmer_authorizations`,
-// `farm_approvals` and more, so a hard DELETE fails at the constraint for any farm that has
+// `sellers` is referenced `on delete restrict` by `sales_locations`, `farmer_authorizations`,
+// `seller_approvals` and more, so a hard DELETE fails at the constraint for any farm that has
 // ever been used; and erasing it would erase what its stands published and when, which is the
 // one thing the audit trail exists to keep (Golden Rule #1).
 //
@@ -84,16 +84,16 @@ describe("farm retirement (integration)", () => {
     await migrate(drizzle(migrationClient), { migrationsFolder: migrationsDir });
     await migrationClient.end({ timeout: 5 });
 
-    const farms = await sql()`
-      insert into farms (name, description) values ('Retiring Farm', 'Berries and eggs')
+    const sellers = await sql()`
+      insert into sellers (name, description) values ('Retiring Farm', 'Berries and eggs')
       returning id
     `;
-    ids.farm = farms[0]?.id as string;
+    ids.farm = sellers[0]?.id as string;
 
     // A SECOND farm that must be untouched by everything below. Without it, "the farm is gone
     // from the operator's list" would also pass for a writer that retired every farm.
     const bystanders = await sql()`
-      insert into farms (name) values ('Bystander Farm') returning id
+      insert into sellers (name) values ('Bystander Farm') returning id
     `;
     ids.bystanderFarm = bystanders[0]?.id as string;
 
@@ -103,7 +103,7 @@ describe("farm retirement (integration)", () => {
       ["bystanderStand", "Bystander Stand", "bystanderFarm"],
     ] as const) {
       const rows = await sql()`
-        insert into sales_locations (owner_farm_id, kind, name, timezone, visitability,
+        insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
           offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible, is_public)
         values (${ids[farmKey] as string}, 'farm_stand', ${name}, 'America/Los_Angeles',
@@ -139,7 +139,7 @@ describe("farm retirement (integration)", () => {
   it("starts live: the farm is not retired and both its stands are visible", async () => {
     // Anchors every later assertion. Without this, "the stands are gone after retirement"
     // would also pass for stands that were never visible in the first place.
-    const rows = await sql()`select retired_at from farms where id = ${ids.farm as string}`;
+    const rows = await sql()`select retired_at from sellers where id = ${ids.farm as string}`;
     expect(rows[0]?.retired_at, "no fixture may pre-retire the farm").toBeNull();
 
     const stands = await listStandsForAdministration(handle());
@@ -159,7 +159,7 @@ describe("farm retirement (integration)", () => {
     expect(result.status).toBe("saved");
 
     const rows = await sql()`
-      select name, description from farms where id = ${ids.farm as string}
+      select name, description from sellers where id = ${ids.farm as string}
     `;
     expect(rows[0]?.name).toBe("Renamed Farm");
     expect(rows[0]?.description).toBe("Berries, eggs, and honey");
@@ -183,7 +183,7 @@ describe("farm retirement (integration)", () => {
     });
     expect(result.status).toBe("invalid_name");
 
-    const rows = await sql()`select name from farms where id = ${ids.farm as string}`;
+    const rows = await sql()`select name from sellers where id = ${ids.farm as string}`;
     expect(rows[0]?.name, "a refused edit must not have written anything").toBe("Renamed Farm");
   });
 
@@ -209,7 +209,7 @@ describe("farm retirement (integration)", () => {
     expect(result.status).toBe("retired");
 
     const rows = await sql()`
-      select retired_at, retired_by_administrator_id from farms
+      select retired_at, retired_by_administrator_id from sellers
       where id = ${ids.farm as string}
     `;
     expect(new Date(rows[0]?.retired_at as string).getTime()).toBe(retiredAt.getTime());
@@ -241,7 +241,7 @@ describe("farm retirement (integration)", () => {
 
   it("leaves the bystander farm and its stand completely untouched", async () => {
     const rows = await sql()`
-      select retired_at from farms where id = ${ids.bystanderFarm as string}
+      select retired_at from sellers where id = ${ids.bystanderFarm as string}
     `;
     expect(rows[0]?.retired_at).toBeNull();
 
@@ -260,7 +260,7 @@ describe("farm retirement (integration)", () => {
     });
     expect(result.status).toBe("already_retired");
 
-    const rows = await sql()`select retired_at from farms where id = ${ids.farm as string}`;
+    const rows = await sql()`select retired_at from sellers where id = ${ids.farm as string}`;
     expect(new Date(rows[0]?.retired_at as string).getTime()).toBe(at(4).getTime());
   });
 
@@ -282,7 +282,7 @@ describe("farm retirement (integration)", () => {
       expect(result.status).toBe("not_an_administrator");
 
       const rows = await sql()`
-        select retired_at from farms where id = ${ids.bystanderFarm as string}
+        select retired_at from sellers where id = ${ids.bystanderFarm as string}
       `;
       expect(rows[0]?.retired_at, "a refused take-down must write nothing").toBeNull();
     } finally {
@@ -305,7 +305,7 @@ describe("farm retirement (integration)", () => {
     expect(result.status).toBe("restored");
 
     const rows = await sql()`
-      select retired_at, retired_by_administrator_id from farms
+      select retired_at, retired_by_administrator_id from sellers
       where id = ${ids.farm as string}
     `;
     expect(rows[0]?.retired_at).toBeNull();
@@ -325,8 +325,8 @@ describe("farm retirement (integration)", () => {
   it("keeps the farm's approval and identity across the whole cycle", async () => {
     // Retirement takes a farm off the public surfaces; it does not revoke approval or
     // rewrite the record. The farm that comes back is the same farm that went down.
-    const farms = await listFarmsForApproval(handle());
-    const mine = farms.find((farm) => farm.farmId === ids.farm);
+    const sellers = await listFarmsForApproval(handle());
+    const mine = sellers.find((farm) => farm.farmId === ids.farm);
     expect(mine?.approved).toBe(true);
     expect(mine?.name).toBe("Renamed Farm");
   });

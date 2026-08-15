@@ -31,7 +31,7 @@ import type { Sql, Tx } from "./sql";
        own larger queries (customer SMS retrieval, the public map, the VIGA admin roster). They
        select stand facts, farm facts, closure, offerings and payment in ONE round trip; turning
        that into a separate call per stand would multiply queries by the size of the corpus and
-       change the ordering semantics each surface depends on. `visibleFarms` in test-farms.ts is
+       change the ordering semantics each surface depends on. `visibleFarms` in test-sellers.ts is
        the existing precedent for exactly this, adopted for exactly this reason.
     2. `readCurrentInventory` — the stand-scoped reader, returning the revision and its entries.
     3. `readCurrentRevisionRef` — the revision identity alone, with optional `for update`, for
@@ -170,16 +170,27 @@ export async function readCurrentRevisionRef(
 }
 
 /**
- * The id of a stand's NATIVE provider — the stand selling under its own name (F-114 Phase B).
+ * The id of the provider for a stand's OWN seller — the one that IS the stand (F-114 Phase C.0).
  *
- * Every stand has exactly one, guaranteed by `stand_providers_one_native_per_location` and
- * created with the stand by the `sales_locations_create_native_provider` trigger. So this
- * throws rather than returning null: a stand with no native slot is a broken invariant, not an
- * ordinary absence, and a caller that silently skipped publication would hide it.
+ * **This follows the self-pointer, never a null seller.** Phase B identified the stand's own
+ * inventory by `seller_id is null` — the native brand slot — and §the stand-and-sellers
+ * correction removed that slot: every provider now names a real seller, and which one is the
+ * stand is recorded in `sales_locations.own_seller_id`. A `seller_id is null` lookup can no
+ * longer match anything at all.
  *
  * It lives at this seam because "whose inventory" is the question this module owns. Every writer
- * that published stand-wide before Phase B now publishes for this provider, which is what keeps
- * output byte-identical: the native slot IS the stand as it always behaved.
+ * that published stand-wide before Phase B publishes for this provider, which is what keeps
+ * output unchanged: the stand's own seller IS the stand as it always behaved.
+ *
+ * Throws rather than returning null, for both failure shapes, because each is a caller error
+ * rather than an ordinary absence and a silent skip would hide a stand that stopped publishing:
+ *
+ * - **The stand has no seller of its own.** A venue like Morgan Hill Community Stand sells
+ *   nothing itself, so there is no "its own inventory" to write. A caller reaching here for such
+ *   a stand is asking the wrong question — it must name which nested seller it means.
+ * - **The self-pointer names a seller with no provider row at this stand.** That is a broken
+ *   invariant: `sales_locations_id_own_seller_unique` and the provider foreign key exist to make
+ *   it unreachable.
  */
 export async function readNativeProviderId(
   db: InventoryReader,
@@ -187,13 +198,16 @@ export async function readNativeProviderId(
 ): Promise<string> {
   const sql = queryable(db);
   const rows = await sql`
-    select id from stand_providers
-    where sales_location_id = ${input.salesLocationId} and seller_id is null
+    select p.id
+    from sales_locations l
+    join stand_providers p
+      on p.sales_location_id = l.id and p.seller_id = l.own_seller_id
+    where l.id = ${input.salesLocationId}
   `;
   const row = rows[0] as Record<string, unknown> | undefined;
   if (row === undefined) {
     throw new Error(
-      `sales location ${input.salesLocationId} has no native provider row`,
+      `sales location ${input.salesLocationId} has no provider for its own seller`,
     );
   }
   return row.id as string;

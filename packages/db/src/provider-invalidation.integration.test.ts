@@ -113,13 +113,13 @@ describe("F-114 provider invalidation (integration)", () => {
     sql = postgres(url.toString(), { max: 10 });
 
     const db = client();
-    const farms = await db`insert into farms (name) values ('Morgan Hill') returning id`;
-    farmId = farms[0]?.id as string;
+    const morganhillSeller = await db`insert into sellers (name) values ('Morgan Hill') returning id`;
+    farmId = morganhillSeller[0]?.id as string;
 
     const mkLocation = async (name: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           is_public, farm_bucks_accepted, farm_bucks_eligible,
           public_address, public_latitude, public_longitude
         ) values (
@@ -136,14 +136,14 @@ describe("F-114 provider invalidation (integration)", () => {
     const native = async (id: string): Promise<string> => {
       const rows = await db`
         select id from stand_providers
-        where sales_location_id = ${id} and seller_id is null
+        where sales_location_id = ${id} and seller_id = (select own_seller_id from sales_locations where id = ${id})
       `;
       return rows[0]?.id as string;
     };
     nativeProviderId = await native(locationId);
     otherStandProviderId = await native(otherLocationId);
 
-    const sellers = await db`
+    const fernhornbakeSeller = await db`
       insert into sellers (name) values ('Fernhorn Bakery') returning id
     `;
     const hosted = await db`
@@ -151,7 +151,7 @@ describe("F-114 provider invalidation (integration)", () => {
         sales_location_id, seller_id, lifecycle_state, invited_at, accepted_at,
         approval_source, approved_at
       ) values (
-        ${locationId}, ${sellers[0]?.id as string}, 'active', now(), now(), 'viga', now()
+        ${locationId}, ${fernhornbakeSeller[0]?.id as string}, 'active', now(), now(), 'viga', now()
       ) returning id
     `;
     hostedProviderId = hosted[0]?.id as string;
@@ -321,7 +321,7 @@ describe("F-114 provider invalidation (integration)", () => {
     await db`
       insert into scheduled_inventory_prompt_subjects (
         proposal_id, proposal_version, preference_id, preference_version,
-        authorization_id, owner_farm_id, sales_location_id, provider_id,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
         closure_base_is_first_instruction, due_slot_at, outbox_work_id,
         offers_same, created_at
       )

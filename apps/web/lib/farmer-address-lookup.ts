@@ -114,8 +114,8 @@ export async function handleAddressLookupPost(
   const token = body.token;
   const farmId = body.farmId;
   const hasToken = token !== undefined && token !== null;
-  const hasFarmId = farmId !== undefined && farmId !== null;
-  if (hasToken === hasFarmId) {
+  const hasSellerId = farmId !== undefined && farmId !== null;
+  if (hasToken === hasSellerId) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
   // Shape cannot tell an invitation token from a stand link token — and must not try to. Each
@@ -123,7 +123,7 @@ export async function handleAddressLookupPost(
   if (hasToken && (typeof token !== "string" || !looksLikeToken(token))) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  if (hasFarmId && (typeof farmId !== "string" || !UUID_RE.test(farmId))) {
+  if (hasSellerId && (typeof farmId !== "string" || !UUID_RE.test(farmId))) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
 

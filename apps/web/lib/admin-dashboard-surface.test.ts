@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 const page = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 const ADMIN_PAGES = [
-  "apps/web/app/admin/farms/page.tsx",
+  "apps/web/app/admin/sellers/page.tsx",
   "apps/web/app/admin/messages/page.tsx",
   "apps/web/app/admin/users/page.tsx",
 ] as const;
@@ -27,7 +27,7 @@ describe("the admin desk", () => {
     // redirect now. Anchored on the redirect CALL, not on the import, because an import line
     // survives the call site being deleted.
     const landing = page("apps/web/app/admin/page.tsx");
-    expect(landing).toMatch(/redirect\(\s*["']\/admin\/farms["']\s*\)/);
+    expect(landing).toMatch(/redirect\(\s*["']\/admin\/sellers["']\s*\)/);
     expect(landing).not.toContain("Needs attention");
   });
 
@@ -35,14 +35,14 @@ describe("the admin desk", () => {
     // The counts did not disappear with the desk; they moved above the rows they describe.
     // "Farms nobody can update" is the one that matters most: routinely NOT empty, and
     // previously countable only by navigating to a screen that never said it had work.
-    const farms = page("apps/web/app/admin/farms/page.tsx");
-    expect(farms).toContain("waiting for approval");
-    expect(farms).toContain("nobody who can update");
-    expect(farms).toContain("admin-attention-summary");
+    const sellers = page("apps/web/app/admin/sellers/page.tsx");
+    expect(sellers).toContain("waiting for approval");
+    expect(sellers).toContain("nobody who can update");
+    expect(sellers).toContain("admin-attention-summary");
   });
 
   it("keeps browsable records off a queue screen", () => {
-    // Reference records live on /admin/farms, inside the farm they belong to — never behind a
+    // Reference records live on /admin/sellers, inside the farm they belong to — never behind a
     // second disclosure on a different screen. Anchored on the disclosure CLASS, which is the
     // construct that used to carry them.
     for (const path of ADMIN_PAGES) {

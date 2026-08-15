@@ -1,6 +1,6 @@
 // F-038 — classifying WHAT a farm sells, at seed time, from the farmer's own words.
 //
-// Two of the 32 farms in the corpus are not produce stands, and this is where that fact enters
+// Two of the 32 sellers in the corpus are not produce stands, and this is where that fact enters
 // the database. `offering_type` and `visitability` are INDEPENDENT (F-038): Seedrain has a street
 // address and sells services; Open Gate Lamb has no address and sells by order. One enum could
 // not carry both, which is why there are two columns and two classifiers.
@@ -8,7 +8,7 @@
 // NO FARM NAME APPEARS HERE. The rule matches the farmer's own description, so a farm that
 // renames itself keeps its classification and a new service business gets one without a code
 // change. That is Golden Rule "no business code hard-codes what the model can understand"
-// applied to the seed path: farms and their offerings are DATA.
+// applied to the seed path: sellers and their offerings are DATA.
 //
 // This is a ONE-TIME seed concern, and it runs on the seeder's side of the architecture
 // tripwire — `architecture.test.ts` excludes the seeder from its no-farm-type-branch scan
@@ -33,7 +33,7 @@ export interface OfferingTypeSource {
  * please" describes an unattended honor-system stand — the defining trait of most of this corpus
  * — and it contains the word "service". Without the exclusion a cut-flower farm classified as a
  * service business, which on the map tells customers there is nothing to buy at a stand full of
- * bouquets. Matching the most ordinary farms as the rarest type is the worst available direction
+ * bouquets. Matching the most ordinary sellers as the rarest type is the worst available direction
  * to be wrong in.
  */
 const SERVICES = /(?<!\bself[-\s])\b(services?|consult(?:ing|ation)s?)\b/i;
@@ -56,7 +56,7 @@ const BY_ORDER = [
 /**
  * Decide what a farm sells from what the farmer wrote.
  *
- * Defaults to `produce`, which is right for 30 of the 32 farms and is the safe direction: a
+ * Defaults to `produce`, which is right for 30 of the 32 sellers and is the safe direction: a
  * mislabelled produce stand still shows a customer somewhere to buy vegetables, whereas wrongly
  * marking a real stand as services or by-order would tell people they cannot just turn up.
  */

@@ -2,7 +2,7 @@
 // CODE, and answer the small set of question shapes it supports.
 //
 // WHY THIS IS NOT A VIOLATION OF "no business code hard-codes what the model can understand".
-// That rule forbids FARM and FOOD vocabulary in behavioural branches — farms, foods and
+// That rule forbids FARM and FOOD vocabulary in behavioural branches — sellers, foods and
 // listings are data that changes as VIGA adds stands and seasons turn, and a branch naming one
 // of them rots. VIGA Bucks is none of those. It is a FIXED PROGRAM OF THE SERVICE, in the same
 // class as MAP or STOP: there is exactly one, it is already a column pair on `sales_locations`
@@ -37,7 +37,7 @@ const FARM_BUCKS = String.raw`(?:viga[\s-]*bucks?|farm[\s-]*bucks?)`;
 /** Subjects meaning "any stand, unspecified" — the population rather than one member. */
 const ANY_STAND_SUBJECT =
   String.raw`(?:who|whos|who\s+is|anyone|any\s?one|anybody|somebody|` +
-  String.raw`(?:which|what|any)\s+(?:farm\s?)?stands?|(?:which|what|any)\s+farms?)`;
+  String.raw`(?:which|what|any)\s+(?:farm\s?)?stands?|(?:which|what|any)\s+sellers?)`;
 
 /** Verbs of acceptance, finite and modal-supported forms. */
 const ACCEPT_VERB = String.raw`(?:takes?|accepts?|honou?rs?|will\s+take|will\s+accept)`;

@@ -47,8 +47,8 @@ export async function findVerifiableFarmByEmail(
   query: VerifiableFarmQuery,
 ): Promise<boolean> {
   const rows = (await db.sql`
-    select 1 as present from farm_emails
-    where farm_id = ${query.farmId} and email_hash = ${hashEmail(query.email, query.salt)}
+    select 1 as present from seller_emails
+    where seller_id = ${query.farmId} and email_hash = ${hashEmail(query.email, query.salt)}
     limit 1
   `) as unknown as Array<{ present: number }>;
 
@@ -90,7 +90,7 @@ export type IssueVerificationResult =
  * **`on conflict do nothing` is the concurrency arbiter.** A `select` for an existing live code
  * followed by an `insert` cannot serialize a row that does not exist yet: two simultaneous
  * requests both read nothing and both insert. The partial unique index
- * `farm_email_verifications_one_live_per_farm` decides, and an empty `returning` means the
+ * `seller_email_verifications_one_live_per_farm` decides, and an empty `returning` means the
  * other request won — which is reported as `already_live`, not as an error.
  *
  * **A code the farmer never used is SUPERSEDED, not a wall** (max, 2026-08-09). The index is
@@ -148,16 +148,16 @@ export async function issueVerificationCode(
       collapses back into all-succeed.
     */
     await tx`
-      update farm_email_verifications
+      update seller_email_verifications
       set consumed_at = ${input.now.toISOString()}
-      where farm_id = ${input.farmId}
+      where seller_id = ${input.farmId}
         and consumed_at is null
         and issued_at < ${input.now.toISOString()}
     `;
 
     const rows = (await tx`
-      insert into farm_email_verifications
-        (farm_id, email_hash, code_hash, issued_at, expires_at)
+      insert into seller_email_verifications
+        (seller_id, email_hash, code_hash, issued_at, expires_at)
       values (
         ${input.farmId},
         ${emailHash},
@@ -194,11 +194,11 @@ export async function countRecentIssuances(
 
   const rows = (await db.sql`
     select
-      count(*) filter (where farm_id = ${input.farmId})::int as farm_count,
+      count(*) filter (where seller_id = ${input.farmId})::int as farm_count,
       count(*) filter (where email_hash = ${input.emailHash})::int as email_count
-    from farm_email_verifications
+    from seller_email_verifications
     where issued_at >= ${since}
-      and (farm_id = ${input.farmId} or email_hash = ${input.emailHash})
+      and (seller_id = ${input.farmId} or email_hash = ${input.emailHash})
   `) as unknown as Array<{ farm_count: number; email_count: number }>;
 
   return {
@@ -228,8 +228,8 @@ export async function readLiveVerification(
 ): Promise<LiveVerification | null> {
   const rows = (await db.sql`
     select id, email_hash, code_hash, issued_at, consumed_at, attempt_count
-    from farm_email_verifications
-    where farm_id = ${input.farmId} and consumed_at is null
+    from seller_email_verifications
+    where seller_id = ${input.farmId} and consumed_at is null
     limit 1
   `) as unknown as Array<{
     id: string;
@@ -259,7 +259,7 @@ export async function recordFailedAttempt(db: Db, input: { id: string }): Promis
   // count. A read-then-write would let concurrent attempts overwrite one another and quietly
   // widen the budget — which is the whole defence against a six-digit space.
   await db.sql`
-    update farm_email_verifications
+    update seller_email_verifications
     set attempt_count = attempt_count + 1
     where id = ${input.id}
   `;
@@ -278,7 +278,7 @@ export async function consumeVerification(
   input: { id: string; now: Date },
 ): Promise<boolean> {
   const rows = (await db.sql`
-    update farm_email_verifications
+    update seller_email_verifications
     set consumed_at = ${input.now.toISOString()}
     where id = ${input.id} and consumed_at is null
     returning id
@@ -306,7 +306,7 @@ export async function consumeAndGrant(
   const grantExpiresAt = new Date(input.now.getTime() + input.grantTtlMs);
 
   const rows = (await db.sql`
-    update farm_email_verifications
+    update seller_email_verifications
     set consumed_at = ${input.now.toISOString()},
         grant_hash = ${hashFarmerLinkToken(token)},
         grant_expires_at = ${grantExpiresAt.toISOString()}
@@ -330,20 +330,20 @@ export async function resolvePublishGrant(
   input: { token: string; now: Date },
 ): Promise<{ farmId: string } | null> {
   const rows = (await db.sql`
-    select farm_id from farm_email_verifications
+    select seller_id from seller_email_verifications
     where grant_hash = ${hashFarmerLinkToken(input.token)}
       and grant_expires_at > ${input.now.toISOString()}
     limit 1
-  `) as unknown as Array<{ farm_id: string }>;
+  `) as unknown as Array<{ seller_id: string }>;
 
-  const farmId = rows[0]?.farm_id;
+  const farmId = rows[0]?.seller_id;
   return farmId === undefined ? null : { farmId };
 }
 
 /** The farm's name, for the email body. Named in the first sentence so a code has context. */
 export async function readFarmName(db: Db, farmId: string): Promise<string | null> {
   const rows = (await db.sql`
-    select name from farms where id = ${farmId} limit 1
+    select name from sellers where id = ${farmId} limit 1
   `) as unknown as Array<{ name: string }>;
 
   return rows[0]?.name ?? null;

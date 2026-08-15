@@ -21,7 +21,7 @@ import { parseWeeklyStatus } from "./weekly-status";
 
 const header =
   "Timestamp,Email Address,Farm Name," +
-  '"Are other farms or food-related businesses selling at your stand? If so, please list them.",' +
+  '"Are other sellers or food-related businesses selling at your stand? If so, please list them.",' +
   "Are you open this week," +
   '"Is there anything else about your farm stand you\'d like listed on the VIGA Farm Stand map?",' +
   "What do you have available\n";
@@ -101,7 +101,7 @@ describe("parseWeeklyStatus", () => {
 
   it("treats one farm's own spelling variants as ONE farm", () => {
     // REAL 2026 rows: this farmer typed "Fruits Des Vignes Farm" in April and "Fruits des
-    // Vignes Farm" in July. Keying the latest-wins race on the raw string made them two farms,
+    // Vignes Farm" in July. Keying the latest-wins race on the raw string made them two sellers,
     // so an April row survived as if it were current stock for a second, non-existent stand.
     //
     // The database layer happened to absorb it — both names resolve to the same seeded stand,

@@ -2,7 +2,7 @@ import { resolveAdministrator } from "./auth";
 
 // The one guard every admin route calls (F-025a, extracted for F-030).
 //
-// This lived privately inside `app/api/admin/farms/route.ts` while there was one admin route.
+// This lived privately inside `app/api/admin/sellers/route.ts` while there was one admin route.
 // F-030 adds three more, and four copies of an authorization check is four places for one to
 // drift — so it becomes one mechanism with several consumers rather than a family of
 // near-duplicates.

@@ -14,7 +14,7 @@ const APP_ORIGIN = "https://farm-friend-web-p5mfxfp5za-uw.a.run.app";
 // version of this test hand-built the URL as the public origin — a shape that never occurs
 // behind the proxy — which is why it stayed green while every admin write 403'd in production.
 const deployedRequest = (origin?: string, method = "POST") =>
-  new Request("http://localhost:8080/api/admin/farms", {
+  new Request("http://localhost:8080/api/admin/sellers", {
     method,
     headers: {
       host: "farm-friend-web-p5mfxfp5za-uw.a.run.app",

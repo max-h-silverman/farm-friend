@@ -80,21 +80,21 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
       insert into administrators (email, authorized_at)
       values ('board@vigavashon.org', ${now})
     `;
-    const farms = await client()`insert into farms (name) values ('Populated Farm') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values ('Populated Farm') returning id`;
+    const farmId = sellers[0]?.id as string;
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash, created_at)
       values ('+12065550188', ${"c".repeat(64)}, ${now}) returning id
     `;
     const authorizations = await client()`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       ) values (${farmId}, ${contacts[0]?.id as string}, ${now}, ${now}) returning id
     `;
     const authorizationId = authorizations[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${farmId}, 'farm_stand', 'Populated Stand', 'visitable', 'produce', '1 Existing Way', 47.44, -122.46,
@@ -104,7 +104,7 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
     const locationId = locations[0]?.id as string;
     const participants = await client()`
       insert into sales_location_participants (
-        owner_farm_id, sales_location_id, display_name,
+        owner_seller_id, sales_location_id, display_name,
         confirmed_by_authorization_id, confirmed_at
       ) values (${farmId}, ${locationId}, 'Existing Seller', ${authorizationId}, ${now})
       returning id
@@ -119,15 +119,15 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
     await fullMigrationClient.end({ timeout: 5 });
 
     expect(await client()`
-      select id, owner_farm_id, name from sales_locations where id = ${locationId}
-    `).toEqual([{ id: locationId, owner_farm_id: farmId, name: "Populated Stand" }]);
+      select id, own_seller_id, name from sales_locations where id = ${locationId}
+    `).toEqual([{ id: locationId, owner_seller_id: farmId, name: "Populated Stand" }]);
     expect(await client()`
-      select id, farm_id, contact_id, revoked_at
+      select id, seller_id, contact_id, revoked_at
       from farmer_authorizations where id = ${authorizationId}
     `).toEqual([
       {
         id: authorizationId,
-        farm_id: farmId,
+        seller_id: farmId,
         contact_id: contacts[0]?.id as string,
         revoked_at: null,
       },
@@ -139,30 +139,30 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
 
     const links = await client()`
       insert into farmer_links (
-        token_hash, authorization_id, owner_farm_id, sales_location_id, provider_id, issued_at
+        token_hash, authorization_id, owner_seller_id, sales_location_id, provider_id, issued_at
       ) values (
         ${"d".repeat(64)}, ${authorizationId}, ${farmId}, ${locationId},
         (select id from stand_providers
-          where sales_location_id = ${locationId} and seller_id is null), ${now}
-      ) returning id, owner_farm_id, sales_location_id
+          where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${now}
+      ) returning id, owner_seller_id, sales_location_id
     `;
     expect(links).toEqual([{
       id: links[0]?.id as string,
-      owner_farm_id: farmId,
+      owner_seller_id: farmId,
       sales_location_id: locationId,
     }]);
 
     for (const target of [
-      { ownerFarmId: null, salesLocationId: null },
-      { ownerFarmId: farmId, salesLocationId: null },
-      { ownerFarmId: null, salesLocationId: locationId },
+      { ownerSellerId: null, salesLocationId: null },
+      { ownerSellerId: farmId, salesLocationId: null },
+      { ownerSellerId: null, salesLocationId: locationId },
     ]) {
       await expect(client()`
         insert into farmer_links (
-          token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+          token_hash, authorization_id, owner_seller_id, sales_location_id, issued_at
         ) values (
           ${randomUUID().replaceAll("-", "").repeat(2)}, ${authorizationId},
-          ${target.ownerFarmId}, ${target.salesLocationId}, ${now}
+          ${target.ownerSellerId}, ${target.salesLocationId}, ${now}
         )
       `).rejects.toMatchObject({ code: "23502" });
     }

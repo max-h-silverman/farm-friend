@@ -16,7 +16,7 @@
 // own SMS always wins: `seedWeeklyConfirmations` refuses to overwrite anything newer, whatever
 // its source, which is the migration path off the legacy form.
 //
-// REPORTS EVERYTHING IT DID NOT DO. Unknown farms, refused rows, and closures are printed rather
+// REPORTS EVERYTHING IT DID NOT DO. Unknown sellers, refused rows, and closures are printed rather
 // than dropped — a farmer's submission vanishing with no trace is the failure this exists to end.
 // Closures are reported for a person to act on rather than written: closing a stand is a
 // published state with its own workflow, and this script does not own it.

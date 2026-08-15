@@ -10,7 +10,7 @@ import { requireAdministrator } from "../../../../lib/admin-guard";
 import { publicReadContext } from "../../../../lib/public-context";
 
 // The farm approval surface (F-025a) — the write nothing in the product could previously
-// perform. Publication refuses with `not_approved` unless a live `farm_approvals` row
+// perform. Publication refuses with `not_approved` unless a live `seller_approvals` row
 // exists, and until this route the only way to create one was hand-written SQL.
 //
 // The mutation resolves the administrator server-side through the shared `requireAdministrator`

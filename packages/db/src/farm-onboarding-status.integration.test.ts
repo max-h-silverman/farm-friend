@@ -24,13 +24,13 @@ import {
 // a fresh link for a farm whose onboarding is unfinished — the same reason a site sends a
 // password reset instead of the old password.
 //
-// This file owns the question "which farms are unfinished?", which is the part with real edge
+// This file owns the question "which sellers are unfinished?", which is the part with real edge
 // cases: an invitation expires after seven days, a farmer can be authorized without ever
 // redeeming, and a farm can have several invitations over time. Each of those is a test.
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
 
-describe("farms awaiting onboarding (integration)", () => {
+describe("sellers awaiting onboarding (integration)", () => {
   let adminClient: Sql | undefined;
   let client: Sql | undefined;
   let db: Db | undefined;
@@ -45,7 +45,7 @@ describe("farms awaiting onboarding (integration)", () => {
 
   /** A farm nobody has invited yet. */
   async function farm(name: string): Promise<string> {
-    const rows = await sql()`insert into farms (name) values (${name}) returning id`;
+    const rows = await sql()`insert into sellers (name) values (${name}) returning id`;
     return rows[0]?.id as string;
   }
 
@@ -118,7 +118,7 @@ describe("farms awaiting onboarding (integration)", () => {
 
   it("still names a farm whose invitation expired, marked as expired", async () => {
     // The whole point of the feature. A farmer who lost their link usually notices AFTER it
-    // expired, so a query that hid expired invitations would hide exactly the farms an
+    // expired, so a query that hid expired invitations would hide exactly the sellers an
     // operator is looking for.
     const farmId = await farm("Expired Farm");
     await createFarmerInvitation(database(), {
@@ -195,7 +195,7 @@ describe("farms awaiting onboarding (integration)", () => {
     // see that, because the fix is the same — send them a link.
     const rows = await sql()`
       select auth.id from farmer_authorizations as auth
-      join farms as farm on farm.id = auth.farm_id
+      join sellers as farm on farm.id = auth.seller_id
       where farm.name = 'Finished Farm'
     `;
     await sql()`

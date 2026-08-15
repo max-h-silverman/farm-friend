@@ -456,7 +456,7 @@ describe("onboarding listing step", () => {
   });
 
   describe("the farm's own paragraph", () => {
-    // `farms.description` renders on the public card under "Additional information" and had NO
+    // `sellers.description` renders on the public card under "Additional information" and had NO
     // farmer-facing writer at all, so VIGA's seeded prose stayed welded under every listing a
     // farmer published — contradicting the fields above it and editable by nobody.
 
@@ -836,7 +836,7 @@ describe("onboarding listing step", () => {
     });
 
     it("keeps a stored 'daylight_hours' on an edit rather than silently dropping it", async () => {
-      // The form no longer OFFERS `daylight_hours`, but 31 seeded farms already store it. An
+      // The form no longer OFFERS `daylight_hours`, but 31 seeded sellers already store it. An
       // edit form that could not hold a retired value would blank a farmer's stated hours the
       // moment they opened it to change something else — B-037's failure exactly.
       const user = userEvent.setup();

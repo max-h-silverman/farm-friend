@@ -29,7 +29,7 @@ describe("the acceptance-question matcher", () => {
     ["does anybody take checks", "anybody"],
     ["who still takes farm bucks", "an adverb between subject and verb"],
     ["what stands take viga bucks", "what stands"],
-    ["which farms accept farm bucks", "which farms"],
+    ["which sellers accept farm bucks", "which sellers"],
     ["who honors viga bucks", "honors"],
     ["is anyone taking viga bucks", "gerund WITH its auxiliary"],
     ["are any stands accepting farm bucks", "gerund WITH its auxiliary"],

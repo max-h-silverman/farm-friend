@@ -8,7 +8,7 @@
 // at all. This makes a list long enough to see both.
 //
 // THIS IS A LOCAL DEVELOPMENT TOOL AND REFUSES TO RUN ANYWHERE ELSE. It writes obviously-fake
-// farms, so pointing it at a real corpus would put fake stands on VIGA's map. Two guards: the
+// sellers, so pointing it at a real corpus would put fake stands on VIGA's map. Two guards: the
 // connection must be a localhost one, and every row it creates carries the `Map Test — ` name
 // prefix that `--remove` deletes by. Nothing without that prefix is ever touched.
 //
@@ -34,7 +34,7 @@ const FARM_WORDS = [
 const FARM_SUFFIX = ["Farm", "Gardens", "Stand", "Orchard", "Croft", "Acres"];
 
 /**
- * Deterministic pseudo-random, so re-running produces the SAME farms rather than a new set
+ * Deterministic pseudo-random, so re-running produces the SAME sellers rather than a new set
  * layered on top of the last run. Combined with `seedStands` skipping existing names, a second
  * run is a no-op instead of another 30 rows.
  */
@@ -154,7 +154,7 @@ function localUrl(): string {
   // env file happens to say at the time. Anything but a loopback host stops the script.
   if (hostname !== "localhost" && hostname !== "127.0.0.1") {
     throw new Error(
-      `Refusing to run against non-local host "${hostname}". This script writes fake farms ` +
+      `Refusing to run against non-local host "${hostname}". This script writes fake sellers ` +
         `and is for local development only.`,
     );
   }
@@ -175,15 +175,15 @@ async function main(): Promise<void> {
 
   try {
     if (remove) {
-      // Deletes by the prefix only. Seeded farms and locations share the same name, and the
+      // Deletes by the prefix only. Seeded sellers and locations share the same name, and the
       // location row is removed first because it references the farm.
       const locations = await sql`
         delete from sales_locations where name like ${TEST_PREFIX + "%"} returning id
       `;
-      const farms = await sql`
-        delete from farms where name like ${TEST_PREFIX + "%"} returning id
+      const sellers = await sql`
+        delete from sellers where name like ${TEST_PREFIX + "%"} returning id
       `;
-      console.log(`Removed ${locations.length} test locations and ${farms.length} test farms.`);
+      console.log(`Removed ${locations.length} test locations and ${sellers.length} test sellers.`);
       return;
     }
 

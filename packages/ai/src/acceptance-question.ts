@@ -27,7 +27,7 @@
  */
 const ANY_STAND_SUBJECT =
   String.raw`(?:who|whos|who\s+is|anyone|any\s?one|anybody|somebody|` +
-  String.raw`(?:which|what|any)\s+(?:farm\s?)?stands?|(?:which|what|any)\s+farms?)`;
+  String.raw`(?:which|what|any)\s+(?:farm\s?)?stands?|(?:which|what|any)\s+sellers?)`;
 
 /**
  * Verbs of acceptance, finite forms only.

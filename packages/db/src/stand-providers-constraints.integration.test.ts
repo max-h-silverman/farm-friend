@@ -35,7 +35,7 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
   let databaseName = "";
 
   let farmId = "";
-  let otherFarmId = "";
+  let otherSellerId = "";
   let locationId = "";
   let otherLocationId = "";
   let nativeProviderId = "";
@@ -76,16 +76,16 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
     sql = postgres(url.toString(), { max: 10 });
 
     const db = client();
-    const farms = await db`
-      insert into farms (name) values ('Morgan Hill'), ('Cascade') returning id
+    const morganhillSeller = await db`
+      insert into sellers (name) values ('Morgan Hill'), ('Cascade') returning id
     `;
-    farmId = farms[0]?.id as string;
-    otherFarmId = farms[1]?.id as string;
+    farmId = morganhillSeller[0]?.id as string;
+    otherSellerId = morganhillSeller[1]?.id as string;
 
     const mkLocation = async (name: string, owner: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           is_public, farm_bucks_accepted, farm_bucks_eligible,
           public_address, public_latitude, public_longitude
         ) values (
@@ -97,25 +97,25 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       return rows[0]?.id as string;
     };
     locationId = await mkLocation("Morgan Hill Stand", farmId);
-    otherLocationId = await mkLocation("Cascade Stand", otherFarmId);
+    otherLocationId = await mkLocation("Cascade Stand", otherSellerId);
 
     const native = await db`
       select id from stand_providers
-      where sales_location_id = ${locationId} and seller_id is null
+      where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})
     `;
     nativeProviderId = native[0]?.id as string;
 
-    const sellers = await db`
+    const fernhornbakeSeller = await db`
       insert into sellers (name) values ('Fernhorn Bakery') returning id
     `;
-    sellerId = sellers[0]?.id as string;
+    sellerId = fernhornbakeSeller[0]?.id as string;
 
     const contacts = await db`
       insert into contacts (phone_e164, phone_hash)
       values ('+12065550131', ${`f114${randomUUID().replaceAll("-", "")}`}) returning id
     `;
     const authorizations = await db`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${contacts[0]?.id as string}, now(), now()) returning id
     `;
     authorizationId = authorizations[0]?.id as string;
@@ -524,9 +524,9 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
 
     it("refuses two sellers for one farm", async () => {
       const db = client();
-      await db`insert into sellers (name, farm_id) values ('Morgan Hill Brand', ${farmId})`;
+      await db`insert into sellers (name, seller_id) values ('Morgan Hill Brand', ${farmId})`;
       await refuses(
-        () => db`insert into sellers (name, farm_id) values ('Second Brand', ${farmId})`,
+        () => db`insert into sellers (name, seller_id) values ('Second Brand', ${farmId})`,
         { code: UNIQUE_VIOLATION, constraint: "sellers_one_per_farm" },
       );
     });
@@ -550,7 +550,7 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       await refuses(
         () => db`
           insert into inventory_revisions (
-            farm_id, sales_location_id, provider_id, source, published_at, is_current
+            seller_id, sales_location_id, provider_id, source, published_at, is_current
           ) values (
             ${farmId}, ${otherLocationId}, ${nativeProviderId}, 'viga', now(), true
           )
@@ -610,13 +610,13 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       const db = client();
       await db`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, source, published_at, is_current
+          seller_id, sales_location_id, provider_id, source, published_at, is_current
         ) values (${farmId}, ${locationId}, ${nativeProviderId}, 'viga', now(), true)
       `;
       await refuses(
         () => db`
           insert into inventory_revisions (
-            farm_id, sales_location_id, provider_id, source, published_at, is_current
+            seller_id, sales_location_id, provider_id, source, published_at, is_current
           ) values (${farmId}, ${locationId}, ${nativeProviderId}, 'viga', now(), true)
         `,
         {
@@ -636,7 +636,7 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       `;
       const rows = await db`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, source, published_at, is_current
+          seller_id, sales_location_id, provider_id, source, published_at, is_current
         ) values (
           ${farmId}, ${locationId}, ${hosted[0]?.id as string}, 'viga', now(), true
         ) returning id
@@ -658,7 +658,7 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       const db = client();
       const created = await db`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type,
+          own_seller_id, kind, name, timezone, visitability, offering_type,
           is_public, farm_bucks_accepted, farm_bucks_eligible,
           public_address, public_latitude, public_longitude
         ) values (
@@ -669,7 +669,7 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       `;
       const rows = await db`
         select id, lifecycle_state from stand_providers
-        where sales_location_id = ${created[0]?.id as string} and seller_id is null
+        where sales_location_id = ${created[0]?.id as string} and seller_id = (select own_seller_id from sales_locations where id = ${created[0]?.id as string})
       `;
       expect(rows).toHaveLength(1);
       expect(rows[0]?.lifecycle_state).toBe("active");
@@ -689,7 +689,7 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       await refuses(
         () => db`
           insert into farmer_target_contexts (
-            sender_hash, selected_authorization_id, selected_owner_farm_id,
+            sender_hash, selected_authorization_id, selected_owner_seller_id,
             selected_sales_location_id, selected_at, updated_at
           ) values (
             ${contacts[0]?.phone_hash as string}, ${authorizationId}, ${farmId},

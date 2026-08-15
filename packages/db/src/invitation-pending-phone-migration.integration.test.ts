@@ -31,7 +31,7 @@ import type { Sql } from "./sql";
 //
 // ## Golden Rule #5
 //
-// The same two-column shape as `contacts` and `farm_emails`: the raw E.164 in exactly one column
+// The same two-column shape as `contacts` and `seller_emails`: the raw E.164 in exactly one column
 // read only by the send path, and the hash as the only lookup key. That the match query reads the
 // hash and never the raw column is a query property proven in the application suites, not here.
 
@@ -100,7 +100,7 @@ describe("migration 0028 invitation pending phone (integration)", () => {
   }): Promise<Record<string, unknown>> {
     const rows = await client()`
       insert into farmer_invitations (
-        farm_id, token_hash, channel, created_by_administrator_id, created_at, expires_at,
+        seller_id, token_hash, channel, created_by_administrator_id, created_at, expires_at,
         redeemed_at, pending_phone_e164, pending_phone_hash
       )
       values (

@@ -282,7 +282,7 @@ export type ApproveFarmResult =
  * Approve a farm for publication, recording which administrator acted and when.
  *
  * This is the write nothing in the product could previously perform: publication refuses
- * with `not_approved` unless a live `farm_approvals` row exists, and until this existed the
+ * with `not_approved` unless a live `seller_approvals` row exists, and until this existed the
  * only way to create one was hand-written SQL.
  *
  * The administrator's authority is re-read inside the transaction. A principal resolved at
@@ -303,20 +303,20 @@ export async function approveFarm(
       return { status: "not_an_administrator" as const };
     }
 
-    const farm = await tx`select id from farms where id = ${input.farmId}`;
+    const farm = await tx`select id from sellers where id = ${input.farmId}`;
     if (farm.length === 0) return { status: "unknown_farm" as const };
 
     // The row is locked so two concurrent approvals cannot both see "unapproved" and race
     // the partial unique index into an error instead of an honest answer.
     const existing = await tx`
-      select id from farm_approvals
-      where farm_id = ${input.farmId} and revoked_at is null
+      select id from seller_approvals
+      where seller_id = ${input.farmId} and revoked_at is null
       for update
     `;
     if (existing.length > 0) return { status: "already_approved" as const };
 
     const inserted = await tx`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${input.farmId}, ${input.administratorId},
         ${input.occurredAt.toISOString()})
       returning id
@@ -364,9 +364,9 @@ export async function revokeFarmApproval(
     }
 
     const revoked = await tx`
-      update farm_approvals
+      update seller_approvals
       set revoked_at = ${input.occurredAt.toISOString()}
-      where farm_id = ${input.farmId} and revoked_at is null
+      where seller_id = ${input.farmId} and revoked_at is null
       returning id
     `;
     if (revoked.length === 0) return { status: "not_approved" as const };
@@ -533,8 +533,8 @@ export type RetireFarmResult =
  * **This is what "delete a farm" means here** — max's choice, and the same one he made for
  * stands in F-071. It is not a softened deletion, it is the only correct one:
  *
- *   - `farms` is referenced `on delete restrict` by `sales_locations`,
- *     `farmer_authorizations`, `farm_approvals`, `farmer_invitations` and more, so a hard
+ *   - `sellers` is referenced `on delete restrict` by `sales_locations`,
+ *     `farmer_authorizations`, `seller_approvals`, `farmer_invitations` and more, so a hard
  *     DELETE fails at the constraint for any farm that has ever been used.
  *   - Erasing it would erase what its stands published and when — exactly what the audit
  *     trail exists to keep (Golden Rule #1).
@@ -566,7 +566,7 @@ export async function retireFarm(
     // Locked so two concurrent take-downs cannot both see "live" and write two audit events
     // for one decision.
     const farm = await tx`
-      select id, retired_at from farms where id = ${input.farmId} for update
+      select id, retired_at from sellers where id = ${input.farmId} for update
     `;
     if (farm.length === 0) return { status: "unknown_farm" as const };
     // Idempotent, and it keeps the FIRST take-down's timestamp. Moving it would falsify when
@@ -574,7 +574,7 @@ export async function retireFarm(
     if (farm[0]?.retired_at !== null) return { status: "already_retired" as const };
 
     await tx`
-      update farms
+      update sellers
       set retired_at = ${input.occurredAt.toISOString()},
           retired_by_administrator_id = ${input.administratorId},
           updated_at = ${input.occurredAt.toISOString()}
@@ -623,13 +623,13 @@ export async function restoreFarm(
     }
 
     const farm = await tx`
-      select id, retired_at from farms where id = ${input.farmId} for update
+      select id, retired_at from sellers where id = ${input.farmId} for update
     `;
     if (farm.length === 0) return { status: "unknown_farm" as const };
     if (farm[0]?.retired_at === null) return { status: "not_retired" as const };
 
     await tx`
-      update farms
+      update sellers
       set retired_at = null, retired_by_administrator_id = null,
           updated_at = ${input.occurredAt.toISOString()}
       where id = ${input.farmId}
@@ -695,12 +695,12 @@ export async function saveFarmDetails(
     }
 
     const farm = await tx`
-      select id from farms where id = ${input.farmId} for update
+      select id from sellers where id = ${input.farmId} for update
     `;
     if (farm.length === 0) return { status: "unknown_farm" as const };
 
     await tx`
-      update farms
+      update sellers
       set name = ${name}, description = ${description},
           updated_at = ${input.occurredAt.toISOString()}
       where id = ${input.farmId}
@@ -740,11 +740,11 @@ export interface AdminFarmRow {
  */
 export async function listFarmsForApproval(db: Db): Promise<AdminFarmRow[]> {
   const rows = await driver(db)`
-    select farm.id, farm.name, farm.description, farm.test_farm_at, farm.retired_at,
+    select farm.id, farm.name, farm.description, farm.test_seller_at, farm.retired_at,
       approval.approved_at, administrator.email
-    from farms as farm
-    left join farm_approvals as approval
-      on approval.farm_id = farm.id and approval.revoked_at is null
+    from sellers as farm
+    left join seller_approvals as approval
+      on approval.seller_id = farm.id and approval.revoked_at is null
     left join administrators as administrator
       on administrator.id = approval.administrator_id
     -- A retired farm is still LISTED here, the same way a retired stand is: this is where an
@@ -762,9 +762,9 @@ export async function listFarmsForApproval(db: Db): Promise<AdminFarmRow[]> {
     retired: row.retired_at !== null,
     retiredAt: row.retired_at === null ? null : new Date(row.retired_at as string),
     // F-074 — the ADMIN surface is the one place a test farm is never hidden. An operator
-    // managing the flag has to be able to see which farms carry it, and this reader is already
+    // managing the flag has to be able to see which sellers carry it, and this reader is already
     // behind the session guard.
-    isTestFarm: row.test_farm_at !== null,
+    isTestFarm: row.test_seller_at !== null,
   }));
 }
 
@@ -940,9 +940,9 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
         '[]'::jsonb
       ) as current_items
     from sales_locations location
-    join farms farm on farm.id = location.owner_farm_id
-    left join farm_approvals approval
-      on approval.farm_id = farm.id and approval.revoked_at is null
+    join sellers farm on farm.id = location.own_seller_id
+    left join seller_approvals approval
+      on approval.seller_id = farm.id and approval.revoked_at is null
     -- B-074 — the currency rule comes from the shared reader. LEFT, so a stand with no
     -- confirmation is still in the operator's roster; the entries are aggregated in the
     -- correlated subquery above rather than joined, so only the revision join is shared.
@@ -1024,12 +1024,12 @@ export interface AdminUserRow {
   userId: string;
   senderMask: string;
   isFarmer: boolean;
-  farms: string[];
+  sellers: string[];
 }
 
 /**
  * The smallest useful user directory: every SMS contact, its current farmer status, and the
- * farms it may publish for. Full numbers, contact hashes, message text, and timestamps are
+ * sellers it may publish for. Full numbers, contact hashes, message text, and timestamps are
  * intentionally absent, so this remains a filterable access view rather than a profile.
  */
 export async function listUsersForAdministration(db: Db): Promise<AdminUserRow[]> {
@@ -1045,11 +1045,11 @@ export async function listUsersForAdministration(db: Db): Promise<AdminUserRow[]
       coalesce(
         (select array_agg(farm.name order by farm.name, farm.id)
          from farmer_authorizations farmer_authorization
-         join farms farm on farm.id = farmer_authorization.farm_id
+         join sellers farm on farm.id = farmer_authorization.seller_id
          where farmer_authorization.contact_id = contact.id
            and farmer_authorization.revoked_at is null),
         array[]::text[]
-      ) as farms
+      ) as sellers
     from contacts contact
     order by contact.id
   `;
@@ -1057,7 +1057,7 @@ export async function listUsersForAdministration(db: Db): Promise<AdminUserRow[]
     userId: row.contact_id as string,
     senderMask: maskPhoneSuffix((row.sender_last_four as string | null) ?? null),
     isFarmer: row.is_farmer as boolean,
-    farms: (row.farms as string[] | null) ?? [],
+    sellers: (row.sellers as string[] | null) ?? [],
   }));
 }
 

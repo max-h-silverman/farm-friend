@@ -26,7 +26,7 @@ import {
 // there is NO invitation behind it: max chose the honor system because no phone roster exists to
 // verify against (`contacts` holds people who have texted in, not who owns which farm).
 //
-// So this file owns the one question that keeps that door narrow: **which farms may be claimed,
+// So this file owns the one question that keeps that door narrow: **which sellers may be claimed,
 // and what stops a claim reaching one that may not be?** Two readers answer it and they must
 // never disagree — the dropdown is a convenience, and the resolver is the guarantee. A test here
 // for each way they could come apart.
@@ -52,7 +52,7 @@ describe("grandfathered farm claims (integration)", () => {
   const database = () => db as Db;
 
   async function farm(name: string): Promise<string> {
-    const rows = await sql()`insert into farms (name) values (${name}) returning id`;
+    const rows = await sql()`insert into sellers (name) values (${name}) returning id`;
     return rows[0]?.id as string;
   }
 
@@ -143,7 +143,7 @@ describe("grandfathered farm claims (integration)", () => {
       expect(names(await listClaimableFarms(database()))).not.toContain("Revoked Farm");
 
       const authorizations = await sql()`
-        select id from farmer_authorizations where farm_id = ${farmId} and revoked_at is null
+        select id from farmer_authorizations where seller_id = ${farmId} and revoked_at is null
       `;
       const revoked = await revokeFarmerAuthorization(database(), {
         authorizationId: authorizations[0]?.id as string,
@@ -320,7 +320,7 @@ describe("grandfathered farm claims (integration)", () => {
       // else to restore it.
       const farmId = await farm("Prose Farm");
       await sql()`
-        update farms set description = ${"We put a sign at the bottom of the driveway."}
+        update sellers set description = ${"We put a sign at the bottom of the driveway."}
         where id = ${farmId}
       `;
 
@@ -353,7 +353,7 @@ describe("grandfathered farm claims (integration)", () => {
       // farm the list offers resolves, and every farm it omits refuses.
       const claimable = await listClaimableFarms(database());
       const claimableIds = new Set(claimable.map((row) => row.farmId));
-      const allFarms = await sql()`select id from farms`;
+      const allFarms = await sql()`select id from sellers`;
 
       for (const row of allFarms) {
         const farmId = row.id as string;
@@ -428,7 +428,7 @@ describe("grandfathered farm claims (integration)", () => {
       const beforeStart = await sql()`
         select revision.id from inventory_revisions revision
         join sales_locations location on location.id = revision.sales_location_id
-        where location.owner_farm_id = ${farmId}
+        where location.own_seller_id = ${farmId}
       `;
       expect(beforeStart).toHaveLength(0);
 
@@ -454,7 +454,7 @@ describe("grandfathered farm claims (integration)", () => {
         from inventory_revisions revision
         join sales_locations location on location.id = revision.sales_location_id
         join inventory_entries entry on entry.inventory_revision_id = revision.id
-        where location.owner_farm_id = ${farmId} and revision.is_current
+        where location.own_seller_id = ${farmId} and revision.is_current
         order by entry.sort_order asc
       `;
       expect(published).toEqual([
@@ -490,7 +490,7 @@ describe("grandfathered farm claims (integration)", () => {
 
       expect(claimed.status).toBe("invalid");
       const rows = await sql()`
-        select id from farmer_invitations where farm_id = ${farmId}
+        select id from farmer_invitations where seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(0);
     });
@@ -515,7 +515,7 @@ describe("grandfathered farm claims (integration)", () => {
 
       const open = await sql()`
         select pending_phone_e164 from farmer_invitations
-        where farm_id = ${farmId} and redeemed_at is null
+        where seller_id = ${farmId} and redeemed_at is null
       `;
       expect(open).toHaveLength(1);
       expect(open[0]?.pending_phone_e164).toBe(second);

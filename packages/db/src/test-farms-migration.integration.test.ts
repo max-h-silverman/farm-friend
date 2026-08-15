@@ -24,7 +24,7 @@ import type { Sql } from "./sql";
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
 
-describe("F-074 test farms migration (integration)", () => {
+describe("F-074 test sellers migration (integration)", () => {
   let admin: Sql | undefined;
   let sql: Sql | undefined;
   let databaseName = "";
@@ -58,10 +58,10 @@ describe("F-074 test farms migration (integration)", () => {
       values ('board@vigavashon.org', ${now}) returning id
     `;
     administratorId = admins[0]?.id as string;
-    const farms = await client()`
-      insert into farms (name) values ('Constraint Farm') returning id
+    const sellers = await client()`
+      insert into sellers (name) values ('Constraint Farm') returning id
     `;
-    farmId = farms[0]?.id as string;
+    farmId = sellers[0]?.id as string;
   });
 
   afterAll(async () => {
@@ -76,13 +76,13 @@ describe("F-074 test farms migration (integration)", () => {
     const columns = await client()`
       select column_name, is_nullable, column_default
       from information_schema.columns
-      where table_name = 'farms'
-        and column_name in ('test_farm_at', 'test_farm_by_administrator_id')
+      where table_name = 'sellers'
+        and column_name in ('test_seller_at', 'test_seller_by_administrator_id')
       order by column_name
     `;
     expect(columns.map((row) => row.column_name)).toEqual([
-      "test_farm_at",
-      "test_farm_by_administrator_id",
+      "test_seller_at",
+      "test_seller_by_administrator_id",
     ]);
     // Nullable and defaultless, which is what makes the migration safe to apply AHEAD of the
     // image that reads it: every existing farm stays a real farm.
@@ -97,7 +97,7 @@ describe("F-074 test farms migration (integration)", () => {
     // would pass, because it is satisfied on NULL.
     await expect(
       client()`
-        update farms set test_farm_at = ${now}, test_farm_by_administrator_id = null
+        update sellers set test_seller_at = ${now}, test_seller_by_administrator_id = null
         where id = ${farmId}
       `,
     ).rejects.toThrow(/farms_coherent_test_farm/);
@@ -106,8 +106,8 @@ describe("F-074 test farms migration (integration)", () => {
     // actually a test farm.
     await expect(
       client()`
-        update farms
-        set test_farm_at = null, test_farm_by_administrator_id = ${administratorId}
+        update sellers
+        set test_seller_at = null, test_seller_by_administrator_id = ${administratorId}
         where id = ${farmId}
       `,
     ).rejects.toThrow(/farms_coherent_test_farm/);
@@ -115,15 +115,15 @@ describe("F-074 test farms migration (integration)", () => {
     // And the legal shape really is legal — otherwise the two refusals above would pass
     // against a constraint that refuses everything.
     await client()`
-      update farms
-      set test_farm_at = ${now}, test_farm_by_administrator_id = ${administratorId}
+      update sellers
+      set test_seller_at = ${now}, test_seller_by_administrator_id = ${administratorId}
       where id = ${farmId}
     `;
-    const marked = await client()`select test_farm_at from farms where id = ${farmId}`;
-    expect(marked[0]?.test_farm_at).not.toBeNull();
+    const marked = await client()`select test_seller_at from sellers where id = ${farmId}`;
+    expect(marked[0]?.test_seller_at).not.toBeNull();
 
     await client()`
-      update farms set test_farm_at = null, test_farm_by_administrator_id = null
+      update sellers set test_seller_at = null, test_seller_by_administrator_id = null
       where id = ${farmId}
     `;
   });

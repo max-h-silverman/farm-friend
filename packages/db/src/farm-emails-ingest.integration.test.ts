@@ -14,7 +14,7 @@ import { ingestFarmEmails } from "./farm-emails";
 //
 // The idempotency claim is the reason this is an integration test rather than a unit one: it
 // rests entirely on `on conflict do nothing` against
-// `farm_emails_one_per_farm_address`, which indexes `lower(btrim(email, E' \t\r\n'))`. A fake
+// `seller_emails_one_per_farm_address`, which indexes `lower(btrim(email, E' \t\r\n'))`. A fake
 // database cannot tell you whether that index arbitrates the way the code assumes.
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
@@ -51,7 +51,7 @@ describe("F-078 farm email ingest (integration)", () => {
     db = createDb(url.toString());
 
     for (const name of ["Lavender Hill Farm", "Holmestead"]) {
-      await sql()`insert into farms (name, created_at) values (${name}, ${NOW.toISOString()})`;
+      await sql()`insert into sellers (name, created_at) values (${name}, ${NOW.toISOString()})`;
     }
   }, 120_000);
 
@@ -82,7 +82,7 @@ describe("F-078 farm email ingest (integration)", () => {
     expect(result.skipped).toBe(0);
 
     // Read back from the rows, not from the return value.
-    const rows = await sql()`select email, email_hash from farm_emails order by email`;
+    const rows = await sql()`select email, email_hash from seller_emails order by email`;
     expect(rows).toHaveLength(4);
     expect(rows.map((r) => r.email)).toEqual([
       "cathy@example.com",
@@ -97,7 +97,7 @@ describe("F-078 farm email ingest (integration)", () => {
   });
 
   it("is IDEMPOTENT — a second identical run writes nothing", async () => {
-    const before = await sql()`select count(*)::int as n from farm_emails`;
+    const before = await sql()`select count(*)::int as n from seller_emails`;
 
     const result = await ingestFarmEmails(
       database(),
@@ -115,7 +115,7 @@ describe("F-078 farm email ingest (integration)", () => {
     expect(result.inserted).toBe(0);
     expect(result.skipped).toBe(4);
 
-    const after = await sql()`select count(*)::int as n from farm_emails`;
+    const after = await sql()`select count(*)::int as n from seller_emails`;
     expect((after[0] as { n: number }).n).toBe((before[0] as { n: number }).n);
   });
 
@@ -143,12 +143,12 @@ describe("F-078 farm email ingest (integration)", () => {
 
     expect(result.unmatchedFarmNames).toEqual(["No Such Farm"]);
     expect(result.inserted).toBe(0);
-    const rows = await sql()`select 1 from farm_emails where email = 'nobody@example.com'`;
+    const rows = await sql()`select 1 from seller_emails where email = 'nobody@example.com'`;
     expect(rows).toHaveLength(0);
   });
 
   it("REPORTS a farm with no address — the set that must contact VIGA", async () => {
-    // ~3 of the 35 seeded farms are in this state. Naming them is the whole point: a farmer
+    // ~3 of the 35 seeded sellers are in this state. Naming them is the whole point: a farmer
     // who cannot verify needs to be told to contact VIGA, and VIGA needs to know who they are.
     const result = await ingestFarmEmails(
       database(),

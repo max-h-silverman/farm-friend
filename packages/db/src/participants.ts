@@ -84,12 +84,12 @@ export async function saveSalesLocationParticipants(
     `;
 
     const locations = await tx`
-      select owner_farm_id from sales_locations
+      select own_seller_id from sales_locations
       where id = ${input.salesLocationId}
       for update
     `;
     if (locations.length === 0) return { status: "not_authorized" as const };
-    const ownerFarmId = locations[0]?.owner_farm_id as string;
+    const ownerSellerId = locations[0]?.own_seller_id as string;
 
     const currentRows = await tx`
       select id, display_name from sales_location_participants
@@ -101,7 +101,7 @@ export async function saveSalesLocationParticipants(
     const authorizations = await tx`
       select farmer.id from farmer_authorizations as farmer
       join contacts on contacts.id = farmer.contact_id
-      where farmer.farm_id = ${ownerFarmId}
+      where farmer.seller_id = ${ownerSellerId}
         and contacts.phone_hash = ${input.senderHash}
         and farmer.revoked_at is null
       for update of farmer
@@ -140,10 +140,10 @@ export async function saveSalesLocationParticipants(
       if (exactCurrent.has(displayName)) continue;
       const inserted = await tx`
         insert into sales_location_participants (
-          owner_farm_id, sales_location_id, display_name,
+          owner_seller_id, sales_location_id, display_name,
           source, confirmed_by_authorization_id, confirmed_at
         ) values (
-          ${ownerFarmId}, ${input.salesLocationId}, ${displayName},
+          ${ownerSellerId}, ${input.salesLocationId}, ${displayName},
           'sms', ${authorizationId}, ${input.occurredAt}
         )
         on conflict (

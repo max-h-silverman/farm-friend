@@ -55,7 +55,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
   // Named keys rather than an index signature — see the note in
   // public-surface.integration.test.ts (GL-005). `noUncheckedIndexedAccess` makes every
   // index read `string | undefined`, which cannot be bound as a SQL parameter. The two
-  // farms are seeded through a `${key}Farm` / `${key}Location` loop over an `as const`
+  // sellers are seeded through a `${key}Farm` / `${key}Location` loop over an `as const`
   // tuple, so those computed keys resolve against these names rather than widening.
   const ids = {} as {
     farmerContact: string;
@@ -125,7 +125,7 @@ describe("customer inquiry and stock-out reporting (integration)", () => {
       values (
 ${farmerHash}, ${locationId},
           (select id from stand_providers
-            where sales_location_id = ${locationId} and seller_id is null), ${client().json({ entries: [] })}, 1,
+            where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${client().json({ entries: [] })}, 1,
         true, false, true, 'accepted',
         ${prompt[0]?.id as string}, 1, ${T0},
         ${new Date(T0.getTime() + 3600_000)}, 'yes', ${`ev-${randomUUID()}`}, ${T0}
@@ -133,20 +133,20 @@ ${farmerHash}, ${locationId},
       returning id
     `;
     const auth = await client()`
-      select id from farmer_authorizations where farm_id = ${farmId} limit 1
+      select id from farmer_authorizations where seller_id = ${farmId} limit 1
     `;
     const approval = await client()`
-      select id from farm_approvals where farm_id = ${farmId} limit 1
+      select id from seller_approvals where seller_id = ${farmId} limit 1
     `;
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       )
       values (
 ${farmId}, ${locationId},
 (select id from stand_providers
-  where sales_location_id = ${locationId} and seller_id is null), ${proposal[0]?.id as string},
+  where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${proposal[0]?.id as string},
               ${auth[0]?.id as string}, ${approval[0]?.id as string}, 'sms', ${publishedAt})
       returning id
     `;
@@ -164,8 +164,8 @@ ${farmId}, ${locationId},
     await client()`
       truncate table
         inventory_entries, inventory_revisions, inventory_publication_proposals,
-        stock_out_reports, outbox_work, farm_approvals, farmer_authorizations,
-        stand_items, sales_locations, administrators, farms, contacts
+        stock_out_reports, outbox_work, seller_approvals, farmer_authorizations,
+        stand_items, sales_locations, administrators, sellers, contacts
       restart identity cascade
     `;
 
@@ -185,26 +185,26 @@ ${farmId}, ${locationId},
       values ('board@vigavashon.org', ${T0}) returning id
     `;
 
-    // Two farms, so a report at one can be proved never to reach the other.
+    // Two sellers, so a report at one can be proved never to reach the other.
     for (const [key, name, contactKey] of [
       ["alpha", "Alpha Farm", "farmerContact"],
       ["beta", "Beta Farm", "otherFarmerContact"],
     ] as const) {
       const farm = await client()`
-        insert into farms (name) values (${name}) returning id
+        insert into sellers (name) values (${name}) returning id
       `;
       ids[`${key}Farm`] = farm[0]?.id as string;
       await client()`
-        insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+        insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
         values (${ids[`${key}Farm`]}, ${ids[contactKey]}, ${T0}, ${T0})
       `;
       await client()`
-        insert into farm_approvals (farm_id, administrator_id, approved_at)
+        insert into seller_approvals (seller_id, administrator_id, approved_at)
         values (${ids[`${key}Farm`]}, ${admins[0]?.id as string}, ${T0})
       `;
       const location = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (${ids[`${key}Farm`]}, 'farm_stand', ${`${name} Stand`}, 'America/Los_Angeles', 'visitable', 'produce', '1 Road',
@@ -229,8 +229,8 @@ ${farmId}, ${locationId},
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Eggs"], hoursAgo(2));
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'eggs', true, 0),
-             (${ids.betaLocation!}, (select id from stand_providers where sales_location_id = ${ids.betaLocation!} and seller_id is null), 'Eggs', true, 0)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'eggs', true, 0),
+             (${ids.betaLocation!}, (select id from stand_providers where sales_location_id = ${ids.betaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.betaLocation!})), 'Eggs', true, 0)
     `;
 
     const { provider, deps } = inquiryDeps({
@@ -413,7 +413,7 @@ ${farmId}, ${locationId},
 
   it("renders a bare stand-name overview from its public fields (B-069)", async () => {
     await client()`update sales_locations set name = 'Pinecone Gardens', public_address = '123 Forest Road' where id = ${ids.alphaLocation!}`;
-    await client()`insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order) values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Eggs', true, 0)`;
+    await client()`insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order) values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Eggs', true, 0)`;
     await client()`insert into sales_location_payment_methods (sales_location_id, method) values (${ids.alphaLocation!}, 'Cash')`;
     const { provider, deps } = inquiryDeps({});
 
@@ -440,7 +440,7 @@ ${farmId}, ${locationId},
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Cucumbers"], hoursAgo(24 * 24));
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Cucumbers', true, 0)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Cucumbers', true, 0)
     `;
     const { deps } = inquiryDeps({
       "catalog-match": JSON.stringify({ matches: ["Cucumbers"] }),
@@ -546,7 +546,7 @@ ${farmId}, ${locationId},
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale", "Peaches"], hoursAgo(2));
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Garlic', true, 0)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Garlic', true, 0)
     `;
 
     const { deps } = inquiryDeps({
@@ -612,8 +612,8 @@ ${farmId}, ${locationId},
     // repeat its whole confirmed list back under a second label.
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Kale', true, 0),
-             (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Garlic', true, 1)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Kale', true, 0),
+             (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Garlic', true, 1)
     `;
 
     const { provider, deps } = inquiryDeps({});
@@ -707,7 +707,7 @@ ${farmId}, ${locationId},
     // No confirmation at all — only what the farmer says they usually carry.
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Garlic', true, 0)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Garlic', true, 0)
     `;
 
     const { deps } = inquiryDeps({});
@@ -773,7 +773,7 @@ ${farmId}, ${locationId},
     await publish(ids.alphaLocation!, ids.alphaFarm!, ["Kale", "Peaches"], hoursAgo(2));
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
-      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id is null), 'Garlic', true, 0)
+      values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Garlic', true, 0)
     `;
     await client()`
       insert into sales_location_payment_methods (sales_location_id, method)
@@ -1172,7 +1172,7 @@ ${farmId}, ${locationId},
     const rows = await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried)
       values (${salesLocationId}, (select id from stand_providers
-        where sales_location_id = ${salesLocationId} and seller_id is null), ${displayName}, ${usuallyCarried})
+        where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${displayName}, ${usuallyCarried})
       returning id
     `;
     return rows[0]?.id as string;

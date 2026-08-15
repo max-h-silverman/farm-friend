@@ -6,7 +6,7 @@
 //
 // ## Why canonicalizing HERE is correct and canonicalizing produce is not
 //
-// The rule in CLAUDE.md is that no business code hard-codes a produce taxonomy — farms, foods
+// The rule in CLAUDE.md is that no business code hard-codes a produce taxonomy — sellers, foods
 // and listings are DATA. Payment methods are not food vocabulary: they are a small, closed,
 // VIGA-known set that the real map corpus already states uniformly (`Accepts Cash, Check,
 // Venmo, VIGA Farm Bucks`), and the listing audit calls them "mechanical". Folding "tomatoes"

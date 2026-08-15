@@ -1,7 +1,7 @@
 import type { Db } from "./index";
 import type { Tx } from "./sql";
 
-// F-074 — test farms, and the ONE rule that decides whether anyone sees one.
+// F-074 — test sellers, and the ONE rule that decides whether anyone sees one.
 //
 // A test farm is a farm VIGA marked as fake so it can be walked end to end against real
 // production — onboard, publish, text, appear on the map — without an islander ever seeing it.
@@ -25,7 +25,7 @@ import type { Tx } from "./sql";
 // ## Two ways to be a deliberate viewer, and they are not the same kind of thing
 //
 // **`?hidden=true` is a URL parameter, not a credential.** Anyone who guesses it sees test
-// farms. That is acceptable *because a test farm holds no real data*, and it is why this flag
+// sellers. That is acceptable *because a test farm holds no real data*, and it is why this flag
 // must never be used to hide a REAL farm that wants privacy — a farmer who does not want her
 // address published is `contact_only` (B-024), which is a fact about the listing rather than a
 // query string anyone can type.
@@ -42,7 +42,7 @@ import type { Tx } from "./sql";
 //   3. Removal is immediate, because every read filters on `revoked_at is null`.
 
 /**
- * The farm-level visibility rule, written ONCE, as a SQL fragment over a `farms` alias.
+ * The farm-level visibility rule, written ONCE, as a SQL fragment over a `sellers` alias.
  *
  * Two reasons a farm is absent, and they are not the same kind of thing: it is a TEST farm
  * (fake, and a deliberate viewer may see it), or VIGA REMOVED it (real, and nobody may).
@@ -50,7 +50,7 @@ import type { Tx } from "./sql";
  * `includeTestFarms` is the deliberate-viewer decision already made by the caller — resolved
  * from `?hidden=true` on the web or from the sender's hash over SMS. It is a boolean by the
  * time it arrives here on purpose: this module decides what a test farm IS, and never how
- * someone earned the right to see one. It does not widen to removed farms.
+ * someone earned the right to see one. It does not widen to removed sellers.
  *
  * Returns `true` rather than an empty string in the permitted case, so it is always a legal
  * boolean expression and a caller can drop it into a `where` or a `select` without knowing
@@ -64,15 +64,15 @@ export function visibleFarms(alias: string, includeTestFarms: boolean): string {
   // this fragment, and four hand-written copies is four chances to miss one.
   //
   // Unconditional, unlike the test-farm clause: `?hidden=true` and a listed sender hash make a
-  // viewer deliberate about FAKE farms, which hold no real data. Neither is authority to see a
+  // viewer deliberate about FAKE sellers, which hold no real data. Neither is authority to see a
   // real farm VIGA has taken down.
   const notRetired = `${alias}.retired_at is null`;
   if (includeTestFarms) return notRetired;
-  return `${notRetired} and ${alias}.test_farm_at is null`;
+  return `${notRetired} and ${alias}.test_seller_at is null`;
 }
 
 /**
- * Is this sender allowed to see test farms?
+ * Is this sender allowed to see test sellers?
  *
  * Code's decision, from the sender hash and the database — never the model's, and never
  * inferred from the message. Deliberately returns a bare boolean: the caller learns whether
@@ -107,7 +107,7 @@ export interface AdministratorPhoneRow {
  * Carries no hash and no number — an operator needs to identify a row and remove it, and the
  * hash is a lookup key rather than something to put on a screen (Golden Rule #5). Revoked rows
  * stay in the table for the audit trail and are deliberately not listed: the page shows who can
- * see test farms NOW, which is the question it exists to answer.
+ * see test sellers NOW, which is the question it exists to answer.
  */
 export async function listAdministratorPhones(
   db: Db,
@@ -131,7 +131,7 @@ export type AddAdministratorPhoneResult =
   | { status: "not_an_administrator" };
 
 /**
- * List a phone number as allowed to see test farms.
+ * List a phone number as allowed to see test sellers.
  *
  * Takes the HASH and the last four digits, never a raw number: normalization and hashing happen
  * at the request boundary, so a raw E.164 never reaches this layer and cannot be logged by it.
@@ -194,7 +194,7 @@ export type RemoveAdministratorPhoneResult =
   | { status: "not_an_administrator" };
 
 /**
- * Stop a number seeing test farms.
+ * Stop a number seeing test sellers.
  *
  * A revocation rather than a delete, matching `administrators` and `farmer_authorizations`: the
  * row stays so the audit trail can still answer who was listed and when. It takes effect on the
@@ -279,21 +279,21 @@ export async function setTestFarm(
     }
 
     const farm = await tx`
-      select id, test_farm_at from farms
+      select id, test_seller_at from sellers
       where id = ${input.farmId}
       for update
     `;
     if (farm.length === 0) return { status: "unknown_farm" as const };
 
-    const alreadyTest = farm[0]?.test_farm_at !== null;
+    const alreadyTest = farm[0]?.test_seller_at !== null;
     // Idempotent, and it keeps the FIRST marking's timestamp. Moving it would falsify when the
     // farm actually became a test farm, and would write a second audit event for one decision.
     if (alreadyTest === input.isTestFarm) return { status: "unchanged" as const };
 
     await tx`
-      update farms
-      set test_farm_at = ${input.isTestFarm ? input.occurredAt.toISOString() : null},
-          test_farm_by_administrator_id = ${input.isTestFarm ? input.administratorId : null},
+      update sellers
+      set test_seller_at = ${input.isTestFarm ? input.occurredAt.toISOString() : null},
+          test_seller_by_administrator_id = ${input.isTestFarm ? input.administratorId : null},
           updated_at = ${input.occurredAt.toISOString()}
       where id = ${input.farmId}
     `;

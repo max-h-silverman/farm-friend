@@ -108,13 +108,13 @@ describe("farmer authorization and standing links (integration)", () => {
   async function farmWithStand(
     name: string,
   ): Promise<{ farmId: string; salesLocationId: string }> {
-    const farms = await sql()`
-      insert into farms (name) values (${name}) returning id
+    const sellers = await sql()`
+      insert into sellers (name) values (${name}) returning id
     `;
-    const farmId = farms[0]?.id as string;
+    const farmId = sellers[0]?.id as string;
     const locations = await sql()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (
@@ -170,11 +170,11 @@ describe("farmer authorization and standing links (integration)", () => {
       expect(result.status).toBe("authorized");
 
       const rows = await sql()`
-        select a.id, a.farm_id, a.phone_verified_at, a.authorized_at, a.revoked_at,
+        select a.id, a.seller_id, a.phone_verified_at, a.authorized_at, a.revoked_at,
                c.phone_hash
         from farmer_authorizations a
         join contacts c on c.id = a.contact_id
-        where a.farm_id = ${farmId}
+        where a.seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(1);
       expect(rows[0]?.phone_hash).toBe(contactHash);
@@ -360,7 +360,7 @@ describe("farmer authorization and standing links (integration)", () => {
       expect(result.status).toBe("not_an_administrator");
 
       const rows = await sql()`
-        select id from farmer_authorizations where farm_id = ${farmId}
+        select id from farmer_authorizations where seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(0);
     });
@@ -388,7 +388,7 @@ describe("farmer authorization and standing links (integration)", () => {
       expect(unknownRequest.status).toBe("unknown_request");
 
       const rows = await sql()`
-        select id from farmer_authorizations where farm_id = ${farmId}
+        select id from farmer_authorizations where seller_id = ${farmId}
       `;
       expect(rows).toHaveLength(0);
     });
@@ -417,7 +417,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const rows = await sql()`
         select id from farmer_authorizations
-        where farm_id = ${farmId} and revoked_at is null
+        where seller_id = ${farmId} and revoked_at is null
       `;
       expect(rows).toHaveLength(1);
     });
@@ -455,7 +455,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const rows = await sql()`
         select id from farmer_authorizations
-        where farm_id = ${farmId} and revoked_at is null
+        where seller_id = ${farmId} and revoked_at is null
       `;
       expect(rows).toHaveLength(2);
     });
@@ -570,7 +570,7 @@ describe("farmer authorization and standing links (integration)", () => {
       expect(again.status).toBe("authorized");
 
       const all = await sql()`
-        select revoked_at from farmer_authorizations where farm_id = ${farmId}
+        select revoked_at from farmer_authorizations where seller_id = ${farmId}
         order by authorized_at
       `;
       expect(all).toHaveLength(2);
@@ -705,17 +705,17 @@ describe("farmer authorization and standing links (integration)", () => {
         authorized.status === "authorized" ? authorized.authorizationId : "";
 
       for (const target of [
-        { ownerFarmId: null, salesLocationId: null },
-        { ownerFarmId: farmId, salesLocationId: null },
-        { ownerFarmId: null, salesLocationId },
+        { ownerSellerId: null, salesLocationId: null },
+        { ownerSellerId: farmId, salesLocationId: null },
+        { ownerSellerId: null, salesLocationId },
       ]) {
         await expect(
           sql()`
             insert into farmer_links (
-              token_hash, authorization_id, owner_farm_id, sales_location_id, issued_at
+              token_hash, authorization_id, owner_seller_id, sales_location_id, issued_at
             ) values (
               ${randomUUID().replaceAll("-", "").repeat(2)}, ${authorizationId},
-              ${target.ownerFarmId}, ${target.salesLocationId}, ${at(2).toISOString()}
+              ${target.ownerSellerId}, ${target.salesLocationId}, ${at(2).toISOString()}
             )
           `,
         ).rejects.toMatchObject({ code: "23502" });
@@ -975,7 +975,7 @@ describe("farmer authorization and standing links (integration)", () => {
       );
       const second = await sql()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         )
         values (

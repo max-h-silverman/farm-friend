@@ -913,7 +913,7 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       */}
         <p className="map-note">
           Note: This map may contain recent inventory updates, but neither VIGA nor individual
-          farms can guarantee product availability.
+          sellers can guarantee product availability.
         </p>
       </div>
 

@@ -101,7 +101,7 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
           {success}
         </p>
       )}
-      <ul className="admin-farms">
+      <ul className="admin-sellers">
         {rows.map((row) => (
           <li key={row.reportId} className="admin-farm">
             <div>

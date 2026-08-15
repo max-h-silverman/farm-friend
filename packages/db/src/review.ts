@@ -428,11 +428,11 @@ export async function listStockOutReports(
       report.id, report.status, report.reported_at, report.reviewed_at,
       coalesce(entry.item_name, item.display_name, report.unlisted_item_text) as item_text,
       location.id as sales_location_id, location.name as sales_location_name,
-      farm.id as farm_id, farm.name as farm_name,
+      farm.id as seller_id, farm.name as farm_name,
       administrator.email as reviewed_by_email
     from stock_out_reports as report
     join sales_locations as location on location.id = report.sales_location_id
-    join farms as farm on farm.id = location.owner_farm_id
+    join sellers as farm on farm.id = location.own_seller_id
     left join inventory_entries as entry
       on entry.id = report.referenced_inventory_entry_id
     left join stand_items as item
@@ -445,7 +445,7 @@ export async function listStockOutReports(
 
   return rows.map((row) => ({
     reportId: row.id as string,
-    farmId: row.farm_id as string,
+    farmId: row.seller_id as string,
     farmName: row.farm_name as string,
     salesLocationId: row.sales_location_id as string,
     salesLocationName: row.sales_location_name as string,

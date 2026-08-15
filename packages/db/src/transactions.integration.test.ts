@@ -77,14 +77,14 @@ describe("authoritative SMS transaction schema (integration)", () => {
     `;
     ids.administrator = administrators[0]?.id as string;
 
-    const farms = await client`
-      insert into farms (name) values ('Transaction Farm') returning id
+    const sellers = await client`
+      insert into sellers (name) values ('Transaction Farm') returning id
     `;
-    ids.farm = farms[0]?.id as string;
+    ids.farm = sellers[0]?.id as string;
 
     const authorizations = await client`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       )
       values (${ids.farm}, ${ids[farmerHash] as string}, ${t0}, ${t0})
       returning id
@@ -92,7 +92,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
     ids.authorization = authorizations[0]?.id as string;
 
     const approvals = await client`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${ids.farm}, ${ids.administrator}, ${t0})
       returning id
     `;
@@ -100,7 +100,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
 
     const locations = await client`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       )
       values (
@@ -380,7 +380,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
       values (
         ${farmerHash}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${db().json({ items: [] })},
         1, true, false, true
       )
       returning id, expires_at
@@ -458,13 +458,13 @@ describe("authoritative SMS transaction schema (integration)", () => {
     `;
     const revisions = await db()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id,
+        seller_id, sales_location_id, provider_id, proposal_id,
         published_by_authorization_id, farm_approval_id, source, published_at
       )
       values (
         ${storedId("farm")}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null),
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})),
         ${storedId("proposal1")},
         ${storedId("authorization")}, ${storedId("approval")}, 'sms', ${t1}
       )
@@ -483,7 +483,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
         values (
           ${farmerHash}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${db().json({ items: [] })},
           1, true, false, ${storedId("revision1")}, true
         )
       `,
@@ -498,7 +498,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
       values (
         ${farmerHash}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${db().json({ items: [] })},
         1, true, false, ${storedId("revision1")}, false
       )
       returning id
@@ -529,7 +529,7 @@ describe("authoritative SMS transaction schema (integration)", () => {
       values (
         ${farmerHash}, ${storedId("location")},
         (select id from stand_providers
-          where sales_location_id = ${storedId("location")} and seller_id is null), ${db().json({ items: [] })},
+          where sales_location_id = ${storedId("location")} and seller_id = (select own_seller_id from sales_locations where id = ${storedId("location")})), ${db().json({ items: [] })},
         2, true, false, ${storedId("revision1")}, false
       )
     `;

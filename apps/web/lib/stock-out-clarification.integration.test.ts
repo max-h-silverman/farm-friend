@@ -64,7 +64,7 @@ describe("B-065 stock-out clarification memory (integration)", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await client()`truncate contacts, farms restart identity cascade`;
+    await client()`truncate contacts, sellers restart identity cascade`;
     await client()`truncate pending_stock_out_reports`;
     pineconeId = await seedStand("Pinecone Gardens", ["kale", "bok choy", "potatoes"], ["eggs"]);
   });
@@ -88,19 +88,19 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     published: string[],
     offerings: string[],
   ): Promise<string> {
-    const farms = await client()`insert into farms (name) values (${name}) returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values (${name}) returning id`;
+    const farmId = sellers[0]?.id as string;
     const contacts = await client()`
       insert into contacts (phone_hash, phone_e164)
       values (${"f".repeat(64)}, '+12065550100') returning id
     `;
     await client()`
-      insert into farmer_authorizations (farm_id, contact_id, authorized_at, phone_verified_at)
+      insert into farmer_authorizations (seller_id, contact_id, authorized_at, phone_verified_at)
       values (${farmId}, ${contacts[0]?.id as string}, ${T0}, ${T0})
     `;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
@@ -113,8 +113,8 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     if (published.length > 0) {
       const revisions = await client()`
         insert into inventory_revisions
-          (farm_id, sales_location_id, provider_id, is_current, published_at, source)
-        values (${farmId}, ${locationId}, (select id from stand_providers where sales_location_id = ${locationId} and seller_id is null), true, ${T0}, 'viga') returning id
+          (seller_id, sales_location_id, provider_id, is_current, published_at, source)
+        values (${farmId}, ${locationId}, (select id from stand_providers where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), true, ${T0}, 'viga') returning id
       `;
       const revisionId = revisions[0]?.id as string;
       for (const [index, itemName] of published.entries()) {
@@ -129,7 +129,7 @@ describe("B-065 stock-out clarification memory (integration)", () => {
       await client()`
         insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
         values (${locationId}, (select id from stand_providers
-          where sales_location_id = ${locationId} and seller_id is null), ${displayName}, false, ${index})
+          where sales_location_id = ${locationId} and seller_id = (select own_seller_id from sales_locations where id = ${locationId})), ${displayName}, false, ${index})
       `;
     }
     return locationId;

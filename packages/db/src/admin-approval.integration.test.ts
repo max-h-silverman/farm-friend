@@ -26,10 +26,10 @@ import {
 
 // F-025a — the item's whole point, proven end to end.
 //
-// Publication refuses with `not_approved` unless a live `farm_approvals` row exists, and until
+// Publication refuses with `not_approved` unless a live `seller_approvals` row exists, and until
 // this item NOTHING created one. Every existing test that publishes successfully does so
 // because its FIXTURE inserts the approval row by hand — a green suite hiding a product that
-// cannot work. So the rule for this file: no test inserts `farm_approvals` directly. Approval
+// cannot work. So the rule for this file: no test inserts `seller_approvals` directly. Approval
 // comes from `approveFarm` or it does not exist.
 
 const dbPackage = resolve(process.cwd(), "packages/db");
@@ -138,18 +138,18 @@ describe("farm approval and admin sessions (integration)", () => {
         'onboarding-form-1', ${t0.toISOString()})
     `;
 
-    const farms = await sql()`
-      insert into farms (name) values ('Unapproved Farm') returning id
+    const sellers = await sql()`
+      insert into sellers (name) values ('Unapproved Farm') returning id
     `;
-    ids.farm = farms[0]?.id as string;
+    ids.farm = sellers[0]?.id as string;
 
     await sql()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${ids.farm}, ${ids.farmerContact}, ${t0.toISOString()}, ${t0.toISOString()})
     `;
 
     const locations = await sql()`
-      insert into sales_locations (owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible)
       values (${ids.farm}, 'farm_stand', 'Unapproved Stand', 'America/Los_Angeles', 'visitable', 'produce', '9 Stand Way', 47.45, -122.46,
         false, false)
@@ -178,7 +178,7 @@ describe("farm approval and admin sessions (integration)", () => {
     // The defect, stated as a test. Every prerequisite is present — consent, farmer
     // authority, a sales location, a valid activated proposal — and publication STILL
     // refuses, because approval is a separate act nobody has performed.
-    const approvals = await sql()`select id from farm_approvals`;
+    const approvals = await sql()`select id from seller_approvals`;
     expect(approvals, "no fixture may pre-insert an approval").toHaveLength(0);
 
     expect(await attemptPublication(at(1))).toBe("not_approved");
@@ -203,12 +203,12 @@ describe("farm approval and admin sessions (integration)", () => {
           userId: ids.farmerContact,
           senderMask: "(•••) •••-0302",
           isFarmer: true,
-          farms: ["Unapproved Farm"],
+          sellers: ["Unapproved Farm"],
         }),
         expect.objectContaining({
           senderMask: "(•••) •••-0303",
           isFarmer: false,
-          farms: [],
+          sellers: [],
         }),
       ]),
     );
@@ -226,8 +226,8 @@ describe("farm approval and admin sessions (integration)", () => {
     expect(result.status).toBe("approved");
 
     const rows = await sql()`
-      select administrator_id, approved_at, revoked_at from farm_approvals
-      where farm_id = ${ids.farm as string} and revoked_at is null
+      select administrator_id, approved_at, revoked_at from seller_approvals
+      where seller_id = ${ids.farm as string} and revoked_at is null
     `;
     expect(rows).toHaveLength(1);
     expect(rows[0]?.administrator_id).toBe(ids.administrator);
@@ -252,7 +252,7 @@ describe("farm approval and admin sessions (integration)", () => {
 
   it("is idempotent: approving an already-approved farm does not double-grant", async () => {
     const before = await sql()`
-      select count(*)::int as n from farm_approvals where revoked_at is null
+      select count(*)::int as n from seller_approvals where revoked_at is null
     `;
     const result = await approveFarm(handle(), {
       farmId: ids.farm as string,
@@ -261,7 +261,7 @@ describe("farm approval and admin sessions (integration)", () => {
     });
     expect(result.status).toBe("already_approved");
     const after = await sql()`
-      select count(*)::int as n from farm_approvals where revoked_at is null
+      select count(*)::int as n from seller_approvals where revoked_at is null
     `;
     expect(after[0]?.n).toBe(before[0]?.n);
   });
@@ -273,7 +273,7 @@ describe("farm approval and admin sessions (integration)", () => {
       returning id
     `;
     const otherFarm = await sql()`
-      insert into farms (name) values ('Other Farm') returning id
+      insert into sellers (name) values ('Other Farm') returning id
     `;
     const result = await approveFarm(handle(), {
       farmId: otherFarm[0]?.id as string,
@@ -283,7 +283,7 @@ describe("farm approval and admin sessions (integration)", () => {
     expect(result.status).toBe("not_an_administrator");
 
     const rows = await sql()`
-      select id from farm_approvals where farm_id = ${otherFarm[0]?.id as string}
+      select id from seller_approvals where seller_id = ${otherFarm[0]?.id as string}
     `;
     expect(rows).toHaveLength(0);
   });
@@ -299,7 +299,7 @@ describe("farm approval and admin sessions (integration)", () => {
 
     // Revocation is recorded, not deleted: the audit trail keeps the whole history.
     const rows = await sql()`
-      select revoked_at from farm_approvals where farm_id = ${ids.farm as string}
+      select revoked_at from seller_approvals where seller_id = ${ids.farm as string}
     `;
     expect(rows).toHaveLength(1);
     expect(new Date(rows[0]?.revoked_at as string).getTime()).toBe(
@@ -318,7 +318,7 @@ describe("farm approval and admin sessions (integration)", () => {
     expect(result.status).toBe("approved");
 
     const rows = await sql()`
-      select id from farm_approvals where farm_id = ${ids.farm as string}
+      select id from seller_approvals where seller_id = ${ids.farm as string}
     `;
     // Two rows: the revoked original and the new grant. History is never overwritten.
     expect(rows).toHaveLength(2);
@@ -434,7 +434,7 @@ describe("farm approval and admin sessions (integration)", () => {
       // moment of the write. Approval re-reads the administrator rather than trusting a
       // principal resolved earlier in the request.
       const farm = await sql()`
-        insert into farms (name) values ('Lapsed Approver Farm') returning id
+        insert into sellers (name) values ('Lapsed Approver Farm') returning id
       `;
 
       const result = await approveFarm(handle(), {

@@ -89,29 +89,29 @@ describe.skipIf(!haveCorpus)("the roster parser against VIGA's real 2026 respons
   it("reads the expected corpus, not some other file", () => {
     const rows = load();
     // Guards a vacuous pass. Pointed at the MAP export instead, every assertion below would be
-    // trivially true over zero rows — and "0 farms, 0 problems" reads like success.
+    // trivially true over zero rows — and "0 sellers, 0 problems" reads like success.
     expect(rows.length).toBeGreaterThan(25);
     expect(Object.keys(rows[0]!)).toContain("Email Address");
     expect(Object.keys(rows[0]!)).toContain("Email Address(es)");
   });
 
   it("finds an address for EVERY farm — 32 of 32, zero gaps", () => {
-    // The measurement the whole design rests on. If real farms had no email, the secret-link
+    // The measurement the whole design rests on. If real sellers had no email, the secret-link
     // flow would strand them with no way in, and that would change the product decision rather
     // than being a parser bug.
     const without = roster().filter((f) => f.emails.length === 0);
     expect(without.map((f) => f.farmName)).toEqual([]);
   });
 
-  it("finds the five multi-address farms, and Lavender Hill's three", () => {
-    // Five farms list more than one address. A parser that took the first would silently lock
+  it("finds the five multi-address sellers, and Lavender Hill's three", () => {
+    // Five sellers list more than one address. A parser that took the first would silently lock
     // those farmers out of addresses VIGA genuinely holds for them.
     const multi = roster().filter((f) => f.emails.length > 1);
     expect(multi).toHaveLength(5);
     expect(Math.max(...multi.map((f) => f.emails.length))).toBe(3);
   });
 
-  it("produces NO address shared between two different farms", () => {
+  it("produces NO address shared between two different sellers", () => {
     // Why email → farm is unambiguous today. If this ever fails, the verification flow needs a
     // farm-disambiguation step — so it is a product signal, not only a test failure.
     const owners = new Map<string, Set<string>>();
@@ -122,7 +122,7 @@ describe.skipIf(!haveCorpus)("the roster parser against VIGA's real 2026 respons
         owners.set(email, set);
       }
     }
-    const shared = [...owners].filter(([, farms]) => farms.size > 1);
+    const shared = [...owners].filter(([, sellers]) => sellers.size > 1);
     expect(shared.map(([email]) => email)).toEqual([]);
   });
 

@@ -12,7 +12,7 @@ import { parseFarmEmails, splitEmailCell } from "./farm-emails";
 // measurement is repeated against the real file in `farm-emails-corpus.test.ts`; this file
 // pins the BEHAVIOUR so it can be reasoned about without the personal data present.
 //
-//   * **The two columns must be UNIONED, not chosen between.** They disagree for 5 of 32 farms.
+//   * **The two columns must be UNIONED, not chosen between.** They disagree for 5 of 32 sellers.
 //     Lavender Hill's three addresses are `cathy@` in one column and `info@` + `shop@` in the
 //     other — picking either column alone loses real addresses, and locks that farmer out of
 //     verifying with an address VIGA genuinely holds.
@@ -102,7 +102,7 @@ describe("parsing a farm's roster from both columns", () => {
     expect(parsed[0]?.emails[0]).toBe("primary@x.org");
   });
 
-  it("de-duplicates across the columns — 27 of 32 farms repeat the same address", () => {
+  it("de-duplicates across the columns — 27 of 32 sellers repeat the same address", () => {
     // The common case: both columns hold the one address. Two rows for it would violate the
     // farm-scoped unique index and abort the ingest.
     const parsed = parseFarmEmails([row("same@x.org", "  SAME@X.ORG ")]);
@@ -110,8 +110,8 @@ describe("parsing a farm's roster from both columns", () => {
   });
 
   it("reports a farm with NO usable address rather than dropping it silently", () => {
-    // ~3 of the 35 seeded farms have no email on file. They are told to contact VIGA, which is
-    // only possible if the ingest SAYS which farms they are. A silent skip would leave an
+    // ~3 of the 35 seeded sellers have no email on file. They are told to contact VIGA, which is
+    // only possible if the ingest SAYS which sellers they are. A silent skip would leave an
     // operator wondering why a farmer cannot onboard.
     const parsed = parseFarmEmails([
       { farmName: "No Email Farm", primaryEmail: "", listedEmails: "" },
@@ -125,10 +125,10 @@ describe("parsing a farm's roster from both columns", () => {
 describe("farm names carrying VIGA's form annotations", () => {
   // MEASURED AGAINST THE REAL 2026 EXPORT, not imagined: four of 32 rows write the farm name as
   // `Lavender Hill Farm *does not accept VIGA Bucks*`. That is a VIGA Bucks eligibility note a
-  // volunteer appended to the name cell, not part of the farm's name — the farms exist in the
+  // volunteer appended to the name cell, not part of the farm's name — the sellers exist in the
   // database under their clean names.
   //
-  // Caught by DRY-RUNNING the ingest against production before writing: those four farms would
+  // Caught by DRY-RUNNING the ingest against production before writing: those four sellers would
   // have matched nothing and four real farmers would have been silently unable to verify, with
   // the run reporting success. Exact matching was right to refuse them; the annotation is what
   // needed removing.

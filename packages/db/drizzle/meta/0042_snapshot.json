@@ -505,7 +505,7 @@
         "closure_revisions_approval_owner_fk": {
           "name": "closure_revisions_approval_owner_fk",
           "tableFrom": "closure_revisions",
-          "tableTo": "farm_approvals",
+          "tableTo": "seller_approvals",
           "columnsFrom": [
             "owner_approval_id",
             "owner_farm_id"
@@ -645,8 +645,8 @@
         }
       }
     },
-    "public.farm_approvals": {
-      "name": "farm_approvals",
+    "public.seller_approvals": {
+      "name": "seller_approvals",
       "schema": "",
       "columns": {
         "id": {
@@ -702,8 +702,8 @@
       "foreignKeys": {
         "farm_approvals_farm_id_farms_id_fk": {
           "name": "farm_approvals_farm_id_farms_id_fk",
-          "tableFrom": "farm_approvals",
-          "tableTo": "farms",
+          "tableFrom": "seller_approvals",
+          "tableTo": "sellers",
           "columnsFrom": [
             "farm_id"
           ],
@@ -715,7 +715,7 @@
         },
         "farm_approvals_administrator_id_administrators_id_fk": {
           "name": "farm_approvals_administrator_id_administrators_id_fk",
-          "tableFrom": "farm_approvals",
+          "tableFrom": "seller_approvals",
           "tableTo": "administrators",
           "columnsFrom": [
             "administrator_id"
@@ -739,8 +739,8 @@
         }
       }
     },
-    "public.farm_email_verifications": {
-      "name": "farm_email_verifications",
+    "public.seller_email_verifications": {
+      "name": "seller_email_verifications",
       "schema": "",
       "columns": {
         "id": {
@@ -810,8 +810,8 @@
       "foreignKeys": {
         "farm_email_verifications_farm_id_farms_id_fk": {
           "name": "farm_email_verifications_farm_id_farms_id_fk",
-          "tableFrom": "farm_email_verifications",
-          "tableTo": "farms",
+          "tableFrom": "seller_email_verifications",
+          "tableTo": "sellers",
           "columnsFrom": [
             "farm_id"
           ],
@@ -825,8 +825,8 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     },
-    "public.farm_emails": {
-      "name": "farm_emails",
+    "public.seller_emails": {
+      "name": "seller_emails",
       "schema": "",
       "columns": {
         "id": {
@@ -865,8 +865,8 @@
       "foreignKeys": {
         "farm_emails_farm_id_farms_id_fk": {
           "name": "farm_emails_farm_id_farms_id_fk",
-          "tableFrom": "farm_emails",
-          "tableTo": "farms",
+          "tableFrom": "seller_emails",
+          "tableTo": "sellers",
           "columnsFrom": [
             "farm_id"
           ],
@@ -880,8 +880,8 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {}
     },
-    "public.farm_links": {
-      "name": "farm_links",
+    "public.seller_links": {
+      "name": "seller_links",
       "schema": "",
       "columns": {
         "id": {
@@ -921,8 +921,8 @@
       "foreignKeys": {
         "farm_links_farm_id_farms_id_fk": {
           "name": "farm_links_farm_id_farms_id_fk",
-          "tableFrom": "farm_links",
-          "tableTo": "farms",
+          "tableFrom": "seller_links",
+          "tableTo": "sellers",
           "columnsFrom": [
             "farm_id"
           ],
@@ -1015,7 +1015,7 @@
         "farmer_authorizations_farm_id_farms_id_fk": {
           "name": "farmer_authorizations_farm_id_farms_id_fk",
           "tableFrom": "farmer_authorizations",
-          "tableTo": "farms",
+          "tableTo": "sellers",
           "columnsFrom": [
             "farm_id"
           ],
@@ -1142,7 +1142,7 @@
         "farmer_invitations_farm_id_farms_id_fk": {
           "name": "farmer_invitations_farm_id_farms_id_fk",
           "tableFrom": "farmer_invitations",
-          "tableTo": "farms",
+          "tableTo": "sellers",
           "columnsFrom": [
             "farm_id"
           ],
@@ -1699,8 +1699,8 @@
         }
       }
     },
-    "public.farms": {
-      "name": "farms",
+    "public.sellers": {
+      "name": "sellers",
       "schema": "",
       "columns": {
         "id": {
@@ -1790,7 +1790,7 @@
       "foreignKeys": {
         "farms_test_farm_by_administrator_id_administrators_id_fk": {
           "name": "farms_test_farm_by_administrator_id_administrators_id_fk",
-          "tableFrom": "farms",
+          "tableFrom": "sellers",
           "tableTo": "administrators",
           "columnsFrom": [
             "test_farm_by_administrator_id"
@@ -1803,7 +1803,7 @@
         },
         "farms_retired_by_administrator_id_administrators_id_fk": {
           "name": "farms_retired_by_administrator_id_administrators_id_fk",
-          "tableFrom": "farms",
+          "tableFrom": "sellers",
           "tableTo": "administrators",
           "columnsFrom": [
             "retired_by_administrator_id"
@@ -2502,7 +2502,7 @@
         "inventory_revisions_approval_farm_fk": {
           "name": "inventory_revisions_approval_farm_fk",
           "tableFrom": "inventory_revisions",
-          "tableTo": "farm_approvals",
+          "tableTo": "seller_approvals",
           "columnsFrom": [
             "farm_approval_id",
             "farm_id"
@@ -3764,7 +3764,7 @@
         "sales_locations_owner_farm_id_farms_id_fk": {
           "name": "sales_locations_owner_farm_id_farms_id_fk",
           "tableFrom": "sales_locations",
-          "tableTo": "farms",
+          "tableTo": "sellers",
           "columnsFrom": [
             "owner_farm_id"
           ],
@@ -4081,7 +4081,7 @@
         "sellers_farm_id_farms_id_fk": {
           "name": "sellers_farm_id_farms_id_fk",
           "tableFrom": "sellers",
-          "tableTo": "farms",
+          "tableTo": "sellers",
           "columnsFrom": [
             "farm_id"
           ],

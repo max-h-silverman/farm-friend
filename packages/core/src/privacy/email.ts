@@ -36,7 +36,7 @@ const ADDRESS = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
  * Canonicalize an address to the one spelling everything else uses. Throws on anything that
  * is not a single address.
  *
- * **The whitespace class is named explicitly** to match `farm_emails_one_per_farm_address`,
+ * **The whitespace class is named explicitly** to match `seller_emails_one_per_farm_address`,
  * which indexes `lower(btrim(email, E' \t\r\n'))`. `btrim(text)` with no second argument
  * strips SPACES ONLY — migration 0020 shipped that naive form and a tab-only value passed its
  * not-blank CHECK. If this function and that index disagreed, the ingest would insert a value
@@ -72,7 +72,7 @@ export function hashEmail(raw: string, salt: string): string {
  * Render the operator-visible form of an address (Golden Rule #5: masked in admin).
  *
  * Shows the first character and the whole domain. The domain is what makes two farmers
- * distinguishable to a human — several island farms use the same provider, and a mask hiding
+ * distinguishable to a human — several island sellers use the same provider, and a mask hiding
  * it would identify nobody.
  *
  * **The mask is a FIXED three dots regardless of the local part's length.** A mask that

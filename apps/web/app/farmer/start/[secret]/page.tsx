@@ -10,7 +10,7 @@ export const dynamic = "force-dynamic";
  * F-079 — the migration door, behind a secret path segment.
  *
  * This is the page VIGA's Google weekly-status form becomes, and it is deliberately NOT the
- * general front door: new farms are invite-only, and this exists so farmers already using the
+ * general front door: new sellers are invite-only, and this exists so farmers already using the
  * Google form can move themselves across. The bare `/farmer/start` path no longer exists.
  *
  * **The secret is obscurity, not authentication** — it lands in browser history, `Referer`
@@ -33,7 +33,7 @@ export default async function SecretFarmerStartPage({
 
   const { db } = publicReadContext();
   const query = await searchParams;
-  const farms = await listFarmsForSelfService(db, {
+  const sellers = await listFarmsForSelfService(db, {
     includeTestFarms: query.hidden === "true",
   });
 
@@ -43,7 +43,7 @@ export default async function SecretFarmerStartPage({
       <h1>Claim your farm stand</h1>
 
       <section className="farmer-onboarding-card" aria-labelledby="pick-farm-heading">
-        <FarmPicker farms={farms} basePath={`/farmer/start/${encodeURIComponent(secret)}`} />
+        <FarmPicker sellers={sellers} basePath={`/farmer/start/${encodeURIComponent(secret)}`} />
       </section>
 
       <p className="farmer-onboarding-note farmer-start-help">

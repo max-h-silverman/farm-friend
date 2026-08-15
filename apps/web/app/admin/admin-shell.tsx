@@ -18,7 +18,7 @@ import { LoginForm } from "./login/login-form";
  * describe — so the number and the thing it counts are in one place instead of two.
  */
 const ADMIN_ROUTES = [
-  { href: "/admin/farms", label: "Farms" },
+  { href: "/admin/sellers", label: "Farms" },
   { href: "/admin/messages", label: "Messages" },
   { href: "/admin/users", label: "Users" },
 ] as const;

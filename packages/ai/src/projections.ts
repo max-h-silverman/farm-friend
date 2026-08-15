@@ -498,7 +498,7 @@ export interface RequestClassificationFields {
  * roster present, `Pinecone Gardens`, `where is Pinecone Gardens` and `does Misty Isle have
  * flowers` all returned `unclear` across every run, as though the model were checking the name
  * against the list and bailing rather than reading the sentence's shape. A classifier that
- * never sees the corpus also cannot drift as VIGA adds or removes farms.
+ * never sees the corpus also cannot drift as VIGA adds or removes sellers.
  *
  * **Deliberately NO sender type.** Whether the sender may publish is an access question code
  * answers downstream from `farmer_authorizations`. Absent here, it cannot be reasoned around.

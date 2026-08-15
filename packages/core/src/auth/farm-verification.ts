@@ -51,7 +51,7 @@ export const MAX_CODES_PER_WINDOW = 3;
  * credentials. A number anywhere in this path would silently drop the leading zero and refuse a
  * farmer who typed exactly the right digits.
  *
- * Returns lowercase hex, the shape `farm_email_verifications_code_hash_is_digest` requires — a
+ * Returns lowercase hex, the shape `seller_email_verifications_code_hash_is_digest` requires — a
  * mismatch would be a row the database refuses, or one nothing can ever match.
  */
 export function hashVerificationCode(code: string, salt: string): string {

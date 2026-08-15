@@ -10,11 +10,11 @@ import { redirect } from "next/navigation";
 //
 // Farms is the destination because it is where an operator's day starts: approving a farm,
 // sending a setup link, checking what a stand shows. No authorization check here — this is a
-// bare redirect that reads nothing, and `/admin/farms` resolves the administrator itself before
+// bare redirect that reads nothing, and `/admin/sellers` resolves the administrator itself before
 // it queries anything.
 
 export const dynamic = "force-dynamic";
 
 export default function AdminPage(): never {
-  redirect("/admin/farms");
+  redirect("/admin/sellers");
 }

@@ -176,7 +176,7 @@ describe("authoritative SMS transactions (integration)", () => {
       if (table === "authorization") {
         await tx`select id from farmer_authorizations where id = ${rowId} for share`;
       } else if (table === "approval") {
-        await tx`select id from farm_approvals where id = ${rowId} for share`;
+        await tx`select id from seller_approvals where id = ${rowId} for share`;
       } else {
         await tx`select id from sales_locations where id = ${rowId} for key share`;
       }
@@ -227,8 +227,8 @@ describe("authoritative SMS transactions (integration)", () => {
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         outbox_work, consent_transition_watermarks, sms_consents, sender_states,
         stock_out_reports, flags, audit_events, model_runs,
-        farm_approvals, farmer_authorizations, sales_location_payment_methods,
-        farm_links, sales_locations, administrators, farms, contacts
+        seller_approvals, farmer_authorizations, sales_location_payment_methods,
+        seller_links, sales_locations, administrators, sellers, contacts
       restart identity cascade
     `;
 
@@ -246,26 +246,26 @@ describe("authoritative SMS transactions (integration)", () => {
     `;
     ids.administrator = admins[0]?.id as string;
 
-    const farms = await client()`
-      insert into farms (name) values ('Workflow Farm') returning id
+    const sellers = await client()`
+      insert into sellers (name) values ('Workflow Farm') returning id
     `;
-    ids.farm = farms[0]?.id as string;
+    ids.farm = sellers[0]?.id as string;
 
     const auths = await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${ids.farm}, ${ids[farmerHash] as string}, ${T0}, ${T0}) returning id
     `;
     ids.authorization = auths[0]?.id as string;
 
     const approvals = await client()`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${ids.farm}, ${ids.administrator}, ${T0}) returning id
     `;
     ids.approval = approvals[0]?.id as string;
 
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
       values (${ids.farm}, 'farm_stand', 'Workflow Stand', 'America/Los_Angeles', 'visitable', 'produce', '9 Stand Way',
@@ -781,7 +781,7 @@ describe("authoritative SMS transactions (integration)", () => {
               where id = ${ids.authorization as string}
             `
           : await client()`
-              select revoked_at from farm_approvals
+              select revoked_at from seller_approvals
               where id = ${ids.approval as string}
             `;
       expect(revoked[0]?.revoked_at).not.toBeNull();
@@ -966,7 +966,7 @@ describe("authoritative SMS transactions (integration)", () => {
     it("turns two contacts' first-publication race into one clean base conflict", async () => {
       await client()`
         insert into farmer_authorizations (
-          farm_id, contact_id, phone_verified_at, authorized_at
+          seller_id, contact_id, phone_verified_at, authorized_at
         )
         values (
           ${ids.farm as string}, ${ids[secondFarmerHash] as string}, ${T0}, ${T0}
@@ -1060,7 +1060,7 @@ describe("authoritative SMS transactions (integration)", () => {
         providerAcceptedAt: at(5),
       });
       await client()`
-        update farm_approvals set revoked_at = ${at(5.5)}
+        update seller_approvals set revoked_at = ${at(5.5)}
         where id = ${ids.approval as string}
       `;
 

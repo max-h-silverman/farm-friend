@@ -63,11 +63,11 @@ describe("scheduled inventory prompt pass (integration)", () => {
       values ('board@vigavashon.org', ${BASE}) returning id
     `;
     ids.administrator = administrators[0]?.id as string;
-    const farms = await handle().sql`insert into farms (name) values ('Prompt Farm') returning id`;
-    ids.farm = farms[0]?.id as string;
+    const sellers = await handle().sql`insert into sellers (name) values ('Prompt Farm') returning id`;
+    ids.farm = sellers[0]?.id as string;
     const locations = await handle().sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${ids.farm}, 'farm_stand', 'Prompt Stand', 'America/Los_Angeles', 'visitable', 'produce',
@@ -77,12 +77,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
     ids.location = locations[0]?.id as string;
     const authorizations = await handle().sql`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       ) values (${ids.farm}, ${contactId}, ${BASE}, ${BASE}) returning id
     `;
     ids.authorization = authorizations[0]?.id as string;
     const approvals = await handle().sql`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${ids.farm}, ${administrators[0]?.id as string}, ${BASE}) returning id
     `;
     ids.approval = approvals[0]?.id as string;
@@ -103,18 +103,18 @@ describe("scheduled inventory prompt pass (integration)", () => {
       ) values (
         ${senderHash}, ${ids.location},
           (select id from stand_providers
-            where sales_location_id = ${ids.location} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
+            where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${handle().sql.json({ entries: [] })}, 1,
         true, false, null, true, 'invalidated', ${BASE}
       ) returning id
     `;
     const revisions = await handle().sql`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       ) values (
         ${ids.farm}, ${ids.location},
         (select id from stand_providers
-          where sales_location_id = ${ids.location} and seller_id is null), ${baselineProposal[0]?.id as string},
+          where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), ${baselineProposal[0]?.id as string},
         ${ids.authorization}, ${ids.approval}, 'sms', ${BASE}
       ) returning id
     `;
@@ -175,12 +175,12 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const contactId = contacts.find((row) => row.phone_hash === fixtureSender)?.id as string;
     const alternateContactId = contacts.find((row) => row.phone_hash === alternateSender)?.id as string;
     const farm = await handle().sql`
-      insert into farms (name) values (${`Dispatch Farm ${suffix}`}) returning id
+      insert into sellers (name) values (${`Dispatch Farm ${suffix}`}) returning id
     `;
     const farmId = farm[0]?.id as string;
     const location = await handle().sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${farmId}, 'farm_stand', ${`Dispatch Stand ${suffix}`}, 'America/Los_Angeles', 'visitable', 'produce',
@@ -190,7 +190,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const salesLocationId = location[0]?.id as string;
     const authorizations = await handle().sql`
       insert into farmer_authorizations (
-        farm_id, contact_id, phone_verified_at, authorized_at
+        seller_id, contact_id, phone_verified_at, authorized_at
       ) values
         (${farmId}, ${contactId}, ${BASE}, ${BASE}),
         (${farmId}, ${alternateContactId}, ${BASE}, ${BASE})
@@ -201,7 +201,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
       (row) => row.contact_id === alternateContactId,
     )?.id as string;
     const approval = await handle().sql`
-      insert into farm_approvals (farm_id, administrator_id, approved_at)
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
       values (${farmId}, ${ids.administrator}, ${BASE}) returning id
     `;
     const approvalId = approval[0]?.id as string;
@@ -222,18 +222,18 @@ describe("scheduled inventory prompt pass (integration)", () => {
         ) values (
           ${fixtureSender}, ${salesLocationId},
           (select id from stand_providers
-            where sales_location_id = ${salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
+            where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${handle().sql.json({ entries: [] })}, 1,
           true, false, null, true, 'invalidated', ${BASE}
         ) returning id
       `;
       const revision = await handle().sql`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+          seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at
         ) values (
           ${farmId}, ${salesLocationId},
         (select id from stand_providers
-          where sales_location_id = ${salesLocationId} and seller_id is null), ${baselineProposal[0]?.id as string},
+          where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${baselineProposal[0]?.id as string},
           ${authorizationId}, ${approvalId}, 'sms', ${BASE}
         ) returning id
       `;
@@ -261,14 +261,14 @@ describe("scheduled inventory prompt pass (integration)", () => {
         ) values (
           ${fixtureSender}, ${salesLocationId},
           (select id from stand_providers
-            where sales_location_id = ${salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
+            where sales_location_id = ${salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${salesLocationId})), ${handle().sql.json({ entries: [] })}, 1,
           false, true,
           null, null, null, true, 'invalidated', ${BASE}
         ) returning id
       `;
       const closure = await handle().sql`
         insert into closure_revisions (
-          owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+          owner_seller_id, sales_location_id, proposal_id, owner_authorization_id,
           owner_approval_id, result, closure_kind, starts_on, closed_through, published_at
         ) values (
           ${farmId}, ${salesLocationId}, ${closureProposal[0]?.id as string},
@@ -374,18 +374,18 @@ describe("scheduled inventory prompt pass (integration)", () => {
       ) values (
         ${fixture.senderHash}, ${fixture.salesLocationId},
           (select id from stand_providers
-            where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
+            where sales_location_id = ${fixture.salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${fixture.salesLocationId})), ${handle().sql.json({ entries: [] })}, 1,
         true, false, ${fixture.inventoryRevisionId}, false, 'invalidated', ${changedAt}
       ) returning id
     `;
     await handle().sql`
       insert into inventory_revisions (
-        farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+        seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
         farm_approval_id, source, published_at
       ) values (
         ${fixture.farmId}, ${fixture.salesLocationId},
         (select id from stand_providers
-          where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${proposal[0]?.id as string},
+          where sales_location_id = ${fixture.salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${fixture.salesLocationId})), ${proposal[0]?.id as string},
         ${fixture.authorizationId}, ${fixture.approvalId}, 'sms', ${changedAt}
       )
     `;
@@ -404,13 +404,13 @@ describe("scheduled inventory prompt pass (integration)", () => {
       ) values (
         ${fixture.senderHash}, ${fixture.salesLocationId},
           (select id from stand_providers
-            where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
+            where sales_location_id = ${fixture.salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${fixture.salesLocationId})), ${handle().sql.json({ entries: [] })}, 1,
         false, true, null, null, null, true, 'invalidated', ${changedAt}
       ) returning id
     `;
     await handle().sql`
       insert into closure_revisions (
-        owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+        owner_seller_id, sales_location_id, proposal_id, owner_authorization_id,
         owner_approval_id, result, published_at
       ) values (
         ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
@@ -652,7 +652,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
       `;
     } else if (reason === "revoked approval") {
       await handle().sql`
-        update farm_approvals set revoked_at = ${changedAt} where id = ${fixture.approvalId}
+        update seller_approvals set revoked_at = ${changedAt} where id = ${fixture.approvalId}
       `;
     } else if (reason === "preference version") {
       await handle().sql`
@@ -688,18 +688,18 @@ describe("scheduled inventory prompt pass (integration)", () => {
         ) values (
           ${fixture.senderHash}, ${fixture.salesLocationId},
           (select id from stand_providers
-            where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
+            where sales_location_id = ${fixture.salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${fixture.salesLocationId})), ${handle().sql.json({ entries: [] })}, 1,
           true, false, ${fixture.inventoryRevisionId}, false, 'invalidated', ${changedAt}
         ) returning id
       `;
       await handle().sql`
         insert into inventory_revisions (
-          farm_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
+          seller_id, sales_location_id, provider_id, proposal_id, published_by_authorization_id,
           farm_approval_id, source, published_at
         ) values (
           ${fixture.farmId}, ${fixture.salesLocationId},
         (select id from stand_providers
-          where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${proposal[0]?.id as string},
+          where sales_location_id = ${fixture.salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${fixture.salesLocationId})), ${proposal[0]?.id as string},
           ${fixture.authorizationId}, ${fixture.approvalId}, 'sms', ${changedAt}
         )
       `;
@@ -713,13 +713,13 @@ describe("scheduled inventory prompt pass (integration)", () => {
         ) values (
           ${fixture.senderHash}, ${fixture.salesLocationId},
           (select id from stand_providers
-            where sales_location_id = ${fixture.salesLocationId} and seller_id is null), ${handle().sql.json({ entries: [] })}, 1,
+            where sales_location_id = ${fixture.salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${fixture.salesLocationId})), ${handle().sql.json({ entries: [] })}, 1,
           false, true, null, null, null, true, 'invalidated', ${changedAt}
         ) returning id
       `;
       await handle().sql`
         insert into closure_revisions (
-          owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+          owner_seller_id, sales_location_id, proposal_id, owner_authorization_id,
           owner_approval_id, result, published_at
         ) values (
           ${fixture.farmId}, ${fixture.salesLocationId}, ${proposal[0]?.id as string},
@@ -1034,7 +1034,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
       ) values (
         ${fixture.senderHash}, ${fixture.salesLocationId},
           (select id from stand_providers
-            where sales_location_id = ${fixture.salesLocationId} and seller_id is null),
+            where sales_location_id = ${fixture.salesLocationId} and seller_id = (select own_seller_id from sales_locations where id = ${fixture.salesLocationId})),
         ${handle().sql.json({ closure: { result: "reopen" } })}, 1,
         false, true, null, null, ${fixture.closureRevisionId}, false,
         'invalidated', ${reopenedAt}
@@ -1046,7 +1046,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
     `;
     await handle().sql`
       insert into closure_revisions (
-        owner_farm_id, sales_location_id, proposal_id, owner_authorization_id,
+        owner_seller_id, sales_location_id, proposal_id, owner_authorization_id,
         owner_approval_id, result, published_at
       ) values (
         ${fixture.farmId}, ${fixture.salesLocationId}, ${reopenProposal[0]?.id as string},
@@ -1092,7 +1092,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const fixture = await createQueuedFixture({ autoSchedule: false });
     const secondLocation = await handle().sql`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
         public_longitude, farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${fixture.farmId}, 'farm_stand', 'Second Due Stand', 'America/Los_Angeles', 'visitable', 'produce',
@@ -1239,7 +1239,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
           select count(*)::integer as count from pg_stat_activity
           where datname = current_database()
             and wait_event_type = 'Lock'
-            and query like '%select auth.id, auth.farm_id, auth.revoked_at%'
+            and query like '%select auth.id, auth.seller_id, auth.revoked_at%'
         `;
         queued = rows[0]?.count as number;
         if (queued < 1) await new Promise((resolve) => setTimeout(resolve, 10));

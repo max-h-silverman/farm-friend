@@ -4,7 +4,7 @@ import type { Db } from "./index";
 
 // F-078 — the ingest that writes VIGA's email roster.
 //
-// Insert-only and IDEMPOTENT against `farm_emails_one_per_farm_address`, so a re-run writes
+// Insert-only and IDEMPOTENT against `seller_emails_one_per_farm_address`, so a re-run writes
 // zero rows rather than duplicating or updating. That matters because the roster is loaded from
 // a CSV a human re-exports: running it twice must be a safe thing to do.
 
@@ -16,7 +16,7 @@ export interface FarmEmailIngestResult {
   /**
    * Farms in the roster that matched no seeded farm, BY NAME.
    *
-   * Reported, never dropped. Roughly three of the 35 seeded farms have no email on file and
+   * Reported, never dropped. Roughly three of the 35 seeded sellers have no email on file and
    * some roster names may not match; an operator can only act on that if the ingest says so.
    */
   unmatchedFarmNames: string[];
@@ -50,10 +50,10 @@ export async function ingestFarmEmails(
       continue;
     }
 
-    const farms = (await db.sql`
-      select id from farms where name = ${roster.farmName} limit 1
+    const sellers = (await db.sql`
+      select id from sellers where name = ${roster.farmName} limit 1
     `) as unknown as Array<{ id: string }>;
-    const farmId = farms[0]?.id;
+    const farmId = sellers[0]?.id;
     if (farmId === undefined) {
       result.unmatchedFarmNames.push(roster.farmName);
       continue;
@@ -64,7 +64,7 @@ export async function ingestFarmEmails(
       // story. `select`-then-`insert` cannot serialize a row that does not exist yet, so the
       // INDEX is the arbiter — an empty `returning` means the address was already there.
       const written = (await db.sql`
-        insert into farm_emails (farm_id, email, email_hash, added_at)
+        insert into seller_emails (seller_id, email, email_hash, added_at)
         values (${farmId}, ${email}, ${hashEmail(email, salt)}, ${now.toISOString()})
         on conflict do nothing
         returning id

@@ -41,7 +41,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await client()`truncate contacts, farms restart identity cascade`;
+    await client()`truncate contacts, sellers restart identity cascade`;
   });
 
   function client(): Sql {
@@ -58,17 +58,17 @@ describe("F-051 farmer default stand settings (integration)", () => {
       insert into contacts (phone_e164, phone_hash, created_at)
       values ('+12065550177', ${senderHash}, ${T0}) returning id
     `;
-    const farms = await client()`insert into farms (name) values ('Settings Farm') returning id`;
-    const farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values ('Settings Farm') returning id`;
+    const farmId = sellers[0]?.id as string;
     const authorizations = await client()`
-      insert into farmer_authorizations (farm_id, contact_id, phone_verified_at, authorized_at)
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
       values (${farmId}, ${contacts[0]?.id as string}, ${T0}, ${T0}) returning id
     `;
     const locationIds: string[] = [];
     for (const name of names) {
       const rows = await client()`
         insert into sales_locations (
-          owner_farm_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
           farm_bucks_accepted, farm_bucks_eligible
         ) values (
           ${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce',

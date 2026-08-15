@@ -100,11 +100,11 @@ describe("F-066 stand items backfill (integration)", () => {
     expect(before[0]?.items, "stand_items must NOT exist before 0020").toBeNull();
     expect(before[0]?.offerings).not.toBeNull();
 
-    const farms = await client()`insert into farms (name) values ('Backfill Farm') returning id`;
-    farmId = farms[0]?.id as string;
+    const sellers = await client()`insert into sellers (name) values ('Backfill Farm') returning id`;
+    farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -117,7 +117,7 @@ describe("F-066 stand items backfill (integration)", () => {
     locationId = locations[0]?.id as string;
     const others = await client()`
       insert into sales_locations (
-        owner_farm_id, kind, name, timezone, visitability, offering_type,
+        own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       )
@@ -150,7 +150,7 @@ describe("F-066 stand items backfill (integration)", () => {
     // ONLY in a confirmation and in no standing claim anywhere.
     const revision = await client()`
       insert into inventory_revisions (
-        farm_id, sales_location_id, source, published_at, is_current
+        seller_id, sales_location_id, source, published_at, is_current
       )
       values (
 ${farmId}, ${locationId}, 'viga', now() - interval '3 days', true)
