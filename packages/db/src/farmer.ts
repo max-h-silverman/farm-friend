@@ -86,7 +86,7 @@ export async function createFarmerInvitation(
 
     // Trimmed before every test below, so padding decides nothing: `"  "` is blank, and a
     // padded real name is stored clean rather than reaching the public map with its
-    // whitespace. `farms_name_not_blank` is the database's backstop; answering here means the
+    // whitespace. `sellers_name_not_blank` is the database's backstop; answering here means the
     // operator gets a result instead of a constraint violation, and no invitation is minted
     // pointing at a farm that was never created.
     const newFarmName = input.newFarmName?.trim();

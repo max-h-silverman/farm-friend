@@ -256,7 +256,7 @@ export type MarkTestFarmResult =
  * One function for both directions rather than two near-duplicates: it is one decision with two
  * values, and the authority check, the lock, and the audit record are identical either way.
  *
- * Clears the actor alongside the timestamp when unmarking — `farms_coherent_test_farm` requires
+ * Clears the actor alongside the timestamp when unmarking — `sellers_coherent_test_seller` requires
  * the two to move together, and a farm that is not a test farm was marked by nobody.
  */
 export async function setTestFarm(

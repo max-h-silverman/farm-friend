@@ -74,11 +74,11 @@ describe("F-052 forward migration from populated pre-prompt schema (integration)
   }
 
   it("assigns the reviewed island timezone to existing locations and invents no preferences", async () => {
-    const sellers = await client()`insert into sellers (name) values ('Existing Farm') returning id`;
+    const sellers = await client()`insert into farms (name) values ('Existing Farm') returning id`;
     const farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values
         (${farmId}, 'farm_stand', 'Existing Stand', 'visitable', 'produce', '1 Existing Way', 47.44, -122.46, false, false),

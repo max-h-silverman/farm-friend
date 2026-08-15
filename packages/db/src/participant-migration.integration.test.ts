@@ -74,16 +74,16 @@ describe("F-050 forward migration from populated pre-change schema (integration)
   }
 
   it("preserves reviewed ownership, visibility, and open flags without inventing participants", async () => {
-    const sellers = await client()`insert into sellers (name) values ('Reviewed Owner') returning id`;
+    const sellers = await client()`insert into farms (name) values ('Reviewed Owner') returning id`;
     const farmId = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        seller_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
+        farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         is_public, farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${farmId}, 'farm_stand', 'Flagged Hidden Stand', 'visitable', 'produce', '50 Migration Lane',
         47.44, -122.46, false, false, false
-      ) returning id, seller_id, is_public
+      ) returning id, farm_id, is_public
     `;
     const locationId = locations[0]?.id as string;
     const flags = await client()`
@@ -96,7 +96,7 @@ describe("F-050 forward migration from populated pre-change schema (integration)
 
     expect(await client()`
       select id, own_seller_id, is_public from sales_locations where id = ${locationId}
-    `).toEqual([{ id: locationId, owner_seller_id: farmId, is_public: false }]);
+    `).toEqual([{ id: locationId, own_seller_id: farmId, is_public: false }]);
     expect(await client()`
       select id, sales_location_id, reason, resolved_at
       from stand_data_flags where id = ${flags[0]?.id as string}
@@ -113,10 +113,10 @@ describe("F-050 forward migration from populated pre-change schema (integration)
     const ownershipColumns = await client()`
       select column_name from information_schema.columns
       where table_schema = 'public' and table_name = 'sales_locations'
-        and column_name in ('seller_id', 'owner_seller_id')
+        and column_name in ('seller_id', 'own_seller_id')
       order by column_name
     `;
-    expect(ownershipColumns).toEqual([{ column_name: "owner_seller_id" }]);
+    expect(ownershipColumns).toEqual([{ column_name: "own_seller_id" }]);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,
     ).toEqual([{ count: currentMigrationCount }]);

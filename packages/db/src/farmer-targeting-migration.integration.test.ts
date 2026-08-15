@@ -80,7 +80,7 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
       insert into administrators (email, authorized_at)
       values ('board@vigavashon.org', ${now})
     `;
-    const sellers = await client()`insert into sellers (name) values ('Populated Farm') returning id`;
+    const sellers = await client()`insert into farms (name) values ('Populated Farm') returning id`;
     const farmId = sellers[0]?.id as string;
     const contacts = await client()`
       insert into contacts (phone_e164, phone_hash, created_at)
@@ -88,13 +88,13 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
     `;
     const authorizations = await client()`
       insert into farmer_authorizations (
-        seller_id, contact_id, phone_verified_at, authorized_at
+        farm_id, contact_id, phone_verified_at, authorized_at
       ) values (${farmId}, ${contacts[0]?.id as string}, ${now}, ${now}) returning id
     `;
     const authorizationId = authorizations[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
+        owner_farm_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
         ${farmId}, 'farm_stand', 'Populated Stand', 'visitable', 'produce', '1 Existing Way', 47.44, -122.46,
@@ -104,7 +104,7 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
     const locationId = locations[0]?.id as string;
     const participants = await client()`
       insert into sales_location_participants (
-        owner_seller_id, sales_location_id, display_name,
+        owner_farm_id, sales_location_id, display_name,
         confirmed_by_authorization_id, confirmed_at
       ) values (${farmId}, ${locationId}, 'Existing Seller', ${authorizationId}, ${now})
       returning id
@@ -120,7 +120,7 @@ describe("B-031 final targeting migration from populated pre-change schema (inte
 
     expect(await client()`
       select id, own_seller_id, name from sales_locations where id = ${locationId}
-    `).toEqual([{ id: locationId, owner_seller_id: farmId, name: "Populated Stand" }]);
+    `).toEqual([{ id: locationId, own_seller_id: farmId, name: "Populated Stand" }]);
     expect(await client()`
       select id, seller_id, contact_id, revoked_at
       from farmer_authorizations where id = ${authorizationId}

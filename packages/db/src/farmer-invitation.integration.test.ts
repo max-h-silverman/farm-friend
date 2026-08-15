@@ -140,7 +140,7 @@ describe("administrator farmer invitations (integration)", () => {
   });
 
   it("refuses a new farm name that is blank or only whitespace", async () => {
-    // The database's own `farms_name_not_blank` check is the backstop; refusing here means the
+    // The database's own `sellers_name_not_blank` check is the backstop; refusing here means the
     // operator gets an answer instead of a constraint violation, and no invitation is minted
     // pointing at a farm that was never created.
     const created = await createFarmerInvitation(database(), {

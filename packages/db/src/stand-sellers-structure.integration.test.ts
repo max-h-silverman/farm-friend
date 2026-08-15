@@ -134,8 +134,11 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
       const db = client();
       await expect(
         db`
-          insert into stand_providers (sales_location_id, seller_id, lifecycle_state)
-          values (${provoStandId}, null, 'active')
+          insert into stand_providers (
+            sales_location_id, seller_id, lifecycle_state,
+            invited_at, accepted_at, approval_source, approved_at
+          )
+          values (${provoStandId}, null, 'active', now(), now(), 'viga', now())
         `,
       ).rejects.toThrow();
     });
@@ -143,8 +146,11 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
     it("admits a stand's own seller as an ordinary provider", async () => {
       const db = client();
       const rows = await db`
-        insert into stand_providers (sales_location_id, seller_id, lifecycle_state)
-        values (${provoStandId}, ${provoSellerId}, 'active')
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state,
+          invited_at, accepted_at, approval_source, approved_at
+        )
+        values (${provoStandId}, ${provoSellerId}, 'active', now(), now(), 'viga', now())
         returning id, seller_id
       `;
       expect(rows).toHaveLength(1);
@@ -155,8 +161,11 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
       const db = client();
       await expect(
         db`
-          insert into stand_providers (sales_location_id, seller_id, lifecycle_state)
-          values (${provoStandId}, ${provoSellerId}, 'active')
+          insert into stand_providers (
+            sales_location_id, seller_id, lifecycle_state,
+            invited_at, accepted_at, approval_source, approved_at
+          )
+          values (${provoStandId}, ${provoSellerId}, 'active', now(), now(), 'viga', now())
         `,
       ).rejects.toThrow();
     });
@@ -174,23 +183,36 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
       expect(rows[0]?.own_seller_id).toBe(provoSellerId);
     });
 
-    it("refuses a self-pointer at a seller that does not sell at this stand", async () => {
+    it("gives the named seller a provider row rather than requiring one first", async () => {
       const db = client();
-      // Bay Laurel sells at Morgan Hill, never at Provo. A pointer here would suppress a line
-      // belonging to somebody else.
-      await expect(
-        db`
-          update sales_locations set own_seller_id = ${bayLaurelSellerId}
-          where id = ${provoStandId}
-        `,
-      ).rejects.toThrow();
+      // The pointer is what CREATES the participation, so it cannot also require it: the
+      // `sales_locations_create_own_seller_provider` trigger reads the pointer and inserts the
+      // provider. Requiring the provider to exist first would be circular, and a stand created
+      // in one statement could never name its own seller at all.
+      await db`
+        update sales_locations set own_seller_id = ${bayLaurelSellerId}
+        where id = ${provoStandId}
+      `;
+      const rows = await db`
+        select seller_id from stand_providers
+        where sales_location_id = ${provoStandId} and seller_id = ${bayLaurelSellerId}
+      `;
+      expect(rows).toHaveLength(1);
+
+      // Put Provo back, so the later assertions read the stand as the corpus has it.
+      await db`
+        update sales_locations set own_seller_id = ${provoSellerId} where id = ${provoStandId}
+      `;
     });
 
     it("admits a venue with no seller of its own — Morgan Hill", async () => {
       const db = client();
       await db`
-        insert into stand_providers (sales_location_id, seller_id, lifecycle_state)
-        values (${morganHillStandId}, ${bayLaurelSellerId}, 'active')
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state,
+          invited_at, accepted_at, approval_source, approved_at
+        )
+        values (${morganHillStandId}, ${bayLaurelSellerId}, 'active', now(), now(), 'viga', now())
       `;
       const rows = await db`
         select own_seller_id from sales_locations where id = ${morganHillStandId}
@@ -198,16 +220,21 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
       expect(rows[0]?.own_seller_id).toBeNull();
     });
 
-    it("keeps the pointer honest when the relationship ends", async () => {
+    it("lets a stand's own seller end its participation, leaving the pointer for VIGA", async () => {
       const db = client();
-      // Ending the stand's own participation must not leave a pointer at a seller that no
-      // longer sells here. The constraint is what forces the writer to clear it.
-      await expect(
-        db`
-          update stand_providers set ended_at = now()
-          where sales_location_id = ${provoStandId} and seller_id = ${provoSellerId}
-        `,
-      ).rejects.toThrow();
+      // Deliberately NOT refused. A seller may stop selling at a stand it owns — the stand stays,
+      // its identity stays, and what to do about the now-dangling pointer is VIGA's call in the
+      // work queue, not a constraint that blocks the farmer's own act. `ended_at` is the record
+      // that it happened.
+      await db`
+        update stand_providers set ended_at = now()
+        where sales_location_id = ${provoStandId} and seller_id = ${provoSellerId}
+      `;
+      const rows = await db`
+        select ended_at from stand_providers
+        where sales_location_id = ${provoStandId} and seller_id = ${provoSellerId}
+      `;
+      expect(rows[0]?.ended_at).not.toBeNull();
     });
   });
 
@@ -221,12 +248,19 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
       expect(rows).toHaveLength(0);
     });
 
-    it("has no sellers table at all", async () => {
+    it("has one identity table, named for what it holds", async () => {
       const db = client();
-      const rows = await db`
+      // `farms` was RENAMED to `sellers`, not dropped — every id survived, which is why all 16
+      // keys onto it stayed valid. And there is exactly ONE: Phase B's separate `sellers` table
+      // merged into it, because two records for one brand is the duplication C.0 removes.
+      const gone = await db`
+        select table_name from information_schema.tables where table_name = 'farms'
+      `;
+      expect(gone).toHaveLength(0);
+      const identity = await db`
         select table_name from information_schema.tables where table_name = 'sellers'
       `;
-      expect(rows).toHaveLength(0);
+      expect(identity).toHaveLength(1);
     });
   });
 });

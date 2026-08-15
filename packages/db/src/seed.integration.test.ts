@@ -453,7 +453,7 @@ describe("seeding VIGA's stands (B-002)", () => {
           seller_id, contact_id, phone_verified_at, authorized_at
         )
         values (
-          ${location[0]!.owner_seller_id as string}, ${contact[0]!.id as string}, now(), now()
+          ${location[0]!.own_seller_id as string}, ${contact[0]!.id as string}, now(), now()
         )
       `;
 
@@ -468,7 +468,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       expect(result.backfillRefused).toBe(1);
       const rows = await client`
         select count(*)::integer as count from seller_links
-        where seller_id = ${location[0]!.owner_seller_id as string}
+        where seller_id = ${location[0]!.own_seller_id as string}
       `;
       expect(rows[0]!.count).toBe(0);
     });
@@ -525,7 +525,7 @@ describe("seeding VIGA's stands (B-002)", () => {
             owner_seller_id, sales_location_id, display_name, source, confirmed_at
           )
           values (
-            ${location[0]!.owner_seller_id as string}, ${location[0]!.id as string},
+            ${location[0]!.own_seller_id as string}, ${location[0]!.id as string},
             'Fabricated Farm', 'sms', now()
           )
         `,

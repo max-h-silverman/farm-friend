@@ -604,7 +604,7 @@ export type RestoreFarmResult =
  * Put a retired farm back. This is what makes a take-down safe to reach for: an operator who
  * removes the wrong farm fixes it themselves rather than asking for a database repair.
  *
- * Clears the actor alongside the timestamp — `farms_coherent_retirement` requires the two to
+ * Clears the actor alongside the timestamp — `sellers_coherent_retirement` requires the two to
  * move together, and a farm that is not retired was retired by nobody. Stands that carry
  * their own retirement stay retired, because this never wrote them in the first place.
  */
@@ -669,7 +669,7 @@ export type SaveFarmDetailsResult =
  * operator reads out on the phone, and correcting a typo in it was previously possible only
  * with hand-written SQL.
  *
- * The blank-name check is here rather than left to `farms_name_not_blank` because a
+ * The blank-name check is here rather than left to `sellers_name_not_blank` because a
  * constraint violation surfaces as a thrown error, and a route cannot turn that into a
  * sentence an operator can act on. The constraint still stands behind it as the guarantee.
  */

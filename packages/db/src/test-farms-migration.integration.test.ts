@@ -100,7 +100,7 @@ describe("F-074 test sellers migration (integration)", () => {
         update sellers set test_seller_at = ${now}, test_seller_by_administrator_id = null
         where id = ${farmId}
       `,
-    ).rejects.toThrow(/farms_coherent_test_farm/);
+    ).rejects.toThrow(/sellers_coherent_test_seller/);
 
     // Direction two: an actor with no timestamp — a farm "marked" by someone that is not
     // actually a test farm.
@@ -110,7 +110,7 @@ describe("F-074 test sellers migration (integration)", () => {
         set test_seller_at = null, test_seller_by_administrator_id = ${administratorId}
         where id = ${farmId}
       `,
-    ).rejects.toThrow(/farms_coherent_test_farm/);
+    ).rejects.toThrow(/sellers_coherent_test_seller/);
 
     // And the legal shape really is legal — otherwise the two refusals above would pass
     // against a constraint that refuses everything.

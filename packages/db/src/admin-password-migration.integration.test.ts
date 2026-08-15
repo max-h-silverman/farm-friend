@@ -97,10 +97,10 @@ describe("F-056 forward migration from populated pre-change schema (integration)
         ${new Date(Date.now() + 60 * 60 * 1000).toISOString()}, ${"2".repeat(64)})
     `;
     await sql`insert into contacts (id, phone_e164, phone_hash) values (${contactId}, '+12065550199', ${contactHash})`;
-    await sql`insert into sellers (id, name) values (${farmId}, 'Migration Farm')`;
+    await sql`insert into farms (id, name) values (${farmId}, 'Migration Farm')`;
     await sql`
       insert into sales_locations (
-        id, own_seller_id, kind, name, timezone, visitability, offering_type,
+        id, owner_farm_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude,
         farm_bucks_accepted, farm_bucks_eligible
       ) values (
@@ -110,7 +110,7 @@ describe("F-056 forward migration from populated pre-change schema (integration)
     `;
     await sql`
       insert into farmer_authorizations
-        (id, seller_id, contact_id, phone_verified_at, authorized_at)
+        (id, farm_id, contact_id, phone_verified_at, authorized_at)
       values (${authorizationId}, ${farmId}, ${contactId}, ${NOW}, ${NOW})
     `;
     await sql`
@@ -119,7 +119,7 @@ describe("F-056 forward migration from populated pre-change schema (integration)
       values (${onboardingId}, ${contactHash}, ${NOW}, ${LATER}, ${administratorId}, ${authorizationId})
     `;
     await sql`
-      insert into seller_approvals (id, seller_id, administrator_id, approved_at)
+      insert into farm_approvals (id, farm_id, administrator_id, approved_at)
       values (${approvalId}, ${farmId}, ${administratorId}, ${NOW})
     `;
     await sql`

@@ -172,7 +172,7 @@ describe("farm retirement (integration)", () => {
   });
 
   it("refuses a blank farm name rather than writing one", async () => {
-    // `farms_name_not_blank` would refuse this at the constraint, but a constraint violation
+    // `sellers_name_not_blank` would refuse this at the constraint, but a constraint violation
     // surfaces as a thrown error rather than an answer the route can turn into a message.
     const result = await saveFarmDetails(handle(), {
       farmId: ids.farm as string,
@@ -311,7 +311,7 @@ describe("farm retirement (integration)", () => {
     expect(rows[0]?.retired_at).toBeNull();
     expect(
       rows[0]?.retired_by_administrator_id,
-      "farms_coherent_retirement requires the actor to clear with the timestamp",
+      "sellers_coherent_retirement requires the actor to clear with the timestamp",
     ).toBeNull();
 
     const stands = await listStandsForAdministration(handle());

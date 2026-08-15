@@ -133,7 +133,7 @@ describe("SMS result paging end to end (integration)", () => {
     const sellers = await client()`
       select own_seller_id from sales_locations where id = ${locationId}
     `;
-    const farmId = sellers[0]?.owner_seller_id as string;
+    const farmId = sellers[0]?.own_seller_id as string;
 
     // Reused across calls: several tests publish at more than one stand, and the farmer
     // contact and the administrator are unique by phone and by email. `on conflict` keeps a
