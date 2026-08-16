@@ -93,9 +93,9 @@ const expectedTables = [
   // F-066 — one item vocabulary per stand, carrying both the standing state and the
   // confirmations. `sales_location_offerings` remains only as the 0020 backfill's source.
   "stand_items",
-  // F-114 — one seller's participation at one stand, or (seller_id is null) the stand's own
-  // native brand slot. ONE record with a nullable seller reference, not two behind an
-  // interface: two would double every current-inventory read site.
+  // F-114 — one seller's participation at one stand. `seller_id` is NOT NULL: C.0's correction
+  // removed the native brand slot, so a stand's own goods are its own seller named like any
+  // other, and `sales_locations.own_seller_id` records which one that is.
   "stand_providers",
   "stock_out_reports",
 ];

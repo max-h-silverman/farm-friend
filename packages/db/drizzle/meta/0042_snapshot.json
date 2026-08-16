@@ -4016,98 +4016,6 @@
         }
       }
     },
-    "public.sellers": {
-      "name": "sellers",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "farm_id": {
-          "name": "farm_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "revoked_by_administrator_id": {
-          "name": "revoked_by_administrator_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {
-        "sellers_one_per_farm": {
-          "name": "sellers_one_per_farm",
-          "columns": [
-            {
-              "expression": "farm_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"sellers\".\"farm_id\" is not null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "sellers_farm_id_farms_id_fk": {
-          "name": "sellers_farm_id_farms_id_fk",
-          "tableFrom": "sellers",
-          "tableTo": "sellers",
-          "columnsFrom": [
-            "farm_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "sellers_revoked_by_administrator_id_administrators_id_fk": {
-          "name": "sellers_revoked_by_administrator_id_administrators_id_fk",
-          "tableFrom": "sellers",
-          "tableTo": "administrators",
-          "columnsFrom": [
-            "revoked_by_administrator_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {}
-    },
     "public.sender_states": {
       "name": "sender_states",
       "schema": "",
@@ -4655,19 +4563,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "reminder_cadence": {
-          "name": "reminder_cadence",
-          "type": "inventory_prompt_cadence",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reminder_authorization_id": {
-          "name": "reminder_authorization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -4759,19 +4654,6 @@
           "tableTo": "farmer_authorizations",
           "columnsFrom": [
             "approved_by_authorization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "stand_providers_reminder_authorization_id_farmer_authorizations_id_fk": {
-          "name": "stand_providers_reminder_authorization_id_farmer_authorizations_id_fk",
-          "tableFrom": "stand_providers",
-          "tableTo": "farmer_authorizations",
-          "columnsFrom": [
-            "reminder_authorization_id"
           ],
           "columnsTo": [
             "id"

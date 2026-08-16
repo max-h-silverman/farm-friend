@@ -471,39 +471,69 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
     });
   });
 
-  describe("stand_providers_reminder_coherent", () => {
-    it("refuses a cadence with nobody to text", async () => {
-      const db = client();
-      const seller = await db`insert into sellers (name) values ('NoRecipient') returning id`;
-      await refuses(
-        () => db`
-          insert into stand_providers (
-            sales_location_id, seller_id, lifecycle_state, invited_at, accepted_at,
-            approval_source, approved_at, reminder_cadence
-          ) values (
-            ${otherLocationId}, ${seller[0]?.id as string}, 'active',
-            now(), now(), 'viga', now(), 'weekly'
-          )
-        `,
-        { code: CHECK_VIOLATION, constraint: "stand_providers_reminder_coherent" },
-      );
+  describe("the second home for the reminder cadence is gone", () => {
+    /*
+      F-114 Phase C.4. `0042` gave `stand_providers` a `reminder_cadence` and a
+      `reminder_authorization_id`, guarded by a `stand_providers_reminder_coherent`
+      biconditional — and in the SAME migration gave `inventory_prompt_preferences` a
+      `provider_id` with a unique index on it and its own `designated_authorization_id`. That
+      made one fact — this provider's cadence and who it addresses — storable in two places,
+      which is what the zen desk forbids.
+
+      The pair never gained a reader or a writer, and `0042` is unapplied to every database, so
+      the columns were removed from `0042` in place rather than dropped by a later migration.
+      `inventory_prompt_preferences` is the one home: it alone carries the scheduler's cursor
+      (`version`, `next_due_at`, `last_due_slot_at`), so keeping the cadence anywhere else would
+      have split a record from the state that advances it.
+
+      These cases replace the two that sabotaged the CHECK. They assert the ABSENCE, because a
+      deleted column leaves nothing to sabotage — and because a schema-only deletion is exactly
+      the kind that a later `generate` can silently reinstate.
+    */
+    it("holds neither cadence column on stand_providers", async () => {
+      const rows = await client()`
+        select column_name from information_schema.columns
+        where table_name = 'stand_providers'
+          and column_name in ('reminder_cadence', 'reminder_authorization_id')
+      `;
+      expect(rows).toHaveLength(0);
     });
 
-    it("refuses a recipient with no cadence", async () => {
-      const db = client();
-      const seller = await db`insert into sellers (name) values ('NoCadence') returning id`;
-      await refuses(
-        () => db`
-          insert into stand_providers (
-            sales_location_id, seller_id, lifecycle_state, invited_at, accepted_at,
-            approval_source, approved_at, reminder_authorization_id
-          ) values (
-            ${otherLocationId}, ${seller[0]?.id as string}, 'active',
-            now(), now(), 'viga', now(), ${authorizationId}
-          )
-        `,
-        { code: CHECK_VIOLATION, constraint: "stand_providers_reminder_coherent" },
-      );
+    it("keeps no constraint or foreign key referring to them", async () => {
+      // The CHECK and the FK are separate objects from the columns and would survive a partial
+      // edit of `0042` — a dropped column takes its constraints with it only if the DROP ran,
+      // and this migration never drops anything: the columns were never created.
+      const rows = await client()`
+        select conname from pg_constraint
+        where conrelid = 'stand_providers'::regclass
+          and conname like '%reminder%'
+      `;
+      expect(rows).toHaveLength(0);
+    });
+
+    it("keeps the cadence on inventory_prompt_preferences, one row per provider", async () => {
+      // The absence above is only correct because the fact lives somewhere. Assert the home it
+      // moved to, including the uniqueness that makes it ONE cadence per listing — otherwise
+      // both halves could be missing and both tests above would still pass.
+      const columns = await client()`
+        select column_name, is_nullable from information_schema.columns
+        where table_name = 'inventory_prompt_preferences'
+          and column_name in ('provider_id', 'designated_authorization_id', 'cadence')
+        order by column_name
+      `;
+      expect(columns.map((row) => row.column_name)).toEqual([
+        "cadence",
+        "designated_authorization_id",
+        "provider_id",
+      ]);
+      expect(columns.every((row) => row.is_nullable === "NO")).toBe(true);
+
+      const unique = await client()`
+        select indexdef from pg_indexes
+        where tablename = 'inventory_prompt_preferences'
+          and indexname = 'inventory_prompt_preferences_provider_unique'
+      `;
+      expect(unique[0]?.indexdef as string).toMatch(/unique index.*\(provider_id\)/i);
     });
   });
 

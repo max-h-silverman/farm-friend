@@ -474,8 +474,6 @@ CREATE TABLE IF NOT EXISTS "stand_providers" (
 	"open_from_minutes" integer,
 	"open_until_minutes" integer,
 	"open_days" integer[],
-	"reminder_cadence" "inventory_prompt_cadence",
-	"reminder_authorization_id" uuid,
 	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
 	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
 	CONSTRAINT "stand_providers_id_location_unique" UNIQUE("id","sales_location_id")
@@ -489,12 +487,6 @@ END $$;
 --> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "stand_providers" ADD CONSTRAINT "stand_providers_approved_by_authorization_id_farmer_authorizations_id_fk" FOREIGN KEY ("approved_by_authorization_id") REFERENCES "public"."farmer_authorizations"("id") ON DELETE restrict ON UPDATE no action;
-EXCEPTION
- WHEN duplicate_object THEN null;
-END $$;
---> statement-breakpoint
-DO $$ BEGIN
- ALTER TABLE "stand_providers" ADD CONSTRAINT "stand_providers_reminder_authorization_id_farmer_authorizations_id_fk" FOREIGN KEY ("reminder_authorization_id") REFERENCES "public"."farmer_authorizations"("id") ON DELETE restrict ON UPDATE no action;
 EXCEPTION
  WHEN duplicate_object THEN null;
 END $$;
@@ -812,16 +804,6 @@ END $$;--> statement-breakpoint
 DO $$ BEGIN
  ALTER TABLE "stand_providers" ADD CONSTRAINT "stand_providers_public_note_not_blank" CHECK (
   "public_note" is null or length(btrim("public_note", E' \t\r\n')) > 0
-);
-EXCEPTION
- WHEN duplicate_object OR duplicate_table THEN null;
-END $$;--> statement-breakpoint
-
--- A cadence with nobody to text is a reminder that can never be sent; a recipient with no
--- cadence is a preference nobody stated.
-DO $$ BEGIN
- ALTER TABLE "stand_providers" ADD CONSTRAINT "stand_providers_reminder_coherent" CHECK (
-  ("reminder_cadence" is not null) = ("reminder_authorization_id" is not null)
 );
 EXCEPTION
  WHEN duplicate_object OR duplicate_table THEN null;

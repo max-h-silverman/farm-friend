@@ -1815,24 +1815,18 @@ export const standProviders = pgTable(
     openUntilMinutes: integer("open_until_minutes"),
     openDays: integer("open_days").array(),
 
-    /**
-     * This provider's own reminder cadence and the ONE authorization it addresses.
+    /*
+     * This provider's reminder cadence is NOT here — see `inventory_prompt_preferences`.
      *
-     * Per provider rather than per stand, and not speculatively: a hosted seller restocking
-     * weekly at a stand whose owner restocks daily needs its own cadence, and the recipient
-     * differs BY CONSTRUCTION — the whole point of hosting is that the seller, not the host,
-     * confirms the seller's goods. One cadence per stand would either spam the host about goods
-     * they do not control or leave the hosted seller unreminded.
+     * Phase B put a `reminder_cadence` and a `reminder_authorization_id` on this row while the
+     * same migration gave that table a `provider_id` with a unique index on it, so one fact had
+     * two homes and the pair never gained a reader. C.4 removed them from `0042` in place,
+     * which was available because no database had applied it.
      *
-     * Both NULL means this provider has chosen no cadence; `inventory_prompt_preferences`
-     * remains the stand-level record the scheduler reads, and Phase C moves the pass onto this.
+     * The cadence lives beside the scheduler's cursor (`version`, `next_due_at`,
+     * `last_due_slot_at`) because those advance together; splitting them would mean a listing
+     * whose schedule and whose place in that schedule are two records that can disagree.
      */
-    reminderCadence: inventoryPromptCadence("reminder_cadence"),
-    reminderAuthorizationId: uuid("reminder_authorization_id").references(
-      () => farmerAuthorizations.id,
-      { onDelete: "restrict" },
-    ),
-
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1971,18 +1965,6 @@ export const standProviders = pgTable(
         or length(btrim(${table.publicNote}, E' \t\r\n')) > 0
       `,
     ),
-    /**
-     * The provider's cadence and its recipient move together. A cadence with nobody to text is
-     * a reminder that can never be sent; a recipient with no cadence is a preference nobody
-     * stated. Written as a biconditional for the usual reason.
-     */
-    reminderCoherent: check(
-      "stand_providers_reminder_coherent",
-      sql`
-        (${table.reminderCadence} is not null) = (${table.reminderAuthorizationId} is not null)
-      `,
-    ),
-
     // The availability columns repeat `sales_locations`' rules verbatim, because they answer
     // the same question through the same reader. A provider whose season or hours were stored
     // half-stated would load silently and make `openNow` defend against a state no writer
