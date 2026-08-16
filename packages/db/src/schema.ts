@@ -3322,10 +3322,40 @@ export const inventoryRevisions = pgTable(
       columns: [table.providerId, table.salesLocationId],
       foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("restrict"),
-    authorizationFarmReference: foreignKey({
-      name: "inventory_revisions_authorization_farm_fk",
-      columns: [table.publishedByAuthorizationId, table.sellerId],
-      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.sellerId],
+    /**
+     * The seller is the PROVIDER'S seller (F-114 Phase C.2, migration `0045`).
+     *
+     * This replaces `inventory_revisions_location_own_seller_fk`, which keyed
+     * `(sales_location_id, seller_id)` onto the stand's self-pointer and therefore said *every
+     * revision's seller is the stand's own seller*. True of 38 of 38 stands when it was
+     * written, and structurally forbidding the hosted publication this phase exists to build.
+     *
+     * Whose goods these are is decided by the RELATIONSHIP, never by who owns the roof. With
+     * `locationProviderReference` beside it, a revision belongs to one real relationship at one
+     * real stand for the seller that relationship names.
+     */
+    providerSellerReference: foreignKey({
+      name: "inventory_revisions_provider_seller_fk",
+      columns: [table.providerId, table.sellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
+    }).onDelete("restrict"),
+    /**
+     * A plain reference since `0045`, widened from `(authorization, seller)`.
+     *
+     * The composite form said the publisher's authorization must name the seller being
+     * published — which refuses exactly the write §the Venison Valley case permits, where a
+     * host states a hosted seller's stock under that seller's own opt-in. The database cannot
+     * decide who may publish for whom: the answer is two LIVE facts, the relationship's
+     * `host_may_update_stock` and the authorization's revocation, and a static key sees
+     * neither. `resolveProviderWriteAuthority` is the one place that answers it.
+     *
+     * What survives is the half that was never the problem: a revision naming a publisher who
+     * is not a real authorization would be an audit trail pointing at nothing.
+     */
+    authorizationReference: foreignKey({
+      name: "inventory_revisions_authorization_fk",
+      columns: [table.publishedByAuthorizationId],
+      foreignColumns: [farmerAuthorizations.id],
     }).onDelete("restrict"),
     approvalFarmReference: foreignKey({
       name: "inventory_revisions_approval_farm_fk",

@@ -807,6 +807,11 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
     it("ADMITS a current revision for each of two providers at ONE stand", async () => {
       // The invariant per-provider inventory invalidates. Keyed on the stand, this second
       // insert was refused and a hosted seller could not publish at all.
+      //
+      // The hosted row carries the HOSTED seller. It once carried `farmId` — the stand's own
+      // seller on the hosted seller's relationship — which was admissible only because nothing
+      // checked it; `inventory_revisions_provider_seller_fk` (F-114 C.2, `0045`) now refuses
+      // that shape, and rightly: it files the host's goods under someone else's arrangement.
       const db = client();
       const hosted = await db`
         select id from stand_providers
@@ -816,7 +821,7 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
         insert into inventory_revisions (
           seller_id, sales_location_id, provider_id, source, published_at, is_current
         ) values (
-          ${farmId}, ${locationId}, ${hosted[0]?.id as string}, 'viga', now(), true
+          ${sellerId}, ${locationId}, ${hosted[0]?.id as string}, 'viga', now(), true
         ) returning id
       `;
       expect(rows[0]?.id).toBeTruthy();

@@ -14,6 +14,7 @@ import {
   validatePublicStrings,
 } from "@farm-friend/core";
 import { readCurrentRevisionRef, readNativeProviderId } from "./current-inventory";
+import { resolveProviderWriteAuthority } from "./provider-write-authority";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 
@@ -581,6 +582,13 @@ export interface ProposalEntryInput {
 export interface OpenProposalInput {
   senderHash: string;
   salesLocationId: string;
+  /**
+   * Whose listing this proposal is for (F-114 Phase C.2). Defaults to the stand's own seller,
+   * which is what every caller meant before providers existed and is still what 31 of 38 stands
+   * mean — so the default keeps the ordinary farmer's path unchanged rather than making every
+   * caller name a provider it has no way to choose between yet.
+   */
+  providerId?: string;
   /** Complete inventory section. Absent means this proposal does not refresh inventory. */
   entries?: ProposalEntryInput[];
   /** Complete owner-only closure section. */
@@ -725,23 +733,68 @@ export async function openOrReviseProposal(
       where proposal.sender_hash = ${input.senderHash} and proposal.state = 'open'
       for update of proposal
     `;
+    /*
+      F-114 Phase C.2 — a proposal belongs to ONE provider, and the token that confirms it is
+      bound to that provider. Which provider is the caller's to name; who may write it is not.
+
+      Before C.2 this asked whether the sender was authorized for the stand's OWN seller, which
+      is correct for a stand with one seller and wrong for every hosted relationship: it locked
+      a hosted seller out of her own goods at her host's stand, and it let a host write anything
+      at theirs. `resolveProviderWriteAuthority` is the one place that answers it now, so the
+      three ways to say yes are stated once rather than at each writer.
+
+      The authorization it returns is the one recorded on the revision — the host's own when the
+      host is stating a hosted seller's stock under the seller's opt-in, which is what makes the
+      audit trail say who actually observed it.
+    */
+    const providerId =
+      input.providerId ??
+      (await readNativeProviderId(tx, { salesLocationId: input.salesLocationId }));
+    const authority = await resolveProviderWriteAuthority(tx, {
+      providerId,
+      senderHash: input.senderHash,
+    });
+    if (authority.status !== "authorized") {
+      throw new Error("sender is not authorized for this sales location");
+    }
+    if (authority.salesLocationId !== input.salesLocationId) {
+      // The stand and the provider must agree, or a proposal could name one stand's listing
+      // under another's roof. The composite key would catch the revision; this catches the
+      // proposal, which is where the farmer would otherwise be shown the wrong snapshot.
+      throw new Error("provider does not belong to this sales location");
+    }
+    // Locked here rather than inside the authority read, so the lock order is the shared one:
+    // sender, location, proposal, authorization. Revocation committing first leaves no row.
     const ownerAuthorization = await tx`
-      select farmer.id from farmer_authorizations as farmer
-      join contacts on contacts.id = farmer.contact_id
-      where farmer.seller_id = ${locations[0]?.own_seller_id as string}
-        and contacts.phone_hash = ${input.senderHash}
-        and farmer.revoked_at is null
-      for update of farmer
+      select id from farmer_authorizations
+      where id = ${authority.authorizationId} and revoked_at is null
+      for update
     `;
     if (ownerAuthorization.length === 0) {
       throw new Error("sender is not authorized for this sales location");
     }
 
-    // F-114 Phase B — a proposal belongs to one provider, and the token that confirms it is
-    // bound to that provider. This writer serves the farmer's own stand, so the native slot.
-    const providerId = await readNativeProviderId(tx, {
-      salesLocationId: input.salesLocationId,
-    });
+    /*
+      Closure is a STAND fact, and it is owner-only: it overrides every provider and renders
+      nothing itemized (§facts and authority). A hosted seller who could set it would silence
+      their host's goods along with their own, which is exactly the authority §the Venison
+      Valley case withholds in the other direction.
+
+      So a proposal carrying a closure section needs the stand's OWN authority, which under
+      this model is authority for the seller the stand points at as itself. The provider write
+      authority above is necessary and not sufficient: it says whose stock you may state, and a
+      shutter is not stock.
+
+      This is the narrow half. A venue with no seller of its own still cannot close, because
+      `closure_revisions` demands a seller in three NOT NULL columns — B-077, and the closure
+      writer's stand arm is what fixes it.
+    */
+    if (input.closure !== undefined) {
+      const standOwnSellerId = locations[0]?.own_seller_id as string | null;
+      if (standOwnSellerId === null || authority.sellerId !== standOwnSellerId) {
+        throw new Error("sender is not authorized to close this sales location");
+      }
+    }
     let baseRevisionId: string | null = null;
     let isFirstPublication: boolean | null = null;
     if (input.entries !== undefined && input.baseIsFirstPublication !== undefined) {
@@ -798,6 +851,10 @@ export async function openOrReviseProposal(
         set payload = ${tx.json(payload)},
             proposal_version = ${nextVersion},
             sales_location_id = ${input.salesLocationId},
+            -- F-114 Phase C.2 — moved WITH the location, never left behind. A proposal whose
+            -- location names one listing and whose provider names another would be confirmed
+            -- against the second while the farmer read the first.
+            provider_id = ${providerId},
             has_inventory = ${input.entries !== undefined},
             has_closure = ${input.closure !== undefined},
             base_revision_id = ${baseRevisionId},
@@ -1094,19 +1151,33 @@ export async function confirmInventoryPublication(
       return { status: "declined" };
     }
 
-    // These are the final shared locks. If revocation committed first, the filtered lock
-    // returns no row; if confirmation locked first, revocation queues until publication.
-    const farmId = location[0]?.own_seller_id as string;
+    /*
+      These are the final shared locks. If revocation committed first, the filtered lock
+      returns no row; if confirmation locked first, revocation queues until publication.
+
+      F-114 Phase C.2 — authority is re-read against the PROPOSAL'S provider, not the stand's
+      own seller. That is what keeps a hosted seller able to confirm her own listing and a host
+      unable to confirm one the seller never let them write. It is deliberately re-read here
+      rather than trusted from the proposal: the whole point of this seam is that a right
+      withdrawn between composing and confirming bites before anything publishes.
+
+      `farmId` becomes the PROVIDER'S seller — whose goods these are — so the revision, the
+      approval check, and the retirement check all speak about the seller being published.
+    */
+    const authority = await resolveProviderWriteAuthority(tx, {
+      providerId,
+      senderHash: input.senderHash,
+    });
+    if (authority.status !== "authorized") return { status: "not_authorized" };
+    const farmId = authority.sellerId;
 
     const authorization = await tx`
-      select farmer.id from farmer_authorizations as farmer
-      join contacts on contacts.id = farmer.contact_id
-      where farmer.seller_id = ${farmId}
-        and contacts.phone_hash = ${input.senderHash}
-        and farmer.revoked_at is null
+      select id from farmer_authorizations
+      where id = ${authority.authorizationId}
+        and revoked_at is null
         and (${scheduledSubject?.authorization_id as string | undefined ?? null}::uuid is null
-          or farmer.id = ${scheduledSubject?.authorization_id as string | undefined ?? null})
-      for update of farmer
+          or id = ${scheduledSubject?.authorization_id as string | undefined ?? null})
+      for update
     `;
     if (authorization.length === 0) return { status: "not_authorized" };
 
