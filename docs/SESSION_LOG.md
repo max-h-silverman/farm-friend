@@ -84,7 +84,9 @@ the work is uncommitted.
 Verified: unit 2,074 pass / 7 skip, integration 1133/1133 across 77/77, typecheck, lint, web build,
 scripted evals 11/11 + 4/4 + 19/19. **No seam projection, schema, or output contract changed, so no
 live eval run is owed.** Twelve sabotage cases, each caught by the case aimed at it once the escape
-was closed. Merged to `main`; still undeployed, and `0042`/`0043`/`0044` remain unapplied — all
+was closed. Merged to `main` as **`e2c79c9`** (PR #125), and **re-verified on the merged base**:
+2,074 / 7 skip and 1133/1133 across 77/77. This change carries **no migration and no deploy-only
+surface**; the deployment itself is still owed, and `0042`/`0043`/`0044` remain unapplied — all
 Max's call.
 
 ## 2026-08-15 — The invitation is the one we already had (F-114 Phase C.1, invitation)
