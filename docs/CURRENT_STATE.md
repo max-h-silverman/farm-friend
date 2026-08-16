@@ -19,8 +19,8 @@
 
 ## F-114 — what is on `main` and NOT deployed
 
-Phases B, C.0, C.1 (records, invitation, doors), and C.2 (writes, closure) are merged. The
-governing contract is §the stand-and-sellers correction in
+Phases B, C.0, C.1 (records, invitation, doors), and C.2 (writes, closure, `214aeb2`) are merged.
+The governing contract is §the stand-and-sellers correction in
 `docs/plans/farmer-behavior-architecture-plan.md`.
 
 - **A stand has a name, metadata, and nested sellers.** `sellers` is the identity root (renamed from

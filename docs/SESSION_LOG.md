@@ -13,9 +13,10 @@ mid-session defeats its own purpose.
 
 ## 2026-08-15 (latest) — Everything the records were built for (F-114 Phase C.2, writes + closure)
 
-Two tranches, both merged. Zoe can now state Gracie's Greens' stock at Kelsey's stand without
-touching Kelsey's listing, and Morgan Hill can shut its gate. Integration is **1208/1208 across 84
-of 84 files**, up from 1133/1133 across 77; unit is unchanged at 2,074 with the 7 corpus skips.
+Two tranches, merged as **`214aeb2`** (PR #126). Zoe can now state Gracie's Greens' stock at
+Kelsey's stand without touching Kelsey's listing, and Morgan Hill can shut its gate. Integration is
+**1208/1208 across 84 of 84 files**, up from 1133/1133 across 77; unit is unchanged at 2,074 with
+the 7 corpus skips. Re-verified on the merged base, not only on the branch.
 
 **The last place the one-seller-per-stand assumption survived was a foreign key.** `0042` gave
 `inventory_revisions` a composite key onto `(sales_locations.id, own_seller_id)`, which reads
