@@ -11,7 +11,88 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-15 (latest) — Two doors, and the door that was already open (F-114 Phase C.1, doors)
+## 2026-08-15 (latest) — Everything the records were built for (F-114 Phase C.2, writes + closure)
+
+Two tranches, both merged. Zoe can now state Gracie's Greens' stock at Kelsey's stand without
+touching Kelsey's listing, and Morgan Hill can shut its gate. Integration is **1208/1208 across 84
+of 84 files**, up from 1133/1133 across 77; unit is unchanged at 2,074 with the 7 corpus skips.
+
+**The last place the one-seller-per-stand assumption survived was a foreign key.** `0042` gave
+`inventory_revisions` a composite key onto `(sales_locations.id, own_seller_id)`, which reads
+plainly as *every revision's seller is the stand's own seller*. True of 38 of 38 stands when it was
+written, and it forbids hosted publication **at the database** — no writer could have reached
+around it. It was correct at the time: C.0 had just re-rooted identity onto sellers and every stand
+still had exactly one. `0045` replaces it with `(provider_id, seller_id)`, which is what it was
+reaching for and stronger: whose goods these are is decided by the RELATIONSHIP, never by who owns
+the roof. Worth recording because nothing in the phase plan predicted it — it surfaced only when a
+hosted publication test failed against a constraint nobody had reason to re-read.
+
+**One deliberate loosening, named rather than buried.** `inventory_revisions_authorization_farm_fk`
+bound the publisher's authorization to the seller being published, which refuses exactly the write
+§the Venison Valley case permits: a host stating a hosted seller's stock under that seller's own
+opt-in. It becomes a plain authorization reference. The database *cannot* answer who may publish
+for whom — the answer is two LIVE facts, the relationship's `host_may_update_stock` and the
+authorization's revocation, and a static key sees neither. `approval_farm_fk` was deliberately NOT
+widened: VIGA's approval is a fact about the seller, never about who typed the update.
+
+**`host_may_update_stock` gained its first reader**, which is the point of the tranche. C.1 left it
+a column with a constraint and no consumer — the "data present with no consumer is invisible" trap,
+shipped knowingly. `resolveProviderWriteAuthority` is now the one place that answers *may this
+phone write this provider's stock, and under which authorization?*, with three ways to say yes
+enumerated once rather than at each writer.
+
+**Closure needed a second seam, not a flag on the first.** A stand shutdown overrides every
+provider and renders nothing itemized, so it is not any seller's stock — and at a venue there is no
+provider to ask about at all. `resolveStandWriteAuthority` answers "may this phone state a fact
+about this PLACE?" The writers now resolve each proposal section against the authority it needs.
+Merging the two questions would have produced a call returning "authorized for no provider", which
+every caller would then have had to interpret.
+
+**B-077 closed, and its shape mattered.** `closure_revisions` demanded a seller in three NOT NULL
+columns, so Morgan Hill could hold none of them. Closure now takes two arms mirroring the
+authorization's own: a venue names no seller and no seller-approval, because approval gates whether
+a SELLER may be public and a venue sells nothing. `owner_authorization_id` stays NOT NULL in both —
+the stand arm drops the seller, never the person. **The arm is decided by the STAND, not chosen by
+the writer** (`closure_revisions_guard_arm`, a trigger because the rule reads another table);
+without that, the venue's arm would be an escape hatch letting any stand's owner publish a closure
+with no approval behind it.
+
+**`0046` also widened `inventory_publication_proposals.provider_id`**, which was not anticipated.
+That column binds a confirmation token to the listing the farmer was shown, and a venue's closure
+has no listing. Naming one of its hosted sellers' would bind the token to goods the closure is not
+about — and let that seller's `YES` publish the venue's shutter. A CHECK confines NULL to exactly
+the closure-only case.
+
+**Four defects found on the way**, each closed with a case aimed at it: the revise path moved
+`sales_location_id` without `provider_id`, so a retargeted proposal would be confirmed against a
+listing the farmer never read; a pre-existing constraint test filed the host's seller on the hosted
+provider's row, a shape admissible only because nothing checked it; the confirmation locked only
+"the acting authorization", silently leaving the other unlocked in exactly the mixed proposal where
+they differ; and the seller-retirement gate would have reported `farm_retired` for a venue, because
+`rows[0]?.retired_at !== null` is TRUE on an empty result.
+
+**The standing lesson from 22 sabotages: a guard is unfalsifiable until a case exists where it is
+the ONLY thing that could refuse.** All six escapes were that same failure, in six disguises.
+The seller-arm preference had no case constructing a phone holding both arms. The provider/stand
+agreement check was tested with an actor already refused earlier for a different reason. The
+closure insert's stand-owner columns and the confirmation's stand-authority resolution both needed
+a MIXED proposal at an ordinary stand, where the two authorities finally differ — at a venue both
+are `(null, null)` and at a single-seller stand they are the same row. The arm trigger needed an
+UPDATE that swaps the arm, because a valid supersede passes whether or not the trigger sees updates
+at all. And a `NOT VALID` foreign key sailed through a violating-insert probe, because `NOT VALID`
+still refuses new rows and skips only the existing ones — the assertion had to move to
+`convalidated`, the fact that actually differs. **This generalizes past sabotage: when a breakage
+changes no test result, the first question is whether some *other* guard is answering first.**
+
+**Two migrations owed production, taking the queue to five.** `0045` then `0046`, after `0042`,
+`0043`, `0044`, in that order. Neither was generated — both are constraint-only work `drizzle-kit`
+does not emit. The snapshots were produced the way C.1 repaired its own: introspect a throwaway
+database built from every migration, then renumber the generated snapshot and drop the spurious
+journal entry and `.sql` the generator writes alongside it. **Running `drizzle-kit generate`
+against `schema.ts` directly still produces a destructive drop-and-recreate** — the drift C.1
+recorded is not gone, only routed around.
+
+## 2026-08-15 — Two doors, and the door that was already open (F-114 Phase C.1, doors)
 
 C.1's invitation mechanism was merged and green, and nobody could reach it. VIGA's endpoint had no
 button; the stand owner had no door at all. Both now have a person's way in. Integration is

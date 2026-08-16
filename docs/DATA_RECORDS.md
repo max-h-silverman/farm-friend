@@ -30,6 +30,33 @@ the publisher may be a hosted seller the owner does not control. Two deliberatel
 the place — and `sales_location_participants`, which is retired as display-only history and is never
 linked to a seller identity.
 
+**A revision's seller is the PROVIDER'S seller** (F-114 C.2, `0045`).
+`inventory_revisions_location_own_seller_fk` keyed `(sales_location_id, seller_id)` onto the stand's
+self-pointer, which said *every revision's seller is the stand's own* — true of 38 of 38 stands when
+written and structurally forbidding hosted publication. `inventory_revisions_provider_seller_fk`
+replaces it: whose goods these are is decided by the **relationship**, never by who owns the roof.
+Beside it, `inventory_revisions_authorization_farm_fk` widened to a plain authorization reference,
+**a deliberate loosening**: who may publish for whom is two LIVE facts — the relationship's
+`host_may_update_stock` and the authorization's revocation — and a static key sees neither, so
+`resolveProviderWriteAuthority` enforces it instead. `approval_farm_fk` was NOT widened; VIGA's
+approval is a fact about the seller, never about who typed the update.
+
+**Closure takes two arms** (F-114 C.2 / B-077, `0046`). `owner_seller_id` and `owner_approval_id`
+were NOT NULL and routed through the self-pointer, so a venue could record no closure at all. Both
+are now NULL at a venue — there is no seller to name and therefore no seller-approval, since approval
+gates whether a **seller** may be public and a venue sells nothing. `owner_authorization_id` stays
+NOT NULL in both arms: the stand arm drops the seller, never the person.
+`closure_revisions_owner_arm` binds the pair as a biconditional, and the
+`closure_revisions_guard_arm` trigger makes the **stand** decide which arm the row takes — a trigger
+rather than a CHECK because the rule reads `sales_locations.own_seller_id`. Without it the venue's
+arm would be an escape hatch: any stand's owner could file a stand-armed closure and skip approval.
+
+**A venue's closure-only proposal names no provider.**
+`inventory_publication_proposals.provider_id` binds the confirmation token to the listing the farmer
+was shown, and a venue's closure has no listing; naming one of its hosted sellers' would bind the
+token to goods the closure is not about and let that seller's `YES` publish the venue's shutter.
+`inventory_proposals_provider_arm` confines NULL to exactly the closure-only case.
+
 **A location is complete or absent, and any farm may have one** (F-088, narrowing F-038).
 `sales_locations_coherent_visitability` requires an address *and* both coordinates together — half a
 pair puts a pin in the ocean, and a point with no address cannot be checked by anyone. Only the
@@ -113,6 +140,9 @@ unpublished address or an absent pin.
   NOT NULL and **`false` by default**, because an invitation that silently conferred it would make
   acceptance mean more than it says. It never extends to identity, prices, payment, pause, or
   participation, and it is distinct from the observation right a stand owner has anyway.
+  **Its reader is `resolveProviderWriteAuthority`** (C.2), the one place answering *may this phone
+  write this provider's stock, and under which authorization?* — three ways to say yes, stated once:
+  the seller's own phone, the stand's phone under this opt-in, and the stand arm for a venue.
 
 `stand_providers_one_per_seller_per_location` admits one row per seller per stand and is the
 **first-insert arbiter** for a race: two writers adding the same seller both find nothing and both
