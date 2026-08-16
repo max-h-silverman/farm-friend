@@ -66,6 +66,21 @@ from, and it is never sent.
 - the structured one-name-per-line participant save for the selected stand — its own confirmation and
   audit event, routed through db + clock before full model composition, re-resolving the link, and
   unable to grant access or attach names to profiles.
+- **the stand owner's own seller invitation** (F-114 Phase C.1) — `invite_seller` on
+  `/api/farmer/stand`, which mints the same one-use onboarding link VIGA's door does and records the
+  holder's authorization as the vouch, so acceptance lands `approval_source = 'host'`. It takes a
+  NAME and never a seller id: offering the roster would widen `resolveFarmerLink`'s projection to
+  every seller on the island. It has **its own button**, never "Save settings" — it mints a
+  once-shown link rather than writing a setting.
+
+**The SMS half of that door is the link the farmer already holds.** `LINK` and `SETTINGS` both text
+this page, so no keyword was added: one would need a free-text grammar for a name that becomes a
+public brand plus a way to text a 64-hex link back for forwarding.
+
+**A leaked link can now create a seller and a `pending` relationship at its own stand** — and still
+authorize nobody. Acceptance requires the invited seller's own handset and a bare `START`, and
+`pending` is excluded by every public reader, so the worst a leak achieves is an unaccepted
+invitation VIGA can revoke. Asserted and sabotaged alongside the other five bounds.
 
 **No second login and no consent control**; pausing reminders never changes launch-program consent.
 
@@ -129,9 +144,10 @@ bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
   entity; see ADMIN_OPERATIONS.md.
   `POST /api/admin/stands` carries the per-stand acts: Farm Bucks, retire/restore, and — since
   F-114 Phase C.1 — `invite_seller`, which mints a one-use link inviting a seller to sell at that
-  stand. **`invite_seller` has no button yet**: the endpoint is live and tested, the Farms screen
-  does not call it, so today it is reachable only by an authenticated request. The acting
-  administrator always comes from the session, never the body.
+  stand and answers with the complete onboarding URL, **shown once**. Its button lives inside each
+  stand's card on Farms, and is absent for a stand that is off the map. The acting administrator
+  always comes from the session, never the body. A seller name is public text and is refused with
+  the same code-owned copy the farmer's door uses.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
 - **Scheduled jobs:** farmer prompting, outbound delivery, retry, and retention.
 

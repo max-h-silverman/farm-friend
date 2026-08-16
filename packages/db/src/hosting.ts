@@ -1,6 +1,8 @@
 import {
   hashFarmerInviteToken,
   issueFarmerInviteToken,
+  validatePublicStrings,
+  type ProhibitedPublicStringKind,
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
@@ -68,6 +70,8 @@ export type InviteSellerToStandResult =
   | { status: "unknown_stand" }
   | { status: "unknown_seller" }
   | { status: "invalid_seller" }
+  /** The proposed name would put contact details on the public map. */
+  | { status: "unsafe_public_text"; prohibited: ProhibitedPublicStringKind[] }
   | { status: "invalid_issuer" }
   | { status: "not_authorized" }
   | { status: "already_selling_here" };
@@ -122,6 +126,25 @@ export async function inviteSellerToStand(
   }
   if (newSellerName !== undefined && newSellerName === "") {
     return { status: "invalid_seller" };
+  }
+
+  /*
+    A SELLER NAME IS PUBLIC TEXT, and this writer is the only place one is typed.
+
+    §suppression follows a pointer credits every hosted seller on the stand's public card, so a
+    name minted here lands on the island's only guide. `saveSalesLocationParticipants` already
+    holds this boundary for the display-only names beside it, and the stand owner's own door
+    means an untrusted farmer now types the real ones — the same rule has to reach both.
+
+    Answered before the transaction opens, so a refusal creates no seller and mints no
+    invitation. An EXISTING seller is deliberately not re-validated: its name is already public
+    and refusing it here would block an invitation over a row this call did not write.
+  */
+  if (newSellerName !== undefined) {
+    const validation = validatePublicStrings([newSellerName]);
+    if (!validation.ok) {
+      return { status: "unsafe_public_text", prohibited: validation.prohibited };
+    }
   }
 
   return driver(db).begin(async (tx) => {

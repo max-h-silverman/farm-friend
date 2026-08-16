@@ -39,8 +39,17 @@ stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md
   `invited_by_authorization_id` carries the vouching owner until acceptance can legally record it.
 - **`stand_providers.host_may_update_stock` is the hosted seller's opt-in** — off by default, off
   for every backfilled row, and untouched by acceptance.
-- **VIGA's invite door is wired** (`invite_seller` on the admin stands route). **The stand owner's
-  own SMS/web door is not**, nor are the invited seller's stand-scoped onboarding fields.
+- **Both invite doors now have a person's way in.** VIGA's is a per-stand control inside each Farms
+  card; the stand owner's is `invite_seller` on `/api/farmer/stand`, reached from "Invite someone to
+  sell here" in stand settings and vouched by the authorization the link already resolved
+  (`approval_source = 'host'` at acceptance). The farmer's door takes a **name, never a seller id** —
+  the roster would widen the link's projection. **No new SMS keyword**: `LINK` and `SETTINGS`
+  already text the farmer that page. Both doors answer with the complete onboarding URL, shown once.
+  **A seller name is now public-text-guarded at the writer**, one place for both doors. Still not
+  built: the invited seller's stand-scoped onboarding fields.
+- **A leaked farmer link can now create a seller and a `pending` relationship at its own stand.** It
+  still authorizes nobody — acceptance needs the invited seller's own handset and a bare `START` —
+  and `pending` is invisible to every public reader. Asserted beside the other five bounds.
 - **A venue still cannot record a closure** — `closure_revisions` demands a seller in three NOT NULL
   columns. **B-077**; it needs the closure writer's stand arm, not a nullable column.
 - **The rest of C.1 — per-provider publication, the seller list, item-first cards — is NOT built.**
@@ -63,7 +72,7 @@ stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md
 
 ## Verification
 
-- **2,063 unit tests pass; 7 corpus-only tests skip.** Integration is **1124/1124 across 77 of 77
+- **2,074 unit tests pass; 7 corpus-only tests skip.** Integration is **1133/1133 across 77 of 77
   files** against disposable local Postgres databases (2026-08-15).
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19.
   The build retains tracked Next configuration/lint warnings (B-008).
@@ -77,6 +86,12 @@ stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md
   breakages were each caught by the case aimed at them**. Every migration is proved against a
   **populated** copy of the schema that precedes it, asserting exact row effects plus a re-run
   proving it is a no-op.
+- **The two invitation doors add 12 sabotage-proved cases** (public-text guard both directions, the
+  vouch column, stand scoping, revocation, the `sellerId` refusal, blank names, retired stands,
+  save/invite separation on both the standalone and tab-committed paths, and the once-shown link).
+  **One sabotage escaped and was closed**: asserting that Invite posts once said nothing about what
+  Save does, so a `save()` that also invited went unnoticed until the tab-commit path got its own
+  case. Two migrations' worth of caution applies to test claims too — the escaped one is why.
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only. It
   predates F-114 and seventeen `*_not_blank` CHECKs share it. The suite asserts that measured truth
   in two cases rather than the constraint's name; **B-076** files the sweep, and the admitting case
@@ -132,7 +147,9 @@ stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md
 - Provider-failure copy is integration-tested only. A real outage test belongs on an isolated preview
   service, never VIGA's production model account.
 - Phone-width visual checks remain owed for onboarding, farmer settings/listing, map details, and the
-  three administrator tabs. F-065, F-084, B-008, B-034, B-036, F-101, and B-048 remain planned.
+  three administrator tabs — including the two new invitation controls, whose once-shown link sits in
+  a read-only input a farmer has to be able to select on a handset. F-065, F-084, B-008, B-034,
+  B-036, F-101, and B-048 remain planned.
 - VIGA must decide whether Vashon Island Farmers Market belongs in the roster as a farm. F-108 remains
   an idea for a per-answer map showing only returned stands.
 
