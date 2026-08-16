@@ -10,6 +10,10 @@ import {
   maskPhoneSuffix,
 } from "@farm-friend/core";
 import { readCurrentRevisionRef, readNativeProviderId } from "./current-inventory";
+import {
+  PROVIDER_AUTHORITY_ARMS,
+  resolveProviderWriteAuthority,
+} from "./provider-write-authority";
 import type { Db } from "./index";
 import { seedDefaultPromptPreference } from "./onboarding-listing";
 import type { Sql, Tx } from "./sql";
@@ -712,20 +716,34 @@ async function queueFarmerAuthorizedNotification(
     else it teaches a word for a situation they are not in. Counting rows is the only way to
     know, and this query was already reading the table.
   */
+  /*
+    F-114 Phase C.3 — the farmer's own LISTINGS, not their own stands. `stand_providers` is what
+    says where a seller sells, so a hosted-only seller (a bakery with no stand of her own) gets
+    the link to her goods at her host's stand rather than nothing at all, which is what the
+    self-pointer join returned for her.
+
+    `order by created_at` is preserved on the PROVIDER, which is the same order for the 38
+    stands that have one of their own: their provider is created by the stand's own insert.
+  */
   const locations = await tx`
-    select id from sales_locations
-    where own_seller_id = ${input.farmId} and retired_at is null
-    order by created_at asc
+    select provider.id as provider_id
+    from stand_providers as provider
+    join sales_locations as location on location.id = provider.sales_location_id
+    where provider.seller_id = ${input.farmId}
+      and provider.ended_at is null
+      and provider.lifecycle_state in ('active', 'paused')
+      and location.retired_at is null
+    order by provider.created_at asc
   `;
-  const salesLocationId = locations[0]?.id as string | undefined;
+  const providerId = locations[0]?.provider_id as string | undefined;
   // No stand yet: the administrator door can run before one exists. The farmer is still told
   // they are live, and still told the word that fetches a link once there is something to link.
   const issued =
-    salesLocationId === undefined
+    providerId === undefined
       ? null
       : await issueFarmerLinkIn(tx, {
           authorizationId: input.authorizationId,
-          salesLocationId,
+          providerId,
           occurredAt: input.occurredAt,
         });
 
@@ -1505,7 +1523,8 @@ export async function issueFarmerLink(
   db: Db,
   input: {
     authorizationId: string;
-    salesLocationId: string;
+    /** The LISTING this link opens (F-114 Phase C.3), not the stand it sits at. */
+    providerId: string;
     occurredAt: Date;
   },
 ): Promise<IssueFarmerLinkResult> {
@@ -1529,28 +1548,44 @@ async function issueFarmerLinkIn(
   tx: Tx,
   input: {
     authorizationId: string;
-    salesLocationId: string;
+    providerId: string;
     occurredAt: Date;
   },
 ): Promise<{ token: string; linkId: string } | null> {
+  /*
+    F-114 Phase C.3 — a link is issued for a LISTING, and the authority to hold one is the same
+    question `resolveProviderWriteAuthority` answers. Before C.3 this asked whether the
+    authorization named the stand's own seller, which refused a hosted seller a link to her own
+    goods and refused a host a link to a listing the seller had explicitly granted them.
+
+    The seam is called rather than re-implemented here, so the SMS door and the page it opens
+    cannot come to disagree about who may hold the link.
+  */
+  // The seam is phone-shaped; this caller holds an authorization id. The phone behind it is
+  // read first, and a revoked or missing authorization is refused HERE rather than reaching the
+  // seam as an empty hash that would coincidentally match nothing.
+  const senderHash = await senderHashForAuthorization(tx, input.authorizationId);
+  if (senderHash === null) return null;
+  const authority = await resolveProviderWriteAuthority(tx, {
+    providerId: input.providerId,
+    senderHash,
+  });
+  if (authority.status !== "authorized") return null;
+  if (authority.authorizationId !== input.authorizationId) return null;
+
   // Publication lock order: location before authorization. Link issuance names no sender
   // state or proposal, so these are the first two shared resources it can touch.
-  const locations = await tx`
-    select id, own_seller_id from sales_locations
-    where id = ${input.salesLocationId}
+  await tx`
+    select id from sales_locations
+    where id = ${authority.salesLocationId}
     for update
   `;
-  const ownerSellerId = locations[0]?.own_seller_id as string | undefined;
-  if (ownerSellerId === undefined) return null;
-
-  const authorization = await tx`
-    select id, seller_id from farmer_authorizations
-    where id = ${input.authorizationId}
-      and seller_id = ${ownerSellerId}
-      and revoked_at is null
+  const held = await tx`
+    select id from farmer_authorizations
+    where id = ${input.authorizationId} and revoked_at is null
     for update
   `;
-  if (authorization.length === 0) return null;
+  if (held.length === 0) return null;
 
   await tx`
     update farmer_links
@@ -1559,26 +1594,34 @@ async function issueFarmerLinkIn(
   `;
 
   const token = issueFarmerLinkToken();
-  // F-114 Phase B — a standing link opens ONE listing, so it names whose. A farmer link is
-  // issued for the farmer's own stand, hence the native slot; a hosted seller's link is issued
-  // by the hosting flow (Phase C.1) against their own provider.
-  const linkProviderId = await readNativeProviderId(tx, {
-    salesLocationId: input.salesLocationId,
-  });
   const inserted = await tx`
     insert into farmer_links (
       token_hash, authorization_id, owner_seller_id, sales_location_id,
       provider_id, issued_at
     )
     values (
-      ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${ownerSellerId},
-      ${input.salesLocationId}, ${linkProviderId},
+      ${hashFarmerLinkToken(token)}, ${input.authorizationId}, ${authority.sellerId},
+      ${authority.salesLocationId}, ${authority.providerId},
       ${input.occurredAt.toISOString()}
     )
     returning id
   `;
 
   return { token, linkId: inserted[0]?.id as string };
+}
+
+/** The phone behind one authorization, so a caller holding an id can ask a phone-shaped seam. */
+async function senderHashForAuthorization(
+  tx: Tx,
+  authorizationId: string,
+): Promise<string | null> {
+  const rows = await tx`
+    select contact.phone_hash
+    from farmer_authorizations as auth
+    join contacts as contact on contact.id = auth.contact_id
+    where auth.id = ${authorizationId} and auth.revoked_at is null
+  `;
+  return (rows[0]?.phone_hash as string | undefined) ?? null;
 }
 
 /**
@@ -1603,6 +1646,8 @@ export interface ResolvedFarmerLink {
   authorizationId: string;
   farmId: string;
   salesLocationId: string;
+  /** WHICH listing at that stand this link opens (F-114 Phase C.3). */
+  providerId: string;
   /** The farmer's phone hash — the sender identity the proposal is keyed to. */
   senderHash: string;
 }
@@ -1611,24 +1656,45 @@ export async function resolveFarmerLink(
   db: Db,
   input: { tokenHash: string },
 ): Promise<ResolvedFarmerLink | null> {
-  const rows = await driver(db)`
-    select
-      auth.id as authorization_id,
-      auth.seller_id,
-      contact.phone_hash,
-      location.id as sales_location_id
-    from farmer_links as link
-    join farmer_authorizations as auth
-      on auth.id = link.authorization_id
-    join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location
-      on location.id = link.sales_location_id
-      and location.own_seller_id = link.owner_seller_id
-      and link.owner_seller_id = auth.seller_id
-    where link.token_hash = ${input.tokenHash}
-      and link.revoked_at is null
-      and auth.revoked_at is null
-  `;
+  /*
+    F-114 Phase C.3 — the link names a LISTING, and its live check is the same one every other
+    door asks. Before C.3 this joined `location.own_seller_id = link.owner_seller_id = auth.seller_id`,
+    which reads as "the holder owns this stand" and refused two legitimate holders outright: a
+    hosted seller with a link to her own goods, and a host with a link to a listing the seller
+    granted them.
+
+    The relationship is joined instead of the self-pointer, and the three ways to say yes are
+    re-asked on every request — so a withdrawn opt-in, a paused-to-ended relationship, or a
+    revoked authorization invalidates a bookmarked link on the next load rather than at the next
+    issue. Nothing is cached in the token; that property is unchanged and is what makes this
+    immediate.
+  */
+  // `.unsafe` because the arms are composed SQL text — see the constant's own note.
+  const rows = await driver(db).unsafe(
+    `
+      select
+        auth.id as authorization_id,
+        provider.seller_id,
+        provider.id as provider_id,
+        contact.phone_hash,
+        location.id as sales_location_id
+      from farmer_links as link
+      join stand_providers as provider
+        on provider.id = link.provider_id
+        and provider.seller_id = link.owner_seller_id
+      join sales_locations as location
+        on location.id = provider.sales_location_id
+        and location.id = link.sales_location_id
+      join farmer_authorizations as auth
+        on auth.id = link.authorization_id
+        and ${PROVIDER_AUTHORITY_ARMS}
+      join contacts as contact on contact.id = auth.contact_id
+      where link.token_hash = $1
+        and link.revoked_at is null
+        and auth.revoked_at is null
+    `,
+    [input.tokenHash],
+  );
 
   const row = rows[0];
   if (row === undefined) return null;
@@ -1636,6 +1702,7 @@ export async function resolveFarmerLink(
     authorizationId: row.authorization_id as string,
     farmId: row.seller_id as string,
     salesLocationId: row.sales_location_id as string,
+    providerId: row.provider_id as string,
     senderHash: row.phone_hash as string,
   };
 }
@@ -2114,24 +2181,34 @@ export async function requestFarmerStandLink(
     // THIS hash, and a stand belonging to that same farm. Being a farmer somewhere must not
     // open every farm, so the authorization is joined to the requested farm rather than to the
     // contact alone.
-    const matches = await tx`
-      select auth.id as authorization_id, location.id as sales_location_id
-      from farmer_authorizations as auth
-      join contacts as contact on contact.id = auth.contact_id
-      join sales_locations as location on location.own_seller_id = auth.seller_id
-      where auth.seller_id = ${input.farmId}
-        and contact.phone_hash = ${input.contactHash}
-        and auth.revoked_at is null
-        and location.retired_at is null
-      order by location.name, location.id
-      limit 1
-    `;
+    // C.3 — the seller's own LISTINGS. `PROVIDER_AUTHORITY_ARMS` is not used here: this door
+    // deliberately answers only for the seller ITSELF (`auth.seller_id = input.farmId`), never
+    // for a host acting under an opt-in, because it is reached by naming a farm on the public
+    // recovery form rather than from an authorized session.
+    const matches = await tx.unsafe(
+      `
+        select auth.id as authorization_id, provider.id as provider_id
+        from farmer_authorizations as auth
+        join contacts as contact on contact.id = auth.contact_id
+        join stand_providers as provider on provider.seller_id = auth.seller_id
+        join sales_locations as location on location.id = provider.sales_location_id
+        where auth.seller_id = $1
+          and contact.phone_hash = $2
+          and auth.revoked_at is null
+          and provider.ended_at is null
+          and provider.lifecycle_state in ('active', 'paused')
+          and location.retired_at is null
+        order by location.name, location.id, provider.id
+        limit 1
+      `,
+      [input.farmId, input.contactHash],
+    );
     const match = matches[0];
     if (match === undefined) return accepted;
 
     const issued = await issueFarmerLinkIn(tx, {
       authorizationId: match.authorization_id as string,
-      salesLocationId: match.sales_location_id as string,
+      providerId: match.provider_id as string,
       occurredAt: input.occurredAt,
     });
     if (issued === null) return accepted;

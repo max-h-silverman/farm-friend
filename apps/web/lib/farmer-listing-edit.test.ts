@@ -53,6 +53,7 @@ function resolver(
     authorizationId: "auth-1",
     farmId: FARM_ID,
     salesLocationId: "loc-1",
+    providerId: "provider-1",
     senderHash: "hash-1",
   },
 ) {

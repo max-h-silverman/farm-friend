@@ -2,6 +2,7 @@ import {
   authorizeFarmer,
   createFarmerInvitation,
   issueFarmerLink,
+  resolveAdministratorLinkTarget,
   revokeFarmerAuthorization,
 } from "@farm-friend/db";
 import { farmerInviteUrl, farmerLinkUrl } from "@farm-friend/core";
@@ -148,9 +149,26 @@ export async function POST(req: Request): Promise<Response> {
   if (salesLocationId === null) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  const issued = await issueFarmerLink(db, {
+  /*
+    F-114 Phase C.3 — a link opens a LISTING, and this screen names a stand. VIGA's roster shows
+    one row per stand, so the pair the operator gives is resolved to the one listing that
+    authorization holds THERE: `resolveAdministratorLinkTarget` refuses when the pair names none
+    or names more than one, rather than picking. Picking is what would hand an operator a link
+    to the wrong seller's goods with nothing on screen saying so.
+
+    A per-listing admin control belongs with the roster work that shows listings; until then a
+    refusal is the honest answer and the operator's other doors still reach every relationship.
+  */
+  const target = await resolveAdministratorLinkTarget(db, {
     authorizationId,
     salesLocationId,
+  });
+  if (target === null) {
+    return Response.json({ status: "not_authorized" }, { status: 403 });
+  }
+  const issued = await issueFarmerLink(db, {
+    authorizationId,
+    providerId: target.providerId,
     occurredAt,
   });
   if (issued.status !== "issued") {

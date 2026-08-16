@@ -26,6 +26,43 @@ describe("farmer reply copy (F-096)", () => {
     expect(menu).not.toContain("STOP");
   });
 
+  /*
+    F-114 C.3 — the menu names the SELLER exactly where it differs from the stand.
+
+    Both halves are asserted because they fail in opposite directions and independently. A menu
+    that never labels shows a host choosing between two listings at one stand the same words
+    twice, with no way to tell which is whose. A menu that always labels credits a farmer on her
+    own stand — `Provo Farms - Provo Farms` — which is the echo §suppression follows a pointer
+    exists to prevent.
+
+    `describesOwnStand` is a recorded fact (the stand's self-pointer), never a name comparison,
+    so the fixtures below deliberately give the own-stand row a seller name that does NOT
+    resemble the stand's: a name-matching implementation would label it and fail here.
+  */
+  it("names the seller on a hosted listing and not on the stand's own", () => {
+    const menu = renderFarmerTargetMenu([
+      {
+        optionNumber: 1,
+        locationName: "Venison Valley Stand",
+        sellerName: "Gracies Greens",
+        describesOwnStand: false,
+      },
+      {
+        optionNumber: 2,
+        locationName: "Venison Valley Stand",
+        sellerName: "Kelseys Meats",
+        describesOwnStand: true,
+      },
+    ] as Parameters<typeof renderFarmerTargetMenu>[0]);
+
+    const lines = menu.split("\n");
+    expect(lines[1]).toBe("1. Venison Valley Stand - Gracies Greens");
+    // The stand's own listing is the bare stand name, even though its seller is named
+    // something else entirely.
+    expect(lines[2]).toBe("2. Venison Valley Stand");
+    expect(menu).not.toContain("Kelseys Meats");
+  });
+
   it("still tells the farmer how to answer the menu", () => {
     // Removing the footer must not remove the instruction that makes the menu usable — the
     // reply is a bare number, which is not guessable from a list of names.

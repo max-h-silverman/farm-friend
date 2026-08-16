@@ -21,6 +21,7 @@ import {
   resolveFarmerLink,
   revokeFarmerAuthorization,
   createDb,
+  readNativeProviderId,
   type Db,
   type Sql,
 } from "./index";
@@ -745,7 +746,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const issued = await issueFarmerLink(database(), {
         authorizationId,
-        salesLocationId,
+        providerId: await readNativeProviderId(database(), { salesLocationId }),
         occurredAt: at(2),
       });
       expect(issued.status).toBe("issued");
@@ -774,7 +775,7 @@ describe("farmer authorization and standing links (integration)", () => {
       const issued = await issueFarmerLink(database(), {
         authorizationId:
           authorized.status === "authorized" ? authorized.authorizationId : "",
-        salesLocationId,
+        providerId: await readNativeProviderId(database(), { salesLocationId }),
         occurredAt: at(2),
       });
       const token = issued.status === "issued" ? issued.token : "";
@@ -810,7 +811,7 @@ describe("farmer authorization and standing links (integration)", () => {
         authorized.status === "authorized" ? authorized.authorizationId : "";
       const issued = await issueFarmerLink(database(), {
         authorizationId,
-        salesLocationId,
+        providerId: await readNativeProviderId(database(), { salesLocationId }),
         occurredAt: at(2),
       });
       const tokenHash = hashFarmerLinkToken(
@@ -854,7 +855,7 @@ describe("farmer authorization and standing links (integration)", () => {
         authorized.status === "authorized" ? authorized.authorizationId : "";
       const issued = await issueFarmerLink(database(), {
         authorizationId,
-        salesLocationId,
+        providerId: await readNativeProviderId(database(), { salesLocationId }),
         occurredAt: at(2),
       });
       const tokenHash = hashFarmerLinkToken(
@@ -891,7 +892,7 @@ describe("farmer authorization and standing links (integration)", () => {
         authorized.status === "authorized" ? authorized.authorizationId : "";
       const first = await issueFarmerLink(database(), {
         authorizationId,
-        salesLocationId,
+        providerId: await readNativeProviderId(database(), { salesLocationId }),
         occurredAt: at(2),
       });
       const firstHash = hashFarmerLinkToken(
@@ -902,7 +903,7 @@ describe("farmer authorization and standing links (integration)", () => {
       // one working.
       const second = await issueFarmerLink(database(), {
         authorizationId,
-        salesLocationId,
+        providerId: await readNativeProviderId(database(), { salesLocationId }),
         occurredAt: at(3),
       });
       const secondHash = hashFarmerLinkToken(
@@ -942,7 +943,7 @@ describe("farmer authorization and standing links (integration)", () => {
       expect(
         (await issueFarmerLink(database(), {
           authorizationId,
-          salesLocationId,
+          providerId: await readNativeProviderId(database(), { salesLocationId }),
           occurredAt: at(3),
         }))
           .status,
@@ -951,7 +952,7 @@ describe("farmer authorization and standing links (integration)", () => {
         (
           await issueFarmerLink(database(), {
             authorizationId: randomUUID(),
-            salesLocationId,
+            providerId: await readNativeProviderId(database(), { salesLocationId }),
             occurredAt: at(3),
           })
         ).status,
@@ -996,7 +997,9 @@ describe("farmer authorization and standing links (integration)", () => {
       const issued = await issueFarmerLink(database(), {
         authorizationId:
           authorized.status === "authorized" ? authorized.authorizationId : "",
-        salesLocationId: secondStandId,
+        providerId: await readNativeProviderId(database(), {
+            salesLocationId: secondStandId,
+      }),
         occurredAt: at(2),
       });
 
@@ -1204,7 +1207,7 @@ describe("farmer authorization and standing links (integration)", () => {
 
       const issued = await issueFarmerLink(database(), {
         authorizationId,
-        salesLocationId,
+        providerId: await readNativeProviderId(database(), { salesLocationId }),
         occurredAt: at(2),
       });
       const token = issued.status === "issued" ? issued.token : "";

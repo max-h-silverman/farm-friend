@@ -1,4 +1,4 @@
-import { readNativeProviderId } from "./current-inventory";
+import { PROVIDER_AUTHORITY_ARMS } from "./provider-write-authority";
 import type { Db } from "./index";
 import type { Tx } from "./sql";
 
@@ -6,11 +6,39 @@ export const FARMER_TARGET_MENU_TTL_MS = 12 * 60 * 60 * 1000;
 
 export type FarmerTargetPurpose = "update" | "link" | "settings";
 
+/**
+ * One listing a farmer's phone may write, and the authorization it writes under.
+ *
+ * F-114 Phase C.3 — a target is a PROVIDER, not a stand. Before C.3 this record was
+ * `(authorization, stand)` resolved through `sales_locations.own_seller_id`, which says *the
+ * stands this phone owns*. That sentence is true of a stand with one seller and false of every
+ * hosting relationship: it made a hosted seller untargetable outright, so nothing could reach
+ * Zoe by SMS even though C.2 lets her publish from the web.
+ *
+ * `sellerId` is whose goods these are — the PROVIDER'S seller, never the stand's own. The two
+ * differ exactly when a hosted seller is being targeted, which is the whole point.
+ */
 export interface FarmerTarget {
   authorizationId: string;
-  ownerSellerId: string;
+  /** Whose goods this listing holds. Named `ownerSellerId` in the durable columns. */
+  sellerId: string;
+  providerId: string;
   salesLocationId: string;
   locationName: string;
+  /**
+   * The seller's own name, for the menu. Rendering decides whether to show it — see
+   * `describesOwnStand` — and this record never pre-collapses the two, so a caller that needs
+   * the seller's identity still has it.
+   */
+  sellerName: string;
+  /**
+   * True when this provider IS the stand's own seller, by SELF-POINTER and never by a name
+   * match (§suppression follows a pointer). A farmer who renames her seller stays unlabeled; a
+   * hosted `Hill Farm` at `Hill Farm Stand` stays credited.
+   */
+  describesOwnStand: boolean;
+  /** The listing is paused: §facts and authority offers re-opening rather than refusing. */
+  paused: boolean;
 }
 
 export interface FarmerTargetOption extends FarmerTarget {
@@ -36,19 +64,53 @@ export type SelectFarmerTargetResult =
 
 type TargetRow = {
   authorization_id: string;
-  owner_seller_id: string;
+  seller_id: string;
+  provider_id: string;
   sales_location_id: string;
   location_name: string;
+  seller_name: string;
+  describes_own_stand: boolean;
+  paused: boolean;
 };
 
 function targetFromRow(row: TargetRow): FarmerTarget {
   return {
     authorizationId: row.authorization_id,
-    ownerSellerId: row.owner_seller_id,
+    sellerId: row.seller_id,
+    providerId: row.provider_id,
     salesLocationId: row.sales_location_id,
     locationName: row.location_name,
+    sellerName: row.seller_name,
+    describesOwnStand: row.describes_own_stand,
+    paused: row.paused,
   };
 }
+
+/**
+ * The menu's order, and the tie-break that makes it total.
+ *
+ * Stands sort by name as they always have. Within one stand the stand's own listing sorts LAST,
+ * because it is the one line that renders without a seller name — putting the credited sellers
+ * above it keeps the unlabeled entry from reading as a heading for them. `provider.id` closes
+ * the order so two hosted sellers never swap places between a menu and its answer.
+ */
+const TARGET_ORDER = `
+  order by lower(location.name), location.id,
+           (provider.seller_id is not distinct from location.own_seller_id) asc,
+           lower(seller.name), provider.id
+`;
+
+const TARGET_COLUMNS = `
+  select
+    auth.id as authorization_id,
+    provider.seller_id,
+    provider.id as provider_id,
+    location.id as sales_location_id,
+    location.name as location_name,
+    seller.name as seller_name,
+    (provider.seller_id is not distinct from location.own_seller_id) as describes_own_stand,
+    (provider.lifecycle_state = 'paused') as paused
+`;
 
 export async function lockKnownSenderState(
   tx: Tx,
@@ -103,15 +165,21 @@ async function lockSender(
  * discovers candidate ids; the final read after both locks is the authority decision.
  */
 async function lockLiveTargets(tx: Tx, senderHash: string): Promise<TargetRow[]> {
-  const candidates = await tx`
-    select auth.id as authorization_id, location.id as sales_location_id
-    from farmer_authorizations as auth
-    join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location on location.own_seller_id = auth.seller_id
-    where contact.phone_hash = ${senderHash}
-      and auth.revoked_at is null
-    order by location.id, auth.id
-  `;
+  // `.unsafe` because the arms and column list are composed SQL text: a tagged template would
+  // send them as bind PARAMETERS and die at parse (DEVELOPMENT.md §gotchas).
+  const candidates = await tx.unsafe(
+    `
+      select auth.id as authorization_id, location.id as sales_location_id
+      from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      join farmer_authorizations as auth on ${PROVIDER_AUTHORITY_ARMS}
+      join contacts as contact on contact.id = auth.contact_id
+      where contact.phone_hash = $1
+        and auth.revoked_at is null
+      order by location.id, auth.id
+    `,
+    [senderHash],
+  );
   const locationIds = [...new Set(candidates.map((row) => row.sales_location_id as string))];
   const authorizationIds = [
     ...new Set(candidates.map((row) => row.authorization_id as string)),
@@ -134,19 +202,20 @@ async function lockLiveTargets(tx: Tx, senderHash: string): Promise<TargetRow[]>
     `;
   }
 
-  return (await tx`
-    select
-      auth.id as authorization_id,
-      auth.seller_id as owner_seller_id,
-      location.id as sales_location_id,
-      location.name as location_name
-    from farmer_authorizations as auth
-    join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location on location.own_seller_id = auth.seller_id
-    where contact.phone_hash = ${senderHash}
-      and auth.revoked_at is null
-    order by lower(location.name), location.id, auth.id
-  `) as unknown as TargetRow[];
+  return (await tx.unsafe(
+    `
+      ${TARGET_COLUMNS}
+      from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      join sellers as seller on seller.id = provider.seller_id
+      join farmer_authorizations as auth on ${PROVIDER_AUTHORITY_ARMS}
+      join contacts as contact on contact.id = auth.contact_id
+      where contact.phone_hash = $1
+        and auth.revoked_at is null
+      ${TARGET_ORDER}
+    `,
+    [senderHash],
+  )) as unknown as TargetRow[];
 }
 
 /** Check live farmer authority without issuing or changing a stand-selection menu. */
@@ -176,18 +245,15 @@ async function storeSelection(
   target: FarmerTarget,
   occurredAt: Date,
 ): Promise<void> {
-  // F-114 Phase B item 7 — `selected_context_coherent` requires all five columns together, so
-  // a selection states its provider or states nothing. Today every reachable target is the
-  // farmer's own stand, hence the native slot.
-  const providerId = await readNativeProviderId(tx, {
-    salesLocationId: target.salesLocationId,
-  });
+  // F-114 Phase C.3 — the selection stores the target's OWN provider and its seller, not the
+  // stand's. `selected_context_coherent` requires all five columns together, and they now
+  // describe one listing rather than a stand plus a derived guess at which listing was meant.
   await tx`
     update farmer_target_contexts
     set selected_authorization_id = ${target.authorizationId},
-        selected_owner_seller_id = ${target.ownerSellerId},
+        selected_owner_seller_id = ${target.sellerId},
         selected_sales_location_id = ${target.salesLocationId},
-        selected_provider_id = ${providerId},
+        selected_provider_id = ${target.providerId},
         selected_at = ${occurredAt},
         updated_at = ${occurredAt}
     where sender_hash = ${senderHash}
@@ -228,17 +294,21 @@ export async function resolveFarmerTarget(
     const targets = (await lockLiveTargets(tx, input.senderHash)).map(targetFromRow);
     const contexts = await tx`
       select selected_authorization_id, selected_owner_seller_id,
-        selected_sales_location_id, selected_at
+        selected_sales_location_id, selected_provider_id, selected_at
       from farmer_target_contexts
       where sender_hash = ${input.senderHash}
       for update
     `;
     const context = contexts[0] as Record<string, unknown>;
+    // The PROVIDER is matched too. Without it a remembered selection at a stand whose hosted
+    // listing the farmer also reaches would match either row, and a farmer who chose the hosted
+    // listing yesterday could be handed the stand's own today.
     const selected = targets.find(
       (target) =>
         target.authorizationId === context.selected_authorization_id &&
-        target.ownerSellerId === context.selected_owner_seller_id &&
-        target.salesLocationId === context.selected_sales_location_id,
+        target.sellerId === context.selected_owner_seller_id &&
+        target.salesLocationId === context.selected_sales_location_id &&
+        target.providerId === context.selected_provider_id,
     );
 
     if (targets.length === 0) {
@@ -272,21 +342,17 @@ export async function resolveFarmerTarget(
     `;
     const options = targets.map((target, index) => ({ ...target, optionNumber: index + 1 }));
     for (const option of options) {
-      // F-114 Phase B item 7 — a menu option targets a PROVIDER, not a stand. Every target a
-      // farmer can reach today is their own stand, so it resolves to that stand's native slot.
-      // Phase C.3 adds hosted providers to the menu and names the seller where it differs from
-      // the stand; the RECORD takes the dimension here so that change is a query, not a
-      // migration.
-      const providerId = await readNativeProviderId(tx, {
-        salesLocationId: option.salesLocationId,
-      });
+      // F-114 Phase C.3 — a menu option names the PROVIDER it targets. Phase B took the column
+      // and filled it with the stand's own listing because that was the only reachable one; the
+      // option now carries the listing the farmer was actually shown, which is what binds the
+      // number they reply with to the goods they meant.
       await tx`
         insert into farmer_target_menu_options (
           sender_hash, option_number, authorization_id, owner_seller_id,
           sales_location_id, provider_id
         ) values (
           ${input.senderHash}, ${option.optionNumber}, ${option.authorizationId},
-          ${option.ownerSellerId}, ${option.salesLocationId}, ${providerId}
+          ${option.sellerId}, ${option.salesLocationId}, ${option.providerId}
         )
       `;
     }
@@ -319,7 +385,7 @@ export async function selectFarmerTarget(
     }
 
     const options = await tx`
-      select authorization_id, owner_seller_id, sales_location_id
+      select authorization_id, owner_seller_id, sales_location_id, provider_id
       from farmer_target_menu_options
       where sender_hash = ${input.senderHash} and option_number = ${input.optionNumber}
     `;
@@ -330,25 +396,36 @@ export async function selectFarmerTarget(
     const authorizationId = option.authorization_id as string;
     await tx`select id from sales_locations where id = ${locationId} for update`;
     await tx`select id from farmer_authorizations where id = ${authorizationId} for update`;
-    const live = (await tx`
-      select
-        auth.id as authorization_id,
-        auth.seller_id as owner_seller_id,
-        location.id as sales_location_id,
-        location.name as location_name
-      from farmer_target_menu_options as menu
-      join farmer_authorizations as auth
-        on auth.id = menu.authorization_id
-        and auth.seller_id = menu.owner_seller_id
-      join contacts as contact on contact.id = auth.contact_id
-      join sales_locations as location
-        on location.id = menu.sales_location_id
-        and location.own_seller_id = menu.owner_seller_id
-      where menu.sender_hash = ${input.senderHash}
-        and menu.option_number = ${input.optionNumber}
-        and contact.phone_hash = ${input.senderHash}
-        and auth.revoked_at is null
-    `) as unknown as TargetRow[];
+    /*
+      The number is re-resolved against LIVE authority, never trusted from the row the menu
+      wrote. The menu is a durable list issued up to 12 hours ago; between issuing it and
+      answering it a seller may withdraw `host_may_update_stock`, pause or end the relationship,
+      or have their authorization revoked. Every one of those must bite here.
+
+      The arms are the same text `lockLiveTargets` uses, which is what makes the menu and the
+      answer incapable of disagreeing about who may write what.
+    */
+    const live = (await tx.unsafe(
+      `
+        ${TARGET_COLUMNS}
+        from farmer_target_menu_options as menu
+        join stand_providers as provider on provider.id = menu.provider_id
+        join sales_locations as location
+          on location.id = provider.sales_location_id
+          and location.id = menu.sales_location_id
+        join sellers as seller on seller.id = provider.seller_id
+        join farmer_authorizations as auth
+          on auth.id = menu.authorization_id
+          and ${PROVIDER_AUTHORITY_ARMS}
+        join contacts as contact on contact.id = auth.contact_id
+        where menu.sender_hash = $1
+          and menu.option_number = $2
+          and contact.phone_hash = $1
+          and auth.revoked_at is null
+          and provider.seller_id = menu.owner_seller_id
+      `,
+      [input.senderHash, input.optionNumber],
+    )) as unknown as TargetRow[];
     if (live.length === 0) {
       await clearMenu(tx, input.senderHash, input.occurredAt);
       return { status: "not_authorized" };
@@ -362,51 +439,76 @@ export async function selectFarmerTarget(
 }
 
 export interface FarmerSettingsTarget {
+  providerId: string;
   salesLocationId: string;
   locationName: string;
+  sellerName: string;
+  /** By SELF-POINTER: the settings list omits the seller name on the stand's own listing. */
+  describesOwnStand: boolean;
   selected: boolean;
   cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
 }
 
-/** List only the locations editable through one live authorization for its own sender. */
+/**
+ * List only the LISTINGS editable through one live authorization for its own sender.
+ *
+ * C.3 — one row per provider, not per stand, and the cadence comes from that provider's own
+ * preference rather than from whichever preference happened to name the stand.
+ */
 export async function listFarmerSettingsTargets(
   db: Db,
   input: { senderHash: string; authorizationId: string },
 ): Promise<FarmerSettingsTarget[]> {
-  const rows = await db.sql`
-    select
-      location.id as sales_location_id,
-      location.name as location_name,
-      context.selected_authorization_id = auth.id
-        and context.selected_sales_location_id = location.id as selected,
-      preference.cadence
-    from farmer_authorizations as auth
-    join contacts as contact on contact.id = auth.contact_id
-    join sales_locations as location on location.own_seller_id = auth.seller_id
-    left join farmer_target_contexts as context
-      on context.sender_hash = contact.phone_hash
-    left join inventory_prompt_preferences as preference
-      on preference.sales_location_id = location.id
-    where auth.id = ${input.authorizationId}
-      and contact.phone_hash = ${input.senderHash}
-      and auth.revoked_at is null
-    order by lower(location.name), location.id
-  `;
+  const rows = await db.sql.unsafe(
+    `
+      select
+        provider.id as provider_id,
+        location.id as sales_location_id,
+        location.name as location_name,
+        seller.name as seller_name,
+        (provider.seller_id is not distinct from location.own_seller_id) as describes_own_stand,
+        (context.selected_authorization_id = auth.id
+          and context.selected_provider_id = provider.id) as selected,
+        preference.cadence
+      from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      join sellers as seller on seller.id = provider.seller_id
+      join farmer_authorizations as auth on ${PROVIDER_AUTHORITY_ARMS}
+      join contacts as contact on contact.id = auth.contact_id
+      left join farmer_target_contexts as context
+        on context.sender_hash = contact.phone_hash
+      left join inventory_prompt_preferences as preference
+        on preference.provider_id = provider.id
+      where auth.id = $1
+        and contact.phone_hash = $2
+        and auth.revoked_at is null
+      ${TARGET_ORDER}
+    `,
+    [input.authorizationId, input.senderHash],
+  );
   return rows.map((row) => ({
+    providerId: row.provider_id as string,
     salesLocationId: row.sales_location_id as string,
     locationName: row.location_name as string,
+    sellerName: row.seller_name as string,
+    describesOwnStand: row.describes_own_stand === true,
     selected: row.selected === true,
     cadence: (row.cadence as FarmerSettingsTarget["cadence"]) ?? null,
   }));
 }
 
-/** Store the settings page's exact default target after revalidating its standing authority. */
+/**
+ * Store the settings page's exact default target after revalidating its standing authority.
+ *
+ * Takes the PROVIDER (C.3), because a stand may hold several listings this authorization can
+ * reach and "the stand" no longer names one of them.
+ */
 export async function selectFarmerTargetForAuthorization(
   db: Db,
   input: {
     senderHash: string;
     authorizationId: string;
-    salesLocationId: string;
+    providerId: string;
     occurredAt: Date;
   },
 ): Promise<{ status: "selected"; target: FarmerTarget } | { status: "not_authorized" }> {
@@ -415,29 +517,31 @@ export async function selectFarmerTargetForAuthorization(
       return { status: "not_authorized" as const };
     }
     await tx`
-      select id from sales_locations
-      where id = ${input.salesLocationId}
-      for update
+      select location.id from sales_locations as location
+      join stand_providers as provider on provider.sales_location_id = location.id
+      where provider.id = ${input.providerId}
+      for update of location
     `;
     await tx`
       select id from farmer_authorizations
       where id = ${input.authorizationId}
       for update
     `;
-    const rows = (await tx`
-      select
-        auth.id as authorization_id,
-        auth.seller_id as owner_seller_id,
-        location.id as sales_location_id,
-        location.name as location_name
-      from farmer_authorizations as auth
-      join contacts as contact on contact.id = auth.contact_id
-      join sales_locations as location on location.own_seller_id = auth.seller_id
-      where auth.id = ${input.authorizationId}
-        and contact.phone_hash = ${input.senderHash}
-        and location.id = ${input.salesLocationId}
-        and auth.revoked_at is null
-    `) as unknown as TargetRow[];
+    const rows = (await tx.unsafe(
+      `
+        ${TARGET_COLUMNS}
+        from stand_providers as provider
+        join sales_locations as location on location.id = provider.sales_location_id
+        join sellers as seller on seller.id = provider.seller_id
+        join farmer_authorizations as auth on ${PROVIDER_AUTHORITY_ARMS}
+        join contacts as contact on contact.id = auth.contact_id
+        where auth.id = $1
+          and contact.phone_hash = $2
+          and provider.id = $3
+          and auth.revoked_at is null
+      `,
+      [input.authorizationId, input.senderHash, input.providerId],
+    )) as unknown as TargetRow[];
     if (rows.length === 0) return { status: "not_authorized" as const };
 
     const target = targetFromRow(rows[0]!);

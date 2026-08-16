@@ -230,14 +230,22 @@ with the guard that protects each.
   but names the wrong file, so it reads as a defect in the new migration rather than the old test.
 - **A hand-written migration leaves the generator's snapshot stale, and nothing notices until the
   next one.** Applying stays correct throughout — only generation breaks, which is why
-  `migration-metadata.test.ts` (GL-006) checks the newest snapshot. **Repair it by measurement, not
-  by hand**: build a database from every migration, run `drizzle-kit introspect` against it, and
-  chain that snapshot's `prevId` to its predecessor (replacing introspect's all-zero `id` with a real
-  UUID). **Then measure the baseline before believing the result** — a probe of `generate` against a
-  repaired snapshot emits ~16KB of constraint churn, and the identical probe against the previous
-  commit emits ~16KB of the *same* churn. That drift is pre-existing (introspected names differ from
-  `schema.ts` names across the schema); the delta between the two probes is what your migration
-  actually added.
+  `migration-metadata.test.ts` (GL-006) checks the newest snapshot.
+
+  **Repair it as a measured DELTA of its predecessor, not by introspection.** Copy the previous
+  snapshot, apply exactly the constraints/columns your migration changed, set a fresh `id` and
+  chain `prevId` to the predecessor's `id`. F-114 C.3 measured both ways and they are not
+  equivalent: **`generate` on the merged base said "No schema changes"**, the introspected `0047`
+  snapshot made it emit **16KB** of constraint churn, and the delta-edited `0047` snapshot returned
+  it to "No schema changes". The churn is real — introspected constraint names differ from
+  `schema.ts` names across the schema — so introspection *adds* drift on a repo that currently has
+  none. (The earlier C.1 guidance to introspect was written when the snapshot was already drifted;
+  it repairs a broken snapshot but degrades a healthy one.)
+
+  **Always probe the baseline before believing either result.** Run `drizzle-kit generate --name
+  probe_x` on your commit and again on the merged base, compare, then delete both probe files and
+  restore `_journal.json` — `generate` appends a journal entry as a side effect and will silently
+  drop the entry your own migration needs.
 - **A historical migration test written in the CURRENT vocabulary proves nothing.** A rename sweep
   will drag a fixture forward and prove the migration against its own output rather than against the
   corpus it has to survive. A fixture's vocabulary must match the schema it populates.

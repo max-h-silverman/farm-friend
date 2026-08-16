@@ -213,6 +213,93 @@ export async function readNativeProviderId(
   return row.id as string;
 }
 
+/** One live provider's current entries at a stand (F-114 Phase C.3). */
+export interface ProviderCurrentEntries {
+  providerId: string;
+  sellerId: string;
+  revisionId: string;
+  publishedAt: Date;
+  entries: CurrentInventoryEntry[];
+}
+
+/**
+ * EVERY live provider's current inventory at one stand, in one round trip.
+ *
+ * F-114 Phase C.3, for the readers that need to know *which sellers currently claim this item*
+ * rather than *what does this listing hold*. The stock-out router is the first: a report
+ * contradicts a provider only if that provider's own current revision lists the item, and
+ * answering that per provider with `readCurrentInventory` would multiply queries by the number
+ * of sellers at the stand and lose the shared ordering.
+ *
+ * A provider with no current revision is ABSENT from the result rather than present with no
+ * entries, and that distinction is load-bearing: "published nothing" and "published a listing
+ * without this item" are the non-claimant and the agreer, and only the second is a claim.
+ *
+ * `pending` and ended relationships are excluded — neither is a live listing. `paused` IS
+ * included: a paused seller's last published claim is still what a customer saw.
+ */
+export async function readCurrentInventoryByProvider(
+  db: InventoryReader,
+  input: { salesLocationId: string },
+): Promise<ProviderCurrentEntries[]> {
+  const sql = queryable(db);
+  const rows = await sql`
+    select
+      provider.id as provider_id,
+      provider.seller_id,
+      revision.id as revision_id,
+      revision.published_at,
+      entry.id as entry_id,
+      entry.item_name,
+      entry.quantity,
+      entry.unit,
+      entry.price_text,
+      entry.approximation,
+      entry.sort_order
+    from stand_providers as provider
+    join inventory_revisions as revision
+      on revision.provider_id = provider.id and revision.is_current
+    left join inventory_entries as entry
+      on entry.inventory_revision_id = revision.id
+    where provider.sales_location_id = ${input.salesLocationId}
+      and provider.ended_at is null
+      and provider.lifecycle_state in ('active', 'paused')
+    order by provider.id, entry.sort_order asc, entry.id asc
+  `;
+
+  const byProvider = new Map<string, ProviderCurrentEntries>();
+  for (const raw of rows) {
+    const row = raw as Record<string, unknown>;
+    const providerId = row.provider_id as string;
+    let current = byProvider.get(providerId);
+    if (current === undefined) {
+      current = {
+        providerId,
+        sellerId: row.seller_id as string,
+        revisionId: row.revision_id as string,
+        publishedAt: row.published_at as Date,
+        entries: [],
+      };
+      byProvider.set(providerId, current);
+    }
+    // A revision with no entries left-joins to one NULL row. That is a published listing
+    // holding nothing, which is a real state and a real claim — the provider is present with an
+    // empty list, never dropped.
+    if (row.entry_id === null) continue;
+    current.entries.push({
+      entryId: row.entry_id as string,
+      itemName: row.item_name as string,
+      quantity: row.quantity === null ? null : Number(row.quantity),
+      unit: (row.unit as string | null) ?? null,
+      priceText: (row.price_text as string | null) ?? null,
+      approximation:
+        (row.approximation as CurrentInventoryEntry["approximation"]) ?? null,
+      sortOrder: Number(row.sort_order),
+    });
+  }
+  return [...byProvider.values()];
+}
+
 /**
  * The stand's current inventory — its revision and every entry, in publication order.
  *

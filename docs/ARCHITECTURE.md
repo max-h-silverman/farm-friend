@@ -254,8 +254,10 @@ order:
    deliberately **independent of `YES`/`NO`**: a farmer with an open inventory confirmation can page
    and keep it, because the words do not overlap.
 8. **A positive whole-message number** selects only from the sender's live 12-hour `STAND` menu. The
-   stored option binds an exact authorization+location pair; without that context it is a
-   code-rendered refusal, never free text.
+   stored option binds an exact authorization+**provider** pair — one seller's listing at one
+   stand — and is re-resolved against live authority when answered, so a withdrawn stock right or an
+   ended hosting relationship refuses the number the menu already issued. Without that context it is
+   a code-rendered refusal, never free text.
 9. **Active conversation state** routes the message to its in-flight flow.
 10. **Authority and consent gates** determine what the sender may do.
 11. **An open stock-out clarification is offered the message first** (B-065), for any sender.
@@ -320,10 +322,13 @@ order:
     The exact tier's verdict is final whenever it matched anything, *including a tie*; a looser
     comparison may never overturn a stricter one's ambiguity. A fuzzy tie still asks.
 
-Farmer update text resolves the sender's durable exact target in code after classification.
-One live target is selected automatically; several with no selection issue the same numbered menu.
-Every use revalidates the authorization and location under the shared sender → location →
-authorization lock order. Neither the classifier nor the inventory interpreter receives a target list
+Farmer update text resolves the sender's durable exact target in code after classification. **A
+target is one LISTING — a seller at a stand — not a stand**, so a hosted seller is reachable in her
+own right and a host who was granted stock rights sees both listings. One live target is selected
+automatically; several with no selection issue the same numbered menu, which names the seller only
+where it differs from the stand, by the stand's self-pointer and never by a name match. Every use
+revalidates the authorization, the location, and the hosting relationship's own state under the
+shared sender → location → authorization lock order. Neither the classifier nor the inventory interpreter receives a target list
 or can select or change a target.
 
 A confirmation token is accepted only for the sender's one open farmer-update proposal, after the
@@ -421,7 +426,7 @@ Every workflow has **one authoritative core use case and one durable path**:
 | SMS ingress | Verify the raw-body signature, commit one minimized provider event, serialize ordinary stateful work per sender, fail closed on stale events |
 | Inventory publishing | Maintain one open proposal per sender; after its current prompt is provider-accepted, consume `YES` once only after rechecking farmer authority and VIGA approval, then atomically publish and supersede the prior revision |
 | Participant display | Let the location owner save the complete active **Also selling here** name list as structured public metadata; validate names with the shared public-string guard, retire omissions without deletion, expose no item provenance or edit access |
-| Customer stock-out | Accept a code-bound location, store a private report, resolve the authorized farmer in code, optionally ask for current inventory; a reply uses the ordinary inventory flow; free-text customer SMS cannot queue an alert; never alter public inventory |
+| Customer stock-out | Accept a code-bound location, store a private report, resolve **in code every provider whose current confirmed inventory CONTRADICTS the report** and alert each seller's own authorized phone — a provider whose published listing omits the item agrees and is skipped, and one with no confirmed claim (usual-only or never listed) is not notified at all, the report standing for VIGA; optionally ask for current inventory; a reply uses the ordinary inventory flow; free-text customer SMS cannot queue an alert; never alter public inventory |
 | Customer inquiry | After deterministic routing, obtain model interpretation; code validates it and retrieves typed current facts; code groups each stand's evidence, the model selects/orders stand IDs, and code validates membership, restores every supporting evidence row, renders the factual reply, and queues it; the direct response creates no later proactive subscription |
 | Launch SMS consent | Maintain one launch-program consent state with provenance; `START`, `VIGA`, and documented farmer onboarding establish or restore it, `JOIN` establishes it for first-time senders only (B-011); message categories do not have separate enrollment |
 | STOP / START / VIGA / JOIN / HELP | Apply deterministic consent behavior before any other interpretation; universal STOP applies across all Farm Friend messaging; order start-operation commands on their separate provider-time watermark, with STOP winning an exact tie |

@@ -2,9 +2,9 @@ import type { StockOutModel } from "@farm-friend/ai";
 import { renderStockOutAlert, type Clock } from "@farm-friend/core";
 import {
   queueOutbox,
-  readCurrentInventory,
-  readNativeProviderId,
+  readCurrentInventoryByProvider,
   type Db,
+  type ProviderCurrentEntries,
 } from "@farm-friend/db";
 
 // Customer stock-out report → private farmer alert.
@@ -51,8 +51,12 @@ export type StockOutOutcome =
   | {
       outcome: "recorded";
       reportId: string;
-      /** Present when an authorized farmer could be resolved for the bound location. */
-      alertedRecipientHash?: string;
+      /**
+       * The farmers prompted — one per CONTRADICTED provider (F-114 Phase C.3), and empty when
+       * the report contradicts nobody. Plural because one report at a stand with two sellers
+       * may honestly contradict both.
+       */
+      alertedRecipientHashes?: string[];
     }
   /** The text did not identify an item; nothing is recorded and no one is alerted. */
   | { outcome: "unclear" }
@@ -69,6 +73,12 @@ type MatchCandidate = {
   entryId: string;
   itemName: string;
   kind: "inventory-entry" | "stand-item";
+  /**
+   * Which listing this candidate came from (F-114 Phase C.3). Never reaches the model — the
+   * model sees one flat list and does not learn that a stand has several sellers, exactly as it
+   * does not learn that published and usual items are two kinds.
+   */
+  providerId: string;
 };
 
 /**
@@ -96,40 +106,66 @@ type MatchCandidate = {
 async function listedItems(
   db: Db,
   salesLocationId: string,
-): Promise<MatchCandidate[]> {
-  // F-114 Phase B — the stock-out matcher's candidates. Phase C.3 widens this to EVERY
-  // provider whose confirmed inventory contradicts the report; Phase B keeps the native slot
-  // so today's output is byte-identical.
-  const providerId = await readNativeProviderId(db, { salesLocationId });
-  const current = await readCurrentInventory(db, { salesLocationId, providerId });
+): Promise<{ candidates: MatchCandidate[]; byProvider: ProviderCurrentEntries[] }> {
+  /*
+    F-114 Phase C.3 — the candidates span EVERY live provider at the stand.
+
+    Before C.3 this read the stand's own listing alone, so a hosted seller's bread could not be
+    reported at all: the customer's word matched nothing and the report was filed as unlisted
+    text with nobody told. A customer at an unattended stand names an item, never a seller, and
+    this list is what makes that possible.
+
+    Deduplication still folds case and surrounding whitespace ONLY, and it now folds ACROSS
+    providers: two sellers both listing eggs offer the model one "Eggs", because the model is
+    picking an item and not a seller. Which providers that item belongs to is resolved after the
+    match, in code, from the same rows this list was built from — so the model never learns a
+    stand has several sellers, exactly as it never learns published and usual are two kinds.
+  */
+  const byProvider = await readCurrentInventoryByProvider(db, { salesLocationId });
   const offerings = await db.sql`
-    select id, display_name
+    select id, display_name, provider_id
     from stand_items
     where sales_location_id = ${salesLocationId}
     order by sort_order asc, display_name asc
   `;
 
-  const candidates: MatchCandidate[] = (current?.entries ?? []).map((entry) => ({
-    entryId: entry.entryId,
-    itemName: entry.itemName,
-    kind: "inventory-entry" as const,
-  }));
-
+  const candidates: MatchCandidate[] = [];
   const normalize = (name: string) => name.trim().toLowerCase();
-  const published = new Set(candidates.map((item) => normalize(item.itemName)));
+  const seen = new Set<string>();
+
+  // Published entries first — the precedence rule is unchanged, and an entry is the better
+  // reference because it carries a farmer's confirmation time for VIGA's queue.
+  for (const provider of byProvider) {
+    for (const entry of provider.entries) {
+      if (seen.has(normalize(entry.itemName))) continue;
+      seen.add(normalize(entry.itemName));
+      candidates.push({
+        entryId: entry.entryId,
+        itemName: entry.itemName,
+        kind: "inventory-entry",
+        providerId: provider.providerId,
+      });
+    }
+  }
 
   for (const raw of offerings) {
     const row = raw as Record<string, unknown>;
     const itemName = row.display_name as string;
-    if (published.has(normalize(itemName))) continue;
+    if (seen.has(normalize(itemName))) continue;
+    seen.add(normalize(itemName));
     candidates.push({
       entryId: row.id as string,
       itemName,
-      kind: "stand-item" as const,
+      kind: "stand-item",
+      providerId: row.provider_id as string,
     });
   }
 
-  return candidates;
+  // The provider rows travel back with the candidates rather than being re-read at routing
+  // time: the contradiction test must run against the SAME snapshot the match was made from,
+  // or a revision published in between could make the matched item belong to a different set
+  // of sellers than the one the customer's word was resolved against.
+  return { candidates, byProvider };
 }
 
 /**
@@ -146,20 +182,65 @@ async function resolveAuthorizedRecipient(
   // the db package — transactions are owned there — so this names the shape it uses rather
   // than widening that boundary for one caller.
   tx: Parameters<typeof queueOutbox>[0],
-  salesLocationId: string,
-): Promise<string | null> {
+  providerIds: readonly string[],
+): Promise<string[]> {
+  if (providerIds.length === 0) return [];
+  /*
+    ONE recipient per contradicted provider — the SELLER'S own phone, never the host's.
+
+    §the Venison Valley case: Zoe is told about Gracie's Greens' eggs and Kelsey is not, because
+    they are different sellers with different phones. The host's `host_may_update_stock` grant is
+    deliberately NOT consulted: it says the host MAY state the seller's stock, not that the host
+    should be woken up about it. Prompting is the seller's business.
+
+    The earliest authorization wins per seller, as before — a stable choice rather than an
+    arbitrary one when a seller has several phones.
+  */
   const rows = await tx`
-    select c.phone_hash
-    from sales_locations l
-    join farmer_authorizations a on a.seller_id = l.own_seller_id
-    join contacts c on c.id = a.contact_id
-    where l.id = ${salesLocationId}
-      and a.revoked_at is null
-      and a.phone_verified_at is not null
-    order by a.authorized_at asc
-    limit 1
+    select distinct on (provider.id) contact.phone_hash
+    from stand_providers as provider
+    join farmer_authorizations as auth on auth.seller_id = provider.seller_id
+    join contacts as contact on contact.id = auth.contact_id
+    where provider.id in ${tx(providerIds as string[])}
+      and auth.revoked_at is null
+      and auth.phone_verified_at is not null
+    order by provider.id, auth.authorized_at asc
   `;
-  return (rows[0]?.phone_hash as string | undefined) ?? null;
+  // Sorted, and deduplicated first: one phone may be authorized for two of the contradicted
+  // sellers (one phone already acts for two sellers in production), and that person must be
+  // texted once. The sort makes the result independent of `provider.id`, which is random.
+  return [
+    ...new Set(rows.map((row) => (row as Record<string, unknown>).phone_hash as string)),
+  ].sort();
+}
+
+/**
+ * Which providers a report about this item CONTRADICTS.
+ *
+ * §customer behavior, and the whole of C.3's routing rule. Being listed in a provider's current
+ * revision IS the claim "we have this out"; there is no sold-out flag, so absence from a
+ * published listing is that provider already saying they are out.
+ *
+ *   * **listed** — contradicted. Told, whether they confirmed five minutes or three weeks ago.
+ *   * **published a listing without it** — agrees. Skipped, because telling a farmer what their
+ *     own listing already says is noise, and noise is what makes a farmer stop reading.
+ *   * **published nothing, or carries it only as a usual item** — no dated claim exists to
+ *     contradict. Never told; the report is filed for VIGA.
+ *
+ * The match is the same case-and-whitespace fold `stand_items_one_per_location_name` uses, and
+ * it must never fold singulars into plurals or synonyms into each other — that would be a
+ * produce taxonomy, which no business code here may encode.
+ */
+function contradictedProviders(
+  byProvider: readonly ProviderCurrentEntries[],
+  itemName: string,
+): string[] {
+  const wanted = itemName.trim().toLowerCase();
+  return byProvider
+    .filter((provider) =>
+      provider.entries.some((entry) => entry.itemName.trim().toLowerCase() === wanted),
+    )
+    .map((provider) => provider.providerId);
 }
 
 /**
@@ -190,7 +271,10 @@ export async function recordStockOutReport(
   }
   const locationName = locations[0]?.name as string;
 
-  const items = await listedItems(deps.db, input.salesLocationId);
+  const { candidates: items, byProvider } = await listedItems(
+    deps.db,
+    input.salesLocationId,
+  );
 
   // The model reads free text into an item reference — and nothing else.
   const parsed = await deps.model.parseItem({
@@ -282,32 +366,52 @@ export async function recordStockOutReport(
     }
 
     const reportId = inserted[0]?.id as string;
-    const recipientHash = await resolveAuthorizedRecipient(
-      tx,
-      input.salesLocationId,
-    );
+    /*
+      F-114 Phase C.3 — routed by CONTRADICTION, in code, from rows code retrieved.
 
-    if (recipientHash === null) {
-      // No authorized farmer to prompt. The report still stands for VIGA's queue — a stand
-      // between farmers is exactly when a stale listing needs a human to notice.
+      An UNLISTED report contradicts nobody: no provider ever claimed the thing the customer
+      named, so there is no dated claim to argue with. It is filed for VIGA and nothing is sent
+      — the same silence a usual-only match gets, and for the same reason.
+    */
+    const recipientHashes =
+      alertItem.kind === "listed"
+        ? await resolveAuthorizedRecipient(
+            tx,
+            contradictedProviders(byProvider, alertItem.itemName),
+          )
+        : [];
+
+    if (recipientHashes.length === 0) {
+      // Nobody to prompt — no live claim, or no authorized farmer behind the ones there are.
+      // The report still stands for VIGA's queue: a stand between farmers is exactly when a
+      // stale listing needs a human to notice.
       return { outcome: "recorded" as const, reportId };
     }
 
-    await queueOutbox(tx, {
-      // One alert per report, enforced by `outbox_work`'s unique `logical_key`.
-      logicalKey: `stock-out-alert-${reportId}`,
-      recipientHash,
-      // Proactive: Farm Friend speaks first, so consent is re-read at the dispatch claim.
-      messageCategory: "stock_out_alert",
-      // Code-rendered from two typed facts. No customer sentence, no model prose.
-      body: renderStockOutAlert({ locationName, item: alertItem }),
-      now,
-    });
+    for (const recipientHash of recipientHashes) {
+      await queueOutbox(tx, {
+        // One alert per report PER RECIPIENT, enforced by `outbox_work`'s unique `logical_key`.
+        // The hash is in the key because two sellers may both be contradicted by one report and
+        // each must hear about their own goods; a report-only key would silently drop the
+        // second.
+        logicalKey: `stock-out-alert-${reportId}-${recipientHash}`,
+        recipientHash,
+        // Proactive: Farm Friend speaks first, so consent is re-read at the dispatch claim.
+        messageCategory: "stock_out_alert",
+        // Code-rendered from two typed facts. No customer sentence, no model prose.
+        //
+        // Identical for every recipient, and deliberately: §public output never attributes an
+        // observation to its observer, and naming the OTHER seller contradicted by the same
+        // report would tell each farmer what their neighbour has out.
+        body: renderStockOutAlert({ locationName, item: alertItem }),
+        now,
+      });
+    }
 
     return {
       outcome: "recorded" as const,
       reportId,
-      alertedRecipientHash: recipientHash,
+      alertedRecipientHashes: recipientHashes,
     };
   }) as Promise<StockOutOutcome>;
 }

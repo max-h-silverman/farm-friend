@@ -4,7 +4,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FixedClock, issueFarmerLinkToken } from "@farm-friend/core";
-import { issueFarmerLink, type Db, type Sql } from "@farm-friend/db";
+import { issueFarmerLink, readNativeProviderId, type Db, type Sql } from "@farm-friend/db";
 import {
   handleFarmerSettingsPost,
   loadFarmerSettings,
@@ -80,7 +80,9 @@ describe("F-051 farmer default stand settings (integration)", () => {
     }
     const issued = await issueFarmerLink(database(), {
       authorizationId: authorizations[0]?.id as string,
-      salesLocationId: locationIds[0] as string,
+      providerId: await readNativeProviderId(database(), {
+        salesLocationId: locationIds[0] as string,
+      }),
       occurredAt: T0,
     });
     if (issued.status !== "issued") throw new Error("fixture link was not issued");
@@ -110,6 +112,46 @@ describe("F-051 farmer default stand settings (integration)", () => {
     expect(serialized).not.toContain("Private Other Stand");
     expect(serialized).not.toContain("a".repeat(64));
     expect(serialized).not.toMatch(/\+1\d{10}/);
+  });
+
+  it("lists each stand ONCE even when the farmer also reaches a hosted listing", async () => {
+    /*
+      F-114 C.3. `listFarmerSettingsTargets` returns one row per LISTING now, and this screen
+      shows stands — so a host who may restock for a seller at her own stand would otherwise see
+      that stand twice under one name, with two radios that read identically and save different
+      things. The stand's own listing is kept by SELF-POINTER; the per-listing screen belongs
+      with C.4's reminder cadence, which is the setting that actually differs per listing.
+
+      Every other case in this file has one listing per stand, where filtering and not filtering
+      give the same answer — which is why removing the filter passed the whole web suite.
+    */
+    const own = await farmer("e".repeat(64), ["North Stand"]);
+    const guests = await client()`
+      insert into sellers (name) values ('Fernhorn Bakery') returning id
+    `;
+    await client()`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${own.locationIds[0] as string}, ${guests[0]?.id as string}, 'active', true,
+        ${T0}, ${T0}, 'viga', ${T0}
+      )
+    `;
+
+    const settings = await loadFarmerSettings(database(), own.token);
+    expect(settings).toEqual({
+      status: "active",
+      locations: [
+        {
+          salesLocationId: own.locationIds[0],
+          locationName: "North Stand",
+          selected: false,
+          cadence: null,
+        },
+      ],
+    });
+    expect(JSON.stringify(settings)).not.toContain("Fernhorn Bakery");
   });
 
   it("saves and returns one revalidated exact default without changing STOP consent", async () => {

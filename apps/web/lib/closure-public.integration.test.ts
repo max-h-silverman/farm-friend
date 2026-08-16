@@ -58,7 +58,7 @@ describe("one closure projection across public discovery and customer SMS (integ
   let db: Db | undefined;
   let databaseName = "";
   let closureMinute = 3;
-  const ids = {} as { location: string };
+  const ids = {} as { location: string; provider: string };
 
   beforeAll(async () => {
     const base = process.env.DATABASE_URL;
@@ -131,6 +131,14 @@ describe("one closure projection across public discovery and customer SMS (integ
       ) returning id
     `;
     ids.location = locations[0]?.id as string;
+    // The stand's own listing (F-114 C.3) — this suite is one farmer at one stand of her own.
+    const ownProviders = await client()`
+      select provider.id from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      where provider.sales_location_id = ${ids.location}
+        and provider.seller_id = location.own_seller_id
+    `;
+    ids.provider = ownProviders[0]?.id as string;
     await client()`
       insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
       values (${ids.location}, (select id from stand_providers where sales_location_id = ${ids.location} and seller_id = (select own_seller_id from sales_locations where id = ${ids.location})), 'Honey', true, 0)
@@ -257,7 +265,12 @@ describe("one closure projection across public discovery and customer SMS (integ
         interpreter: createInventoryInterpreter(provider),
         clock: new FixedClock(T0),
       },
-      { taskText: "closed again later", senderHash: farmerHash, salesLocationId: ids.location },
+      {
+        taskText: "closed again later",
+        senderHash: farmerHash,
+        salesLocationId: ids.location,
+        providerId: ids.provider,
+      },
     );
 
     expect(result.outcome).toBe("clarification");

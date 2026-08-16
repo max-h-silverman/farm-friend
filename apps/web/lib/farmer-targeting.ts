@@ -42,8 +42,26 @@ function refusal(providerEventId: string): FarmerTargetHandlerResult {
   };
 }
 
+/**
+ * How one target reads to the farmer.
+ *
+ * F-114 Phase C.3 — the seller is named only where it DIFFERS from the stand, by SELF-POINTER
+ * and never by a name match (§suppression follows a pointer). A farmer at her own stand sees
+ * the stand name alone, exactly as before; a host who may restock a hosted seller's goods sees
+ * whose goods each line is. Both halves matter: without the label a host choosing between two
+ * listings at one stand would be shown the same words twice, and with the label applied by name
+ * a farmer who renamed her seller would suddenly see herself credited on her own stand.
+ */
+export function describeFarmerTarget(target: FarmerTarget): string {
+  return target.describesOwnStand
+    ? target.locationName
+    : `${target.locationName} - ${target.sellerName}`;
+}
+
 export function renderFarmerTargetMenu(options: FarmerTargetOption[]): string {
-  const choices = options.map((option) => `${option.optionNumber}. ${option.locationName}`);
+  const choices = options.map(
+    (option) => `${option.optionNumber}. ${describeFarmerTarget(option)}`,
+  );
   // No opt-out footer (F-096): this answers a farmer keyword sent seconds ago. The instruction
   // that stays is the one the menu cannot work without — the reply is a bare number.
   //
@@ -51,7 +69,11 @@ export function renderFarmerTargetMenu(options: FarmerTargetOption[]): string {
   // (`FARMER_TARGET_MENU_TTL_MS`) but naming it spends a line of an SMS on a rule that almost
   // never binds — a farmer answering a menu answers it now. The farmer who does reply the next
   // morning is told plainly that the window closed, which is where that fact actually helps.
-  return ["Which stand do you mean? Reply with the number:", ...choices].join("\n");
+  //
+  // "Which listing" rather than "which stand" (C.3): a host who may restock for a hosted seller
+  // is choosing between two listings at ONE stand, where "which stand" has no answer. Still
+  // GSM-7, and one word longer.
+  return ["Which listing do you mean? Reply with the number:", ...choices].join("\n");
 }
 
 function menuReply(
@@ -78,7 +100,7 @@ async function finishPurpose(
     return {
       status: "selected",
       replies: [{
-        body: `Using ${target.locationName}. Text us what you have out there now.`,
+        body: `Using ${describeFarmerTarget(target)}. Text us what you have out there now.`,
         category: "inquiry_reply",
         logicalKey: `farmer-target-selected-${input.providerEventId}`,
       }],
@@ -87,7 +109,7 @@ async function finishPurpose(
 
   const issued = await issueFarmerLink(deps.db, {
     authorizationId: target.authorizationId,
-    salesLocationId: target.salesLocationId,
+    providerId: target.providerId,
     occurredAt: input.occurredAt,
   });
   if (issued.status !== "issued") return refusal(input.providerEventId);
@@ -98,8 +120,8 @@ async function finishPurpose(
   // "private update link" are our words for these screens; "change how often we text you" and
   // "update your listing" are what the farmer came for.
   const action = purpose === "settings"
-    ? `Change how often we text you about ${target.locationName}:`
-    : `Update your listing for ${target.locationName}:`;
+    ? `Change how often we text you about ${describeFarmerTarget(target)}:`
+    : `Update your listing for ${describeFarmerTarget(target)}:`;
   return {
     status: "issued",
     replies: [{

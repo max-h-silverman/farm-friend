@@ -66,7 +66,21 @@ describe("B-065 stock-out clarification memory (integration)", () => {
   beforeEach(async () => {
     await client()`truncate contacts, sellers restart identity cascade`;
     await client()`truncate pending_stock_out_reports`;
-    pineconeId = await seedStand("Pinecone Gardens", ["kale", "bok choy", "potatoes"], ["eggs"]);
+    /*
+      Eggs are PUBLISHED, and a separate usual-only offering sits beside them (F-114 C.3).
+
+      Every case in this file asserts that the farmer hears "sold out of eggs" after two
+      messages — the clarification memory is the subject. After C.3 a report only reaches a
+      provider whose current confirmed inventory CONTRADICTS it, so eggs held as a usual
+      offering alone would contradict nobody and every one of those assertions would read an
+      empty table. The usual-only row stays so the candidate list still spans both kinds, which
+      is B-057's guarantee and is what `matches a usual offering` below exercises.
+    */
+    pineconeId = await seedStand(
+      "Pinecone Gardens",
+      ["kale", "bok choy", "potatoes", "eggs"],
+      ["rhubarb"],
+    );
   });
 
   function client(): Sql {
@@ -242,12 +256,14 @@ describe("B-065 stock-out clarification memory (integration)", () => {
     expect(bodies[0]).toContain("Pinecone Gardens");
     expect(second.handled).toBe("customer");
 
-    // Recorded against the usual offering, and the held row is gone.
+    // Recorded against the PUBLISHED entry — the better reference, because it carries a
+    // farmer's confirmation time for VIGA's queue — and the held row is gone.
     const reports = await client()`
-      select referenced_stand_item_id, unlisted_item_text from stock_out_reports
+      select referenced_inventory_entry_id, unlisted_item_text from stock_out_reports
     `;
     expect(reports).toHaveLength(1);
-    expect(reports[0]?.referenced_stand_item_id).not.toBeNull();
+    expect(reports[0]?.referenced_inventory_entry_id).not.toBeNull();
+    expect(reports[0]?.unlisted_item_text).toBeNull();
     expect(await client()`select id from pending_stock_out_reports`).toHaveLength(0);
   });
 

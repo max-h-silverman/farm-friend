@@ -1218,10 +1218,21 @@ export const farmerLinks = pgTable(
       .defaultNow(),
   },
   (table) => ({
+    /**
+     * F-114 Phase C.3 — plain, loosened from `(authorization, seller)` for the reason on
+     * `farmer_target_contexts`: a host holding a link to a hosted seller's listing acts under
+     * an authorization for a seller they are not. `resolveFarmerLink` enforces the live rule.
+     */
     targetedAuthorizationReference: foreignKey({
-      name: "farmer_links_targeted_authorization_owner_fk",
-      columns: [table.authorizationId, table.ownerSellerId],
-      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.sellerId],
+      name: "farmer_links_targeted_authorization_fk",
+      columns: [table.authorizationId],
+      foreignColumns: [farmerAuthorizations.id],
+    }).onDelete("restrict"),
+    /** F-114 Phase C.3 — whose listing this link opens, rooted on the RELATIONSHIP. */
+    targetedProviderSellerReference: foreignKey({
+      name: "farmer_links_targeted_provider_seller_fk",
+      columns: [table.providerId, table.ownerSellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
     }).onDelete("restrict"),
     /**
      * F-114 Phase B item 2 — re-rooted to `(provider, location)`. A standing link opens ONE
@@ -2095,10 +2106,30 @@ export const farmerTargetContexts = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull(),
   },
   (table) => ({
-    selectedAuthorizationOwnerReference: foreignKey({
-      name: "farmer_target_contexts_selected_authorization_owner_fk",
-      columns: [table.selectedAuthorizationId, table.selectedOwnerSellerId],
-      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.sellerId],
+    /**
+     * F-114 Phase C.3 — a PLAIN reference, deliberately loosened from the `(authorization,
+     * seller)` composite. The composite said *the phone acting is authorized for the seller
+     * whose goods are targeted*, which is one of the three ways to say yes and not the only
+     * one: a host acting under `host_may_update_stock` targets a seller they are not authorized
+     * for, and a venue's manager holds a stand-armed authorization naming no seller at all.
+     * `lockLiveTargets` enforces the live rule from the same arms
+     * `resolveProviderWriteAuthority` uses.
+     */
+    selectedAuthorizationReference: foreignKey({
+      name: "farmer_target_contexts_selected_authorization_fk",
+      columns: [table.selectedAuthorizationId],
+      foreignColumns: [farmerAuthorizations.id],
+    }).onDelete("cascade"),
+    /**
+     * F-114 Phase C.3 — whose goods the selection names, rooted on the RELATIONSHIP. Replaces
+     * `farmer_target_contexts_selected_location_own_seller_fk`, which said the target's seller
+     * is the stand's own and so forbade a hosted target at the database. `0045`'s substitution,
+     * on this table.
+     */
+    selectedProviderSellerReference: foreignKey({
+      name: "farmer_target_contexts_selected_provider_seller_fk",
+      columns: [table.selectedProviderId, table.selectedOwnerSellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
     }).onDelete("cascade"),
     /** F-114 Phase B item 2 — re-rooted to `(provider, location)`. */
     selectedLocationProviderReference: foreignKey({
@@ -2180,10 +2211,17 @@ export const farmerTargetMenuOptions = pgTable(
       columns: [table.senderHash],
       foreignColumns: [farmerTargetContexts.senderHash],
     }).onDelete("cascade"),
-    authorizationOwnerReference: foreignKey({
-      name: "farmer_target_menu_options_authorization_owner_fk",
-      columns: [table.authorizationId, table.ownerSellerId],
-      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.sellerId],
+    /** F-114 Phase C.3 — plain, for the reason on `farmer_target_contexts` above. */
+    authorizationReference: foreignKey({
+      name: "farmer_target_menu_options_authorization_fk",
+      columns: [table.authorizationId],
+      foreignColumns: [farmerAuthorizations.id],
+    }).onDelete("cascade"),
+    /** F-114 Phase C.3 — whose goods this option names, rooted on the RELATIONSHIP. */
+    providerSellerReference: foreignKey({
+      name: "farmer_target_menu_options_provider_seller_fk",
+      columns: [table.providerId, table.ownerSellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
     }).onDelete("cascade"),
     /** F-114 Phase B item 2 — re-rooted to `(provider, location)`. */
     locationProviderReference: foreignKey({
