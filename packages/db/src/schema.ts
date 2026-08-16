@@ -3675,6 +3675,24 @@ export const scheduledInventoryPromptSubjects = pgTable(
       columns: [table.providerId, table.salesLocationId],
       foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("restrict"),
+    /**
+     * Whose prompt this is is decided by the RELATIONSHIP (F-114 Phase C.4, `0049`).
+     *
+     * Replaces `scheduled_prompt_subjects_location_own_seller_fk` — *the seller a prompt is
+     * about must be the seller that owns the stand* — the last of the eight
+     * `*_location_own_seller_fk` keys that had to move, and the third replaced after
+     * `inventory_revisions` (`0045`) and `inventory_prompt_preferences` (`0048`). Like both of
+     * those it lived only in `0042` and never in this file, so a hosted write was the only way
+     * to find it.
+     *
+     * The two keys on `closure_revisions` and `sales_location_participants` deliberately STAY:
+     * they carry facts about the place, not about anyone's goods.
+     */
+    providerSellerReference: foreignKey({
+      name: "scheduled_prompt_subjects_provider_seller_fk",
+      columns: [table.providerId, table.ownerSellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
+    }).onDelete("restrict"),
     inventoryBaseReference: foreignKey({
       name: "scheduled_prompt_subjects_inventory_base_fk",
       columns: [table.inventoryBaseRevisionId, table.salesLocationId],

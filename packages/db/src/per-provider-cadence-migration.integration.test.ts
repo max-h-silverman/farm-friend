@@ -6,41 +6,52 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import type { Sql } from "./sql";
 
 /*
-  F-114 Phase C.4 — `0048` against a POPULATED copy of the schema that precedes it.
+  F-114 Phase C.4 — `0048` and `0049` against a POPULATED copy of the schema that precedes them.
 
-  ## What `0048` claims, and why only real rows can test it
+  ## What they claim, and why only real rows can test it
 
-  It replaces `inventory_prompt_preferences_location_own_seller_fk` — *this reminder's seller must
-  be the seller that owns the stand* — with `(provider_id, owner_seller_id)` ->
-  `stand_providers(id, seller_id)`, which says whose reminder this is is decided by the
-  RELATIONSHIP.
+  Both make the SAME substitution on two tables, which is why they are proved in one file rather
+  than two near-identical ones:
 
-  `ADD CONSTRAINT … FOREIGN KEY` VALIDATES against every row already present, so the new key
-  either holds for every preference in production or the migration fails there having passed on
-  every empty database in the repo. The claim under test is a claim about real data: *every
-  preference today names the stand's own listing, whose seller IS the stand's own seller, so the
-  `(provider, seller)` replacement is already satisfied.* That is reasoning until a populated run
-  proves it.
+    * `0048` — `inventory_prompt_preferences_location_own_seller_fk`
+    * `0049` — `scheduled_prompt_subjects_location_own_seller_fk`
+
+  Each said *this row's seller must be the seller that owns the stand*, and each is replaced by
+  `(provider_id, owner_seller_id)` -> `stand_providers(id, seller_id)`: whose reminder this is is
+  decided by the RELATIONSHIP. They are the second and third of that family to move, after
+  `inventory_revisions` in `0045`. The remaining two — on `closure_revisions` and
+  `sales_location_participants` — deliberately STAY, because both carry facts about the PLACE
+  (max, 2026-08-15).
+
+  All three lived only in `0042` and were never carried into `schema.ts`, so none could be found
+  by reading the schema — only by a hosted write.
+
+  `ADD CONSTRAINT … FOREIGN KEY` VALIDATES against every row already present, so each new key
+  either holds for every row in production or the migration fails there having passed on every
+  empty database in the repo. The claim under test is a claim about real data: *every preference
+  and every prompt subject today names the stand's own listing, whose seller IS the stand's own
+  seller, so the `(provider, seller)` replacements are already satisfied.* That is reasoning
+  until a populated run proves it.
 
   ## What this file populates, and why each row is here
 
-    1. A stand with a seller of its own and a preference on its own listing — the 38-stand case,
-       and the row the replacement must accept UNCHANGED.
-    2. A HOSTED provider at that same stand with no preference of its own, so the migration is
-       proved not to backfill, infer, or re-root anything onto it. Its preference is written
-       AFTER the migration, which is the behaviour the whole phase exists for and is refused
-       before it.
-    3. A VENUE with a nested seller, because `own_seller_id` is NULL there and the dropped key
+    1. A stand with a seller of its own, a preference on its own listing, and a scheduled prompt
+       subject referencing that preference — the 38-stand case, and the rows both replacements
+       must accept UNCHANGED.
+    2. A HOSTED provider at that same stand with neither of its own, so the migrations are proved
+       not to backfill, infer, or re-root anything onto it. Its rows are written AFTER, which is
+       the behaviour the whole phase exists for and is refused before.
+    3. A VENUE with a nested seller, because `own_seller_id` is NULL there and the dropped keys
        could never be satisfied at all — no row matches NULL. It is the shape that proves the old
-       key forbade a class of listing outright rather than merely constraining it.
+       keys forbade a class of listing outright rather than merely constraining it.
 
   ## What is asserted
 
-  Exact row effects: every preference unchanged BY ID, counts unchanged; the dropped constraint
-  absent BY NAME; the replacement present BY NAME and actually VALIDATED (`convalidated` — a
+  Exact row effects: every row unchanged BY ID, counts unchanged; each dropped constraint absent
+  BY NAME; each replacement present BY NAME and actually VALIDATED (`convalidated` — a
   `NOT VALID` foreign key still refuses new rows, so a violating-insert probe cannot detect it);
   the new behaviour admitted where it was refused; and a genuinely wrong row still refused, so
-  the replacement is a constraint rather than a removal.
+  each replacement is a constraint rather than a removal.
 */
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
@@ -53,7 +64,7 @@ const migrationFiles = readdirSync(migrationsDir)
    only while its own migration is the newest in the repo, and breaks the moment one lands after
    it. Several earlier migration suites were repaired for exactly this. */
 const beforeThisWork = migrationFiles.filter((name) => name < "0048_");
-const thisWork = migrationFiles.filter((name) => name.startsWith("0048_"));
+const thisWork = migrationFiles.filter((name) => name >= "0048_");
 
 async function applyFile(db: Sql, fileName: string): Promise<void> {
   const body = readFileSync(resolve(migrationsDir, fileName), "utf8");
@@ -80,6 +91,8 @@ describe("F-114 C.4 cadence migration against a populated schema (integration)",
   let hostedAuthorizationId = "";
   let venueAuthorizationId = "";
   let preferenceId = "";
+  let subjectId = "";
+  const subjectSenderHash = "9".repeat(64);
 
   const client = (): Sql => {
     if (!sql) throw new Error("database not initialized");
@@ -100,7 +113,7 @@ describe("F-114 C.4 cadence migration against a populated schema (integration)",
     const db = client();
 
     // ---- 1. the schema as it stands BEFORE this work ---------------------------------------
-    expect(thisWork).toHaveLength(1);
+    expect(thisWork).toHaveLength(2);
     expect(beforeThisWork.length).toBeGreaterThan(47);
     for (const file of beforeThisWork) await applyFile(db, file);
 
@@ -196,7 +209,48 @@ describe("F-114 C.4 cadence migration against a populated schema (integration)",
     `;
     preferenceId = preferences[0]?.id as string;
 
-    // ---- 3. the migration under test -------------------------------------------------------
+    // The matching 38-stand row for `0049`: a scheduled prompt subject on the stand's OWN
+    // listing. It needs a proposal, an outbox row and a contact behind the sender hash, because
+    // the subject keys all three — and a migration test whose table is EMPTY proves nothing
+    // about a constraint that validates existing rows.
+    const subjectContacts = await db`
+      insert into contacts (phone_e164, phone_hash)
+      values ('+12065553009', ${subjectSenderHash}) returning id
+    `;
+    expect(subjectContacts).toHaveLength(1);
+    const subjectProposals = await db`
+      insert into inventory_publication_proposals (
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
+        has_inventory, has_closure, base_revision_id, base_is_first_publication
+      ) values (
+        ${subjectSenderHash}, ${standLocationId}, ${ownProviderId},
+        ${db.json({ entries: [] })}, 1, true, false, null, true
+      ) returning id
+    `;
+    const subjectOutbox = await db`
+      insert into outbox_work (
+        logical_key, recipient_hash, message_category, body,
+        body_expires_at, available_at
+      ) values (
+        ${`cadence-migration-${randomUUID()}`}, ${subjectSenderHash}, 'inventory_prompt',
+        'Items listed', now() + interval '30 days', now()
+      ) returning id
+    `;
+    const subjects = await db`
+      insert into scheduled_inventory_prompt_subjects (
+        proposal_id, proposal_version, preference_id, preference_version,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
+        closure_base_is_first_instruction, due_slot_at, outbox_work_id,
+        offers_same, created_at
+      ) values (
+        ${subjectProposals[0]?.id as string}, 1, ${preferenceId}, 1,
+        ${ownAuthorizationId}, ${ownSellerId}, ${standLocationId}, ${ownProviderId},
+        true, now(), ${subjectOutbox[0]?.id as string}, false, now()
+      ) returning proposal_id
+    `;
+    subjectId = subjects[0]?.proposal_id as string;
+
+    // ---- 3. the migrations under test -------------------------------------------------------
     for (const file of thisWork) await applyFile(db, file);
   }, 90_000);
 
@@ -313,6 +367,82 @@ describe("F-114 C.4 cadence migration against a populated schema (integration)",
       code: "23503",
       constraint_name: "inventory_prompt_preferences_provider_seller_fk",
     });
+  });
+
+  it("preserves the existing prompt subject exactly (0049)", async () => {
+    expect(await client()`
+      select proposal_id, owner_seller_id, sales_location_id, provider_id, authorization_id,
+             preference_id
+      from scheduled_inventory_prompt_subjects
+    `).toEqual([
+      {
+        proposal_id: subjectId,
+        owner_seller_id: ownSellerId,
+        sales_location_id: standLocationId,
+        provider_id: ownProviderId,
+        authorization_id: ownAuthorizationId,
+        preference_id: preferenceId,
+      },
+    ]);
+  });
+
+  it("drops the prompt subject's own-seller key and adds the relationship one (0049)", async () => {
+    expect(await client()`
+      select conname from pg_constraint
+      where conname = 'scheduled_prompt_subjects_location_own_seller_fk'
+    `).toEqual([]);
+
+    const rows = await client()`
+      select convalidated, pg_get_constraintdef(oid) as definition
+      from pg_constraint
+      where conname = 'scheduled_prompt_subjects_provider_seller_fk'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.convalidated).toBe(true);
+    expect(rows[0]?.definition as string).toMatch(
+      /FOREIGN KEY \(provider_id, owner_seller_id\) REFERENCES stand_providers\(id, seller_id\)/,
+    );
+  });
+
+  it("now admits a HOSTED seller's prompt subject, which the old key forbade (0049)", async () => {
+    // The row the scheduler pass writes for Zoe. Before `0049` every application check could
+    // pass and this insert would still be refused, because Gracie's Greens does not own the
+    // roof — which is what made the pass's own fix untestable end to end.
+    const proposals = await client()`
+      insert into inventory_publication_proposals (
+        sender_hash, sales_location_id, provider_id, payload, proposal_version,
+        has_inventory, has_closure, base_revision_id, base_is_first_publication
+      ) values (
+        ${subjectSenderHash}, ${standLocationId}, ${hostedProviderId},
+        ${client().json({ entries: [] })}, 1, true, false, null, true
+      ) returning id
+    `;
+    const outbox = await client()`
+      insert into outbox_work (
+        logical_key, recipient_hash, message_category, body,
+        body_expires_at, available_at
+      ) values (
+        ${`hosted-subject-${randomUUID()}`}, ${subjectSenderHash}, 'inventory_prompt',
+        'Items listed', now() + interval '30 days', now()
+      ) returning id
+    `;
+    const rows = await client()`
+      insert into scheduled_inventory_prompt_subjects (
+        proposal_id, proposal_version, preference_id, preference_version,
+        authorization_id, owner_seller_id, sales_location_id, provider_id,
+        closure_base_is_first_instruction, due_slot_at, outbox_work_id,
+        offers_same, created_at
+      ) values (
+        ${proposals[0]?.id as string}, 1, ${preferenceId}, 1,
+        ${hostedAuthorizationId}, ${hostedSellerId}, ${standLocationId}, ${hostedProviderId},
+        true, now(), ${outbox[0]?.id as string}, false, now()
+      ) returning proposal_id, owner_seller_id
+    `;
+    expect(rows[0]?.owner_seller_id).toBe(hostedSellerId);
+    await client()`
+      delete from scheduled_inventory_prompt_subjects
+      where proposal_id = ${rows[0]?.proposal_id as string}
+    `;
   });
 
   it("is a no-op when applied a second time", async () => {
