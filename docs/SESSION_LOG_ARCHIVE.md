@@ -1,7 +1,7 @@
-# Farm Friend — Session Log Archive (through 2026-08-07)
+# Farm Friend — Session Log Archive (through 2026-08-10)
 
-Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the 19 most recent entries;
-everything older lives here. Last rotated 2026-08-12; it now holds 77 entries.
+Rotated out of [SESSION_LOG.md](SESSION_LOG.md), which keeps the 28 most recent entries;
+everything older lives here. Last rotated 2026-08-16; it now holds 87 entries.
 
 **Read these as history, not as contract.** Most of this file predates or begins the
 clean-room reset, whose decisions superseded much of it; the current contract lives in the
@@ -9,6 +9,490 @@ architecture documents ([README.md](README.md) is the index). Where an entry her
 current architecture documents or with [CURRENT_STATE.md](CURRENT_STATE.md), those win.
 
 ---
+---
+
+## 2026-08-10 — Farmer onboarding now confirms with VIGA, and accepts incomplete forms honestly
+
+Max walked the real farmer onboarding journey end to end. The carrier keyword is now **VIGA**:
+Telnyx owns the phone-confirmation receipt, and the application sends only the distinct listing-live
+message and private update link. `START` remains the recovery keyword after an opt-out. The confirmed
+flow was added to Telnyx's messaging profile and its already-approved campaign without another review.
+
+The form now keeps Submit available, finds the earliest incomplete step after a press, and shows only
+that step's missing fields. Required facts are unchanged: a mapped address, stand choice, valid phone,
+and SMS agreement. The address action reads **Save**. The listing step leads with the yellow-outlined
+inventory section; VIGA Farm Bucks is presented alongside payment choices but remains its own stored
+fact. The confirmation screen shows the configured live sender number when available, separates its
+handset instruction from the map link, and uses the revised inventory language.
+
+The local geocoding failure was configuration, not code: the key restriction needed the machine's IPv6
+egress address. Local save then exposed an unapplied local migration; applying the 38th migration restored
+the development database. The farmer `LINK`/settings/update path was audited against these changes and
+kept its existing writer and settings behavior.
+
+Production review records were then examined before any change. Peak Moon's precise entrance and Sweet
+Alyssum's vetted point were already live; their address flags were stale. Open Gate is delivery-only, so
+butcher months are not a visitable-season claim. Holmstead's only source fact is “Mid April,” so its note
+records the incomplete start rather than inventing an end date. All four decisions were written to the
+review audit trail; no farmer listing changed.
+
+Release `2e1014d` (PR #100) merged to `main` and deployed from immutable digest
+`sha256:60117339775a9a813fb7575552e1ff9e9a96e0694ab2abfda4a85268ad990da7`. Cloud Run web
+`00059-c7j` and worker `00054-xv6` both passed secret-freshness assertions; the served vCard passed.
+The production ledger remained at 38 migrations. Verification: 1,794 unit tests, 878 local integration
+tests, typecheck, lint, and production web build all green; the build's known B-008 warnings remain.
+
+## 2026-08-10 — Measuring the SMS agent found two false claims; then the whole tranche shipped
+
+Max asked for live testing of the SMS inquiry path. The suites were green and stayed green
+throughout — every defect below was found by *measuring*, driving the real production model
+through the real code against a faithful clone of the production corpus.
+
+**Two defects put a false claim in a customer's hand.** The page heading was rendered from the
+customer's own words rather than from the retrieved rows, so "anyone got mangoes?" answered
+`Confirmed mangoes:` over a stand selling eggs and basil, and a dairy-allergy question answered
+`Confirmed dairy:` over a creamery. Reproduced with the model removed entirely, which is what
+made it plainly a code defect. The item fallback it rides on is *correct* and stays — a category
+request ("leafy greens" answered by "butter lettuce") is a relationship only the model can see —
+so the fix constrains the CLAIM, not the list beneath it.
+
+Separately, offering facts were identified as `offering-<locationId>`, asking the model to
+reproduce a structured string exactly. It dropped the prefix and returned the bare uuid: 11 of 11
+invalid identifiers in one run were this single mistake, against a corpus where 33 of 48
+candidates are offering-only stands. Validation refused every one correctly — nothing false was
+ever rendered — but the customer lost a real answer each time. **The barrier working is not the
+same as the system working**, and only measurement showed the difference.
+
+**The budget pair taught the sharper lesson.** Raising the response ceiling to stop a looping
+model, I sized it from characters ÷ 3.2 and got ~750 tokens for 60 uuids. Hex tokenizes far more
+finely — nearer 18 tokens each, so ~1100 — and the 1024 ceiling I shipped TRUNCATED real answers
+mid-identifier, turning good answers into rejections. It reached production. Verifying the deploy
+*by effect* rather than by assertions is the only reason it was caught within the hour. A ceiling
+below the widest honest output does not fail safely.
+
+**Then max asked to ship everything undeployed.** Four branches held commits main lacked. Two
+contributed nothing (superseded; their content had landed by other routes) and one,
+`deploy-contact-only-hotfix`, would have REVERTED the stricter visitability rule — merged `-s ours`
+so it is provably accounted for rather than silently dropped or silently applied. Where a merge
+conflicted, main's side won every time and the reason is recorded in the merge commit.
+
+**VIGA Bucks, at the end.** Max noticed the option missing from onboarding. It was gated on a VIGA
+eligibility flag stored on a stand row that does not exist until onboarding saves — so the control
+could never render for the farmer the form exists for. Max's call: acceptance is the farmer's own
+claim. Four enforcement points had to move together (CHECK, code guard, result status, and a
+hardcoded `false` in the INSERT that would have silently dropped the answer even with the gate
+removed).
+
+Removing the CHECK exposed a test that had been **passing for the wrong reason for months**:
+`schema.integration.test.ts` transposed `name` and `timezone`, so its `.rejects.toThrow()` was
+satisfied by an invalid-enum error rather than the projection rule under test. The farm-bucks
+CHECK was the other accidental error source. Both fixed; the rule is now genuinely tested.
+
+**Release detail, for whoever needs to reconstruct this deploy.** Production went from web
+`00054-wfk` / worker `00049-w4v` to `00057-bpc` / `00052-j9s` across two builds (the second being
+the token-ceiling correction), ending on digest `sha256:9d38d9e9…`. Both migrations were verified
+by schema effect rather than by the migrator's "migrations applied" line:
+
+- `0036` — `farms.retired_at` and `retired_by_administrator_id` present and nullable, the
+  `farms_coherent_retirement` CHECK in `pg_constraint`, `address_unresolved` in the enum, exactly
+  2 mislabelled flags re-filed, and 0 farms retired by it.
+- `0037` — the `sales_locations_farm_bucks_acceptance_requires_eligibility` CHECK absent, both
+  `farm_bucks_*` columns surviving, data unchanged at 20 accepted / 23 eligible.
+
+Backups immediately before each: `~/farm-friend-backups/neondb-PRE-0036-20260810-110458.dump` and
+`neondb-PRE-0037-20260810-120343.dump`. The VIGA Bucks fix was proven against the *served* bundle —
+the deployed chunk contains "Accepts VIGA Bucks" and no longer contains `farmBucksEligible` — because
+source reading it correctly is exactly what the earlier truncation bug also looked like.
+
+Branch cleanup: four branches held commits `main` lacked. `fix-map-mobile-view` merged normally;
+`f-064-weekly-timeline-keys` contributed nothing (participants, the GL-015 backfill, host publishing
+and migration 0029 had all landed by other routes); `deploy-contact-only-hotfix` was merged `-s ours`
+because its older copy would have reverted the stricter visitability rule (F-038/B-024). Pre-merge
+state is tagged `backup-premerge-*`.
+
+**Open, filed as B-050:** the very broadest inquiries ("what's available today?") still fail,
+because at ~48 identifiers the model corrupts individual uuids. That is the selection call's SHAPE,
+not a budget — asking for a full ranking of every candidate when only three are ever shown. The
+fix is a short list plus a continuation, and it was filed rather than rushed at the end of a long
+session.
+
+## 2026-08-10 — The admin farm card gets a hierarchy
+
+Max asked for a design pass on the farm/stand listing, naming one symptom: the nested stand was
+very hard to find. The card had four sections with identical 0.78rem uppercase grey micro-labels
+and identical hairline separators, so nothing led — a stand rendered as bare bold text between two
+hairlines, visually *lighter* than "Remove this farm".
+
+The organizing decision: **a stand is the only thing on this card a customer ever sees**, so it
+gets the card's one filled container (green ground, white sub-cards, its own green disclosure
+caret) while everything else — farm details, access, take-down — is VIGA's bookkeeping sitting on
+plain paper. That is what separates the subject from the paperwork about it, rather than four
+equally-weighted panels. The destructive section moved onto its own amber ground at the card's end
+so a volunteer scanning for "edit the name" never lands there by accident.
+
+Two things were making it worse than the markup suggested. `.admin-button-row button { flex: 1 1
+9rem }` stretched every button to fill the row, so a routine edit and a farm take-down rendered as
+identical 1000px slabs. And the `dl` labels were uppercase at 600 weight *under* a heading at the
+same size — three of them stacked read louder than the heading they belonged to, inverting the
+hierarchy; they dropped to quiet sentence case.
+
+**The verification is narrower than it looks.** `/admin/farms` is behind admin login and needed
+seeded farms, so rather than infer from the file, the components were rendered against the real
+served stylesheet and *measured* in Chrome — computed background, padding, caret rotation, button
+flex-basis, heading size, and no horizontal overflow at 390px. The first measurement caught a real
+failure: the stylesheet link had loaded a stale cached copy and none of the new rules applied at
+all, which reading the CSS would never have revealed. But the route itself was never opened, and a
+multi-stand farm, a removed farm, and "off the map with the farm" chips are unseen in the new
+styling. A `::before` computed transform also reads as identity on a zero-size element — the
+rendered caret, not the computed value, is the truth there.
+
+`apps/web/lib/admin-ui.test.tsx` does render both `FarmList` and `StandDetails`, but it never
+asserts on the "Stands" heading — so the rename to "1 stand" / "N stands" passed for want of an
+assertion rather than because the change was proven safe. The suite is blind to this change class;
+the Chrome measurements are the evidence here, not the green check.
+
+A scratch `.probe/inquiry-probe.ts` in the repo root belongs to an active parallel session probing
+SMS inquiry responses — left untouched, uncommitted, and deliberately not gitignored.
+
+## 2026-08-10 — Verification email copy and code emphasis
+
+Verification emails now use Farm Friend's requested subject and concise copy. The same message is
+present as a plain-text fallback, while Gmail delivers a `multipart/alternative` email whose HTML
+version renders the six-digit code at 32px, bold, and spaced for easy reading. The verification
+request no longer performs a farm-name lookup solely for email copy.
+
+Verified with 1782 unit tests, 871 local integration tests, typecheck, lint, and the web production
+build. The default integration command correctly refuses to run without a disposable database URL.
+
+## 2026-08-10 — F-100, the admin console reorganized around subjects
+
+Max asked for four specific admin changes and a UX audit behind them. The audit — run as a
+subagent at his request — found the root cause of everything he had described as "what just
+happened? did that work? where did it go?": the console was organized by **database table**, one
+screen per queue, so no screen owned "the farm". It appeared six ways across two pages, each with
+its own vocabulary and none linking to the others. Both examples he gave were symptoms of that one
+cause, not separate bugs.
+
+Three tabs now, one subject each — Farms, Messages, Users. A farm is one directory row expanding
+to everything about it. Messages merges three destinations for one kind of work, two of which
+("Customer reports" / "Stock reports") were synonyms to a volunteer and one of which was reachable
+only by hand-typing its URL. Users restores the people directory this branch had earlier deleted;
+that deletion was wrong — `listUsersForAdministration` answers "who has texted us and can they
+publish", which is a subject rather than a duplicate of farm access. The Home tab went last, on
+max's call: it held nothing but counts pointing at other tabs, so every task cost two clicks and
+the landing screen had no work on it. Its counts moved to the tab that owns the work; `/admin`
+redirects to Farms so bookmarks survive.
+
+**"Delete a farm" means take-down, not erasure** — max's choice, matching F-071 for stands.
+`farms` is referenced `on delete restrict` by eight tables, so a hard DELETE fails for any farm
+ever used, and erasing one would erase what its stands published and when. The load-bearing design
+decision is that a farm take-down does **not** write each stand's own `retired_at`: readers treat a
+stand under a retired farm as off the map, but the stand's column stays untouched, so restoring the
+farm returns exactly the stands it was holding down while a stand retired on its own stays retired.
+Collapsing the two would make restore guess. Both directions are tested, and both were sabotaged to
+prove the tests can fail.
+
+Migration `0036` hit three known traps in one pass, which is worth recording together: the enum
+had to be **recreated** rather than extended because `ALTER TYPE … ADD VALUE` cannot run inside
+drizzle's transaction; `generate` silently dropped the CHECK, which was hand-appended and then
+proven to genuinely refuse; and the journal `when` was born older than 0035's future-dated stamp,
+so it would have skipped itself silently. Its other half fixes the screenshot max sent: address
+questions were filed as `unparsed_availability`, so the queue rendered "Availability text could not
+be understood" directly above quoted text that was plainly an address — the label contradicted the
+evidence beneath it.
+
+Two defects were invisible to the suites and found only in the browser, both worth remembering as a
+class: jsdom reports every element as zero-sized, and each component's tests render it alone. The
+farm card's sections were landing in the shared `auto-fit` stand grid at 171px columns, and a
+take-down left nested stands rendering "Visible to customers" until reload because `StandDetails`
+snapshots its prop into state. Both were diagnosed by **measuring the running DOM** rather than
+reading source that already looked correct.
+
+A long detour on local setup produced `scripts/dev-setup.sh`. Next expands `$NAME` inside .env
+values, and an Argon2id verifier is a run of `$`-delimited segments, so `ADMIN_PASSWORD_HASH` in
+`apps/web/.env.local` reaches the server *shorter than it was written* and every sign-in refuses
+with the same generic message a wrong password gets — while the verifier keeps verifying correctly
+in any standalone script, because that script reads the file directly. Reproduced in both
+directions before documenting it.
+
+Also from the audit: `post()` was clearing a minted invite, destroying the only copy of an
+unrecoverable link on any later unrelated click; success and error messages rendered once above a
+list rather than on the row that caused them; Farm Bucks and stand retirement saved with no
+confirmation at all. The lower-ranked findings are filed as F-101 and B-048 rather than carried in
+anyone's head.
+
+Verified with 1782 unit, 871 integration, typecheck, lint, the production build, and evals 44/44
+(`evals:live` not owed — no model seam, prompt, or projection was touched). Migration `0036` is
+applied and verified by schema effect **locally only**; production has not run it.
+
+Merged as `1ead9a3` (PR #97) but **deliberately not deployed**: max chose to wrap a parallel session
+first and ship both together after his phone-width pass, so the next deploy carries more than this
+tranche. The branch kept its `f-099-…` name after F-099 was taken by the VIGA Bucks work mid-flight;
+the PM item is **F-100**.
+
+## 2026-08-09 — B-044 follow-up, structured offerings removed from descriptive prose
+
+The first repair restored reviewed usual offerings but left the same foods in some farms'
+Additional information. The description parser now receives the reviewed usually-sells set and
+removes only leading offering-only sentences, preserving independent prose after them. Real-corpus
+guards cover Tian Tian, Ostara, and Sweet Alyssum rather than treating one screenshot as the rule.
+
+Fourteen production descriptions were rewritten and verified, five becoming empty; the idempotence
+run now reports all 25 descriptions clean. Tian Tian exposes nine usual items with only its organic-
+practices note, while 3 Brothers exposes eggs with no current-stock claim or duplicate prose. The
+rewrite backup is
+`~/farm-friend-backups/farm-descriptions-backup-2026-08-09T19-34-25-398Z.json`.
+
+PR #94 merged as `af2cc0d` and deployed to web `00054-wfk` and worker `00049-w4v`, both on digest
+`sha256:247393a9f769e76bd13e91195eb332dbda0d8e815b8ea4b84dfc82d213b36840`. Verified with 1778
+unit and 860 integration tests, typecheck, lint, production build, the real corpus, production data,
+all 60 plan assertions, secret freshness, health, served bytes, and the live public API.
+
+## 2026-08-09 — B-045, verification email restored over Gmail HTTPS
+
+Cloud Run could no longer open the SMTP connection, while HTTPS egress and the VIGA board mailbox
+continued to work. B-045 replaces only the delivery adapter: Gmail's HTTPS API now sends from the
+board mailbox with a refresh grant restricted to `gmail.send`. The client secret and refresh token
+live in Secret Manager; the delivery resolver refuses any configuration that would mount Gmail and
+SMTP credentials together.
+
+The approved production release is web `farm-friend-web-00053-jcr` and worker
+`farm-friend-worker-00048-4st`, digest
+`sha256:cb9a6fa262ed7edf414486f65261f5e4e6c5a6abe220de664903f87137e630a8`. A real production
+verification request recorded B-047's `farmer_verification_send` outcome `accepted`, then arrived
+in the recipient's inbox. Max's controlled address was added to Sylvan Garden's roster without
+removing its existing address.
+
+Verified with 1777 unit tests, 860 integration tests against an empty local Postgres schema,
+typecheck, lint, the web production build, Terraform plan-assertion tests, Cloud Run health, and
+provider acceptance plus inbox receipt. No DNS change, third-party email account, or paid service
+was used.
+
+## 2026-08-09 — B-044, reviewed offerings restored as part of the stand corpus
+
+Two cards exposed one production-data defect. Tian Tian's prose named bok choy and a choy but its
+structured usual list was empty; 3 Brothers' prose said `OPEN has: eggs` while it had no structured
+item. The parser was not selectively losing those foods: the 2026-08-08 rebuild had restored stands
+without the separately reviewed offering artifact, leaving every reviewed usual offering absent.
+
+The reviewed artifact contained 212 approved items across 34 source entries, with no unknown or
+unresolved stands against the real exports. Those 212 rows were published, 3 Brothers' duplicate egg
+prose was removed, and the public API now returns Tian Tian's full nine-item usual list and 3
+Brothers' structured eggs. The verified backup for the one prose edit is
+`~/farm-friend-backups/farm-descriptions-backup-2026-08-09T18-42-59-230Z.json`.
+
+The lasting fix treats stands and reviewed offerings as one restore unit. `db:seed` now requires the
+approved artifact, validates every referenced stand before writing, and commits both halves in one
+transaction. A failure in either half leaves neither behind. The standalone offering path refuses
+farmer-owned listings, preserving the rule that bulk VIGA data cannot overwrite farmer authority.
+`OPEN has:` is now recognized as an offering-list label and removed from Additional information only
+when its body is a plain list.
+
+Verified with 1770 unit tests, the full integration suite, typecheck, lint, the web production build,
+and a dry run against the real 35-stand exports. Deliberate breakage proved the regression catches a
+missing `OPEN has:` rule, omitted offering writes, and a split transaction that commits stands before
+an offering failure. Production was checked by database effect, a zero-insert idempotence run, and
+the live public API—not by script success output.
+
+## 2026-08-09 — F-098, two silent refusals, and an SMTP path that stopped working
+
+Started as a UX pass on the returning farmer's tab and ended in a production incident. The two are
+unrelated except in sequence, and the incident is the part worth reading.
+
+**The "Details & settings" tab had three buttons that committed something** — the listing's "Save",
+the onboarding wizard's "Submit", and "Save settings". F-097 unified the buttons *inside* the
+settings panel and left the composition alone, so the wizard's Submit survived beside the panel that
+replaced it. The Submit was never gated on the credential: `steps === null` is true for a stand
+link, which is what put onboarding's word on a returning farmer's screen. It is now gated on the
+door, and the settings panel hands its save up through context so one press commits both. The
+writers stay separate — merging them would put the participant write, with its own audit event and
+public-text refusal, behind the listing's transaction.
+
+**The render-prop version of that wiring passed every test and 500'd on every real request.** A
+server component cannot pass a function to a client one, and jsdom has no such boundary, so the
+suite was green while production was broken. Caught only by loading the deployed page. The fix is
+context; the lesson is that the composition seam between server and client components is invisible
+to the component suites and has to be measured against the running app.
+
+**The address button no longer says "Save".** While an onboarding "Submit" was also on screen,
+"Save" was the honest word for it; with a single "Save changes" committing the tab, a second button
+saying Save reads as a competing commit. It says "Find on map", which is what it does.
+
+**The grandfathered farmer could not finish onboarding, and had not been able to since Friday.**
+`JOIN <token>` was removed 2026-08-07 and farm identity moved to a phone stated on the onboarding
+form, matched by a bare `START` against `pending_phone_hash`. That column lives on
+`farmer_invitations` — a row the honour-system door could not write, because
+`created_by_administrator_id` was NOT NULL with an FK to `administrators` and there is no
+administrator in that loop. The next day the form became a wizard and its fourth step, holding only
+invitation-gated fields, rendered as a heading and two nav buttons. Migration `0035` makes the
+issuer optional with a CHECK that a self-issued claim names its farm, and max approved making
+`farm_approvals.administrator_id` nullable too: a farm can now publish with nobody having approved
+it, and VIGA's revoke is the backstop. Verified end to end from an empty schema — claim, `START`,
+authorization, the same welcome an invited farmer gets. A doc line in `grandfathered-listing.ts` had
+been citing `JOIN <token>` as the live path for two days and was hiding this.
+
+**B-046 — an unused code locked the farm out for thirty minutes.**
+`farm_email_verifications_one_live_per_farm` is partial on `consumed_at IS NULL`, so a code the
+farmer never used holds the farm's only slot; expiry does not release it. Every retry hit `on
+conflict do nothing`, returned `already_live`, and the route answered its uniform "sent" regardless.
+Issuance now retires the farm's own earlier code in the same transaction. The invariant is unchanged
+— still exactly one live code — but the farmer's newest intent wins over her abandoned one.
+`issued_at < now` is what separates a retry from a race: eight simultaneous claimants share one
+instant, so none retires another's code and exactly one wins on the index. Strict `<`, never `<=`. A
+farm-level `for update` lock was written first and **deleted after sabotage left all 25 tests
+green** — it was a line claiming a protection it did not provide.
+
+**B-047 — the system could not see its own email failures.** `createEmailSender` takes an optional
+`logger` and no caller ever passed one, so every outcome, accepted and failed alike, was discarded.
+Three separate investigations of one incident had to reason from response timing because no evidence
+existed. The route now logs outcome, transport error code, farm and idempotency key as a JSON line
+on stdout. The farmer's address is deliberately absent and a test greps the log to prove it. The
+uniform *response* is unchanged — it is what stops the endpoint revealing which addresses are on
+file.
+
+**That logging is what found the real problem.** Production cannot open an SMTP connection at all:
+`ECONNECTION` in ~0.26s, an instant refusal rather than a timeout. Port 465 was deployed and tested
+live and failed identically; the Workspace relay's IP restriction is off and authentication is on;
+the same credentials work from max's machine on both ports; the same revision reaches the Geocoding
+API over HTTPS in 0.37s; and no email-related file, Dockerfile or lockfile changed between Friday's
+commit and now. It worked on Friday for a real farmer. The remaining explanation is Google blocking
+outbound SMTP from this service, and the recommendation is an HTTPS email API. Filed as B-045,
+carried in CURRENT_STATE, and it blocks the grandfathered door.
+
+**Two false conclusions worth recording, because both looked solid.** First: "zero verification rows
+exist, so this never worked in production" — the 2026-08-07 22:43 wipe destroyed Friday's rows, and
+absence of data the wipe explains is not evidence. Second: "I burned her rate limit" — she was at
+0 of 3; what actually refused her was the live-code block, which the timestamps showed once checked
+rather than recalled. Diagnostic requests against a real farm are not free: they consume the farm's
+hourly budget and hold its one live slot.
+
+**The commit messages carry the wrong bug IDs.** `2431c07` says "B-025" and `ca212df` says "B-026";
+both were written before checking the backlog, where those IDs belong to closed bugs from 2026-07-29
+and 2026-08-01. The real items are **B-046** (the lockout) and **B-047** (the missing send logging),
+with the SMTP outage filed as **B-045**. The commits are pushed and are not being rewritten — this
+line is the mapping.
+
+Verified: 1766 unit, 84 integration across the four suites touched, typecheck, lint, three
+production Cloud Builds. Sabotaged the Submit gate, the address-button label, the details-tab
+wiring, the supersede retire, the `issued_at` comparison and the farm lock; all failed as they
+should except the lock, which was deleted for it.
+
+## 2026-08-09 — F-097: the link a farmer can read, and one press instead of two
+
+Ten adjustments max asked for overnight after reading the onboarding thread on a real handset.
+Most were copy and layout; two changed contracts, and those are the ones worth the paragraphs.
+
+**The link was four lines long in the message thread.** The stand token was 32 random bytes
+rendered as 64 hex characters, which wrapped four times beside the production host and read as
+machine output rather than as something to tap. It is now 16 bytes of base64url — 22 characters,
+128 bits, the same strength with a different encoding. The temptation to name and avoid was
+shortening the *randomness* instead of the *encoding*, so the suite asserts the decoded byte count
+rather than the character count, and asserts 500 distinct draws so a constant cannot pass. The
+35 links already sitting in farmers' threads are 64 hex; `isFarmerLinkToken` spans both ranges,
+because recognising only the new shape would have dead-linked all of them behind the uniform "this
+link is not active" refusal — which deliberately cannot be told from a revocation, so nobody could
+have discovered why. Four boundary validators had their own copy of the hex regex; they now share
+core's predicate. The setup message also lost three lines of scaffolding around the URL, and went
+from three segments to two. The tightened bound was sabotaged by reverting the token to hex.
+
+**The web editor publishes in one press, and `docs/ARCHITECTURE.md` needed rewording rather than
+contradicting.** That doc says the web path gets no bypass of the confirmation gate, and it still
+does not: `publishStructuredFromLink` composes the existing propose and confirm calls, so
+`confirmInventoryPublication` still re-reads live authority, VIGA approval and retirement under its
+own locks and still consumes the proposal exactly once. What was removed is a SCREEN. The exact
+preview earns its place on SMS, where code interpreted prose and had to show its reading before
+acting; on the web the farmer is reading back the rows they just typed. `propose`, `confirm` and
+`decline` were deleted from the route rather than left beside `publish`, since a second door onto
+one writer is how the two come to disagree.
+
+Max also asked that a web update stop texting a confirmation. The obstacle is
+`activation_coherent`, which refuses a live confirmation window with no outbox message behind it —
+the constraint exists so a proposal cannot be committable without a prompt the farmer was shown.
+Rather than weaken it, the row is now written `state = 'suppressed'` with `completed_at` set: a
+state `outbox_work_coherent_state` already permits, and the same one the dispatch claim writes when
+consent forbids a send. The record still exists for the audit trail; it simply never becomes work.
+
+**The reminder cadence is now asked at onboarding**, below the SMS agreement it follows from —
+every farmer was silently seeded `weekly` and learned their schedule when a text arrived. It cannot
+be written when the farmer chooses it, because `inventory_prompt_preferences` carries a composite
+foreign key to an authorization that does not exist until they text `START`. So it waits on the
+invitation in a new nullable column and is applied inside the redemption transaction, exactly as
+`pending_stock` does. NULL means "never asked" rather than "chose weekly", so only the first may be
+silently moved if the default ever changes.
+
+**Migration 0034 would have been silently skipped.** `0033` carries a journal timestamp dated
+2026-08-30, three weeks ahead of the wall clock, so the freshly generated 0034 was born *older*
+than the last applied migration — the exact failure `CURRENT_STATE` warns about, and it was
+`migration-ordering.test.ts` rather than any judgement that caught it. 0034 is hand-stamped one
+second after 0033. **Every migration generated before 2026-08-30 inherits this.** The column was
+then verified against `information_schema`, not against "migrations applied successfully".
+
+The settings panel went from three save buttons — one of them labelled "Submit", onboarding's word
+— to one that writes only what changed, because sending all three writers on every press would
+file a participant audit event claiming the seller list was edited whenever a farmer touched their
+reminder schedule. Writing that test found a real defect in the one-press stock editor too: the
+success banner survived a subsequent failed save, so a farmer would read "Your stand is updated."
+directly above the error saying it was not. The old two-step flow cleared it when the proposal
+opened; collapsing to one press removed that moment.
+
+The map card's date moved below the items it covers and reads "Last updated X ago", counting in
+weeks past seven days and giving up at four — "45 days ago" is a number nobody converts. That is a
+third phrasing rather than a reformatting of the SMS one, because a browsed card and a text reply
+answer different questions; everything under a week still delegates to the shared arithmetic so the
+two channels cannot drift.
+
+Several tests had pinned exact copy ("Confirmed X ago", "Save default stand", a literal
+`JSON.stringify({ token, salesLocationId })`). Those were re-anchored to the properties they were
+protecting — that the credential travels in the body at all, that pausing is not opting out —
+rather than re-pinned to the new wording.
+
+### The welcome text, rewritten — and the keyword lists split in two
+
+Max read the thread on a handset again and rewrote the setup message himself. The shape that
+mattered: it now SHOWS how to phrase an update rather than describing it. "Just text us what you
+have out" states the interface without demonstrating it, and a farmer's first message is the one
+most likely to be a stilted list — because they are guessing at a format that does not exist. The
+example carries the real shape ("we're out of eggs, replenished kale and added radishes"): ordinary
+phrasing, several operations at once, add and remove and restock mixed together.
+
+**`STAND` is now named only for a farmer who has a second stand.** It picks between stands, so for
+everyone else it teaches a word for a situation they are not in. The count comes from the stands
+query that was already running in `queueFarmerAuthorizedNotification`; its `limit 1` came off. The
+parameter defaults to naming it, because a caller that does not know the count is not evidence of
+one stand, and the failure directions are asymmetric — a two-stand farmer never taught the word has
+no other way to learn it, while a one-stand farmer who reads it loses a few characters.
+
+**`SETTINGS` left the taught set entirely**, on max's reasoning: a farmer has exactly one edit page
+and `LINK` already opens it, since the reminder cadence is a tab on that same page. It stays parsed
+and working.
+
+That last one needed somewhere to put the decision, and the reason is worth recording. The keyword
+tripwire asserts that every keyword the parser honours appears in `FARMER_TAUGHT_KEYWORDS` — so
+dropping a word simply fails the test, and the cheapest way to make it pass again is to delete the
+wrong side of it. `FARMER_UNTAUGHT_KEYWORDS` is the second list: the tripwire now requires every
+parsed keyword to sit in one or the other, so **a keyword nobody teaches and a keyword somebody
+forgot cannot look the same.** It carries the expiry condition too — `SETTINGS` moves back when
+account settings become a surface genuinely separate from the stand's edit page.
+
+The message went to three segments, up from the two this session had just won. That was spent
+deliberately: the example is the most valuable line in the text, so the bound moved to the honest
+number rather than the copy being trimmed to fit a target. Two integration tests were pinned to the
+old wording through a hardcoded `["LINK", "STAND", "SETTINGS"]` list; they now assert the real rule
+including the *absence* of the latter two, so re-adding either is a decision rather than a drift.
+
+Also considered and dropped: routing the link through a Squarespace URL mapping. It cannot work —
+Squarespace redirects are 301s, so the Cloud Run host lands in the address bar anyway, the token
+transits their logs, and a 301 caches hard enough to strand farmers if the target ever moves. The
+measurement that settled it: iOS breaks URLs after `/` **and** after `-`, so the ragged whitespace
+in the thread came from the hyphens in `farm-friend-web-p5mfxfp5za-uw.a.run.app`, not from the
+token. Getting to one line needs a genuinely short domain, which is a purchase and max's call.
+
+Final verification: 1743 unit, 851 integration, typecheck, lint. The conditional-`STAND` branch was
+sabotaged (forcing it always-on) and the test caught it. The favicon was checked by effect against
+the running standalone server rather than against the build's route listing. Migration 0034 was
+checked against `information_schema` rather than its success message. Not verified: appearance at
+phone width, which is max's own pass.
+
 ## 2026-08-08 — F-076: one returning-farmer stock editor, literally shared with onboarding
 
 The returning-farmer status tab now emits additions, removals and price changes as a direct

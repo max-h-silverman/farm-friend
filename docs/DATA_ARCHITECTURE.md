@@ -119,9 +119,12 @@ participant names, onboarding requests, and prompt due-slots below.
   farmer texting five times from producing five queue entries.
 - **One coherent farmer target context per sender** (F-051) — selected target columns are all null or
   all populated; menu issue/expiry/purpose are all null or all populated with expiry after issue; every
-  option number is positive and unique within the sender's exact menu. Targeted standing-link
-  owner/location columns are both null or both populated, with composite foreign keys binding both the
-  authorization and location to that owner.
+  option number is positive and unique within the sender's exact menu. **The seller a target names
+  is bound to its PROVIDER, not to the stand's own seller** (`0047`), so a hosted listing is
+  representable while a row still cannot name one seller's listing under another seller's name. The
+  acting authorization is a plain reference: who may target whom is two live facts — the
+  relationship's opt-in and the authorization's revocation — that a static key cannot see, and
+  `PROVIDER_AUTHORITY_ARMS` enforces it at every reader.
 - **One prompt preference per stand and one subject per preference due slot** (F-052) — unique
   constraints make both facts structural. Preference versions are positive; paused rows have no next
   due time; active rows do. Subject versions are positive, owner/location/authorization and
