@@ -18,7 +18,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
   let db: Db | undefined;
   let databaseName = "";
   let testDatabaseUrl = "";
-  const ids = { contact: "", farm: "", location: "", authorization: "" };
+  const ids = { contact: "", farm: "", location: "", authorization: "", provider: "" };
   const senderHash = "f".repeat(64);
 
   beforeAll(async () => {
@@ -58,6 +58,14 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       ) values (${ids.farm}, ${ids.contact}, ${NOW}, ${NOW}) returning id
     `;
     ids.authorization = authorization[0]?.id as string;
+    // The stand's own listing, created by `create_own_seller_provider` when the stand named
+    // itself. C.4 made the cadence seam take a LISTING, and at this single-seller stand that
+    // is the self-pointer's provider.
+    const provider = await db.sql`
+      select id from stand_providers
+      where sales_location_id = ${ids.location} and seller_id = ${ids.farm}
+    `;
+    ids.provider = provider[0]?.id as string;
   });
 
   afterAll(async () => {
@@ -78,7 +86,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
       const result = await setInventoryPromptPreference(handle(), {
         senderHash,
         authorizationId: ids.authorization!,
-        salesLocationId: ids.location!,
+        providerId: ids.provider!,
         cadence,
         clock: new FixedClock(NOW),
       });
@@ -105,7 +113,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     const preference = await setInventoryPromptPreference(handle(), {
       senderHash,
       authorizationId: ids.authorization!,
-      salesLocationId: ids.location!,
+      providerId: ids.provider!,
       cadence: "weekly",
       clock: new FixedClock(NOW),
     });
@@ -289,7 +297,7 @@ describe("scheduled inventory prompt preferences (integration)", () => {
     const preference = await setInventoryPromptPreference(handle(), {
       senderHash,
       authorizationId: ids.authorization!,
-      salesLocationId: ids.location!,
+      providerId: ids.provider!,
       cadence: "weekly",
       clock: new FixedClock(NOW),
     });

@@ -125,10 +125,24 @@ export async function handleFarmerSettingsPost(
     if (stand === null) {
       return Response.json({ error: "not_authorized" }, { status: 403 });
     }
+    // The cadence seam takes a LISTING now (C.4). This screen still names a stand, so it
+    // resolves the one it means — the stand's own listing, by self-pointer — exactly as the
+    // default-stand path above does. C.4e widens the screen itself to one row per listing.
+    const targets = await listFarmerSettingsTargets(deps.db, {
+      senderHash: stand.senderHash,
+      authorizationId: stand.authorizationId,
+    });
+    const ownListing = targets.find(
+      (target) =>
+        target.salesLocationId === body.salesLocationId && target.describesOwnStand,
+    );
+    if (ownListing === undefined) {
+      return Response.json({ error: "not_authorized" }, { status: 403 });
+    }
     const result = await setInventoryPromptPreference(deps.db, {
       senderHash: stand.senderHash,
       authorizationId: stand.authorizationId,
-      salesLocationId: body.salesLocationId,
+      providerId: ownListing.providerId,
       cadence: body.cadence as PromptCadence,
       clock: deps.clock,
     });

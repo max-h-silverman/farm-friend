@@ -2262,6 +2262,23 @@ export const inventoryPromptPreferences = pgTable(
       columns: [table.designatedAuthorizationId, table.ownerSellerId],
       foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.sellerId],
     }).onDelete("restrict"),
+    /**
+     * Whose reminder this is is decided by the RELATIONSHIP (F-114 Phase C.4, `0048`).
+     *
+     * This replaces `inventory_prompt_preferences_location_own_seller_fk`, which said the
+     * reminder's seller must be the seller that OWNS THE STAND — true of 38 of 38 stands when
+     * `0042` wrote it, false of every hosting relationship, and impossible at a venue, where
+     * `own_seller_id` is NULL and nothing can match. It forbade a hosted seller's cadence at the
+     * database, and it was never in `schema.ts` at all, so only a hosted write could find it.
+     *
+     * Same correction `0045` made to `inventory_revisions`, in the table whose entire subject is
+     * the fact C.4 makes per-provider.
+     */
+    providerSellerReference: foreignKey({
+      name: "inventory_prompt_preferences_provider_seller_fk",
+      columns: [table.providerId, table.ownerSellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
+    }).onDelete("restrict"),
     positiveVersion: check(
       "inventory_prompt_preferences_positive_version",
       sql`${table.version} > 0`,
