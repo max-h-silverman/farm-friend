@@ -748,6 +748,9 @@ async function handleFarmerInventoryUpdate(
       {
         senderHash: input.senderHash,
         salesLocationId: farmer.target.salesLocationId,
+        // C.3 — the LISTING the target names, so a hosted seller's words compose against her
+        // own published items rather than her host's.
+        providerId: farmer.target.providerId,
         taskText: input.taskText,
       },
     );

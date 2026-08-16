@@ -113,7 +113,74 @@ export type ProviderWriteAuthority =
   | { status: "provider_not_live" }
   | { status: "not_authorized" };
 
+/**
+ * The three ways to say yes, as SQL text, for the readers that ask in the OTHER direction.
+ *
+ * `resolveProviderWriteAuthority` answers *may this phone write this provider*. Two readers ask
+ * *which providers may this phone reach* — `lockLiveTargets` builds the SMS menu, and
+ * `resolveFarmerLink` re-checks a standing link on every load. Enumerating the arms in each of
+ * them is exactly the drift this module exists to prevent: a menu offering a listing the writer
+ * then refuses is a farmer told to choose and then told no.
+ *
+ * Expects `provider`, `location`, and `auth` in scope. It is composed SQL TEXT, so any query
+ * using it must go through `.unsafe(…)` — a tagged template would send it as a bind parameter
+ * and die at parse (DEVELOPMENT.md §gotchas).
+ *
+ * `paused` is deliberately INCLUDED and `pending`/ended are not: §facts and authority offers a
+ * paused seller their listing back rather than refusing them.
+ */
+export const PROVIDER_AUTHORITY_ARMS = `
+  provider.ended_at is null
+  and provider.lifecycle_state in ('active', 'paused')
+  and (
+    auth.seller_id = provider.seller_id
+    or (
+      provider.host_may_update_stock
+      and (
+        (auth.seller_id is not null and auth.seller_id = location.own_seller_id)
+        or (auth.sales_location_id is not null and auth.sales_location_id = location.id)
+      )
+    )
+  )
+`;
+
 export type AuthorityReader = Db | Sql | Tx;
+
+/**
+ * The ONE listing an authorization holds at a named stand, or nothing.
+ *
+ * F-114 Phase C.3. VIGA's Farms roster shows one row per stand, and a link opens one listing —
+ * so the operator's `(authorization, stand)` pair has to become a provider before it can issue
+ * anything. This refuses on zero AND on more than one rather than picking: a stand where the
+ * operator's chosen farmer holds two listings is a genuine ambiguity, and resolving it silently
+ * would hand out a link to the wrong seller's goods with nothing on screen to say so.
+ *
+ * The arms are the shared ones, so the operator can never issue a link the writer would refuse.
+ */
+export async function resolveAdministratorLinkTarget(
+  db: AuthorityReader,
+  input: { authorizationId: string; salesLocationId: string },
+): Promise<{ providerId: string; sellerId: string } | null> {
+  const sql = queryable(db);
+  const rows = await sql.unsafe(
+    `
+      select provider.id as provider_id, provider.seller_id
+      from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      join farmer_authorizations as auth on ${PROVIDER_AUTHORITY_ARMS}
+      where auth.id = $1
+        and location.id = $2
+        and auth.revoked_at is null
+      limit 2
+    `,
+    [input.authorizationId, input.salesLocationId],
+  );
+  if (rows.length !== 1) return null;
+  return {
+    providerId: rows[0]?.provider_id as string,
+    sellerId: rows[0]?.seller_id as string,
+  };
+}
 
 function queryable(db: AuthorityReader): Sql | Tx {
   return "sql" in db ? (db as Db).sql : (db as Sql | Tx);
@@ -136,6 +203,18 @@ export async function resolveProviderWriteAuthority(
   input: { providerId: string; senderHash: string },
 ): Promise<ProviderWriteAuthority> {
   const sql = queryable(db);
+  /*
+    Deliberately NOT written with `PROVIDER_AUTHORITY_ARMS`, and the reason is the difference
+    between the two directions. The readers ask *which providers may this phone reach* and want
+    one boolean. This function must additionally report WHICH arm said yes and WHICH
+    authorization the write is performed under, and it must distinguish a refusal
+    (`not_authorized`) from a relationship that is not live (`provider_not_live`) — so it reads
+    the provider row unconditionally and decides in code.
+
+    `provider-write-authority.integration.test.ts` asserts the two agree on every arm, which is
+    the guarantee that matters; sharing the text would not add one, and folding the lateral
+    joins into a filter would lose the arm the caller is told about.
+  */
   const rows = await sql`
     select
       provider.id as provider_id,

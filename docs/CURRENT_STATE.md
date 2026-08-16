@@ -19,7 +19,8 @@
 
 ## F-114 — what is on `main` and NOT deployed
 
-Phases B, C.0, C.1 (records, invitation, doors), and C.2 (writes, closure, `214aeb2`) are merged.
+Phases B, C.0, C.1 (records, invitation, doors), C.2 (writes, closure, `214aeb2`), and C.3
+(targeting, stock-out routing) are merged.
 The governing contract is §the stand-and-sellers correction in
 `docs/plans/farmer-behavior-architecture-plan.md`.
 
@@ -65,49 +66,93 @@ The governing contract is §the stand-and-sellers correction in
 - **A leaked farmer link can now create a seller and a `pending` relationship at its own stand.** It
   still authorizes nobody — acceptance needs the invited seller's own handset and a bare `START` —
   and `pending` is invisible to every public reader. Asserted beside F-040's other five bounds.
-- **What C remains: per-provider SMS targeting/stock-out routing (C.3), reminder cadence and the
-  scheduler pass (C.4), and the public seller list + item-first cards (C.5).** Targeting is the next
-  gate: `lockLiveTargets` joins `own_seller_id = auth.seller_id`, so a hosted seller is untargetable
-  and cannot yet be reached by SMS at all.
+- **A hosted seller is now reachable by SMS at all (C.3).** A target is a PROVIDER, not a stand:
+  `lockLiveTargets` joins `stand_providers` through `PROVIDER_AUTHORITY_ARMS` — the same three ways
+  to say yes `resolveProviderWriteAuthority` enumerates, asked in the other direction, with the
+  round trip asserted so the menu can never offer a listing the writer refuses. The menu names the
+  seller only where it differs from the stand, **by self-pointer and never a name match**, and reads
+  *"Which listing do you mean?"*. `farmer_links` and `resolveFarmerLink` are provider-shaped too, so
+  `LINK`/`SETTINGS` open the listing the farmer was targeting and a withdrawn opt-in kills a
+  bookmarked link on the next load.
+- **Stock-out reports route by CONTRADICTION, not recency.** A provider whose current revision lists
+  the item is told; one whose published listing omits it AGREES and is skipped; one with no
+  confirmed claim — usual-only or never listed — is never notified and the report is filed for VIGA.
+  Candidates now span every live provider, so a hosted seller's bread is reportable at all.
+  `readCurrentInventoryByProvider` is the new reader. **This is a deliberate behavior change with a
+  live consequence: the 18 stands publishing no confirmed inventory stop receiving stock-out alerts
+  entirely** (§customer behavior calls that a migration artifact and forbids designing around it).
+- **`0047` removes SIX composite keys** that still said *the target's seller is the stand's own* or
+  *is the acting authorization's seller* — two each on `farmer_target_contexts`,
+  `farmer_target_menu_options`, and `farmer_links`. **Four of the six existed only in `0042`, never
+  in `schema.ts`**; that drift is resolved here. Each `(location, own_seller)` pair is REPLACED by
+  `(provider, seller)` — `0045`'s substitution — rather than dropped, so nothing could name one
+  seller's listing under another's name. Each `(authorization, seller)` pair becomes a plain
+  reference: **a real loosening**, for the same reason `0045` widened `authorization_farm_fk`.
+- **What C remains: reminder cadence and the scheduler pass (C.4), and the public seller list +
+  item-first cards (C.5).** C.4's first question is a design one: `inventory_prompt_preferences` is
+  ALREADY one-per-provider with its own authorization, so `stand_providers.reminder_cadence` /
+  `reminder_authorization_id` are a second home for one fact and are still unread. The likely answer
+  is to delete those two columns, not to read them.
+- **The farmer settings screen still speaks in STANDS**, deliberately, for one more sub-phase: it
+  keeps the stand's own listing by self-pointer and drops hosted ones, because the per-listing screen
+  belongs with C.4's cadence — the setting that actually differs per listing. VIGA's `issue_link`
+  resolves its `(authorization, stand)` pair to one listing and REFUSES on ambiguity rather than
+  picking; a per-listing admin control belongs with the roster work that shows listings.
 - Deliberately NOT renamed: `farm_bucks_*` (a VIGA program), `farm_approval_id`, every `farmer_*`
   table (those name the PERSON acting), the operator-facing **"Farms" tab label**, and
   `GENERIC_WORDS` in the corpus matcher.
 
 ## Deployment and migrations
 
-- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0046` are all
+- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0047` are all
   unapplied to production** and must land in that order. `0042`'s content changed: the merged
   `0042_multi_seller_stand_providers` was **replaced in place** by `0042_seller_root`, because no
   database anywhere had applied it — production therefore never sees the native-slot model at all.
 - **`0042` must be applied before the merged code runs.** Every writer now supplies `provider_id`;
   against the un-migrated schema they fail immediately. `0043`–`0046` add no such requirement on
   their own, but must not land ahead of `0042`.
-- **`0045` and `0046` are constraint-only and were NOT generated** — `drizzle-kit` does not emit
-  them. Their snapshots came from introspecting a throwaway database built from every migration,
-  then renumbering the generated snapshot and deleting the spurious journal entry and `.sql` the
-  generator writes beside it. **`drizzle-kit generate` against `schema.ts` still proposes a
-  destructive drop-and-recreate**; the C.1 drift is routed around, not resolved.
+- **`0045`, `0046` and `0047` are constraint-only and were NOT generated** — `drizzle-kit` does not
+  emit them. **`0047`'s snapshot was built as a measured DELTA of `0046`'s**, not by introspection,
+  and that is now the documented method: measured on this branch, `generate` on the merged base says
+  *"No schema changes"*, an introspected `0047` snapshot makes it emit **16KB** of constraint churn,
+  and the delta-edited snapshot returns it to *"No schema changes"*. Introspection repairs an
+  already-drifted snapshot and DEGRADES a healthy one. DEVELOPMENT.md §gotchas owns the corrected
+  procedure, including that `generate` appends a journal entry as a side effect.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
   neither revision has an error-level log. **B-074 and all of F-114 are on `main` and undeployed.**
 
 ## Verification
 
-- **2,074 unit tests pass; 7 corpus-only tests skip.** Integration is **1208/1208 across 84 of 84
-  files** against disposable local Postgres databases (2026-08-15).
+- **2,075 unit tests pass; 7 corpus-only tests skip.** Integration is **1248/1248 across 88 of 88
+  files** against disposable local Postgres databases (2026-08-16).
+- **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
+  it eight `farmer-stand` cases fail `ConfigurationError: PUBLIC_BASE_URL is required` — identical on
+  the untouched merged base, so it is an environment fact, not a regression.
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19.
   The build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
   broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5. Last
   run 2026-08-14 — **no F-114 phase has changed a seam projection, schema, or output contract**, so
-  no live run is owed. Checked rather than assumed each time: the new columns appear only in the db
-  package, migrations, and build output, with the search proved against a known-present term first.
+  no live run is owed. Checked rather than assumed each time. For C.3: `packages/ai` and
+  `packages/core` are untouched, `projectStockOutParse` still projects exactly
+  `{entryId, itemName}`, and `providerId` appears nowhere in the AI package — with the search proved
+  against a known-present term (`entryId`) first.
 - **F-114 is sabotage-proved throughout.** 53 breakages across the seller root, authorization arms,
-  hosting invitation and doors; **22 more across C.2** — each caught by the case aimed at it. Every
-  migration is proved against a **populated** copy of the schema that precedes it, asserting exact
-  row effects plus a re-run proving it is a no-op.
-- **Six escapes, and they were all one failure: a guard is unfalsifiable until a case exists where
-  it is the ONLY thing that could refuse.** C.1's was asserting Invite posts while saying nothing
+  hosting invitation and doors; 22 more across C.2; **19 more across C.3** — each caught by the case
+  aimed at it. Every migration is proved against a **populated** copy of the schema that precedes it,
+  asserting exact row effects plus a re-run proving it is a no-op.
+- **C.3 produced SIX MORE escapes, and every one was that same failure again** — a guard with no
+  case where it alone could refuse. The self-pointer label survived a swap to name-matching because
+  no fixture had a seller whose name disagreed with its stand's, in either direction; the
+  proposal's provider filter and the composition base both survived removal because no suite had two
+  listings at one stand reachable by ONE phone; the SMS menu's seller label survived being deleted
+  outright because nothing asserted the rendered menu; the link query survived losing its live
+  authority arms because no link pointed at a listing that was not the holder's own; the settings
+  screen survived losing its self-pointer filter for the same reason; and
+  `resolveAdministratorLinkTarget` survived "pick the first" because it had no test at all. All six
+  are closed by cases that construct exactly the disagreement.
+- **The earlier six escapes were the same one failure:** C.1's was asserting Invite posts while saying nothing
   about what Save does. C.2's five: no case held both authority arms at once; the provider/stand
   check was probed with an actor already refused earlier for another reason; the closure insert and
   the confirmation's stand authority both needed a MIXED proposal, the only shape where the two
@@ -145,8 +190,15 @@ The governing contract is §the stand-and-sellers correction in
 
 ## Open before go-live
 
-- **`0042` through `0046`, in order, must be applied to production before the code that requires
-  them.** All five are Max's call.
+- **`0042` through `0047`, in order, must be applied to production before the code that requires
+  them.** All six are Max's call.
+- **C.3 stops stock-out alerts for the 18 stands that publish no confirmed inventory** — today they
+  reach the stand's own farmer regardless; after C.3 a report with nothing to contradict is filed for
+  VIGA and nobody is texted. This is exactly what §customer behavior specifies (*"a provider with no
+  confirmed claim on the item — usual-only, or never listed — is not notified"*), and it is the one
+  C.3 change a farmer would notice without anyone telling them. Worth Max's eye before deploy: it
+  resolves on its own as those stands start confirming inventory, but until they do, VIGA's queue is
+  the only place those reports land.
 - Finish physical-handset checks: farmer onboarding/consent, contact card, paged SMS, administrator
   and settings flows, F-105 stand details at phone width, Squarespace embeds, and `?hidden=true`.
   Every texted link now carries `farmfriend.vigavashon.org` and none has been read on a handset.

@@ -11,6 +11,7 @@ import {
   authorizeFarmer,
   createDb,
   issueFarmerLink,
+  readNativeProviderId,
   openFarmerOnboardingRequest,
   openOrReviseProposal,
   type Db,
@@ -146,7 +147,9 @@ describe("public-string safety at the shared publication boundary (integration)"
     await approveFarm(database(), { farmId, administratorId, occurredAt: at(2) });
     const link = await issueFarmerLink(database(), {
       authorizationId,
-      salesLocationId: location[0]?.id as string,
+      providerId: await readNativeProviderId(database(), {
+        salesLocationId: location[0]?.id as string,
+      }),
       occurredAt: at(3),
     });
     expect(link.status).toBe("issued");

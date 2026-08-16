@@ -12,6 +12,7 @@ import {
 } from "./farmer-targeting";
 import { hashFarmerLinkToken } from "@farm-friend/core";
 import { issueFarmerLink, resolveFarmerLink } from "./farmer";
+import { readNativeProviderId } from "./current-inventory";
 
 const T0 = new Date(Date.now() - 24 * 60 * 60 * 1000);
 
@@ -457,7 +458,9 @@ describe("F-051 durable farmer target context (integration)", () => {
 
     const issued = await issueFarmerLink(database(), {
       authorizationId: first.authorizationId,
-      salesLocationId: southId,
+      providerId: await readNativeProviderId(database(), {
+            salesLocationId: southId,
+      }),
       occurredAt: T0,
     });
     expect(issued.status).toBe("issued");
@@ -478,7 +481,9 @@ describe("F-051 durable farmer target context (integration)", () => {
 
     await expect(issueFarmerLink(database(), {
       authorizationId: own.authorizationId,
-      salesLocationId: other.locationId,
+      providerId: await readNativeProviderId(database(), {
+            salesLocationId: other.locationId,
+      }),
       occurredAt: T0,
     })).resolves.toEqual({ status: "not_authorized" });
     expect(await client()`select id from farmer_links`).toHaveLength(0);

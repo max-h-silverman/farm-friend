@@ -17,7 +17,6 @@ import {
 import {
   openOrReviseProposal,
   readCurrentInventory,
-  readNativeProviderId,
   type Db,
 } from "@farm-friend/db";
 
@@ -56,6 +55,17 @@ export interface InterpretationDeps {
 type InterpretationTarget = {
   senderHash: string;
   salesLocationId: string;
+  /**
+   * WHICH listing at that stand is being composed (F-114 Phase C.3).
+   *
+   * Required, not optional. Phase B derived it as the stand's own listing inside
+   * `compositionState`, which was correct while that was the only reachable one and is silently
+   * wrong for a hosted seller: her SMS edit would be composed against her HOST'S published
+   * items, so "sold out of eggs" would name eggs that are not hers. A default here would keep
+   * that failure available to any caller that forgot, and the failure is invisible — a
+   * plausible snapshot composed from the wrong goods.
+   */
+  providerId: string;
 };
 
 export type TextInterpretationInput = InterpretationTarget & {
@@ -117,6 +127,7 @@ async function compositionState(
   db: Db,
   senderHash: string,
   salesLocationId: string,
+  providerId: string,
 ): Promise<CompositionState> {
   const locations = await db.sql`
     select name from sales_locations where id = ${salesLocationId}
@@ -131,13 +142,14 @@ async function compositionState(
     from inventory_publication_proposals
     where sender_hash = ${senderHash}
       and sales_location_id = ${salesLocationId}
+      and provider_id = ${providerId}
       and state = 'open'
   `;
   const pendingRow = pending[0] as Record<string, unknown> | undefined;
 
-  // F-114 Phase B — the base a farmer's next SMS edit composes against is their own
-  // listing, so the native slot. A hosted seller composes against theirs in Phase C.2.
-  const providerId = await readNativeProviderId(db, { salesLocationId });
+  // F-114 Phase C.3 — the base is the CALLER'S listing, passed in rather than derived. Phase B
+  // read the stand's own provider here, which composed a hosted seller's edit against her
+  // host's published items: a snapshot that looks right and describes the wrong goods.
   const current = await readCurrentInventory(db, { salesLocationId, providerId });
 
   const publishedInventory: InventoryCompositionBase = current
@@ -229,6 +241,7 @@ export async function applyInterpretedInventory(
     deps.db,
     input.senderHash,
     input.salesLocationId,
+    input.providerId,
   );
 
   // A structured edit is already in the interpreter's output shape, so there is nothing to
@@ -307,6 +320,7 @@ export async function applyInterpretedInventory(
   const opened = await openOrReviseProposal(deps.db, {
     senderHash: input.senderHash,
     salesLocationId: input.salesLocationId,
+    providerId: input.providerId,
     ...(proposedInventory !== undefined
       ? {
           entries: proposedInventory.entries.map((entry) => ({

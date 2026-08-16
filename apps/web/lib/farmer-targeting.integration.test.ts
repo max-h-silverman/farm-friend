@@ -395,6 +395,44 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     return inserted[0]?.id as string;
   }
 
+  /**
+   * Publish one current listing for a stand's own seller.
+   *
+   * F-114 C.3 — a stock-out report only reaches a provider whose current confirmed inventory
+   * CONTRADICTS it, so a case asserting that the right FARMER is texted has to give that farmer
+   * something to be contradicted about. `viga` is the one source whose coherence arm needs no
+   * proposal, authorization or approval keys; how the listing was published is not what these
+   * routing cases are about.
+   */
+  async function publishItems(locationId: string, items: string[]): Promise<string[]> {
+    const location = await client()`
+      select own_seller_id from sales_locations where id = ${locationId}
+    `;
+    const revisions = await client()`
+      insert into inventory_revisions (
+        seller_id, sales_location_id, provider_id, source, published_at, is_current
+      )
+      select ${location[0]?.own_seller_id as string}, ${locationId}, provider.id,
+             'viga', ${T0}, true
+      from stand_providers as provider
+      join sales_locations as l on l.id = provider.sales_location_id
+      where provider.sales_location_id = ${locationId}
+        and provider.seller_id = l.own_seller_id
+      returning id
+    `;
+    const ids: string[] = [];
+    for (const [index, itemName] of items.entries()) {
+      const entries = await client()`
+        insert into inventory_entries (
+          inventory_revision_id, sales_location_id, item_name, sort_order
+        ) values (${revisions[0]?.id as string}, ${locationId}, ${itemName}, ${index})
+        returning id
+      `;
+      ids.push(entries[0]?.id as string);
+    }
+    return ids;
+  }
+
   it("asks which stand a customer is at rather than guessing one", async () => {
     const senderHash = "c".repeat(64);
     await otherFarmersStand("Plum Forest Stand");
@@ -435,6 +473,10 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
   it("records the report and alerts the farmer when the customer names the stand", async () => {
     const senderHash = "g".repeat(64);
     const locationId = await otherFarmersStand("Plum Forest Stand");
+    // The farmer currently claims tomatoes, so the report CONTRADICTS her (F-114 C.3) and she
+    // is the one who hears about it. Which is what this case is about: the report reaching the
+    // farmer at the stand the customer NAMED.
+    const [tomatoEntryId] = await publishItems(locationId, ["tomatoes"]);
     const classifyCustomer = vi.fn(async () => ({ ok: true as const, kind: "inventory_report" as const }));
     // The item seam runs only AFTER code has bound the stand, and never sees the location.
     // Typed to the seam's real input so the projection assertion below inspects what was
@@ -443,7 +485,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
       async (_input: {
         taskText: string;
         listedItems: readonly { entryId: string; itemName: string }[];
-      }) => ({ kind: "unlisted" as const, itemText: "tomatoes" }),
+      }) => ({ kind: "listed" as const, entryId: tomatoEntryId as string }),
     );
 
     const result = await handleFreeText(
@@ -470,7 +512,7 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
 
     // The report landed on the stand the customer NAMED, resolved in code.
     const reports = await client()`
-      select sales_location_id, unlisted_item_text from stock_out_reports
+      select sales_location_id, referenced_inventory_entry_id from stock_out_reports
     `;
     expect(reports).toHaveLength(1);
     expect(reports[0]?.sales_location_id).toBe(locationId);
@@ -482,9 +524,11 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     `;
     expect(queued).toHaveLength(1);
     expect(queued[0]?.recipient_hash).toBe("f".repeat(64));
-    // The stand is named; the model's item text is not spoken back (Golden Rule #6).
+    // The stand is named, and the item comes from the BOUND ROW rather than from the model's
+    // echo of it (Golden Rule #6) — the two are the same word here, which is why the seam
+    // projection assertion below is the one that proves the model chose nothing.
     expect(queued[0]?.body).toContain("Plum Forest Stand");
-    expect(queued[0]?.body).not.toContain("tomatoes");
+    expect(queued[0]?.body).toContain("sold out of tomatoes");
 
     // The reporter is told the farmer will be told — intent, never a delivery receipt.
     expect(result.replies[0]?.body).toBe("Thanks, we'll let the farmer know.");
@@ -839,11 +883,14 @@ describe("F-051 deterministic farmer targeting handler (integration)", () => {
     // The sender owns these; the report names neither.
     await authorize(senderHash, ["North Stand", "South Stand"]);
     const otherId = await otherFarmersStand("Plum Forest Stand");
+    // The other farm currently claims eggs, so the report contradicts THEM and reaches THEIR
+    // farmer (F-114 C.3) — which is the point of this case.
+    const [eggsEntryId] = await publishItems(otherId, ["eggs"]);
     const parseItem = vi.fn(
       async (_input: {
         taskText: string;
         listedItems: readonly { entryId: string; itemName: string }[];
-      }) => ({ kind: "unlisted" as const, itemText: "eggs" }),
+      }) => ({ kind: "listed" as const, entryId: eggsEntryId as string }),
     );
     // The classifier IS consulted now, and returns the one category every inventory statement
     // gets. Access -- not the category -- is what sends this to the report flow.

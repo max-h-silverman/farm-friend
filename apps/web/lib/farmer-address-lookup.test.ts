@@ -355,6 +355,7 @@ describe("farmer address lookup endpoint", () => {
           authorizationId: "auth-1",
           farmId: FARM_ID,
           salesLocationId: "loc-1",
+          providerId: "provider-1",
           senderHash: "hash-1",
         })),
         post({ token: TOKEN, address: "12345 Vashon Highway SW" }),

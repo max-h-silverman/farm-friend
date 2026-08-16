@@ -40,7 +40,8 @@ export interface PublicStockOutResult {
   retryAfterSeconds?: number;
   reportId?: string;
   /** The farmer to prompt, for the caller to queue as outbox work. Never rendered publicly. */
-  alertedRecipientHash?: string;
+  /** One per contradicted provider (F-114 C.3); absent when the report contradicts nobody. */
+  alertedRecipientHashes?: string[];
 }
 
 /**
@@ -73,8 +74,8 @@ export async function handleStockOutReport(
   return {
     status: 202,
     reportId: outcome.reportId,
-    ...(outcome.alertedRecipientHash !== undefined
-      ? { alertedRecipientHash: outcome.alertedRecipientHash }
+    ...(outcome.alertedRecipientHashes !== undefined
+      ? { alertedRecipientHashes: outcome.alertedRecipientHashes }
       : {}),
   };
 }

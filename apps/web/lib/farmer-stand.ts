@@ -177,6 +177,9 @@ export async function proposeStructuredFromLink(
     {
       senderHash: stand.senderHash,
       salesLocationId: stand.salesLocationId,
+      // C.3 — the listing the LINK opens. `resolveFarmerLink` names it, so a hosted seller's
+      // bookmarked page edits her own goods rather than her host's.
+      providerId: stand.providerId,
       edit: input.edit,
     },
   );

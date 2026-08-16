@@ -15,6 +15,7 @@ import {
   authorizeFarmer,
   createDb,
   issueFarmerLink,
+  readNativeProviderId,
   openFarmerOnboardingRequest,
   revokeFarmerAuthorization,
   type Db,
@@ -129,7 +130,11 @@ describe("the farmer web surface behind a standing link (integration)", () => {
 
     const issued = await issueFarmerLink(database(), {
       authorizationId,
-      salesLocationId: locations[0]?.id as string,
+      // The stand's own listing (F-114 C.3): a link opens one listing, and every fixture here
+      // is a farmer at a stand of her own.
+      providerId: await readNativeProviderId(database(), {
+        salesLocationId: locations[0]?.id as string,
+      }),
       occurredAt: at(2),
     });
 
@@ -936,11 +941,24 @@ describe("the farmer web surface behind a standing link (integration)", () => {
 
       const resolved = await resolveStandFromToken(database(), token);
       expect(resolved).not.toBeNull();
-      // EXACTLY these fields. A projection that grew a farm list, a contact, or a report
-      // would fail here rather than quietly becoming readable.
+      /*
+        EXACTLY these fields. A projection that grew a farm list, a contact, or a report would
+        fail here rather than quietly becoming readable.
+
+        `providerId` is the FIFTH, added by F-114 C.3, and the widening is deliberate: a link
+        opens ONE listing, and after C.2 a stand has several. Without it the resolver would
+        return "this stand" to a surface that must edit one seller's goods, and a hosted
+        seller's bookmarked page would compose against her host's items.
+
+        It discloses nothing new. It is an opaque id for the relationship the link was already
+        issued against — the same blast radius the `salesLocationId` beside it already has, one
+        level narrower. The four assertions below still bound what it can reach: no other farm,
+        no other stand, no customer report, no raw phone.
+      */
       expect(Object.keys(resolved ?? {}).sort()).toEqual([
         "authorizationId",
         "farmId",
+        "providerId",
         "salesLocationId",
         "senderHash",
       ]);
@@ -1063,6 +1081,19 @@ describe("the farmer web surface behind a standing link (integration)", () => {
               thisArg,
               args,
             );
+          },
+          // `apply` alone counts only TAGGED TEMPLATES. F-114 C.3 made `resolveFarmerLink`
+          // compose the shared authority arms, which must go through `.unsafe(…)` — a property
+          // call this trap never sees. Counting only templates would leave the final assertion
+          // ("a well-formed token DOES reach the database") passing on zero queries, which is
+          // exactly the vacuous pass its own comment exists to rule out.
+          get(target, property, receiver) {
+            const value = Reflect.get(target, property, receiver) as unknown;
+            if (property !== "unsafe" || typeof value !== "function") return value;
+            return (...args: unknown[]) => {
+              queries += 1;
+              return (value as (...a: unknown[]) => unknown).apply(target, args);
+            };
           },
         }),
       } as Db;

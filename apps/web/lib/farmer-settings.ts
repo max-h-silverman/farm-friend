@@ -7,6 +7,21 @@ import {
 } from "@farm-friend/db";
 import { resolveStandFromToken } from "./farmer-stand";
 
+/*
+  F-114 Phase C.3 — this surface still speaks in STANDS, and that is deliberate for one more
+  sub-phase.
+
+  The default-stand picker and the reminder rows are one screen and one save. C.4 owns reminder
+  cadence, so widening this page to one row per LISTING belongs there, with the cadence it sits
+  beside — splitting it across two tranches would leave the screen half-converted, showing a
+  listing picker above a stand-keyed reminder.
+
+  What C.3 changes is that the seam beneath it now names a provider, so this file resolves the
+  one it means — the stand's own listing — rather than the seam quietly guessing. A farmer with
+  no stand of her own (a hosted-only seller like Zoe) is refused HERE rather than silently shown
+  a stand she does not own, and that refusal is asserted.
+*/
+
 export type FarmerSettingsResult =
   | {
       status: "active";
@@ -26,10 +41,20 @@ export async function loadFarmerSettings(
 ): Promise<FarmerSettingsResult> {
   const stand = await resolveStandFromToken(db, token);
   if (stand === null) return { status: "not_authorized" };
-  const locations = await listFarmerSettingsTargets(db, {
+  // One row per LISTING comes back now. This page shows stands, so it keeps the stand's own
+  // listing and drops the hosted ones rather than rendering a stand twice under one name — the
+  // per-listing screen is C.4's, with the cadence it belongs beside.
+  const locations = (await listFarmerSettingsTargets(db, {
     senderHash: stand.senderHash,
     authorizationId: stand.authorizationId,
-  });
+  }))
+    .filter((target) => target.describesOwnStand)
+    .map((target) => ({
+      salesLocationId: target.salesLocationId,
+      locationName: target.locationName,
+      selected: target.selected,
+      cadence: target.cadence,
+    }));
   if (locations.length === 0) return { status: "not_authorized" };
   return { status: "active", locations };
 }
@@ -45,10 +70,22 @@ export async function saveFarmerDefaultStand(
 ): Promise<SaveFarmerDefaultStandResult> {
   const stand = await resolveStandFromToken(deps.db, input.token);
   if (stand === null) return { status: "not_authorized" };
+  // The stand named by the picker, resolved to the LISTING this page means: the stand's own,
+  // by SELF-POINTER. A stand this authorization cannot reach yields nothing and is refused
+  // here, which is the same answer the seam would give and one round trip earlier.
+  const targets = await listFarmerSettingsTargets(deps.db, {
+    senderHash: stand.senderHash,
+    authorizationId: stand.authorizationId,
+  });
+  const ownListing = targets.find(
+    (target) =>
+      target.salesLocationId === input.salesLocationId && target.describesOwnStand,
+  );
+  if (ownListing === undefined) return { status: "not_authorized" };
   const selected = await selectFarmerTargetForAuthorization(deps.db, {
     senderHash: stand.senderHash,
     authorizationId: stand.authorizationId,
-    salesLocationId: input.salesLocationId,
+    providerId: ownListing.providerId,
     occurredAt: deps.clock.now(),
   });
   if (selected.status !== "selected") return selected;
