@@ -515,6 +515,112 @@ describe("per-provider publication (integration)", () => {
     expect(rows[0]?.owner_seller_id).toBe(hostSellerId);
   });
 
+  it("files a mixed proposal's closure under the STAND's owner, not the goods' seller", async () => {
+    /*
+      The one shape where the two authorities differ at an ordinary stand, and therefore the
+      only one that can tell them apart. Kelsey holds the host stock right over Gracie's Greens
+      and closes her own stand in the same proposal: the listing is the GUEST'S goods and the
+      shutter is the STAND'S fact, so the two rows must name different sellers.
+
+      Without this case both `confirmInventoryPublication`'s stand-authority resolution and the
+      closure insert's use of it are unfalsifiable — a venue's arm is (null, null) either way,
+      and at a single-seller stand the two authorities resolve to the same row. Two deliberate
+      breakages passed the venue suite untouched before it existed.
+    */
+    await sql()`
+      update stand_providers set host_may_update_stock = true
+      where id = ${guestProviderId}
+    `;
+    await sql()`
+      update inventory_publication_proposals
+      set state = 'invalidated', closed_at = ${at(118)}, updated_at = ${at(118)}
+      where sender_hash = ${hostSenderHash} and state = 'open'
+    `;
+
+    const opened = await openOrReviseProposal(database(), {
+      senderHash: hostSenderHash,
+      salesLocationId: standId,
+      providerId: guestProviderId,
+      entries: [draftEntry({ itemName: "salad greens", priceText: "$5" })],
+      closure: { result: "close", closureKind: "temporary", startsOn: "2026-08-25" },
+      now: at(120),
+    });
+    await opened.activate({ providerAcceptedAt: at(120) });
+    const result = await confirmInventoryPublication(database(), {
+      proposalId: opened.proposalId,
+      senderHash: hostSenderHash,
+      token: "yes",
+      providerEventId: randomUUID(),
+      occurredAt: at(121),
+      clock: new FixedClock(at(121)),
+    });
+    expect(result.status).toBe("published");
+
+    // The listing is the guest's goods, published under the host's own authorization.
+    const revisions = await sql()`
+      select seller_id, provider_id from inventory_revisions
+      where sales_location_id = ${standId} and provider_id = ${guestProviderId}
+        and is_current
+    `;
+    expect(revisions[0]?.seller_id).toBe(guestSellerId);
+
+    // The shutter is the stand's fact, filed under the STAND'S owner. Both the presence of the
+    // right seller and the absence of the wrong one, because the wrong one is what a writer
+    // reusing the inventory authority would have produced.
+    const closures = await sql()`
+      select owner_seller_id, owner_approval_id from closure_revisions
+      where sales_location_id = ${standId} and is_current
+    `;
+    expect(closures).toHaveLength(1);
+    expect(closures[0]?.owner_seller_id).toBe(hostSellerId);
+    expect(closures[0]?.owner_seller_id).not.toBe(guestSellerId);
+
+    // The approval on the closure is VIGA's approval OF the stand's owner — never the guest's,
+    // which is what a writer carrying the inventory approval across would have filed.
+    const approvals = await sql()`
+      select seller_id from seller_approvals where id = ${closures[0]?.owner_approval_id as string}
+    `;
+    expect(approvals[0]?.seller_id).toBe(hostSellerId);
+
+    await sql()`
+      update stand_providers set host_may_update_stock = false
+      where id = ${guestProviderId}
+    `;
+  });
+
+  it("refuses a hosted seller's mixed proposal outright, publishing neither half", async () => {
+    // The converse: Zoe may state her own goods and may NOT close Kelsey's stand, so a proposal
+    // carrying both is refused entirely rather than half-applied. Asserted as the absence of the
+    // listing too — a writer that authorized per-section without refusing the whole would have
+    // published her greens and dropped the closure silently.
+    await sql()`
+      update inventory_publication_proposals
+      set state = 'invalidated', closed_at = ${at(129)}, updated_at = ${at(129)}
+      where sender_hash = ${guestSenderHash} and state = 'open'
+    `;
+    const before = await sql()`
+      select id from inventory_revisions
+      where provider_id = ${guestProviderId} and is_current
+    `;
+
+    await expect(
+      openOrReviseProposal(database(), {
+        senderHash: guestSenderHash,
+        salesLocationId: standId,
+        providerId: guestProviderId,
+        entries: [draftEntry({ itemName: "radishes" })],
+        closure: { result: "close", closureKind: "temporary", startsOn: "2026-08-26" },
+        now: at(130),
+      }),
+    ).rejects.toThrow(/not authorized/i);
+
+    const after = await sql()`
+      select id from inventory_revisions
+      where provider_id = ${guestProviderId} and is_current
+    `;
+    expect(after[0]?.id).toBe(before[0]?.id);
+  });
+
   it("refuses a provider that belongs to another stand", async () => {
     /*
       The stand and the provider must agree, or a proposal names one stand's listing under

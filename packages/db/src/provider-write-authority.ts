@@ -2,7 +2,17 @@ import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 
 /*
-  F-114 Phase C.2 — the ONE place that answers "may this phone write this provider's stock".
+  F-114 Phase C.2 — the ONE place that answers "may this phone write this".
+
+  Two questions, because there are two kinds of fact and a stand shutdown is not anybody's stock:
+
+    * `resolveProviderWriteAuthority` — may this phone state THIS PROVIDER'S stock?
+    * `resolveStandWriteAuthority`    — may this phone state a fact about THIS PLACE?
+
+  They are separate functions rather than one with a flag, because at a venue the second has an
+  answer and the first has nothing to ask about: Morgan Hill has no provider of its own. Merging
+  them would make one call return "authorized for no provider", which every caller would then
+  have to interpret.
 
   ## Why this is a seam and not a line in each writer
 
@@ -49,6 +59,38 @@ import type { Sql, Tx } from "./sql";
   refusal — two answers, because they are two answers. `ended_at` and `pending` are refusals,
   because neither is a relationship the seller can be offered back into by replying to a prompt.
 */
+
+/**
+ * Who may state facts about the PLACE — its closure, and the stand-level facts beside it.
+ *
+ * A different question from `ProviderWriteAuthority`, and deliberately a second function rather
+ * than a flag on the first. §facts and authority: a stand shutdown OVERRIDES every provider and
+ * renders nothing itemized. It is not any seller's stock, so "whose goods may I state" cannot
+ * answer it — at a venue there is no provider to ask about at all.
+ *
+ * The two arms mirror `farmer_authorizations` exactly, which is the point: stand authority is
+ * DERIVED, never stored. There is no "stand owner" role.
+ *
+ * - **A stand with a seller of its own** — authority is being authorized for that seller,
+ *   resolved through the self-pointer. `sellerId` and `approvalId` are that seller's, and the
+ *   approval is required, because VIGA's approval gates whether that seller may be public.
+ * - **A venue** — a stand-armed authorization naming the stand itself. Both are NULL: there is
+ *   no seller to name and therefore no seller-approval, since a venue sells nothing.
+ */
+export type StandWriteAuthority =
+  | {
+      status: "authorized";
+      authorizationId: string;
+      salesLocationId: string;
+      /** The stand's own seller — NULL at a venue. */
+      sellerId: string | null;
+      /** VIGA's approval of that seller — NULL at a venue, with the seller. */
+      approvalId: string | null;
+    }
+  | { status: "unknown_stand" }
+  /** The stand has its own seller, but VIGA's approval of that seller is gone. */
+  | { status: "not_approved" }
+  | { status: "not_authorized" };
 
 export type ProviderWriteAuthority =
   | {
@@ -164,5 +206,92 @@ export async function resolveProviderWriteAuthority(
     providerId: row.provider_id as string,
     hostMayUpdateStock,
     paused: lifecycleState === "paused",
+  };
+}
+
+/**
+ * Resolve who, if anyone, this phone is when it states a fact about this stand.
+ *
+ * Both arms in ONE statement, for the same reason the provider seam uses one: a revocation
+ * committing between two reads could otherwise let a caller pass one arm and be granted under
+ * an authorization that no longer exists.
+ *
+ * **The arm is decided by the STAND, never chosen by the caller.** A stand with a seller of its
+ * own must be reached through that seller — otherwise its owner could take the venue's arm and
+ * publish with no VIGA approval behind it, turning the venue's arm into an escape hatch for all
+ * 38 stands. The same rule the `closure_revisions_guard_arm` trigger enforces on the row.
+ */
+export async function resolveStandWriteAuthority(
+  db: AuthorityReader,
+  input: { salesLocationId: string; senderHash: string },
+): Promise<StandWriteAuthority> {
+  const sql = queryable(db);
+  const rows = await sql`
+    select
+      location.id as sales_location_id,
+      location.own_seller_id,
+      seller_auth.id as seller_authorization_id,
+      stand_auth.id as stand_authorization_id,
+      approval.id as approval_id
+    from sales_locations as location
+    left join lateral (
+      select auth.id
+      from farmer_authorizations as auth
+      join contacts on contacts.id = auth.contact_id
+      where auth.seller_id is not null
+        and auth.seller_id = location.own_seller_id
+        and contacts.phone_hash = ${input.senderHash}
+        and auth.revoked_at is null
+      limit 1
+    ) as seller_auth on true
+    left join lateral (
+      select auth.id
+      from farmer_authorizations as auth
+      join contacts on contacts.id = auth.contact_id
+      where auth.sales_location_id is not null
+        and auth.sales_location_id = location.id
+        and contacts.phone_hash = ${input.senderHash}
+        and auth.revoked_at is null
+      limit 1
+    ) as stand_auth on true
+    left join lateral (
+      select seller_approvals.id
+      from seller_approvals
+      where seller_approvals.seller_id = location.own_seller_id
+        and seller_approvals.revoked_at is null
+      limit 1
+    ) as approval on true
+    where location.id = ${input.salesLocationId}
+  `;
+
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (row === undefined) return { status: "unknown_stand" };
+
+  const ownSellerId = row.own_seller_id as string | null;
+  if (ownSellerId === null) {
+    // A venue. Only the stand arm can reach it, because there is no seller to name.
+    const standAuthorizationId = row.stand_authorization_id as string | null;
+    if (standAuthorizationId === null) return { status: "not_authorized" };
+    return {
+      status: "authorized",
+      authorizationId: standAuthorizationId,
+      salesLocationId: row.sales_location_id as string,
+      sellerId: null,
+      approvalId: null,
+    };
+  }
+
+  // A stand with its own seller. Reached through that seller and no other way — see the arm
+  // rule above. A stand-armed authorization naming it is not a second door.
+  const sellerAuthorizationId = row.seller_authorization_id as string | null;
+  if (sellerAuthorizationId === null) return { status: "not_authorized" };
+  const approvalId = row.approval_id as string | null;
+  if (approvalId === null) return { status: "not_approved" };
+  return {
+    status: "authorized",
+    authorizationId: sellerAuthorizationId,
+    salesLocationId: row.sales_location_id as string,
+    sellerId: ownSellerId,
+    approvalId,
   };
 }
