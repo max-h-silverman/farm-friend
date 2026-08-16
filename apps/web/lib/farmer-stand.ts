@@ -1,4 +1,5 @@
 import {
+  farmerInviteUrl,
   hashFarmerLinkToken,
   isFarmerLinkToken,
   renderPublicStringRefusal,
@@ -8,6 +9,7 @@ import {
 } from "@farm-friend/core";
 import {
   confirmInventoryPublication,
+  inviteSellerToStand,
   readCurrentInventory,
   readNativeProviderId,
   resolveFarmerLink,
@@ -255,6 +257,86 @@ export async function saveParticipantsFromLink(
     occurredAt: deps.clock.now(),
   });
   if (result.status === "saved" || result.status === "not_authorized") return result;
+  if (result.status === "unsafe_public_text") {
+    return {
+      status: "refused",
+      reason: result.status,
+      message: renderPublicStringRefusal(result.prohibited),
+    };
+  }
+  return { status: "refused", reason: result.status };
+}
+
+export type FarmerStandInvitation =
+  | {
+      status: "invited";
+      sellerName: string;
+      /**
+       * The complete onboarding URL, shown ONCE. The host forwards it by hand — Farm Friend
+       * texts the invited seller nothing, because no consent row exists for a number nobody
+       * gave us (max, 2026-08-15).
+       */
+      link: string;
+    }
+  | { status: "not_authorized" }
+  | {
+      /**
+       * Exactly what the writer can answer with here, named rather than widened to `string`: a
+       * union containing `string` IS `string`, so the members would be decoration and a new
+       * refusal could reach the route with nothing to route it by. Proved load-bearing by
+       * removing a member and watching the typecheck fail.
+       */
+      status: "refused";
+      reason: "invalid_seller" | "already_selling_here" | "unsafe_public_text" | "unknown_seller";
+      message?: string;
+    };
+
+/**
+ * Invite a seller to sell at the stand THIS token carries (F-114 Phase C.1).
+ *
+ * **The stand owner's own door.** VIGA's is the admin route; this is the one Kelsey reaches from
+ * her phone. It adds no authority: `resolveFarmerLink` already joins the stand's self-pointer to
+ * the holder's authorization, so a token that resolves belongs to a phone authorized for the
+ * seller the stand names as itself — "stand owner" derived, never stored (§there is no second
+ * permission system). The authorization it resolved is handed to the writer, which re-reads it
+ * under lock before writing anything.
+ *
+ * The location comes from the token's row and the request has no field that names one, so this
+ * cannot reach another farm's stand — the same construction as every other writer on this
+ * surface.
+ */
+export async function inviteSellerFromLink(
+  deps: Pick<FarmerStandDeps, "db" | "clock"> & { publicBaseUrl: string },
+  input: { token: string; newSellerName: string },
+): Promise<FarmerStandInvitation> {
+  const stand = await resolveStandFromToken(deps.db, input.token);
+  if (stand === null) return { status: "not_authorized" };
+
+  const result = await inviteSellerToStand(deps.db, {
+    salesLocationId: stand.salesLocationId,
+    newSellerName: input.newSellerName,
+    // The VOUCH. This column is what makes acceptance record `approval_source = 'host'`, and
+    // filling it is the whole difference between this door and VIGA's.
+    invitedByAuthorizationId: stand.authorizationId,
+    occurredAt: deps.clock.now(),
+  });
+
+  if (result.status === "invited") {
+    return {
+      status: "invited",
+      sellerName: result.sellerName,
+      link: farmerInviteUrl(deps.publicBaseUrl, result.token),
+    };
+  }
+  // A link whose stand or authorization vanished between resolving and writing reads as the
+  // same refusal a revoked one does — the surface must not tell a holder which it was.
+  if (
+    result.status === "not_authorized" ||
+    result.status === "unknown_stand" ||
+    result.status === "invalid_issuer"
+  ) {
+    return { status: "not_authorized" };
+  }
   if (result.status === "unsafe_public_text") {
     return {
       status: "refused",

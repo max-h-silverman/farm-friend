@@ -355,6 +355,54 @@ describe("hosted-seller invitation (integration)", () => {
       expect(result.status).toBe("invalid_seller");
     });
 
+    it("refuses a new seller name carrying contact details, creating nothing", async () => {
+      /*
+        A seller name is PUBLIC TEXT. §suppression follows a pointer credits every seller a stand
+        hosts on its public card, so a name typed here reaches the island's guide — and since the
+        stand owner's own door (F-114 Phase C.1) lets an untrusted farmer type it, the same
+        boundary `saveSalesLocationParticipants` already applies to the display-only names has to
+        apply to the real ones. Launch forbids direct farmer contact; a name is not an exemption.
+
+        Refused HERE rather than at each door, so both doors cannot come to disagree — and before
+        the seller row is written, because a refusal that left a seller behind would put an
+        unreachable brand in the identity root.
+      */
+      for (const name of [
+        "Gracies Greens 206-555-0199",
+        "Gracies Greens zoe@example.com",
+        "Gracies Greens graciesgreens.com",
+        "Gracies Greens call us for orders",
+      ]) {
+        const result = await inviteSellerToStand(database(), {
+          salesLocationId: hostStandId,
+          newSellerName: name,
+          invitedByAuthorizationId: hostAuthorizationId,
+          occurredAt: now,
+        });
+        expect(result.status, name).toBe("unsafe_public_text");
+        if (result.status === "unsafe_public_text") {
+          expect(result.prohibited.length, name).toBeGreaterThan(0);
+        }
+      }
+
+      const sellers = await sql()`
+        select count(*)::int as total from sellers where name like 'Gracies Greens %'
+      `;
+      expect(sellers[0]?.total, "a refused name may not leave a seller behind").toBe(0);
+    });
+
+    it("admits an ordinary seller name the guard has no business refusing", async () => {
+      // The guard has to be able to PASS, or the case above proves only that everything is
+      // refused. An apostrophe, an ampersand, and a number are all ordinary in a farm name.
+      const result = await inviteSellerToStand(database(), {
+        salesLocationId: venueStandId,
+        newSellerName: "Gracie's Greens & Co No. 2",
+        administratorId,
+        occurredAt: now,
+      });
+      expect(result.status).toBe("invited");
+    });
+
     it("refuses inviting the stand's own seller to its own stand", async () => {
       // Venison Valley already sells at Venison Valley Stand — that is what the self-pointer
       // means. An invitation here would either collide with the existing provider row or invent a

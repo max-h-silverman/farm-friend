@@ -213,7 +213,9 @@ would add a case to every reader and change no public output.
   refuses an approval on a `pending` row — approving a relationship nobody has accepted would
   publish a seller who never agreed to be there. Applied at acceptance, exactly as `pending_stock`
   and `pending_prompt_cadence` already are. A hosting invitation has **exactly one issuer**: the
-  owner's vouch becomes `approval_source = 'host'`, VIGA's becomes `'viga'` naming nobody.
+  owner's vouch becomes `approval_source = 'host'`, VIGA's becomes `'viga'` naming nobody. Both
+  issuers now have a surface that fills their column — the stand owner's is the farmer stand link's
+  own door, which supplies the authorization that link already resolved (SURFACES.md).
 - **farmer standing links** (F-040, hardened by B-031) — a durable key letting a farmer reach *their
   own* listing form in a browser, with no password and no session. Only the **hash** is stored. A link
   is a **pointer to an authorization, never authority itself**: resolution re-reads both the link's

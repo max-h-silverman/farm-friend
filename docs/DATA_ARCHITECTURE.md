@@ -239,9 +239,14 @@ retrieval store; request/response logging is disabled where supported; and any u
 retention has an approved documented maximum compatible with Farm Friend's raw-context retention.
 
 **Public listings expose** stand addresses and farmer-selected links from their code-owned listing
-fields. Model-writable public strings are validated together at publication and the whole write is
+fields. Public strings are validated together at publication and the whole write is
 refused — never sanitized — when they contain phone numbers, email addresses, web links, or
-direct-contact instructions. **Direct farmer contact is never public.**
+direct-contact instructions. **Direct farmer contact is never public.** The rule follows the string
+to the public surface, not the writer: it covers model-written listing fields, the display-only
+participant names, and — since F-114 Phase C.1 — a **seller name typed at either invitation door**,
+because a hosted seller is credited on the stand's public card. An existing seller's name is not
+re-validated on invitation; it is already public, and refusing it would block an invitation over a
+row that call did not write.
 
 **Consent:** active launch-program consent gates every proactive non-required SMS. `START` establishes
 **or restores** it with provenance; `JOIN` and documented farmer onboarding establish it only for a

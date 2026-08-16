@@ -101,6 +101,22 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   can no longer publish updates to it. **Nothing it already published is deleted** — the record of
   what that stand said it had, and when, is kept. Press **Put back on the map** to undo it. Use this
   when a farm stops running a stand; it is not how you fix a wrong listing detail.
+- **Someone else sells at a stand — set them up with their own listing:** open the stand in the
+  green **stands** group and use **Invite a seller**. Type their name and press **Invite and copy
+  link**. This is for a grower or maker whose *own* goods are on someone else's table and who should
+  keep their own stock up to date from their own phone — Venison Valley carrying Gracie's Greens.
+  It is a different thing from the **Also selling here** names a farmer types on their own settings
+  page, which are a credit on the public listing and nothing more.
+  - **The link is shown once** and copied for you. Send it to them yourself — **Farm Friend never
+    texts them first**, because nobody has given us permission to text that number.
+  - **Sending it is your approval**, the same rule as a farmer invitation. There is no queue
+    afterwards and nothing asks you again.
+  - **Nobody is listed until they finish.** They fill in the ordinary setup form and text `START`
+    from their own phone; only then do customers see them at that stand.
+  - A name that contains a phone number, email address, or web link is **refused** — a seller name
+    goes on the public map, and the launch rule is no direct farmer contact there.
+  - The stand owner can do this themselves from their own settings page, so you only need to when
+    they ask you to.
 - **Correct a farm's name or description:** open it on `/admin/farms` and press **Edit details**.
   This is VIGA's own record of the farm — its name and description. It is **not** the listing:
   what a stand has, when it is open, and what it costs stay the farmer's (Golden Rule #1), and

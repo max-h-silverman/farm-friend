@@ -755,8 +755,43 @@ exactly as the held stock publication beside it is. The invitation is spent by t
 a crash between the two would strand the farmer holding a dead link with nothing reporting why.
 `host_may_update_stock` is untouched and stays off: acceptance never grants more than it says.
 
-**What is deliberately still not built**: the stand owner's own SMS/web door (VIGA's admin door is
-wired, the farmer-facing one is not), the invited seller's stand-scoped onboarding fields, and
+##### Phase C.1 doors as built (2026-08-15)
+
+Both doors now have a person's way in. VIGA's endpoint gained the button SURFACES.md recorded as
+missing, and the stand owner gained the door that did not exist at all.
+
+- **The stand owner's door is `invite_seller` on `/api/farmer/stand`**, reached from "Invite
+  someone to sell here" directly under "Also selling here" in stand settings. It adds no authority:
+  `resolveFarmerLink` already joins the stand's self-pointer to the holder's authorization, so a
+  token that resolves belongs to a stand owner by construction, and that authorization is handed to
+  the writer as `invited_by_authorization_id` — the vouch that makes acceptance record
+  `approval_source = 'host'`.
+- **It takes a NAME, never a seller id.** VIGA's door can name an existing seller because a
+  coordinator is looking at the roster; offering that to the farmer would widen the link's
+  projection to every seller on the island. A farmer types the name of the person on their table,
+  and VIGA resolves an existing identity — the same human step §the 11 hosted names requires.
+- **No new SMS keyword.** `LINK` and `SETTINGS` both text the farmer this page, so "invite from my
+  phone" is the door she already holds. A keyword would need a free-text grammar for a name that
+  becomes a public brand and a way to text a 64-hex link back for forwarding — a second mechanism
+  for a door that already opens.
+- **An invitation is not a setting**, so it never rides "Save settings" on either surface. It mints
+  a link that exists once; folding it into a save would issue invitations on unrelated presses or
+  lose the link behind an unrelated failure. Both the standalone page and the tab-committed path
+  are asserted, the latter because a sabotage escaped without it.
+- **A seller name is public text, refused at the writer.** §suppression follows a pointer credits
+  every hosted seller on the stand's card, so a name typed at either door reaches the island's
+  guide. `validatePublicStrings` now guards `inviteSellerToStand` — one place, both doors, the same
+  code-owned refusal copy `saveSalesLocationParticipants` already uses. An EXISTING seller's name is
+  not re-validated: it is already public, and refusing it would block an invitation over a row the
+  call did not write.
+- **Both doors answer with the complete onboarding URL, shown once**, matching `create_invite`, and
+  neither echoes the bare token beside it.
+- **What a leaked farmer link now additionally reaches, stated rather than buried**: it can create a
+  seller row and a `pending` relationship at its own stand. It still authorizes nobody — acceptance
+  needs the invited seller's own handset and a bare `START` — and `pending` is invisible to every
+  public reader, so the worst outcome is an unaccepted invitation VIGA can revoke.
+
+**What is deliberately still not built**: the invited seller's stand-scoped onboarding fields, and
 everything C.1's later sub-phases own — per-provider publication, the seller list, item-first cards.
 
 ### The pending-change defect

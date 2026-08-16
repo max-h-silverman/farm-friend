@@ -78,6 +78,19 @@ export function SettingsForm({
   );
   const [savedParticipantText, setSavedParticipantText] = useState(participantText);
 
+  /*
+    F-114 Phase C.1 — INVITING ANOTHER SELLER, which is not a setting.
+
+    Its own state and its own press, deliberately kept out of `save` above. Every other control
+    here writes what CHANGED when the farmer presses Save; this one mints a link that exists
+    exactly once. Folding it in would either issue an invitation because an unrelated field
+    moved, or lose the minted link behind an unrelated failure.
+  */
+  const [inviteName, setInviteName] = useState("");
+  const [inviteBusy, setInviteBusy] = useState(false);
+  const [inviteLink, setInviteLink] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+
   /** The stand the seller-name box is about — the default, or the only one there is. */
   const participantLocationId = savedDefault;
   const participantLocationName =
@@ -185,6 +198,51 @@ export function SettingsForm({
     }
   }
 
+  /**
+   * Invite one seller to sell at this stand, and show the link the farmer forwards.
+   *
+   * **Its own request and its own reporting**, separate from `save` for the reason stated where
+   * the state is declared. The refusal message comes from the SERVER when it sends one: that
+   * copy is code-owned and shared with VIGA's door, and restating it here is how two doors come
+   * to tell a farmer different things about one rule.
+   */
+  async function invite(): Promise<void> {
+    const name = inviteName.trim();
+    // Nothing to send. Refused here as well as by the writer — this stops a press that could
+    // only fail, rather than restating the rule the writer enforces.
+    if (name === "" || inviteBusy) return;
+    setInviteBusy(true);
+    setInviteError(null);
+    setInviteLink(null);
+    try {
+      const response = await fetch("/api/farmer/stand", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, action: "invite_seller", newSellerName: name }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok || typeof payload.link !== "string") {
+        if (response.status === 403) setLinkInactive(true);
+        setInviteError(
+          response.status === 403
+            ? `This link is no longer active. ${name} was not invited.`
+            : typeof payload.message === "string"
+              ? payload.message
+              : payload.reason === "already_selling_here"
+                ? `${name} already sells here, or has an invitation waiting. Nobody was invited again.`
+                : `That did not go through. ${name} was not invited — try again.`,
+        );
+        return;
+      }
+      setInviteLink(payload.link);
+      setInviteName("");
+    } catch {
+      setInviteError(`That did not go through. ${name} was not invited — try again.`);
+    } finally {
+      setInviteBusy(false);
+    }
+  }
+
   /*
     HAND THE SAVE UP, so the tab's one button can run this panel's writers (F-098).
 
@@ -276,6 +334,60 @@ export function SettingsForm({
             setSaved(false);
           }}
         />
+      </div>
+
+      {/*
+        INVITE A SELLER (F-114 Phase C.1) — directly under the names, because the two are the
+        honest halves of one question. A name on the list above is a CREDIT and nothing more; an
+        invitation gives that person their own phone, their own inventory, and their own listing
+        here. The farmer choosing between them is choosing how much the other seller runs
+        themselves, and putting the two anywhere but together would hide that choice.
+
+        Its own button. This is not a setting, so it must not ride "Save settings" — see the
+        state declarations above.
+      */}
+      <div className="farmer-settings-section">
+        <h3>Invite someone to sell here</h3>
+        <p id="invite-seller-help" className="farmer-form-note">
+          Give another grower or maker their own listing at {participantLocationName}, so they
+          keep their own stock up to date from their own phone. We&apos;ll make a link and you
+          send them the link yourself — we never text them first. Nobody is listed until they
+          finish setting up.
+        </p>
+        <label htmlFor="farmer-invite-seller">Who are you inviting?</label>
+        <input
+          id="farmer-invite-seller"
+          type="text"
+          aria-describedby="invite-seller-help"
+          value={inviteName}
+          disabled={inviteBusy}
+          onChange={(event) => setInviteName(event.target.value)}
+        />
+        {inviteError !== null && (
+          <p className="farmer-form-error" role="alert">
+            {inviteError}{" "}
+            {linkInactive && <Link href="#new-link-help">How to get a new link</Link>}
+          </p>
+        )}
+        {/*
+          SHOWN, not merely copied. The farmer forwards this by hand and it is minted once, so a
+          link that only reached the clipboard would be lost to any copy failure.
+        */}
+        {inviteLink !== null && (
+          <div role="status">
+            <p className="farmer-form-published">
+              Here is their link — send it to them. We only show it once.
+            </p>
+            <input aria-label="Invitation link" readOnly value={inviteLink} />
+          </div>
+        )}
+        <button
+          type="button"
+          disabled={inviteBusy || inviteName.trim() === ""}
+          onClick={() => void invite()}
+        >
+          {inviteBusy ? "Inviting…" : "Invite them"}
+        </button>
       </div>
 
       {/*

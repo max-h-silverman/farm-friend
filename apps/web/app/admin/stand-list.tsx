@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { copyText } from "../../lib/copy-text";
 
 export interface AdminStandCard {
   standId: string;
@@ -21,6 +22,37 @@ export interface AdminStandDetailSection {
   title: string;
   prominent?: boolean;
   items: Array<readonly [label: string, value: string, emphasis?: "primary"]>;
+}
+
+/**
+ * What to tell an operator whose invitation was refused (F-114 Phase C.1).
+ *
+ * Each named refusal has a different next move, so each gets its own sentence. Anything else
+ * says only that nothing happened — inventing a reason for a status this screen does not know
+ * would be worse than admitting it, because the operator would act on the invented one.
+ *
+ * `unsafe_public_text` prefers the SERVER's rendered message: that copy is code-owned and shared
+ * with the farmer's own door, and restating it here is how the two come to disagree.
+ */
+function invitationRefusal(
+  payload: Record<string, unknown>,
+  sellerName: string,
+  standName: string,
+): string {
+  if (typeof payload.message === "string") return payload.message;
+  switch (payload.status) {
+    case "already_selling_here":
+      return `${sellerName} already sells at ${standName}, or has an invitation waiting. Nobody was invited again.`;
+    case "invalid_seller":
+      return "That name cannot be used. Nobody was invited.";
+    case "unknown_stand":
+      return "That stand is no longer here. Nobody was invited.";
+    case "not_authorized":
+    case "not_an_administrator":
+      return "Your sign-in is no longer valid. Nobody was invited — sign in again.";
+    default:
+      return "That did not go through. Nobody was invited — try again.";
+  }
 }
 
 function farmBucksDetail(status: AdminStandCard["farmBucksStatus"]): string {
@@ -54,6 +86,14 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
   const [note, setNote] = useState<Record<string, { kind: "ok" | "bad"; text: string }>>({});
   /** The stand whose retirement is waiting on a confirmation, if any. */
   const [confirmingRetire, setConfirmingRetire] = useState<string | null>(null);
+  /** The seller name being typed, per stand. Cleared once its invitation is minted. */
+  const [sellerName, setSellerName] = useState<Record<string, string>>({});
+  /**
+   * The invitation link just minted, per stand. Held in state rather than only copied: the
+   * token is shown ONCE and a clipboard write can fail silently, so an operator who leaves this
+   * screen without the link has to reissue.
+   */
+  const [freshLink, setFreshLink] = useState<Record<string, string>>({});
 
   function say(standId: string, kind: "ok" | "bad", text: string) {
     setNote((current) => ({ ...current, [standId]: { kind, text } }));
@@ -130,6 +170,66 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
       // Closed whichever way it went. On failure the row is unchanged and the plain button is
       // back, so a retry is a deliberate act rather than a second click on a stuck dialog.
       setConfirmingRetire(null);
+      setSaving(null);
+    }
+  }
+
+  /*
+    F-114 Phase C.1 — VIGA invites a seller to sell at this stand.
+
+    The endpoint has been live since the invitation merged and had no button, which made VIGA's
+    only door an authenticated request typed by hand. The control lives on the STAND rather than
+    on the enclosing farm card because a hosting relationship binds a seller to one stand, and a
+    farm with two stands would otherwise present one control that had to ask which.
+
+    **Farm Friend texts the invited seller nothing** (max, 2026-08-15). No consent row exists for
+    a number nobody gave us, so an outbound send would be suppressed anyway — the coordinator
+    forwards the link by hand, which is why the link is shown rather than merely acted on.
+  */
+  async function invite(standId: string, standName: string) {
+    const name = (sellerName[standId] ?? "").trim();
+    // Refused here as well as by the writer, and NOT as a duplicate rule: this one stops a press
+    // that could only ever fail, so the operator is not told about a request they did not mean
+    // to make. The writer still refuses a blank name, which is the guarantee.
+    if (name === "") return;
+    setSaving(standId);
+    setNote((current) => {
+      const next = { ...current };
+      delete next[standId];
+      return next;
+    });
+    try {
+      const response = await fetch("/api/admin/stands", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ standId, action: "invite_seller", newSellerName: name }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+      if (!response.ok || typeof payload.link !== "string") {
+        // Named refusals get their own sentence, because each one has a different next move.
+        // Everything else says only that nothing happened, which is the honest answer.
+        say(standId, "bad", invitationRefusal(payload, name, standName));
+        return;
+      }
+      const link = payload.link;
+      setFreshLink((current) => ({ ...current, [standId]: link }));
+      setSellerName((current) => ({ ...current, [standId]: "" }));
+      if (await copyText(link)) {
+        say(
+          standId,
+          "ok",
+          `Invitation link for ${name} copied. Send it to them — we only show it once.`,
+        );
+        return;
+      }
+      say(
+        standId,
+        "bad",
+        "Link created, but copying failed. Copy it from the box below before you leave.",
+      );
+    } catch {
+      say(standId, "bad", "That did not go through. Nobody was invited — try again.");
+    } finally {
       setSaving(null);
     }
   }
@@ -227,6 +327,73 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
                 </div>
                 <p className="admin-farm-bucks-note">Record this only after VIGA confirms the stand’s Farm Bucks policy.</p>
               </section>
+
+              {/*
+                INVITE A SELLER (F-114 Phase C.1).
+
+                Absent for a stand that is off the map, rather than disabled: a seller invited to
+                a stand no customer can see would onboard into nothing, and there is no state
+                here to reverse — the operator's move is to put the stand back first.
+              */}
+              {!stand.retired && !stand.retiredWithFarm && (
+                <section
+                  className="admin-stand-detail-section"
+                  role="group"
+                  aria-label={`Invite a seller to ${stand.name}`}
+                >
+                  <h3>Invite a seller</h3>
+                  <p className="admin-note" id={`stand-${stand.standId}-invite-help`}>
+                    Someone whose own goods sell at {stand.name}, with their own inventory and
+                    their own phone. We give you a link to send them — Farm Friend never texts
+                    them first. Nobody is listed until they finish setting up.
+                  </p>
+                  <label className="admin-field">
+                    <span>Seller&apos;s name</span>
+                    <input
+                      type="text"
+                      aria-describedby={`stand-${stand.standId}-invite-help`}
+                      value={sellerName[stand.standId] ?? ""}
+                      disabled={saving === stand.standId}
+                      onChange={(event) =>
+                        setSellerName((current) => ({
+                          ...current,
+                          [stand.standId]: event.target.value,
+                        }))
+                      }
+                    />
+                  </label>
+                  <button
+                    className="admin-action-secondary"
+                    type="button"
+                    disabled={saving === stand.standId}
+                    onClick={() => void invite(stand.standId, stand.name)}
+                  >
+                    {saving === stand.standId ? "Inviting…" : "Invite and copy link"}
+                  </button>
+                  {/*
+                    Shown because the token exists exactly once. A clipboard write can fail with
+                    nothing to show for it, and an operator who leaves without the link has to
+                    reissue — which invalidates nothing but wastes the farmer's next step.
+                  */}
+                  {freshLink[stand.standId] !== undefined && (
+                    <div
+                      className="admin-link-reveal"
+                      role="group"
+                      aria-label={`Invitation link for ${stand.name}`}
+                    >
+                      <p className="admin-note">
+                        <strong>Copy this now — we only show it once.</strong> Send it to the
+                        seller. It lets them set up their listing and expires in 7 days.
+                      </p>
+                      <input
+                        aria-label="Invitation link"
+                        readOnly
+                        value={freshLink[stand.standId]}
+                      />
+                    </div>
+                  )}
+                </section>
+              )}
 
               <section
                 className="admin-stand-detail-section admin-stand-retirement"

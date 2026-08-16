@@ -472,6 +472,242 @@ describe("the farmer web surface behind a standing link (integration)", () => {
     });
   });
 
+  /*
+    F-114 Phase C.1 — THE STAND OWNER'S OWN INVITATION DOOR.
+
+    VIGA could already invite a seller to a stand by API. Kelsey could not do it at all, from her
+    phone or from her own page, which left the Venison Valley case — the one VIGA actually asked
+    for — reachable only by a coordinator typing on her behalf.
+
+    **The authority is the link itself, and nothing new.** `resolveFarmerLink` joins
+    `location.own_seller_id = link.owner_seller_id = auth.seller_id`, so a token that resolves at
+    all belongs to a phone authorized for the seller its stand names as itself — which is exactly
+    what §there is no second permission system means by "stand owner", derived through the
+    self-pointer and never stored. This surface therefore invents no role and reads no new column;
+    it hands `inviteSellerToStand` the authorization the token already resolved, and that writer
+    re-reads it under lock before writing anything.
+
+    **The SMS half is the link a farmer already holds** (a judgment call, recorded here). `LINK`
+    and `SETTINGS` both text the farmer this page, so "invite from my phone" is satisfied by the
+    door they already have rather than by a new keyword. A keyword would need a free-text grammar
+    for a name that becomes a public brand, plus a way to text a 64-hex link back for forwarding —
+    a second mechanism for a door that already opens.
+
+    **What this genuinely widens, stated rather than buried.** A leaked link can now create a
+    seller row and a `pending` relationship at its own stand. It still cannot authorize anybody:
+    the invitation mints no authorization, acceptance requires the invited seller's own handset
+    and a bare `START`, and `pending` is excluded by every public reader — so the worst a leak
+    achieves is an unaccepted invitation VIGA can revoke. That bound is asserted below, not
+    assumed.
+  */
+  describe("the stand owner invites a seller to their own stand", () => {
+    it("mints a forwardable link and a pending relationship the owner vouched for", async () => {
+      const { token, salesLocationId, authorizationId } = await farmer();
+
+      const response = await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token,
+            action: "invite_seller",
+            newSellerName: "Gracies Greens",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(200);
+      const payload = (await response.json()) as {
+        status: string;
+        sellerName?: string;
+        link?: string;
+      };
+      expect(payload.status).toBe("invited");
+      expect(payload.sellerName).toBe("Gracies Greens");
+      // A LINK, not a bare token: the host forwards this by hand, and a farmer cannot be asked
+      // to assemble a URL. The onboarding path is the ordinary farmer one, which is the whole
+      // point of reusing the farmer invitation.
+      expect(payload.link).toMatch(
+        /^https?:\/\/[^/]+\/farmer\/onboarding\/[0-9a-f]{64}$/,
+      );
+
+      const providers = await sql()`
+        select p.lifecycle_state, p.host_may_update_stock, p.accepted_at, p.approval_source, p.id
+        from stand_providers p
+        join sellers s on s.id = p.seller_id
+        where p.sales_location_id = ${salesLocationId} and s.name = 'Gracies Greens'
+      `;
+      expect(providers[0]).toMatchObject({
+        lifecycle_state: "pending",
+        // Acceptance never grants more than it says: the host's stock right stays OFF, and it is
+        // the seller's to turn on afterwards.
+        host_may_update_stock: false,
+        accepted_at: null,
+        approval_source: null,
+      });
+
+      // The VOUCH — `approval_source = 'host'` at acceptance follows from this column, and this
+      // is the door that fills it. VIGA's door fills the administrator column instead.
+      const invitations = await sql()`
+        select invited_by_authorization_id, created_by_administrator_id, token_hash
+        from farmer_invitations where stand_provider_id = ${providers[0]?.id as string}
+      `;
+      expect(invitations[0]).toMatchObject({
+        invited_by_authorization_id: authorizationId,
+        created_by_administrator_id: null,
+      });
+      // Only the hash is stored. The link in the response is the one readable copy.
+      const rawToken = (payload.link ?? "").split("/").at(-1);
+      expect(invitations[0]?.token_hash).not.toBe(rawToken);
+    });
+
+    it("can invite only to the stand its own token carries", async () => {
+      // The blast radius, asserted the way every other guarantee in this file is. The location
+      // comes from the token's row; there is no field in the request that names one.
+      const victim = await farmer();
+      const holder = await farmer();
+
+      await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token: holder.token,
+            action: "invite_seller",
+            newSellerName: "Invited By Holder",
+            // Ignored, and it must be: a caller naming another stand must not reach it.
+            standId: victim.salesLocationId,
+            salesLocationId: victim.salesLocationId,
+          }),
+        }),
+      );
+
+      expect(await sql()`
+        select count(*)::int as total from stand_providers
+        where sales_location_id = ${victim.salesLocationId}
+          and seller_id <> ${victim.farmId}
+      `).toEqual([{ total: 0 }]);
+      expect(await sql()`
+        select s.name from stand_providers p join sellers s on s.id = p.seller_id
+        where p.sales_location_id = ${holder.salesLocationId} and s.name = 'Invited By Holder'
+      `).toEqual([{ name: "Invited By Holder" }]);
+    });
+
+    it("authorizes nobody — acceptance is still the invited seller's own handset", async () => {
+      // The bound on what a leaked link achieves. An invitation is not an authorization, and
+      // nothing here shortens the path the invited seller walks: their own `START`, from the
+      // handset they stated on the form, is what mints one.
+      const { token } = await farmer();
+      const before = await sql()`
+        select
+          (select count(*)::int from farmer_authorizations) as authorizations,
+          (select count(*)::int from seller_approvals) as approvals
+      `;
+
+      const response = await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token,
+            action: "invite_seller",
+            newSellerName: "Authorizes Nobody",
+          }),
+        }),
+      );
+      expect(response.status).toBe(200);
+
+      expect(await sql()`
+        select
+          (select count(*)::int from farmer_authorizations) as authorizations,
+          (select count(*)::int from seller_approvals) as approvals
+      `).toEqual(before);
+    });
+
+    it("refuses a name that would put contact details on the public map", async () => {
+      // A hosted seller is CREDITED on the stand's public card, so this name reaches the
+      // island's guide. The refusal is the writer's, surfaced here with the farmer-facing copy
+      // the participant save already uses rather than a second wording.
+      const { token, salesLocationId } = await farmer();
+
+      const response = await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token,
+            action: "invite_seller",
+            newSellerName: "Gracies Greens 206-555-0199",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        reason: "unsafe_public_text",
+        message: expect.stringContaining("phone number"),
+      });
+      // Nothing invited, and no seller left behind. The stand's OWN provider row is excluded
+      // deliberately: the self-pointer creates it when the stand is saved, so counting it would
+      // be asserting against a row this request had nothing to do with.
+      expect(await sql()`
+        select count(*)::int as total from stand_providers p
+        join sales_locations l on l.id = p.sales_location_id
+        where p.sales_location_id = ${salesLocationId}
+          and p.seller_id is distinct from l.own_seller_id
+      `).toEqual([{ total: 0 }]);
+      expect(await sql()`
+        select count(*)::int as total from sellers where name like 'Gracies Greens %'
+      `).toEqual([{ total: 0 }]);
+    });
+
+    it("refuses a revoked link, inviting nobody", async () => {
+      const holder = await farmer();
+      await revokeFarmerAuthorization(database(), {
+        authorizationId: holder.authorizationId,
+        administratorId,
+        occurredAt: at(4),
+      });
+
+      const response = await farmerStandRoute.POST(
+        new Request("https://ff.example/api/farmer/stand", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            token: holder.token,
+            action: "invite_seller",
+            newSellerName: "Invited After Revocation",
+          }),
+        }),
+      );
+
+      expect(response.status).toBe(403);
+      expect(await sql()`
+        select count(*)::int as total from sellers where name = 'Invited After Revocation'
+      `).toEqual([{ total: 0 }]);
+    });
+
+    it("refuses a blank name and a name given twice over", async () => {
+      const { token, farmId } = await farmer();
+
+      for (const body of [
+        { action: "invite_seller" },
+        { action: "invite_seller", newSellerName: "   " },
+        { action: "invite_seller", newSellerName: 42 },
+        { action: "invite_seller", newSellerName: "Both Named", sellerId: farmId },
+      ]) {
+        const response = await farmerStandRoute.POST(
+          new Request("https://ff.example/api/farmer/stand", {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ token, ...body }),
+          }),
+        );
+        expect(response.status, JSON.stringify(body)).toBe(400);
+      }
+    });
+  });
+
   // ── The five guarantees, one test each ──────────────────────────────────────────────
 
   describe("a leaked link CANNOT publish without confirmation (5)", () => {

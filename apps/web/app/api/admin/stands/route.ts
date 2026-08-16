@@ -5,7 +5,9 @@ import {
   saveFarmBucksStatus,
   type FarmBucksStatus,
 } from "@farm-friend/db";
+import { farmerInviteUrl, renderPublicStringRefusal } from "@farm-friend/core";
 import { requireAdministrator } from "../../../../lib/admin-guard";
+import { resolvePublicBaseUrl } from "../../../../lib/composition";
 import { publicReadContext } from "../../../../lib/public-context";
 
 // The per-stand administrator surface. Two acts live here because they are the same KIND of
@@ -59,9 +61,13 @@ export async function POST(req: Request): Promise<Response> {
     passes `administratorId` and never a vouching authorization. The stand owner's own door is the
     farmer surface, not this one.
 
-    The response carries the token ONCE. Only its hash is stored, so a coordinator who loses it
-    reissues rather than recovers — and Farm Friend texts the invited seller nothing, because no
-    consent record exists for a number nobody gave us.
+    The response carries the LINK ONCE. Only the token's hash is stored, so a coordinator who
+    loses it reissues rather than recovers — and Farm Friend texts the invited seller nothing,
+    because no consent record exists for a number nobody gave us.
+
+    A complete URL rather than the bare token, matching `create_invite` on the farmers route and
+    the stand owner's own door: an operator forwarding a link must not be asked to assemble one,
+    and two doors that answered in different shapes would need two readers.
   */
   if (body.action === "invite_seller") {
     const sellerId = typeof body.sellerId === "string" ? body.sellerId : undefined;
@@ -81,7 +87,25 @@ export async function POST(req: Request): Promise<Response> {
       administratorId: caller.administratorId,
       occurredAt,
     });
-    return Response.json(result, { status: invitationStatusFor(result.status) });
+    if (result.status === "unsafe_public_text") {
+      // The SAME code-rendered refusal the farmer's own door shows. A seller name reaches the
+      // public map either way, so a coordinator and a farmer must not be told different things
+      // about the same rule.
+      return Response.json(
+        { ...result, message: renderPublicStringRefusal(result.prohibited) },
+        { status: invitationStatusFor(result.status) },
+      );
+    }
+    if (result.status !== "invited") {
+      return Response.json(result, { status: invitationStatusFor(result.status) });
+    }
+    // The raw token is deliberately NOT echoed beside the link. One readable copy, in the form
+    // the coordinator actually forwards.
+    const { token, ...rest } = result;
+    return Response.json({
+      ...rest,
+      link: farmerInviteUrl(resolvePublicBaseUrl(process.env), token),
+    });
   }
 
   if (body.action !== undefined) {

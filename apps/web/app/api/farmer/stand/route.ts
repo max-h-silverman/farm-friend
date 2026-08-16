@@ -3,8 +3,10 @@ import {
   type Db,
 } from "@farm-friend/db";
 import { parseStructuredEdit } from "../../../../lib/farmer-stand-edit";
+import { resolvePublicBaseUrl } from "../../../../lib/composition";
 import { publicReadContext } from "../../../../lib/public-context";
 import {
+  inviteSellerFromLink,
   publishStructuredFromLink,
   readCurrentStandEntries,
   resolveStandFromToken,
@@ -46,6 +48,9 @@ export async function POST(req: Request): Promise<Response> {
     /** A structured edit from the direct stock editor. Shape is checked at this boundary. */
     edit?: unknown;
     participantNames?: unknown;
+    /** F-114 Phase C.1 — the seller a stand owner is inviting. A name, never an id. */
+    newSellerName?: unknown;
+    sellerId?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -55,9 +60,59 @@ export async function POST(req: Request): Promise<Response> {
 
   const token = typeof body.token === "string" ? body.token : null;
   const action =
-    body.action === "publish" || body.action === "save_participants" ? body.action : null;
+    body.action === "publish"
+    || body.action === "save_participants"
+    || body.action === "invite_seller"
+      ? body.action
+      : null;
   if (token === null || action === null) {
     return Response.json({ error: "invalid_request" }, { status: 400 });
+  }
+
+  /*
+    F-114 Phase C.1 — THE STAND OWNER'S OWN INVITATION DOOR.
+
+    VIGA's door is `invite_seller` on the admin stands route; this is the same act reached by
+    the person whose stand it is. It takes NO stand identifier: the location comes from the
+    token's row, exactly as every other branch here does, so there is no field a caller could
+    point at somebody else's stand. That is asserted, and sabotaged, in the integration suite.
+
+    **A NAME, never a seller id.** VIGA's door can name an existing seller because a coordinator
+    is looking at the roster; offering that here would mean handing this surface a list of every
+    seller on the island, which is precisely the projection `resolveFarmerLink` exists to keep
+    narrow. A farmer types the name of the person on their table. If that person already has a
+    seller record, VIGA resolves it — the same human step §the 11 hosted names already requires,
+    and the reason code never matches a name to an identity.
+  */
+  if (action === "invite_seller") {
+    if (
+      typeof body.newSellerName !== "string"
+      // A seller id here is a caller reaching for VIGA's door. Refused rather than ignored: a
+      // request that named one and got an invitation for something else would be answered
+      // dishonestly.
+      || body.sellerId !== undefined
+    ) {
+      return Response.json({ error: "invalid_request" }, { status: 400 });
+    }
+    const context = publicReadContext();
+    const result = await inviteSellerFromLink(
+      { ...context, publicBaseUrl: resolvePublicBaseUrl(process.env) },
+      { token, newSellerName: body.newSellerName },
+    );
+    if (result.status === "invited") return Response.json(result);
+    if (result.status === "not_authorized") {
+      return Response.json({ error: "not_authorized" }, { status: 403 });
+    }
+    // 400 for a caller bug, 409 for a state conflict — the same split VIGA's door uses, so the
+    // two doors cannot come to answer the same refusal differently.
+    return Response.json(
+      {
+        status: result.status,
+        reason: result.reason,
+        ...(result.message !== undefined ? { message: result.message } : {}),
+      },
+      { status: result.reason === "invalid_seller" ? 400 : 409 },
+    );
   }
 
   // Structured metadata save: deterministic and model-free, like the stock-edit branch below.

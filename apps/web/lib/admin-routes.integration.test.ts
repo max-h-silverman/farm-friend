@@ -503,10 +503,18 @@ describe("admin routes (integration)", () => {
       const payload = (await response.json()) as {
         status: string;
         token?: string;
+        link?: string;
         sellerName?: string;
       };
       expect(payload.status).toBe("invited");
-      expect(payload.token).toMatch(/^[0-9a-f]{64}$/);
+      // A complete URL, matching `create_invite` and the stand owner's own door: a coordinator
+      // forwarding a link must not be asked to assemble one from a bare token.
+      expect(payload.link).toMatch(
+        /^https?:\/\/[^/]+\/farmer\/onboarding\/[0-9a-f]{64}$/,
+      );
+      // And the bare token is NOT echoed beside it. One readable copy, in the form that is
+      // actually sent — a second spelling of the same credential is a second thing to leak.
+      expect(payload.token).toBeUndefined();
       expect(payload.sellerName).toBe("Gracies Greens");
 
       // The relationship is PENDING and therefore invisible: nobody is shown as selling
@@ -529,7 +537,7 @@ describe("admin routes (integration)", () => {
         from farmer_invitations where stand_provider_id is not null
       `;
       expect(invitations).toHaveLength(1);
-      expect(invitations[0]?.token_hash).not.toBe(payload.token);
+      expect(invitations[0]?.token_hash).not.toBe((payload.link ?? "").split("/").at(-1));
       expect(invitations[0]?.created_by_administrator_id).toBe(ids.administrator);
       expect(invitations[0]?.invited_by_authorization_id).toBeNull();
     });
@@ -561,6 +569,31 @@ describe("admin routes (integration)", () => {
 
       const after = await sql()`select count(*)::int as n from sellers`;
       expect(after[0]?.n, "no malformed request may create a seller").toBe(before[0]?.n);
+    });
+
+    it("refuses a name that would put contact details on the public map", async () => {
+      // A hosted seller is CREDITED on the stand's public card, so a name typed here reaches the
+      // island's guide. Answered with the SAME code-owned copy the farmer's own door shows: one
+      // rule, one wording, two doors.
+      const token = await sessionFor(ids.administrator as string);
+      const before = await sql()`select count(*)::int as n from sellers`;
+      const response = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({
+            standId: ids.stand,
+            action: "invite_seller",
+            newSellerName: "Gracies Greens 206-555-0199",
+          }),
+        }),
+      );
+      expect(response.status).toBe(409);
+      expect(await response.json()).toMatchObject({
+        status: "unsafe_public_text",
+        message: expect.stringContaining("phone number"),
+      });
+      expect((await sql()`select count(*)::int as n from sellers`)[0]?.n).toBe(before[0]?.n);
     });
 
     it("answers 404 for an unknown stand", async () => {
