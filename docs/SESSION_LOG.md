@@ -11,7 +11,83 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-15 (latest) — The invitation is the one we already had (F-114 Phase C.1, invitation)
+## 2026-08-15 (latest) — Two doors, and the door that was already open (F-114 Phase C.1, doors)
+
+C.1's invitation mechanism was merged and green, and nobody could reach it. VIGA's endpoint had no
+button; the stand owner had no door at all. Both now have a person's way in. Integration is
+**1133/1133 across 77 of 77 files**, up from 1124/1124; unit is 2,074 up from 2,063.
+
+**The stand owner's authority was already recorded — it just had no surface.** `resolveFarmerLink`
+joins `location.own_seller_id = link.owner_seller_id = auth.seller_id`, so a token that resolves at
+all belongs to a phone authorized for the seller its stand names as itself. That is precisely what
+§there is no second permission system means by "stand owner": derived through the self-pointer,
+never stored. So the door reads no new column, invents no role, and adds no gate — it hands
+`inviteSellerToStand` the authorization the token already resolved, and the writer re-reads it under
+lock. `invited_by_authorization_id` is the vouch, which is what makes acceptance record
+`approval_source = 'host'`.
+
+**The SMS half needed no keyword, and that is the session's main judgment call.** The brief asked
+for a door Kelsey can reach "from her phone or from her stand settings page", and the obvious
+reading is a new farmer keyword. It is the wrong build. `LINK` and `SETTINGS` both already text the
+farmer that page, so the phone door exists; a keyword would have to invent a free-text grammar for
+a name that becomes a *public brand*, then find a way to text a 64-hex link back for the host to
+forward. That is a second mechanism for a door that already opens, and every one of Max's five C.1
+decisions removed a step rather than adding one. Recorded here because the absence of a keyword is
+the kind of thing a later session re-proposes without knowing it was considered.
+
+**A name, never a seller id, on the farmer's door.** VIGA's door can name an existing seller because
+a coordinator is looking at the roster. Offering that to the farmer would mean handing this surface
+a list of every seller on the island — exactly the projection `resolveFarmerLink` exists to keep
+narrow. So the farmer types the name of the person on their table, and VIGA resolves an existing
+identity, which is the same human step §the 11 hosted names already requires and the reason code
+never matches a name to an identity.
+
+**A seller name is public text, and nothing was checking it.** §suppression follows a pointer credits
+every hosted seller on the stand's public card, so a name minted at either door reaches the island's
+only guide. `saveSalesLocationParticipants` has held that boundary for the display-only names since
+F-084; the real ones had no guard at all, and the farmer's door was about to let untrusted input
+type one. `validatePublicStrings` now guards `inviteSellerToStand` — one place, both doors, the same
+code-owned refusal copy — answered before the transaction opens so a refusal leaves no seller behind.
+An *existing* seller is deliberately not re-validated: its name is already public, and refusing it
+would block an invitation over a row the call did not write. This was a live gap, not a hypothetical:
+`Gracies Greens 206-555-0199` was accepted and published before the guard.
+
+**An invitation is not a setting, and a sabotage proved the test didn't know that.** Everything else
+on the settings panel writes what *changed* when the farmer presses Save; this mints a link that
+exists exactly once, so it has its own press. Asserting that Invite posts once says nothing about
+what Save does — and a `save()` that also invited went unnoticed until the tab-committed path
+(F-098's `registerSave`, where the panel renders no button of its own and the listing form's press
+reaches `save` directly, bypassing the disabled state) got a case of its own. **The escaped sabotage
+is the most useful thing that happened this session**: it is the exact failure mode the discipline
+exists to catch, and it escaped because the test asserted the presence of the right behavior rather
+than the absence of the wrong one.
+
+**The blast radius genuinely widened, and is written down rather than buried.** A leaked farmer link
+can now create a seller row and a `pending` relationship at its own stand. It still authorizes
+nobody — acceptance needs the invited seller's own handset and a bare `START` — and `pending` is
+excluded by every public reader, so the worst a leak achieves is an unaccepted invitation VIGA can
+revoke. That bound is asserted beside F-040's five, not assumed.
+
+**Both doors now answer with the complete onboarding URL, shown once**, matching `create_invite`.
+VIGA's previously returned a bare token, which would have made an operator assemble a URL by hand;
+neither door echoes the raw token beside the link, because a second spelling of one credential is a
+second thing to leak.
+
+**Process note worth recording:** the first hour of this session was edited directly on `main`,
+against CLAUDE.md's standing rule. Nothing was committed there and the work moved cleanly to
+`f-114-phase-c1-invite-doors`, but the branch should be claimed at step 2 of *working a task*, not
+remembered at commit time. Twice during sabotage cleanup a `git checkout <file>` was used to undo a
+deliberate breakage and reverted uncommitted session work with it — restoring from a scratchpad copy
+each time. Sabotage should be undone from the backup that was taken for it, never from HEAD, while
+the work is uncommitted.
+
+Verified: unit 2,074 pass / 7 skip, integration 1133/1133 across 77/77, typecheck, lint, web build,
+scripted evals 11/11 + 4/4 + 19/19. **No seam projection, schema, or output contract changed, so no
+live eval run is owed.** Twelve sabotage cases, each caught by the case aimed at it once the escape
+was closed. Merged to `main`; still undeployed, and `0042`/`0043`/`0044` remain unapplied — all
+Max's call.
+
+## 2026-08-15 — The invitation is the one we already had (F-114 Phase C.1, invitation)
 
 C.1's behavior half: a stand owner or VIGA names a seller and gets a one-use link to forward. The
 invited seller opens it, fills the same onboarding form a stand owner fills, and texts a bare

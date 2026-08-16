@@ -65,6 +65,12 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   is **code, not the prompt** — task-specific projections make other actors' private data unavailable
   before the call, the outbound guard blocks raw phones after, and consequential / cross-actor replies
   are code-rendered. Add adversarial workflow proof that injection cannot extract unavailable data.
+- **A NEW writer of a string that reaches the public map:** run it through `validatePublicStrings`
+  and refuse the whole write, in the WRITER rather than at each door, so two doors cannot disagree
+  and a third inherits the rule. Ask what renders the value, not who types it: a seller name looked
+  like an identity field and is in fact credited on the stand's public card, so it shipped
+  unguarded until F-114 Phase C.1 added a farmer-facing door onto it. Prove both directions —
+  a contact detail refused, and an ordinary name (apostrophe, ampersand, number) admitted.
 - **SMS ingress:** verify the Telnyx signature over the exact raw bytes, persist only the minimized
   unique inbox projection before acknowledgement, never retain the raw provider envelope, serialize
   stateful work per sender with Postgres row locks, and fail closed on stale events.
@@ -253,6 +259,13 @@ with the guard that protects each.
   test result, because the writer beneath it refused the same input and produced the same status.
   Delete the duplicate and prove the rule where it lives, rather than keeping an assertion that
   cannot fail.
+- **Assert the ABSENCE of the wrong behavior, not only the presence of the right one.** "Invite
+  posts exactly one request" says nothing about what *Save* does, so a `save()` that also invited
+  survived sabotage untouched. Whenever an act is deliberately kept out of a shared commit path,
+  the test that proves it is the one pointed at the OTHER path. Reach the real entry point too:
+  here the escape lived behind F-098's `registerSave`, where the panel renders no button and the
+  parent's press calls `save` directly — so the disabled state that protects the standalone page is
+  not in the way, and only a test that goes through `DetailsPanel` can see it.
 - **A CHECK is not automatically a biconditional.** The standing reason for one is that a CHECK
   passes on NULL and both directions are real failures — but where only one direction is a failure,
   the biconditional makes a legitimate row unwritable. `farmer_invitations_hosting_names_seller` is

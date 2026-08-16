@@ -19,7 +19,7 @@
 
 ## F-114 — what is on `main` and NOT deployed
 
-Phases B, C.0, and C.1 (records + invitation) are merged. The governing contract is §the
+Phases B, C.0, and C.1 (records, invitation, doors) are merged. The governing contract is §the
 stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`.
 
 - **A stand has a name, metadata, and nested sellers.** `sellers` is the identity root (renamed from
@@ -31,25 +31,23 @@ stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md
 - **An authorization names a seller OR a stand**, enforced by the biconditional
   `farmer_authorizations_subject_arm`, each arm with its own partial uniqueness index. **"Stand
   owner" stays derived** through the self-pointer and is never stored.
-- **Hosted-seller invitation is built.** A stand owner or VIGA names a seller and gets a one-use
-  link to forward; the invited seller fills the ordinary onboarding form and texts `START`, which
-  authorizes them and activates the relationship in one transaction. **No approval queue and no VIGA
-  step** — the invitation is the approval. The hosting invitation IS the farmer invitation:
-  `farmer_invitations.stand_provider_id` binds the relationship, and
-  `invited_by_authorization_id` carries the vouching owner until acceptance can legally record it.
+- **Hosted-seller invitation is built, and both doors are reachable.** A stand owner or VIGA names a
+  seller and gets a one-use link to forward; the invited seller fills the ordinary onboarding form
+  and texts `START`, which authorizes them and activates the relationship in one transaction. **No
+  approval queue and no VIGA step** — the invitation is the approval. The hosting invitation IS the
+  farmer invitation: `farmer_invitations.stand_provider_id` binds the relationship, and
+  `invited_by_authorization_id` carries the vouching owner until acceptance can legally record it
+  (`approval_source = 'host'`). VIGA's door is a per-stand control inside each Farms card; the stand
+  owner's is `invite_seller` on `/api/farmer/stand`, under "Invite someone to sell here" in stand
+  settings, authorized by the link's own resolved authorization and nothing new. It takes a **name,
+  never a seller id** — the roster would widen the link's projection. **No new SMS keyword**: `LINK`
+  and `SETTINGS` already text the farmer that page. Both doors return the complete onboarding URL,
+  shown once. **A seller name is public-text-guarded at the writer**, one place for both doors.
 - **`stand_providers.host_may_update_stock` is the hosted seller's opt-in** — off by default, off
   for every backfilled row, and untouched by acceptance.
-- **Both invite doors now have a person's way in.** VIGA's is a per-stand control inside each Farms
-  card; the stand owner's is `invite_seller` on `/api/farmer/stand`, reached from "Invite someone to
-  sell here" in stand settings and vouched by the authorization the link already resolved
-  (`approval_source = 'host'` at acceptance). The farmer's door takes a **name, never a seller id** —
-  the roster would widen the link's projection. **No new SMS keyword**: `LINK` and `SETTINGS`
-  already text the farmer that page. Both doors answer with the complete onboarding URL, shown once.
-  **A seller name is now public-text-guarded at the writer**, one place for both doors. Still not
-  built: the invited seller's stand-scoped onboarding fields.
 - **A leaked farmer link can now create a seller and a `pending` relationship at its own stand.** It
   still authorizes nobody — acceptance needs the invited seller's own handset and a bare `START` —
-  and `pending` is invisible to every public reader. Asserted beside the other five bounds.
+  and `pending` is invisible to every public reader. Asserted beside F-040's other five bounds.
 - **A venue still cannot record a closure** — `closure_revisions` demands a seller in three NOT NULL
   columns. **B-077**; it needs the closure writer's stand arm, not a nullable column.
 - **The rest of C.1 — per-provider publication, the seller list, item-first cards — is NOT built.**
@@ -81,17 +79,14 @@ stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md
   run 2026-08-14 — **no F-114 phase has changed a seam projection, schema, or output contract**, so
   no live run is owed. Checked rather than assumed each time: the new columns appear only in the db
   package, migrations, and build output, with the search proved against a known-present term first.
-- **F-114's constraints are sabotage-proved throughout.** 43 cases for the seller root, 20 for the
-  authorization arms, and 21 for the hosting invitation. Across the three tranches **41 deliberate
-  breakages were each caught by the case aimed at them**. Every migration is proved against a
-  **populated** copy of the schema that precedes it, asserting exact row effects plus a re-run
-  proving it is a no-op.
-- **The two invitation doors add 12 sabotage-proved cases** (public-text guard both directions, the
-  vouch column, stand scoping, revocation, the `sellerId` refusal, blank names, retired stands,
-  save/invite separation on both the standalone and tab-committed paths, and the once-shown link).
-  **One sabotage escaped and was closed**: asserting that Invite posts once said nothing about what
-  Save does, so a `save()` that also invited went unnoticed until the tab-commit path got its own
-  case. Two migrations' worth of caution applies to test claims too — the escaped one is why.
+- **F-114 is sabotage-proved throughout.** 43 cases for the seller root, 20 for the authorization
+  arms, 21 for the hosting invitation, 12 for the two doors — **53 deliberate breakages each caught
+  by the case aimed at them**. Every migration is proved against a **populated** copy of the schema
+  that precedes it, asserting exact row effects plus a re-run proving it is a no-op.
+- **One sabotage escaped, and closing it is the standing lesson.** Asserting that Invite posts once
+  said nothing about what Save does, so a `save()` that also invited went unnoticed until the
+  tab-committed path (F-098's `registerSave`, which bypasses the disabled button) got a case of its
+  own. **Assert the absence of the wrong behavior, not only the presence of the right one.**
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only. It
   predates F-114 and seventeen `*_not_blank` CHECKs share it. The suite asserts that measured truth
   in two cases rather than the constraint's name; **B-076** files the sweep, and the admitting case
