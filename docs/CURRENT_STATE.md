@@ -19,7 +19,7 @@
 
 ## F-114 — what is on `main` and NOT deployed
 
-Phases B, C.0, C.1, C.2 (`214aeb2`) and C.3 (`7270ac6`) are merged. The governing contract is §the
+Phases B, C.0, C.1, C.2 (`214aeb2`) and C.3 (`daa499f`, PR #127) are merged. The governing contract is §the
 stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; the reasoning
 behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 

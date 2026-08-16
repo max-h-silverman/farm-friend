@@ -13,8 +13,9 @@ mid-session defeats its own purpose.
 
 ## 2026-08-16 (latest) — Zoe can be reached at all (F-114 Phase C.3, targeting + stock-out routing)
 
-Merged as **`7270ac6`**. Integration is **1248/1248 across 88 of 88 files**, up from 1208/1208
-across 84; unit is 2,075 with the 7 corpus skips. C.2 gave Zoe the ability to publish Gracie's
+Merged as **`daa499f`** (PR #127). Integration is **1248/1248 across 88 of 88 files**, up from
+1208/1208 across 84; unit is 2,075 with the 7 corpus skips. Re-verified on the merged base — tests,
+typecheck, lint and scripted evals — not only on the branch. C.2 gave Zoe the ability to publish Gracie's
 Greens' stock from the web; C.3 is what lets anything *reach* her.
 
 **The gate was one join, and it read as a sentence nobody had re-read.** `lockLiveTargets` joined
