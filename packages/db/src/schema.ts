@@ -3062,8 +3062,15 @@ export const inventoryPublicationProposals = pgTable(
      * The confirmation token is context-bound, and this is what it is now bound TO. Without it
      * a `YES` from someone affiliated with two sellers at one stand is ambiguous about which
      * listing it publishes.
+     *
+     * **NULL only for a venue's closure-only proposal** (F-114 C.2 / B-077, `0046`). Morgan Hill
+     * has no provider of its own and a closure is not any provider's listing, so the token binds
+     * to the STAND there — the same two-arm shape `closure_revisions` itself takes. Naming one
+     * of the venue's hosted sellers instead would bind the token to goods the closure is not
+     * about, and would let that seller's `YES` publish the venue's shutter.
+     * `inventory_proposals_provider_arm` keeps it to exactly that case.
      */
-    providerId: uuid("provider_id").notNull(),
+    providerId: uuid("provider_id"),
     payload: jsonb("payload").notNull(),
     proposalVersion: integer("proposal_version").notNull(),
     state: proposalState("state").notNull().default("open"),
@@ -3130,6 +3137,21 @@ export const inventoryPublicationProposals = pgTable(
     )
       .on(table.senderHash, table.salesLocationId, table.providerId)
       .where(sql`${table.state} = 'open'`),
+    /**
+     * The provider is optional only where there is genuinely none to name (F-114 C.2, `0046`).
+     *
+     * A proposal that refreshes inventory always has a listing, so it always names one. Only a
+     * closure-only proposal may omit it, and only a venue's actually does — an ordinary stand's
+     * closure still names its own listing, because it has one.
+     *
+     * Stated as an implication rather than a biconditional, deliberately: the converse (a
+     * closure-only proposal that DOES name a provider) is the ordinary case at all 38 stands,
+     * not a failure.
+     */
+    providerArm: check(
+      "inventory_proposals_provider_arm",
+      sql`${table.providerId} is not null or ${table.hasInventory} = false`,
+    ),
     activationOutboxUnique: unique(
       "inventory_publication_proposals_activation_outbox_unique",
     ).on(table.activationOutboxId),
@@ -3322,10 +3344,40 @@ export const inventoryRevisions = pgTable(
       columns: [table.providerId, table.salesLocationId],
       foreignColumns: [standProviders.id, standProviders.salesLocationId],
     }).onDelete("restrict"),
-    authorizationFarmReference: foreignKey({
-      name: "inventory_revisions_authorization_farm_fk",
-      columns: [table.publishedByAuthorizationId, table.sellerId],
-      foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.sellerId],
+    /**
+     * The seller is the PROVIDER'S seller (F-114 Phase C.2, migration `0045`).
+     *
+     * This replaces `inventory_revisions_location_own_seller_fk`, which keyed
+     * `(sales_location_id, seller_id)` onto the stand's self-pointer and therefore said *every
+     * revision's seller is the stand's own seller*. True of 38 of 38 stands when it was
+     * written, and structurally forbidding the hosted publication this phase exists to build.
+     *
+     * Whose goods these are is decided by the RELATIONSHIP, never by who owns the roof. With
+     * `locationProviderReference` beside it, a revision belongs to one real relationship at one
+     * real stand for the seller that relationship names.
+     */
+    providerSellerReference: foreignKey({
+      name: "inventory_revisions_provider_seller_fk",
+      columns: [table.providerId, table.sellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
+    }).onDelete("restrict"),
+    /**
+     * A plain reference since `0045`, widened from `(authorization, seller)`.
+     *
+     * The composite form said the publisher's authorization must name the seller being
+     * published — which refuses exactly the write §the Venison Valley case permits, where a
+     * host states a hosted seller's stock under that seller's own opt-in. The database cannot
+     * decide who may publish for whom: the answer is two LIVE facts, the relationship's
+     * `host_may_update_stock` and the authorization's revocation, and a static key sees
+     * neither. `resolveProviderWriteAuthority` is the one place that answers it.
+     *
+     * What survives is the half that was never the problem: a revision naming a publisher who
+     * is not a real authorization would be an audit trail pointing at nothing.
+     */
+    authorizationReference: foreignKey({
+      name: "inventory_revisions_authorization_fk",
+      columns: [table.publishedByAuthorizationId],
+      foreignColumns: [farmerAuthorizations.id],
     }).onDelete("restrict"),
     approvalFarmReference: foreignKey({
       name: "inventory_revisions_approval_farm_fk",
@@ -3419,11 +3471,34 @@ export const closureRevisions = pgTable(
   "closure_revisions",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    ownerSellerId: uuid("owner_seller_id").notNull(),
+    /**
+     * The stand's own seller, when it has one — NULL for a venue (F-114 C.2 / B-077, `0046`).
+     *
+     * Closure is a STAND fact, so it is recorded the way the authority to record it is: two
+     * arms, mirroring `farmer_authorizations`. All three of these columns were NOT NULL and all
+     * routed through the self-pointer, so Morgan Hill Community Stand — a venue with no seller
+     * of its own — could hold none of them and **could not record a closure at all**.
+     *
+     * Optional is not free. `closure_revisions_owner_arm` requires this and the approval
+     * together, and the `closure_revisions_guard_arm` trigger makes the STAND decide which arm
+     * the row takes, so a stand that has its own seller cannot pick the weaker one.
+     */
+    ownerSellerId: uuid("owner_seller_id"),
     salesLocationId: uuid("sales_location_id").notNull(),
     proposalId: uuid("proposal_id").notNull(),
+    /**
+     * NOT NULL in BOTH arms. A closure always has a person behind it, and which arm they hold
+     * does not change that — the stand arm drops the seller, never the person.
+     */
     ownerAuthorizationId: uuid("owner_authorization_id").notNull(),
-    ownerApprovalId: uuid("owner_approval_id").notNull(),
+    /**
+     * VIGA's approval OF the stand's own seller — NULL for a venue, with the seller.
+     *
+     * A venue has no seller-approval to name because approval gates whether a SELLER may be
+     * public, and a venue sells nothing. Requiring one would re-invent exactly the fabricated
+     * seller §the stand-and-sellers correction removed.
+     */
+    ownerApprovalId: uuid("owner_approval_id"),
     result: closureResult("result").notNull(),
     closureKind: closureKind("closure_kind"),
     startsOn: date("starts_on", { mode: "string" }),
@@ -3476,6 +3551,22 @@ export const closureRevisions = pgTable(
           and ${table.startsOn} is not null
         )
       `,
+    ),
+    /**
+     * The seller and its approval are named together or not at all (F-114 C.2, `0046`).
+     *
+     * A BICONDITIONAL, because a CHECK PASSES on NULL and both directions are real failures: a
+     * seller without its approval publishes a closure VIGA never approved that seller for, and
+     * an approval without its seller files one under nobody named on the row.
+     *
+     * **Which arm the row must take is not stated here** — that rule reads
+     * `sales_locations.own_seller_id`, so it is the `closure_revisions_guard_arm` trigger.
+     * Without it the venue's arm would be an escape hatch: any stand could file a stand-armed
+     * closure and skip the approval gate entirely.
+     */
+    ownerArm: check(
+      "closure_revisions_owner_arm",
+      sql`(${table.ownerSellerId} is null) = (${table.ownerApprovalId} is null)`,
     ),
     seasonalHasNoEnd: check(
       "closure_revisions_seasonal_has_no_end",

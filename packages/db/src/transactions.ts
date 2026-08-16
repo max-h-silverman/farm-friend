@@ -14,6 +14,10 @@ import {
   validatePublicStrings,
 } from "@farm-friend/core";
 import { readCurrentRevisionRef, readNativeProviderId } from "./current-inventory";
+import {
+  resolveProviderWriteAuthority,
+  resolveStandWriteAuthority,
+} from "./provider-write-authority";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 
@@ -581,6 +585,13 @@ export interface ProposalEntryInput {
 export interface OpenProposalInput {
   senderHash: string;
   salesLocationId: string;
+  /**
+   * Whose listing this proposal is for (F-114 Phase C.2). Defaults to the stand's own seller,
+   * which is what every caller meant before providers existed and is still what 31 of 38 stands
+   * mean — so the default keeps the ordinary farmer's path unchanged rather than making every
+   * caller name a provider it has no way to choose between yet.
+   */
+  providerId?: string;
   /** Complete inventory section. Absent means this proposal does not refresh inventory. */
   entries?: ProposalEntryInput[];
   /** Complete owner-only closure section. */
@@ -725,29 +736,111 @@ export async function openOrReviseProposal(
       where proposal.sender_hash = ${input.senderHash} and proposal.state = 'open'
       for update of proposal
     `;
-    const ownerAuthorization = await tx`
-      select farmer.id from farmer_authorizations as farmer
-      join contacts on contacts.id = farmer.contact_id
-      where farmer.seller_id = ${locations[0]?.own_seller_id as string}
-        and contacts.phone_hash = ${input.senderHash}
-        and farmer.revoked_at is null
-      for update of farmer
-    `;
-    if (ownerAuthorization.length === 0) {
-      throw new Error("sender is not authorized for this sales location");
+    /*
+      F-114 Phase C.2 — a proposal belongs to ONE provider, and the token that confirms it is
+      bound to that provider. Which provider is the caller's to name; who may write it is not.
+
+      Before C.2 this asked whether the sender was authorized for the stand's OWN seller, which
+      is correct for a stand with one seller and wrong for every hosted relationship: it locked
+      a hosted seller out of her own goods at her host's stand, and it let a host write anything
+      at theirs. `resolveProviderWriteAuthority` is the one place that answers it now, so the
+      three ways to say yes are stated once rather than at each writer.
+
+      The authorization it returns is the one recorded on the revision — the host's own when the
+      host is stating a hosted seller's stock under the seller's opt-in, which is what makes the
+      audit trail say who actually observed it.
+    */
+    /*
+      A proposal's two sections answer to two different authorities, so each is resolved for the
+      section that needs it and neither is asked to cover the other.
+
+      **Inventory** needs provider write authority. A venue has no provider of its own, so an
+      inventory-only proposal there must NAME the provider it means — `readNativeProviderId`
+      throws rather than guessing, which is correct: "the stand's own listing" is not a question
+      Morgan Hill has an answer to.
+
+      **Closure** needs stand write authority (§facts and authority: a stand shutdown OVERRIDES
+      every provider and renders nothing itemized). A hosted seller who could set it would
+      silence their host's goods along with their own — exactly the authority §the Venison
+      Valley case withholds in the other direction. Provider authority is not sufficient here:
+      it says whose stock you may state, and a shutter is not stock.
+
+      This is what closes B-077. Before it, closure rode the provider path and a venue could
+      reach neither — no provider to resolve, and three NOT NULL seller columns on the row.
+    */
+    let providerId: string | null = null;
+    if (input.entries !== undefined) {
+      providerId =
+        input.providerId ??
+        (await readNativeProviderId(tx, { salesLocationId: input.salesLocationId }));
+      const authority = await resolveProviderWriteAuthority(tx, {
+        providerId,
+        senderHash: input.senderHash,
+      });
+      if (authority.status !== "authorized") {
+        throw new Error("sender is not authorized for this sales location");
+      }
+      if (authority.salesLocationId !== input.salesLocationId) {
+        // The stand and the provider must agree, or a proposal could name one stand's listing
+        // under another's roof. The composite key would catch the revision; this catches the
+        // proposal, which is where the farmer would otherwise be shown the wrong snapshot.
+        throw new Error("provider does not belong to this sales location");
+      }
+      // Locked here rather than inside the authority read, so the lock order is the shared one:
+      // sender, location, proposal, authorization. Revocation committing first leaves no row.
+      const held = await tx`
+        select id from farmer_authorizations
+        where id = ${authority.authorizationId} and revoked_at is null
+        for update
+      `;
+      if (held.length === 0) {
+        throw new Error("sender is not authorized for this sales location");
+      }
     }
 
-    // F-114 Phase B — a proposal belongs to one provider, and the token that confirms it is
-    // bound to that provider. This writer serves the farmer's own stand, so the native slot.
-    const providerId = await readNativeProviderId(tx, {
-      salesLocationId: input.salesLocationId,
-    });
+    if (input.closure !== undefined) {
+      const standAuthority = await resolveStandWriteAuthority(tx, {
+        salesLocationId: input.salesLocationId,
+        senderHash: input.senderHash,
+      });
+      if (standAuthority.status !== "authorized") {
+        throw new Error("sender is not authorized to close this sales location");
+      }
+      const held = await tx`
+        select id from farmer_authorizations
+        where id = ${standAuthority.authorizationId} and revoked_at is null
+        for update
+      `;
+      if (held.length === 0) {
+        throw new Error("sender is not authorized to close this sales location");
+      }
+    }
+
+    /*
+      A closure-only proposal at a venue names no provider, because there is none to name.
+      Everywhere else the column stays populated exactly as before: `provider_id` is what binds a
+      confirmation token to the listing it was shown for, and a closure-only proposal at an
+      ordinary stand still belongs to that stand's own listing.
+    */
+    if (providerId === null) {
+      const standOwnSellerId = locations[0]?.own_seller_id as string | null;
+      providerId =
+        standOwnSellerId === null
+          ? null
+          : await readNativeProviderId(tx, { salesLocationId: input.salesLocationId });
+    }
     let baseRevisionId: string | null = null;
     let isFirstPublication: boolean | null = null;
     if (input.entries !== undefined && input.baseIsFirstPublication !== undefined) {
       baseRevisionId = input.baseRevisionId ?? null;
       isFirstPublication = input.baseIsFirstPublication;
     } else if (input.entries !== undefined) {
+      if (providerId === null) {
+        // Unreachable: an inventory section resolved a provider above, or threw. Stated so the
+        // base revision can never be read for "no listing", which would silently make every
+        // publication look like a first one.
+        throw new Error("an inventory proposal must name a provider");
+      }
       const current = await readCurrentRevisionRef(tx, {
         salesLocationId: input.salesLocationId,
         providerId,
@@ -798,6 +891,10 @@ export async function openOrReviseProposal(
         set payload = ${tx.json(payload)},
             proposal_version = ${nextVersion},
             sales_location_id = ${input.salesLocationId},
+            -- F-114 Phase C.2 — moved WITH the location, never left behind. A proposal whose
+            -- location names one listing and whose provider names another would be confirmed
+            -- against the second while the farmer read the first.
+            provider_id = ${providerId},
             has_inventory = ${input.entries !== undefined},
             has_closure = ${input.closure !== undefined},
             base_revision_id = ${baseRevisionId},
@@ -926,7 +1023,9 @@ export async function confirmInventoryPublication(
     // The proposal carries its own provider. Reading it from the row rather than re-deriving it
     // is what keeps the token context-bound: a confirmation publishes for the listing the
     // proposal named, not for whatever the stand's native slot happens to be now.
-    const providerId = target[0]?.provider_id as string;
+    // NULL only for a venue's closure-only proposal, where there is no listing to bind to and
+    // the token binds to the stand instead (F-114 C.2 / B-077).
+    const providerId = (target[0]?.provider_id as string | null) ?? null;
     const location = await tx`
       select own_seller_id, name, retired_at from sales_locations
       where id = ${salesLocationId}
@@ -964,11 +1063,16 @@ export async function confirmInventoryPublication(
       return { status: "no_open_proposal" };
     }
 
-    const currentRevision = await readCurrentRevisionRef(tx, {
-      salesLocationId,
-      providerId,
-      lock: false,
-    });
+    // A venue's closure-only proposal names no provider, so there is no incumbent listing to
+    // read. `null` here is the same answer a stand that has never published gives.
+    const currentRevision =
+      providerId === null
+        ? null
+        : await readCurrentRevisionRef(tx, {
+            salesLocationId,
+            providerId,
+            lock: false,
+          });
     const currentRevisionId = currentRevision?.revisionId ?? null;
     const currentClosure = await tx`
       select id, result, closure_kind, starts_on, closed_through from closure_revisions
@@ -1094,28 +1198,109 @@ export async function confirmInventoryPublication(
       return { status: "declined" };
     }
 
-    // These are the final shared locks. If revocation committed first, the filtered lock
-    // returns no row; if confirmation locked first, revocation queues until publication.
-    const farmId = location[0]?.own_seller_id as string;
+    /*
+      These are the final shared locks. If revocation committed first, the filtered lock
+      returns no row; if confirmation locked first, revocation queues until publication.
+
+      F-114 Phase C.2 — each section is re-authorized against the authority IT needs, mirroring
+      the proposal writer. Inventory goes through the PROPOSAL'S provider, not the stand's own
+      seller: that is what keeps a hosted seller able to confirm her own listing and a host
+      unable to confirm one the seller never let them write. Closure goes through the stand.
+
+      Both are deliberately re-read here rather than trusted from the proposal, because that is
+      the whole point of the seam: a right withdrawn between composing and confirming must bite
+      before anything publishes.
+
+      `farmId` is whose goods are being published — the PROVIDER'S seller for an inventory
+      proposal, and NULL for a venue's closure, which publishes nobody's goods at all.
+    */
+    const providerAuthority =
+      providerId === null
+        ? null
+        : await resolveProviderWriteAuthority(tx, {
+            providerId,
+            senderHash: input.senderHash,
+          });
+    if (providerAuthority !== null && providerAuthority.status !== "authorized") {
+      return { status: "not_authorized" };
+    }
+
+    const standAuthority =
+      proposal.has_closure === true
+        ? await resolveStandWriteAuthority(tx, {
+            salesLocationId,
+            senderHash: input.senderHash,
+          })
+        : null;
+    if (standAuthority !== null && standAuthority.status !== "authorized") {
+      // `not_approved` reaches the farmer as itself: VIGA's approval of the stand's own seller
+      // is gone, which is a different repair from "you may not do this".
+      return { status: standAuthority.status === "not_approved" ? "not_approved" : "not_authorized" };
+    }
+
+    const farmId =
+      providerAuthority !== null && providerAuthority.status === "authorized"
+        ? providerAuthority.sellerId
+        : null;
+    /*
+      EVERY authorization this publication will write is locked, not just one. A mixed proposal
+      resolves two — the provider's for the listing and the stand's for the shutter — and at an
+      ordinary stand they are usually the same row, so locking "the acting one" looks correct
+      and silently leaves the other unlocked exactly where they differ: a host publishing a
+      hosted seller's stock alongside a closure.
+
+      Deduplicated and ordered, so two concurrent confirmations take them in the same sequence.
+    */
+    const authorizationIds = [
+      ...new Set(
+        [
+          providerAuthority !== null && providerAuthority.status === "authorized"
+            ? providerAuthority.authorizationId
+            : null,
+          standAuthority !== null && standAuthority.status === "authorized"
+            ? standAuthority.authorizationId
+            : null,
+        ].filter((id): id is string => id !== null),
+      ),
+    ].sort();
+    if (authorizationIds.length === 0) return { status: "not_authorized" };
+
+    // A scheduled prompt is addressed to ONE authorization, and only that one may answer it.
+    // Checked against the set rather than inside the lock's filter: folding it in would refuse
+    // a mixed proposal whose second authorization is legitimately a different row.
+    const scheduledAuthorizationId =
+      (scheduledSubject?.authorization_id as string | undefined) ?? null;
+    if (
+      scheduledAuthorizationId !== null &&
+      !authorizationIds.includes(scheduledAuthorizationId)
+    ) {
+      return { status: "not_authorized" };
+    }
 
     const authorization = await tx`
-      select farmer.id from farmer_authorizations as farmer
-      join contacts on contacts.id = farmer.contact_id
-      where farmer.seller_id = ${farmId}
-        and contacts.phone_hash = ${input.senderHash}
-        and farmer.revoked_at is null
-        and (${scheduledSubject?.authorization_id as string | undefined ?? null}::uuid is null
-          or farmer.id = ${scheduledSubject?.authorization_id as string | undefined ?? null})
-      for update of farmer
-    `;
-    if (authorization.length === 0) return { status: "not_authorized" };
-
-    const approval = await tx`
-      select id from seller_approvals
-      where seller_id = ${farmId} and revoked_at is null
+      select id from farmer_authorizations
+      where id in ${tx(authorizationIds)}
+        and revoked_at is null
+      order by id
       for update
     `;
-    if (approval.length === 0) return { status: "not_approved" };
+    // Every one of them, not merely one: a partially-revoked pair must refuse the whole
+    // publication rather than publishing the half whose authorization survived.
+    if (authorization.length !== authorizationIds.length) {
+      return { status: "not_authorized" };
+    }
+
+    // A venue publishes no seller's goods, so there is no seller-approval to hold. Everywhere
+    // else the gate is unchanged: VIGA's approval of the seller being published.
+    const approval =
+      farmId === null
+        ? []
+        : await tx`
+            select id from seller_approvals
+            where seller_id = ${farmId} and revoked_at is null
+            for update
+          `;
+    if (farmId !== null && approval.length === 0) return { status: "not_approved" };
 
     // VIGA took the whole FARM down. Checked separately from the stand's own retirement below
     // because a farm take-down deliberately never writes its stands' `retired_at` — that is
@@ -1124,10 +1309,17 @@ export async function confirmInventoryPublication(
     //
     // Locked, like the approval above, so a take-down committing mid-confirmation either loses
     // the race and is seen here or wins it and queues behind this publication.
-    const farmRetirement = await tx`
-      select retired_at from sellers where id = ${farmId} for update
-    `;
-    if (farmRetirement[0]?.retired_at !== null) return { status: "farm_retired" };
+    //
+    // Skipped entirely for a venue's closure, which publishes no seller's goods and therefore
+    // has no seller to be retired. Written as an explicit branch rather than by letting the
+    // query return nothing: `rows[0]?.retired_at !== null` is TRUE on `undefined`, so an empty
+    // result would report `farm_retired` for a stand with no farm at all.
+    if (farmId !== null) {
+      const farmRetirement = await tx`
+        select retired_at from sellers where id = ${farmId} for update
+      `;
+      if (farmRetirement[0]?.retired_at !== null) return { status: "farm_retired" };
+    }
 
     // F-071 — VIGA took this stand down. Read from the location row locked at the top of this
     // transaction, so a retirement committing mid-confirmation either loses the lock race and
@@ -1179,6 +1371,12 @@ export async function confirmInventoryPublication(
 
     let revisionId: string | undefined;
     if (proposal.has_inventory === true) {
+      if (providerAuthority === null || providerAuthority.status !== "authorized") {
+        // Unreachable for the same reason the closure branch's guard is: `has_inventory` is
+        // what made the proposal carry a provider, and `inventory_proposals_provider_arm`
+        // refuses the row that would not.
+        throw new Error("inventory publication reached without provider authority");
+      }
       const revision = await tx`
         insert into inventory_revisions (
           seller_id, sales_location_id, provider_id, proposal_id,
@@ -1186,7 +1384,7 @@ export async function confirmInventoryPublication(
         )
         values (
           ${farmId}, ${salesLocationId}, ${providerId}, ${input.proposalId},
-          ${authorization[0]?.id as string}, ${approval[0]?.id as string},
+          ${providerAuthority.authorizationId}, ${approval[0]?.id as string},
           'sms', ${input.occurredAt}
         )
         returning id
@@ -1212,6 +1410,14 @@ export async function confirmInventoryPublication(
     if (proposal.has_closure === true) {
       const closure = payload.closure;
       if (closure === undefined) throw new Error("closure proposal payload is missing closure");
+      if (standAuthority === null || standAuthority.status !== "authorized") {
+        // Unreachable: `has_closure` is what made `standAuthority` be resolved above, and a
+        // non-authorized one already returned. Stated so the closure row can never be written
+        // from an authority that was never checked, rather than relying on a reader tracing
+        // two branches to see that it cannot happen.
+        throw new Error("closure publication reached without stand authority");
+      }
+      const standOwner = standAuthority;
       if (currentClosureRevisionId !== null) {
         await tx`
           update closure_revisions
@@ -1225,8 +1431,15 @@ export async function confirmInventoryPublication(
           owner_approval_id, result, closure_kind, starts_on, closed_through,
           published_at
         ) values (
-          ${farmId}, ${salesLocationId}, ${input.proposalId},
-          ${authorization[0]?.id as string}, ${approval[0]?.id as string},
+          /*
+            The STAND'S authority, never the provider's. A mixed proposal at an ordinary stand
+            resolves both to the same seller — the stand's own — so this reads as a no-op there
+            and is exactly the point everywhere else: a venue's arm is (null, null) and a host
+            publishing a hosted seller's stock alongside a closure must still file the closure
+            under the STAND'S owner, not under the goods they were observing.
+          */
+          ${standOwner.sellerId}, ${salesLocationId}, ${input.proposalId},
+          ${standOwner.authorizationId}, ${standOwner.approvalId},
           ${closure.result},
           ${closure.result === "close" ? closure.closureKind : null},
           ${closure.result === "close" ? closure.startsOn : null},

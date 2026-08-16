@@ -316,6 +316,20 @@
       "when": 1788150410000,
       "tag": "0044_hosting_invitation",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1788150411000,
+      "tag": "0045_per_provider_writes",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1788150412000,
+      "tag": "0046_closure_stand_arm",
+      "breakpoints": true
     }
   ]
 }

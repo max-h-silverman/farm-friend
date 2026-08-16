@@ -255,10 +255,24 @@ with the guard that protects each.
   One attempt "passed" only because the *other* trigger had already rolled back the setup statement,
   so nothing was tested. Another appeared to collapse a whole suite when the edit had simply emitted
   malformed SQL. Read the row back, and read the error, before believing a negative result.
-- **A guard that cannot be falsified is not a guard.** Sabotaging a route's shape check changed no
-  test result, because the writer beneath it refused the same input and produced the same status.
-  Delete the duplicate and prove the rule where it lives, rather than keeping an assertion that
-  cannot fail.
+- **A guard that cannot be falsified is not a guard — but find out WHICH of the two it is.** When a
+  sabotage changes no test result, some other guard answered first. Sometimes that means the guard
+  is a genuine duplicate: sabotaging a route's shape check changed nothing because the writer
+  beneath refused the same input with the same status, so it was deleted and proved where it lives.
+  Just as often the guard is real and the *case* is wrong, because it never constructs the one
+  situation where that guard is the only thing that could refuse. F-114 C.2 hit five of those in a
+  row: an authority preference with no case holding both arms at once; a stand/provider agreement
+  check probed with an actor already refused earlier for an unrelated reason; a closure insert and a
+  re-authorization that both needed a **mixed** proposal, the only shape where two authorities
+  differ (at a venue both are `(null, null)`; at a single-seller stand they are the same row); and
+  an arm trigger that needed an UPDATE *swapping* the arm, since a valid supersede passes whether
+  or not the trigger watches updates. **Ask which other guard answered before concluding the guard
+  is redundant.**
+- **`NOT VALID` on a FOREIGN KEY still refuses new rows.** It skips only the scan of rows already
+  there — so the obvious probe, inserting a violator and requiring the refusal, passes either way
+  and proves nothing. A deliberate `NOT VALID` sabotage sailed straight through one. Assert
+  `pg_constraint.convalidated`, which is the fact that actually differs, and assert it against a
+  **populated** schema, because unvalidated rows are the only thing at risk.
 - **Assert the ABSENCE of the wrong behavior, not only the presence of the right one.** "Invite
   posts exactly one request" says nothing about what *Save* does, so a `save()` that also invited
   survived sabotage untouched. Whenever an act is deliberately kept out of a shared commit path,
