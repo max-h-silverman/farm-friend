@@ -33,15 +33,15 @@ describe("the admin desk", () => {
 
   it("counts pending work on the tab that owns it", () => {
     // The counts did not disappear with the desk; they moved above the rows they describe.
-    // "Farms nobody can update" is the one that matters most: routinely NOT empty, and
-    // previously countable only by navigating to a screen that never said it had work.
-    // F-101 — the counts live in the component that renders the rows, not in the server page:
-    // they are computed from the rows actually on screen, so a filtered list and its summary
-    // cannot disagree. Asserted where they now are.
+    // F-101 — they live in the component that renders the rows, not in the server page, so a
+    // filtered list and its summary cannot disagree. Asserted where they now are.
     const view = page("apps/web/app/admin/stands-and-sellers.tsx");
     expect(view).toContain("waiting for approval");
-    expect(view).toContain("nobody who can update");
     expect(view).toContain("admin-attention-summary");
+    // max, 2026-08-17 — having no owner is a STATE, not work waiting. It must not reappear in
+    // the alert line: most farms start unclaimed, so counting it there made the line permanent
+    // furniture and trained the operator to skip the real alert beside it.
+    expect(view).not.toContain("nobody who can update");
   });
 
   it("repeats no tab name above the stands view (F-101)", () => {

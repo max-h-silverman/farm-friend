@@ -6642,3 +6642,25 @@ button.admin-action-danger,
 .admin-stands-and-sellers .admin-entity-detail {
   background: var(--card);
 }
+
+/* The view switch and the row count share a line: the count labels the list
+   rather than announcing anything, so it sits beside the control that changes
+   which list you are looking at. */
+.admin-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.9rem;
+}
+
+/* Matches the switch's own height and centres within it, rather than relying on
+   the row's align-items alone: the tab is a 40px pill inside 0.25rem of padding,
+   so text centred on the CONTAINER still sits a hair high against the pill. */
+.admin-view-count {
+  display: inline-flex;
+  align-items: center;
+  min-height: calc(40px + 0.5rem + 2px);
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1;
+}

@@ -80,9 +80,23 @@ function standAttention(stand: StandCard): string | null {
 function sellerAttention(seller: SellerCard): string | null {
   if (seller.retired) return null;
   if (!seller.approved) return "Waiting for approval";
-  if (seller.access.every((row) => row.revokedAt !== null)) return "Nobody can update it";
   if (seller.providers.length === 0) return "Sells nowhere";
   return null;
+}
+
+/**
+ * Nobody can publish for this farm yet (max, 2026-08-17).
+ *
+ * A STATE of the record, deliberately not an alert. Most farms begin life this way — VIGA
+ * enters them from the map long before a farmer takes one over — so flagging it made the
+ * attention line permanent furniture, and an operator who learns to skip that line skips the
+ * real alert sitting next to it.
+ *
+ * It still shows, as a neutral chip, because "has this one been claimed?" is a question the
+ * operator genuinely asks. What changed is that it no longer shouts.
+ */
+function unclaimed(seller: SellerCard): boolean {
+  return !seller.retired && seller.access.every((row) => row.revokedAt !== null);
 }
 
 /**
@@ -139,7 +153,7 @@ function AccessRoster({
     <section className="admin-access-roster">
       <h4>Who can update this listing</h4>
       {live.length === 0 ? (
-        <p className="admin-note">No handset can publish for this farm.</p>
+        <p className="admin-note">Unclaimed — no handset can publish for this farm yet.</p>
       ) : (
         live.map((row) => (
           <p key={row.authorizationId} className="admin-access-row">
@@ -170,6 +184,7 @@ function Card({
   title,
   subtitle,
   attention,
+  states,
   open,
   onToggle,
   children,
@@ -178,6 +193,8 @@ function Card({
   title: string;
   subtitle: string;
   attention: string | null;
+  /** Neutral facts about the record. Never work waiting — that is `attention`. */
+  states: string[];
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -205,6 +222,11 @@ function Card({
           </span>
           <span className="admin-row-meta" />
           <span className="admin-row-states">
+            {states.map((state) => (
+              <span key={state} className="admin-pill">
+                {state}
+              </span>
+            ))}
             {attention !== null && (
               <span className="admin-pill admin-pill--attention">{attention}</span>
             )}
@@ -256,15 +278,8 @@ export function StandsAndSellers({
     view === "stands"
       ? visibleStands.filter((stand) => !stand.approved && !stand.retired).length
       : visibleSellers.filter((seller) => !seller.approved && !seller.retired).length;
-  const orphaned =
-    view === "sellers"
-      ? visibleSellers.filter(
-          (seller) => !seller.retired && seller.access.every((row) => row.revokedAt !== null),
-        ).length
-      : 0;
   const attention = [
     waitingApproval > 0 ? `${waitingApproval} waiting for approval` : null,
-    orphaned > 0 ? `${orphaned} with nobody who can update ${orphaned === 1 ? "it" : "them"}` : null,
   ].filter((part): part is string => part !== null);
 
   function tab(target: View, label: string) {
@@ -288,9 +303,26 @@ export function StandsAndSellers({
 
   return (
     <div className="admin-stands-and-sellers">
-      <div className="admin-view-tabs" role="tablist" aria-label="Stands or sellers">
-        {tab("stands", "Stands")}
-        {tab("sellers", "Sellers")}
+      {/*
+        The count sits BESIDE the switch as plain text (max, 2026-08-17). How many rows there
+        are is a label for the list, not news — announcing it as a live status made a standing
+        fact behave like an alert, which is the same wear the unclaimed flag was causing.
+      */}
+      <div className="admin-view-switch">
+        <div className="admin-view-tabs" role="tablist" aria-label="Stands or sellers">
+          {tab("stands", "Stands")}
+          {tab("sellers", "Sellers")}
+        </div>
+        <span className="admin-view-count" data-testid="entity-count">
+          {count}{" "}
+          {view === "stands"
+            ? count === 1
+              ? "stand"
+              : "stands"
+            : count === 1
+              ? "seller"
+              : "sellers"}
+        </span>
       </div>
 
       <input
@@ -303,19 +335,15 @@ export function StandsAndSellers({
       />
 
       {/*
-        Entities, never arrangements: "2 sellers" means two farms, whatever their dealings.
-
-        The attention counts sit here, above the rows they describe, rather than on a desk
-        screen of their own (max, 2026-08-10) — and they are rendered only when non-zero. A
-        standing "0 waiting" is chrome an operator learns to skip, which is exactly how the
-        real number stops being noticed.
+        What is WAITING, above the rows it describes (max, 2026-08-10), and only when there is
+        some. A standing "0 waiting" is chrome an operator learns to skip, which is exactly how
+        the real number stops being noticed — so an empty attention line renders nothing at all.
       */}
-      <p className="admin-attention-summary" role="status">
-        {[
-          `${count} ${view === "stands" ? (count === 1 ? "stand" : "stands") : count === 1 ? "seller" : "sellers"}`,
-          ...attention,
-        ].join(" · ")}
-      </p>
+      {attention.length > 0 && (
+        <p className="admin-attention-summary" role="status">
+          {attention.join(" · ")}
+        </p>
+      )}
 
       {view === "stands" ? (
         <ul className="admin-farms">
@@ -326,6 +354,7 @@ export function StandsAndSellers({
               title={stand.name}
               subtitle={stand.farmName}
               attention={standAttention(stand)}
+              states={[]}
               open={open === stand.standId}
               onToggle={() => setOpen(open === stand.standId ? null : stand.standId)}
             >
@@ -347,6 +376,7 @@ export function StandsAndSellers({
                   : `${seller.providers.length} stands`
               }
               attention={sellerAttention(seller)}
+              states={unclaimed(seller) ? ["Unclaimed"] : []}
               open={open === seller.farmId}
               onToggle={() => setOpen(open === seller.farmId ? null : seller.farmId)}
             >

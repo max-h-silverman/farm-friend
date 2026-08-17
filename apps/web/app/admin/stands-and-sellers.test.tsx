@@ -180,20 +180,22 @@ describe("the lists are entities, not states", () => {
 
   it("counts entities, never arrangements", async () => {
     renderPage();
-    expect(screen.getByRole("status")).toHaveTextContent(/2 stands/i);
+    // Plain text beside the view switch (max, 2026-08-17), not an alert: how many rows there
+    // are is a label for the list, and announcing it as a status made a standing fact behave
+    // like news.
+    expect(screen.getByTestId("entity-count")).toHaveTextContent(/2 stands/i);
 
     await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
-    expect(screen.getByRole("status")).toHaveTextContent(/2 sellers/i);
+    expect(screen.getByTestId("entity-count")).toHaveTextContent(/2 sellers/i);
   });
 
   it("says how much work is waiting without opening a card", async () => {
-    renderPage();
+    // Approval is work waiting on VIGA, so it is still counted. Having no owner is NOT —
+    // see the unclaimed suite below.
+    render(<StandsAndSellers stands={[]} sellers={unapproved} fetcher={vi.fn()} />);
     await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
 
-    // Fernhorn's only authorization is revoked, so one seller has nobody who can update it.
-    // The count belongs above the rows it describes — an operator must not have to open every
-    // card to discover there is work.
-    expect(screen.getByRole("status")).toHaveTextContent(/1 .*nobody who can update/i);
+    expect(screen.getByRole("status")).toHaveTextContent(/1 waiting for approval/i);
   });
 });
 
@@ -259,14 +261,26 @@ describe("a seller shows where she sells", () => {
     expect(card.textContent).not.toMatch(/\d{3}-?\d{3}-?\d{4}/);
   });
 
-  it("says so plainly when nobody can update the seller's listing", async () => {
+  it("marks a seller with no owner as unclaimed, and raises no alert about it", async () => {
     renderPage();
     await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
 
-    await userEvent.click(screen.getByText("Fernhorn Farm"));
-    const card = screen.getByRole("group", { name: /Fernhorn Farm/i });
+    // max, 2026-08-17: a farm nobody has claimed is a STATE of the record, not work waiting.
+    // Most farms start this way, so alerting on it made the alert line permanent furniture
+    // and taught the operator to skip the row where a real one would appear.
+    const row = screen
+      .getAllByRole("listitem")
+      .find((entry) => entry.textContent?.includes("Fernhorn Farm"));
+    expect(row).toHaveTextContent(/unclaimed/i);
 
-    expect(within(card).getByText(/nobody can update/i)).toBeInTheDocument();
+    // And it is a plain state chip, never the amber "this needs you" one.
+    const chip = within(row as HTMLElement).getByText(/unclaimed/i);
+    expect(chip.className).toContain("admin-pill");
+    expect(chip.className).not.toContain("admin-pill--attention");
+
+    // Nothing above the rows says anything about it — no count, no alert.
+    expect(screen.queryByRole("status")).toBeNull();
+    expect(screen.getByTestId("entity-count")).not.toHaveTextContent(/update|unclaimed|nobody/i);
   });
 });
 
