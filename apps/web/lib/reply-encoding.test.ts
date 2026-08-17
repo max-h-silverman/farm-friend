@@ -8,6 +8,7 @@ import { estimateSmsSegments } from "@farm-friend/sms";
 import {
   CHITCHAT_REPLY,
   CLASSIFIER_UNAVAILABLE_REPLY,
+  PAUSED_REOPENING_PROMPT,
   PROPOSAL_CONFIRMATION_PROMPT,
   SYSTEM_INQUIRY_REPLY,
   UNCLEAR_REQUEST_REPLY,
@@ -38,6 +39,7 @@ describe("code-owned replies stay in the cheap SMS encoding", () => {
     UNCLEAR_REQUEST_REPLY,
     VIGA_BUCKS_INQUIRY_REPLY,
     PROPOSAL_CONFIRMATION_PROMPT,
+    PAUSED_REOPENING_PROMPT,
     RECIPE_SCOPE_STATEMENT,
     ORIGIN_LIMITATION_STATEMENT,
   };
@@ -54,14 +56,20 @@ describe("code-owned replies stay in the cheap SMS encoding", () => {
   });
 });
 
-describe("the proposal prompt only names words the router accepts", () => {
+describe.each([
+  ["the proposal prompt", PROPOSAL_CONFIRMATION_PROMPT],
+  // F-114 C.4 — the paused listing's prompt carries the SAME gate, so it is swept the same
+  // way. It deliberately quotes YES and NO rather than introducing a re-opening keyword
+  // (max, 2026-08-16); this is what proves those two still route.
+  ["the paused re-opening prompt", PAUSED_REOPENING_PROMPT],
+])("%s only names words the router accepts", (_name, prompt) => {
   /*
     Copy that instructs a farmer to reply with a word the parser does not route is worse than
     no instruction: it produces a confident action that silently does nothing. So the words
     quoted in the prompt are checked against `parseCommand` itself rather than against a
     second list of what we believe it accepts.
   */
-  const quoted = PROPOSAL_CONFIRMATION_PROMPT.match(/\b[A-Z]{2,}\b/g) ?? [];
+  const quoted = prompt.match(/\b[A-Z]{2,}\b/g) ?? [];
 
   it("quotes at least one word, so the check below cannot pass vacuously", () => {
     expect(quoted.length).toBeGreaterThan(0);

@@ -164,6 +164,25 @@ export const SYSTEM_INQUIRY_REPLY =
 export const PROPOSAL_CONFIRMATION_PROMPT = "Reply YES to publish, or NO to discard.";
 
 /**
+ * What a PAUSED listing's farmer is asked instead (F-114 Phase C.4).
+ *
+ * §facts and authority: *a paused provider is offered re-opening, never refused.* A farmer who
+ * paused and then sends an update — or answers a prompt the scheduler sent before the pause —
+ * meant one of two things, and code never infers which. Publishing silently would re-open a
+ * listing she deliberately took down; refusing would tell her she may not update her own goods.
+ *
+ * So the consequence is stated and the same YES/NO gate is offered. The sentence replaces
+ * `PROPOSAL_CONFIRMATION_PROMPT` rather than joining it, because two "Reply YES" lines in one
+ * message is two instructions for one decision.
+ *
+ * Code-owned and asserted for its VALUE: the re-opening clause is the whole point, and a
+ * renderer that dropped it would still produce a plausible confirmation. GSM-7 only — the
+ * hyphen and the plain apostrophe-free wording keep this on 153-character segments.
+ */
+export const PAUSED_REOPENING_PROMPT =
+  "Publishing this update will re-open your listing. Reply YES to confirm, NO to cancel.";
+
+/**
  * VIGA owns the changing distribution details; Farm Friend links to their live answer rather
  * than copying pickup locations that can drift. Source reviewed 2026-08-13:
  * https://www.vigavashon.org/food-access-partnership
@@ -759,7 +778,14 @@ async function handleFarmerInventoryUpdate(
       return {
         replies: [
           {
-            body: `${outcome.confirmationText}\n\n${PROPOSAL_CONFIRMATION_PROMPT}`,
+            // F-114 C.4 — a paused listing is told what publishing will DO, and the ordinary
+            // YES/NO gate carries it. The two prompts REPLACE one another rather than stacking:
+            // two "Reply YES" lines in one message is two instructions for one decision.
+            body: `${outcome.confirmationText}\n\n${
+              outcome.requiresReopening
+                ? PAUSED_REOPENING_PROMPT
+                : PROPOSAL_CONFIRMATION_PROMPT
+            }`,
             category: "inventory_confirmation",
             // Bound to the proposal VERSION: a revision produces a new prompt rather than
             // reusing the previous row, so the outbox key tracks what is being confirmed.

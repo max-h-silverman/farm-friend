@@ -3126,6 +3126,19 @@ export const inventoryPublicationProposals = pgTable(
     activationOutboxId: uuid("activation_outbox_id"),
     activatedVersion: integer("activated_version"),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
+    /**
+     * The version at which the RE-OPENING consequence was stated to the farmer (F-114 C.4).
+     *
+     * §facts and authority: a paused listing's update triggers a confirmation stating that
+     * publishing will re-open the listing, and the farmer answers it with an ordinary `YES`
+     * (max, 2026-08-16) rather than a new keyword. That makes the `YES` ambiguous on its own,
+     * so the fact that the sentence was sent is stored rather than inferred.
+     *
+     * The VERSION, not a boolean: a revision bumps `proposal_version` and clears the
+     * activation, so a boolean would let consent survive into an ordinary prompt that never
+     * mentioned re-opening. NULL means it was never stated — the ordinary case.
+     */
+    reopeningStatedVersion: integer("reopening_stated_version"),
     consumedToken: proposalToken("consumed_token"),
     consumptionProviderEventId: text("consumption_provider_event_id"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -3188,6 +3201,15 @@ export const inventoryPublicationProposals = pgTable(
     providerArm: check(
       "inventory_proposals_provider_arm",
       sql`${table.providerId} is not null or ${table.hasInventory} = false`,
+    ),
+    /**
+     * A version is a version (F-114 C.4). Without this a `0` or a negative value would compare
+     * equal to no `proposal_version` and silently disable the consent forever — a farmer who
+     * was shown the re-opening sentence would be shown it again on every reply.
+     */
+    reopeningStatedVersionPositive: check(
+      "inventory_proposals_reopening_stated_version_positive",
+      sql`${table.reopeningStatedVersion} is null or ${table.reopeningStatedVersion} > 0`,
     ),
     activationOutboxUnique: unique(
       "inventory_publication_proposals_activation_outbox_unique",

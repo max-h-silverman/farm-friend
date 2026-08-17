@@ -16,6 +16,12 @@ import type { Sql } from "./sql";
     * `0048` — `inventory_prompt_preferences_location_own_seller_fk`
     * `0049` — `scheduled_prompt_subjects_location_own_seller_fk`
 
+  `0050` rides along because it is C.4's too and shares this fixture: it adds
+  `inventory_publication_proposals.reopening_stated_version`, the farmer's recorded consent to
+  re-opening a paused listing. A column ADD is the shape `drizzle-kit` gets wrong against a
+  populated table (`NOT NULL` with no default, an instant 23502), so it is proved here as well —
+  nullable, and every existing proposal left untouched.
+
   Each said *this row's seller must be the seller that owns the stand*, and each is replaced by
   `(provider_id, owner_seller_id)` -> `stand_providers(id, seller_id)`: whose reminder this is is
   decided by the RELATIONSHIP. They are the second and third of that family to move, after
@@ -113,7 +119,7 @@ describe("F-114 C.4 cadence migration against a populated schema (integration)",
     const db = client();
 
     // ---- 1. the schema as it stands BEFORE this work ---------------------------------------
-    expect(thisWork).toHaveLength(2);
+    expect(thisWork).toHaveLength(3);
     expect(beforeThisWork.length).toBeGreaterThan(47);
     for (const file of beforeThisWork) await applyFile(db, file);
 
@@ -443,6 +449,22 @@ describe("F-114 C.4 cadence migration against a populated schema (integration)",
       delete from scheduled_inventory_prompt_subjects
       where proposal_id = ${rows[0]?.proposal_id as string}
     `;
+  });
+
+  it("adds the re-opening consent column WITHOUT disturbing existing proposals (0050)", async () => {
+    // Nullable and NULL everywhere: the ordinary case is that no farmer was ever shown the
+    // sentence. A generated `ADD COLUMN … NOT NULL` would have raised 23502 against the
+    // proposal row this fixture already holds.
+    const columns = await client()`
+      select is_nullable, data_type from information_schema.columns
+      where table_name = 'inventory_publication_proposals'
+        and column_name = 'reopening_stated_version'
+    `;
+    expect(columns).toEqual([{ is_nullable: "YES", data_type: "integer" }]);
+    expect(await client()`
+      select count(*)::int as count from inventory_publication_proposals
+      where reopening_stated_version is not null
+    `).toEqual([{ count: 0 }]);
   });
 
   it("is a no-op when applied a second time", async () => {

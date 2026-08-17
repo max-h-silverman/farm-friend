@@ -351,6 +351,13 @@
       "when": 1788150415000,
       "tag": "0049_hosted_prompt_subjects",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1788150416000,
+      "tag": "0050_reopening_stated",
+      "breakpoints": true
     }
   ]
 }
