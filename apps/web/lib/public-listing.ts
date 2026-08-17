@@ -420,7 +420,14 @@ export async function listPublicStands(
       l.hours_text as hours_text,
       l.stocking_cadence as stocking_cadence,
       l.stocking_days as stocking_days,
-      f.name as farm_name,
+      -- The STAND's own farm, coalesced to the location name for a VENUE (F-115). Morgan Hill
+      -- is a place several farmers sell at and nobody's farm, so its own_seller_id is NULL and
+      -- there is no owning farm name to show. Its sellers each carry their own name on the
+      -- per-seller list below, which is where a venue's identities actually live.
+      coalesce(f.name, l.name) as farm_name,
+      -- NOT coalesced: a description is a farm's own words about itself, and a venue has no
+      -- farm to have written any. Absent is the honest answer; the location name is a label,
+      -- not a description of anything.
       f.description as farm_description,
       c.result as closure_result,
       c.closure_kind as closure_kind,
@@ -461,7 +468,11 @@ export async function listPublicStands(
         array[]::text[]
       ) as payment_methods
     from sales_locations l
-    join sellers f on f.id = l.own_seller_id
+    -- LEFT (F-115). A VENUE has no own_seller_id, and an INNER join here deleted every venue
+    -- from the public map — the same line, with the same effect, as the two in SMS retrieval.
+    -- The alias survives to carry the stand-owner visibility rule in the where clause: a farm
+    -- VIGA retires must still take its own stands down with it.
+    left join sellers f on f.id = l.own_seller_id
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
     -- F-071 — retired_at is a SECOND, operator-owned reason a stand leaves the public

@@ -305,13 +305,35 @@ Run `/session-wrap` before clearing context.
 
 ---
 
-## Unverified — confirm before acting
+## Unverified — RESOLVED (2026-08-17)
 
 **`inquiry.ts` may duplicate `readStandProviderFacts`.** Both audits confirmed `inquiry.ts:327,431`
 builds its own per-seller SQL rather than calling the seam, but **neither verified whether the two
-produce identical per-seller freshness.** If they diverge, a customer gets one answer by SMS and
-another on the map. Confirm with a differential test on a stand with two sellers, one stale, before
-treating it as a finding or a non-finding.
+produce identical per-seller freshness.**
+
+**Measured** by `apps/web/lib/per-seller-freshness-differential.integration.test.ts`, which reduces
+both readers to `provider id → {seller name, published_at, confirmed items, usual items}` and
+compares them across the ragged cases the C.5 parity test cannot reach: a seller who confirmed an
+EMPTY stand, a 40-day-old publication, a standing-claims-only seller, a seller with both registers,
+and a VENUE.
+
+**The duplication is a NON-FINDING; the queries were not.** Freshness agrees exactly — every
+seller's date, and which items belong to whom — and the two readers keep their separate shapes for
+the reason the STRONG list gives. Three real defects surfaced, all the same root cause as the rest
+of F-115 and all in the same line:
+
+1. **A VENUE was invisible on every customer surface.** `join sellers f on f.id = l.own_seller_id`
+   is INNER in the map reader and in BOTH SMS queries, so a stand with a NULL self-pointer was
+   dropped from all three. Now LEFT; the visibility rule the alias carries still bites, proved by
+   retiring the host and watching the stand leave both channels.
+2. **A hosted seller's confirmed SMS row carried the HOST's name.** It read the stand's own seller
+   rather than the row's own provider. Unrendered today — one renderer away from telling a customer
+   the wrong farm has the thing they asked for.
+3. **The offerings half needed the same fix independently**, being a second query with its own copy.
+
+One deliberate difference stands, stated in the test rather than asserted away: a seller who
+confirmed an empty stand is a dated fact on the card and absent from SMS, per that query's own
+documented rule.
 
 ---
 

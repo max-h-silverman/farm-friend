@@ -43,8 +43,13 @@ facts and keeps her reachable** (max, 2026-08-17): `provider-liveness.ts` states
 fragments — `publicProviders` (active only) and `reachableProviders` (active or paused) —
 composed by all ten sites that hand-wrote one predicate before F-115.
 
-**What a customer sees.** Every public and SMS surface reads PER SELLER from one seam
-(`readStandProviderFacts`), so one farmer's goods can never be dated by another's update. The
+**What a customer sees.** Every public and SMS surface dates each seller's goods PER SELLER, so
+one farmer's goods can never be dated by another's update. The map reads `readStandProviderFacts`;
+SMS retrieval runs its own two queries and F-115 measured them against that seam directly
+(`per-seller-freshness-differential.integration.test.ts`) rather than assuming they agree. They
+agree on who is public, on every seller's date and on which items belong to whom, with ONE
+deliberate difference: a seller who confirmed an EMPTY stand is a dated fact on the card and is
+absent from SMS, which lists places to go for a thing. The
 stand card is item-first — each item once, its sellers nested with their own price and freshness.
 `/sellers` is the only discovery path for a hosted-only seller, who has no pin. A seller's
 open-now state is the INTERSECTION with the stand's. **A stand shutdown publishes nothing
@@ -56,6 +61,15 @@ confirmed inventory stop receiving stock-out alerts entirely, and a closed stand
 item list. **A paused listing now leaves the map, `/sellers`, the stand card and both SMS
 retrieval queries** (max, 2026-08-17) — two tests asserted the opposite, both written while
 `paused` was a state nothing could enter.
+
+**A VENUE was invisible on every customer surface** until F-115 (found by the differential, not
+by either audit). The map and both SMS retrieval queries each carried
+`join sellers f on f.id = l.own_seller_id` as an INNER join, so a stand whose `own_seller_id` is
+NULL — a place several farmers sell at and nobody's farm, which is what the self-pointer exists to
+represent — was dropped from all three. Now LEFT, with the stand-owner visibility rule it carries
+still biting (a farm VIGA retires takes its own stands down). The same line credited every hosted
+seller's confirmed SMS row to the HOST's name; that row now carries the provider's own seller.
+Latent, like the rest of F-114: nothing is deployed.
 
 **One recorded exception to "no produce taxonomy in a behavioral branch"** (F-115 Tranche G):
 `map-view.ts`'s `FLOWER_VOCABULARY` matches item names to pick a pin glyph and answer the
