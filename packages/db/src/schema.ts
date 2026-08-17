@@ -1815,24 +1815,18 @@ export const standProviders = pgTable(
     openUntilMinutes: integer("open_until_minutes"),
     openDays: integer("open_days").array(),
 
-    /**
-     * This provider's own reminder cadence and the ONE authorization it addresses.
+    /*
+     * This provider's reminder cadence is NOT here — see `inventory_prompt_preferences`.
      *
-     * Per provider rather than per stand, and not speculatively: a hosted seller restocking
-     * weekly at a stand whose owner restocks daily needs its own cadence, and the recipient
-     * differs BY CONSTRUCTION — the whole point of hosting is that the seller, not the host,
-     * confirms the seller's goods. One cadence per stand would either spam the host about goods
-     * they do not control or leave the hosted seller unreminded.
+     * Phase B put a `reminder_cadence` and a `reminder_authorization_id` on this row while the
+     * same migration gave that table a `provider_id` with a unique index on it, so one fact had
+     * two homes and the pair never gained a reader. C.4 removed them from `0042` in place,
+     * which was available because no database had applied it.
      *
-     * Both NULL means this provider has chosen no cadence; `inventory_prompt_preferences`
-     * remains the stand-level record the scheduler reads, and Phase C moves the pass onto this.
+     * The cadence lives beside the scheduler's cursor (`version`, `next_due_at`,
+     * `last_due_slot_at`) because those advance together; splitting them would mean a listing
+     * whose schedule and whose place in that schedule are two records that can disagree.
      */
-    reminderCadence: inventoryPromptCadence("reminder_cadence"),
-    reminderAuthorizationId: uuid("reminder_authorization_id").references(
-      () => farmerAuthorizations.id,
-      { onDelete: "restrict" },
-    ),
-
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1971,18 +1965,6 @@ export const standProviders = pgTable(
         or length(btrim(${table.publicNote}, E' \t\r\n')) > 0
       `,
     ),
-    /**
-     * The provider's cadence and its recipient move together. A cadence with nobody to text is
-     * a reminder that can never be sent; a recipient with no cadence is a preference nobody
-     * stated. Written as a biconditional for the usual reason.
-     */
-    reminderCoherent: check(
-      "stand_providers_reminder_coherent",
-      sql`
-        (${table.reminderCadence} is not null) = (${table.reminderAuthorizationId} is not null)
-      `,
-    ),
-
     // The availability columns repeat `sales_locations`' rules verbatim, because they answer
     // the same question through the same reader. A provider whose season or hours were stored
     // half-stated would load silently and make `openNow` defend against a state no writer
@@ -2279,6 +2261,23 @@ export const inventoryPromptPreferences = pgTable(
       name: "inventory_prompt_preferences_authorization_owner_fk",
       columns: [table.designatedAuthorizationId, table.ownerSellerId],
       foreignColumns: [farmerAuthorizations.id, farmerAuthorizations.sellerId],
+    }).onDelete("restrict"),
+    /**
+     * Whose reminder this is is decided by the RELATIONSHIP (F-114 Phase C.4, `0048`).
+     *
+     * This replaces `inventory_prompt_preferences_location_own_seller_fk`, which said the
+     * reminder's seller must be the seller that OWNS THE STAND — true of 38 of 38 stands when
+     * `0042` wrote it, false of every hosting relationship, and impossible at a venue, where
+     * `own_seller_id` is NULL and nothing can match. It forbade a hosted seller's cadence at the
+     * database, and it was never in `schema.ts` at all, so only a hosted write could find it.
+     *
+     * Same correction `0045` made to `inventory_revisions`, in the table whose entire subject is
+     * the fact C.4 makes per-provider.
+     */
+    providerSellerReference: foreignKey({
+      name: "inventory_prompt_preferences_provider_seller_fk",
+      columns: [table.providerId, table.ownerSellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
     }).onDelete("restrict"),
     positiveVersion: check(
       "inventory_prompt_preferences_positive_version",
@@ -3127,6 +3126,19 @@ export const inventoryPublicationProposals = pgTable(
     activationOutboxId: uuid("activation_outbox_id"),
     activatedVersion: integer("activated_version"),
     activatedAt: timestamp("activated_at", { withTimezone: true }),
+    /**
+     * The version at which the RE-OPENING consequence was stated to the farmer (F-114 C.4).
+     *
+     * §facts and authority: a paused listing's update triggers a confirmation stating that
+     * publishing will re-open the listing, and the farmer answers it with an ordinary `YES`
+     * (max, 2026-08-16) rather than a new keyword. That makes the `YES` ambiguous on its own,
+     * so the fact that the sentence was sent is stored rather than inferred.
+     *
+     * The VERSION, not a boolean: a revision bumps `proposal_version` and clears the
+     * activation, so a boolean would let consent survive into an ordinary prompt that never
+     * mentioned re-opening. NULL means it was never stated — the ordinary case.
+     */
+    reopeningStatedVersion: integer("reopening_stated_version"),
     consumedToken: proposalToken("consumed_token"),
     consumptionProviderEventId: text("consumption_provider_event_id"),
     closedAt: timestamp("closed_at", { withTimezone: true }),
@@ -3189,6 +3201,15 @@ export const inventoryPublicationProposals = pgTable(
     providerArm: check(
       "inventory_proposals_provider_arm",
       sql`${table.providerId} is not null or ${table.hasInventory} = false`,
+    ),
+    /**
+     * A version is a version (F-114 C.4). Without this a `0` or a negative value would compare
+     * equal to no `proposal_version` and silently disable the consent forever — a farmer who
+     * was shown the re-opening sentence would be shown it again on every reply.
+     */
+    reopeningStatedVersionPositive: check(
+      "inventory_proposals_reopening_stated_version_positive",
+      sql`${table.reopeningStatedVersion} is null or ${table.reopeningStatedVersion} > 0`,
     ),
     activationOutboxUnique: unique(
       "inventory_publication_proposals_activation_outbox_unique",
@@ -3675,6 +3696,24 @@ export const scheduledInventoryPromptSubjects = pgTable(
       name: "scheduled_prompt_subjects_location_provider_fk",
       columns: [table.providerId, table.salesLocationId],
       foreignColumns: [standProviders.id, standProviders.salesLocationId],
+    }).onDelete("restrict"),
+    /**
+     * Whose prompt this is is decided by the RELATIONSHIP (F-114 Phase C.4, `0049`).
+     *
+     * Replaces `scheduled_prompt_subjects_location_own_seller_fk` — *the seller a prompt is
+     * about must be the seller that owns the stand* — the last of the eight
+     * `*_location_own_seller_fk` keys that had to move, and the third replaced after
+     * `inventory_revisions` (`0045`) and `inventory_prompt_preferences` (`0048`). Like both of
+     * those it lived only in `0042` and never in this file, so a hosted write was the only way
+     * to find it.
+     *
+     * The two keys on `closure_revisions` and `sales_location_participants` deliberately STAY:
+     * they carry facts about the place, not about anyone's goods.
+     */
+    providerSellerReference: foreignKey({
+      name: "scheduled_prompt_subjects_provider_seller_fk",
+      columns: [table.providerId, table.ownerSellerId],
+      foreignColumns: [standProviders.id, standProviders.sellerId],
     }).onDelete("restrict"),
     inventoryBaseReference: foreignKey({
       name: "scheduled_prompt_subjects_inventory_base_fk",

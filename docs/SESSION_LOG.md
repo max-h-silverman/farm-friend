@@ -11,7 +11,124 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-16 (latest) — Zoe can be reached at all (F-114 Phase C.3, targeting + stock-out routing)
+## 2026-08-16 (latest) — Whose schedule is this? (F-114 Phase C.4, cadence + scheduler + paused re-opening)
+
+Merged as **`0a34bbd`** (PR #128). Integration is **1289/1289 across 92 of 92 files**, up from
+1248/1248 across 88; unit is 2,080 with the 7 corpus skips. Typecheck, lint and scripted evals
+(11/11, 4/4, 19/19) green. `packages/ai` and `packages/core` are untouched across the whole phase —
+`git diff --stat main` empty for both, with the search proved against a known-present term first —
+so no live eval run was owed. **`0048`, `0049` and `0050` join `0042`–`0047` unapplied to
+production, taking the queue to nine.** Five tranches.
+
+**The phase opened with a design question, and the answer was to delete.** `stand_providers`
+carried a `reminder_cadence` and a `reminder_authorization_id`; `inventory_prompt_preferences` was
+ALREADY one-per-provider, with a unique index on `provider_id` and its own
+`designated_authorization_id` — added by the *same* migration. One fact, two homes, and the pair had
+never gained a reader or a writer across B, C.0, C.1, C.2 or C.3. The schema comment defending it
+("`inventory_prompt_preferences` remains the stand-level record") was already false when written.
+
+Reading the pair instead would have meant moving the scheduler's cursor — `version`, `next_due_at`,
+`last_due_slot_at` — onto a relationship record, or splitting a listing's schedule from its place in
+that schedule. So: deleted, and deleted from `0042` **in place** rather than by a later migration,
+because no database anywhere has applied it — the same fact that let C.0 replace it wholesale. The
+queue length is unchanged by the deletion; production never sees the columns.
+
+**A live snapshot defect surfaced on the way, and it was not mine.** `0042`'s snapshot carried TWO
+`public.sellers` blocks: the correct renamed table, and Phase B's *deleted* `sellers` table, still
+referencing `farms`. JSON parsers keep the last duplicate, so drizzle had been reading the dead one.
+Harmless today only because `0043`–`0047` were built as text deltas from the correct block and
+`0047` — the head `generate` actually diffs — is right. Fixed in the same commit.
+
+It also nearly cost the wrap: the first attempt at the snapshot edit went through a Python JSON
+round-trip, which silently dropped the duplicate **and 209 unrelated lines**. Caught by reading the
+diff rather than trusting the write. Snapshots get edited as TEXT now, and that is filed.
+
+**The `*_location_own_seller_fk` family was enumerated up front rather than discovered one
+migration at a time.** Eight keys total: `0045` moved `inventory_revisions`, `0047` moved five more,
+`0048` moves `inventory_prompt_preferences`, `0049` moves `scheduled_prompt_subjects`. The last two
+— `closure_revisions` and `sales_location_participants` — deliberately STAY, because both carry
+facts about the PLACE and re-rooting them would make the record assert something false (max,
+2026-08-15). All three moved this phase existed only in `0042` and were **never carried into
+`schema.ts`**, so none was findable by reading the schema; each surfaced on a hosted write.
+
+`0048` was load-bearing rather than tidy. At a venue `own_seller_id` is NULL and a foreign key
+cannot match NULL, so the dropped key did not merely constrain a venue's cadence — it made one
+**impossible**, at the database, where no writer could reach around it.
+
+**The cadence seam refuses the HOST arm deliberately.** `resolveProviderWriteAuthority` answers *may
+this phone write this provider's STOCK*, and `host_may_update_stock` grants exactly that: a physical
+observation about goods on a shelf. A reminder schedule is not an observation, and §facts and
+authority makes its recipient the seller by construction — *"other authorized users may still update
+it manually"*, manually rather than by owning the schedule. Kelsey may mark Zoe's last loaf gone;
+she may not own Zoe's schedule. A venue's stand-armed manager is refused for the same reason, and
+the venue's nested seller sets her own — which is also the case that proves the refusal is about who
+is asking rather than about a venue being unschedulable.
+
+**The scheduler pass read the roof three times.** `own_seller_id` gated the designated
+authorization, gated VIGA's approval, and was written into the durable subject as `owner_seller_id`.
+For Zoe all three are Kelsey, so the first two refused her outright and her cadence would have sat
+in the table forever with `next_due_at` in the past. It reads the PREFERENCE'S own seller now, safe
+because `0048`'s key guarantees that seller IS the listing's. The pass also gained a
+relationship-liveness check it never had: a seller whose listing ENDED still has a seller record, a
+live authorization and an approval, so all three gates pass and she would be prompted to confirm
+goods she no longer sells there.
+
+**A paused listing is offered re-opening, and the gate is at the COMMIT.** Three ways in — a fresh
+update, a reply to a prompt the scheduler sent before the pause, and `SAME`, which reaches
+`confirmInventoryPublication` through no door at all. Guarding the doors would be three rules that
+can disagree and would leave `SAME` publishing silently, so the gate sits on the one seam all three
+funnel through. `resolveProviderWriteAuthority` has reported `paused: true` on an *authorized*
+answer since C.2 precisely so this could be a flag rather than a refusal; nothing had read it.
+
+**The consent is the farmer's, and it is durable.** A caller-supplied boolean would let any path
+assert a consent no farmer gave — exactly the inference the rule forbids. It is
+`reopening_stated_version` on the proposal, written by the proposal writer when it composed the
+prompt that stated the consequence. The **version**, not a boolean, and that distinction is
+load-bearing: a revision bumps `proposal_version` and clears the activation, so a boolean would
+survive a farmer seeing the sentence, revising instead of confirming, and then answering an ordinary
+prompt that never mentioned re-opening. Placed LAST among the refusals, so it consents to one
+consequence and excuses nothing — a revoked authorization still returns `not_authorized`.
+
+**The farmer replies `YES`** (max, 2026-08-16). No new SMS keyword: `YES`/`NO` are the two words a
+farmer already knows, and a third would be one more thing to teach for a case that arises rarely.
+That decision is what makes the recorded version necessary rather than merely tidy — the `YES` is
+ambiguous on its own, and only the record says which sentence it answered.
+
+**The settings screen moved both halves together.** C.3 left it stand-shaped for exactly one
+sub-phase because the default picker and the reminder rows are one screen and one save button;
+converting the picker alone would have left a listing picker above a stand-keyed reminder. C.3's
+placeholder case is INVERTED here, and the case it could not have — a hosted-only seller like Zoe,
+whose settings page previously refused her outright because her only listing was filtered away and
+the empty result read as `not_authorized` — is added. Participants stay keyed by STAND, because they
+are the stand's own record; both pages dedupe by stand before fetching them.
+
+**Twenty-one deliberate breakages, each caught by the case aimed at it — after two escapes, both
+the standing lesson again.** Deleting the cadence seam's authorization-agreement check changed no
+test result, because every mismatch case also used a mismatched PHONE and the seam resolves by
+phone, so the arms refused first; the isolating case is ONE phone holding TWO live authorizations —
+Zoe selling her own goods and managing the venue — presenting the one that did not answer. And
+dropping the re-opening sentence from the SMS reply broke nothing, because the constant's own test
+asserts the CONSTANT and the seam's tests assert the STATUS; a reply that lost it still renders a
+plausible confirmation. The end-to-end case through `handleFreeText` closes that, asserting the
+absence of the ordinary prompt too.
+
+**Two mirror-image traps cost a false green each.** A refusal case written without `next_due_at` is
+refused by `inventory_prompt_preferences_due_state_coherent` — a CHECK, evaluated before any foreign
+key — so it passed with or without `0048`; caught only because the case asserts the constraint NAME.
+And a `beforeEach` truncate CASCADED from `inventory_publication_proposals` into
+`inventory_revisions`, leaving every scheduler case running against an empty stand while still
+queueing prompts, because `offers_same: false` with a null base is what an unpublished stand
+legitimately produces. Every structural assertion passed; only the asserted BODY caught it.
+
+**One real defect, caught by a test rather than by reading.** `participantNamesByLocation` is keyed
+by stand, and the seller-name box initialised its text with what had just become a LISTING id. Both
+are UUIDs, both lookups compile, and every load would have shown an empty seller list.
+
+**Still not built: C.5** — the public seller list and item-first cards.
+
+---
+
+## 2026-08-16 — Zoe can be reached at all (F-114 Phase C.3, targeting + stock-out routing)
 
 Merged as **`daa499f`** (PR #127). Integration is **1248/1248 across 88 of 88 files**, up from
 1208/1208 across 84; unit is 2,075 with the 7 corpus skips. Re-verified on the merged base — tests,

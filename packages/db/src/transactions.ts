@@ -609,6 +609,18 @@ export interface OpenProposalResult {
   proposalId: string;
   proposalVersion: number;
   /**
+   * This proposal's listing is PAUSED, so publishing it will RE-OPEN the listing (F-114 C.4).
+   *
+   * The writer reports it rather than the caller re-asking, because the writer already resolved
+   * `resolveProviderWriteAuthority` to decide who may write — and a second read could disagree
+   * with the first if a pause committed between them.
+   *
+   * When true the writer has also recorded `reopening_stated_version` at this version, so the
+   * farmer's ordinary `YES` counts as consent to the consequence the caller is about to state.
+   * The caller's job is to state it; §facts and authority forbids inferring it.
+   */
+  requiresReopening: boolean;
+  /**
    * Record that Telnyx accepted the current confirmation prompt. This starts the
    * 12-hour window; before it, no token can consume the proposal.
    *
@@ -769,6 +781,17 @@ export async function openOrReviseProposal(
       reach neither — no provider to resolve, and three NOT NULL seller columns on the row.
     */
     let providerId: string | null = null;
+    /*
+      F-114 Phase C.4 — publishing this proposal would RE-OPEN a paused listing.
+
+      Read from the SAME authority resolution that decided who may write, rather than by a
+      second query: a pause committing between two reads would let the writer authorize against
+      one state and report the other, and the farmer would then be asked the wrong question.
+
+      `paused` rides on an AUTHORIZED answer precisely so this is a flag and not a refusal —
+      §facts and authority offers a paused seller her listing back rather than telling her no.
+    */
+    let requiresReopening = false;
     if (input.entries !== undefined) {
       providerId =
         input.providerId ??
@@ -780,6 +803,7 @@ export async function openOrReviseProposal(
       if (authority.status !== "authorized") {
         throw new Error("sender is not authorized for this sales location");
       }
+      requiresReopening = authority.paused;
       if (authority.salesLocationId !== input.salesLocationId) {
         // The stand and the provider must agree, or a proposal could name one stand's listing
         // under another's roof. The composite key would catch the revision; this catches the
@@ -905,10 +929,15 @@ export async function openOrReviseProposal(
             activated_version = null,
             activated_at = null,
             expires_at = null,
+            -- F-114 C.4 — the consent is bound to the VERSION it was stated for, so a revision
+            -- clears it exactly as it clears the activation. A farmer shown the re-opening
+            -- sentence, who then revises instead of confirming, gets an ordinary prompt and
+            -- must be asked again.
+            reopening_stated_version = ${requiresReopening ? nextVersion : null},
             updated_at = ${input.now}
         where id = ${id}
       `;
-      return { proposalId: id, proposalVersion: nextVersion };
+      return { proposalId: id, proposalVersion: nextVersion, requiresReopening };
     }
 
     const inserted = await tx`
@@ -917,7 +946,7 @@ export async function openOrReviseProposal(
         has_inventory, has_closure,
         base_revision_id, base_is_first_publication,
         closure_base_revision_id, closure_base_is_first_instruction,
-        created_at, updated_at
+        reopening_stated_version, created_at, updated_at
       )
       values (
         ${input.senderHash}, ${input.salesLocationId}, ${providerId},
@@ -925,12 +954,16 @@ export async function openOrReviseProposal(
         ${input.entries !== undefined}, ${input.closure !== undefined},
         ${baseRevisionId}, ${isFirstPublication},
         ${closureBaseRevisionId}, ${closureBaseIsFirstInstruction},
-        ${input.now}, ${input.now}
+        ${requiresReopening ? 1 : null}, ${input.now}, ${input.now}
       )
       returning id
     `;
-    return { proposalId: inserted[0]?.id as string, proposalVersion: 1 };
-  })) as { proposalId: string; proposalVersion: number };
+    return {
+      proposalId: inserted[0]?.id as string,
+      proposalVersion: 1,
+      requiresReopening,
+    };
+  })) as { proposalId: string; proposalVersion: number; requiresReopening: boolean };
 
   return {
     ...opened,
@@ -983,6 +1016,11 @@ export type ConfirmPublicationResult =
   | { status: "base_conflict" }
   | { status: "not_authorized" }
   | { status: "not_approved" }
+  /**
+   * The listing is PAUSED and publishing would re-open it (F-114 Phase C.4). Neither a refusal
+   * nor a publication: the caller states the consequence and asks again.
+   */
+  | { status: "paused_needs_reopening" }
   | { status: "stand_retired" }
   | { status: "farm_retired" }
   | { status: "unsafe_public_text"; prohibited: ProhibitedPublicStringKind[] }
@@ -1353,6 +1391,49 @@ export async function confirmInventoryPublication(
       };
     }
 
+    /*
+      F-114 Phase C.4 — a PAUSED listing is offered re-opening, never refused.
+
+      §facts and authority: publishing while paused does not happen silently and is not
+      rejected; the consequence is stated and the farmer decides. The seller paused
+      deliberately, so re-opening is a second act, not a side effect of updating stock.
+
+      **Placed LAST among the refusals, immediately before the proposal is consumed.** Every
+      authority, approval and retirement gate above has already run, so `acknowledgedReopening`
+      consents to this one consequence and cannot excuse any of them — a farmer whose
+      authorization was revoked still gets `not_authorized`, acknowledgement or not.
+
+      **At the COMMIT rather than at each door**, because there are three ways in — a fresh
+      update, a reply to a prompt sent before the pause, and `SAME`, which reaches this function
+      through no door at all. Guarding the doors would be three rules that can disagree, and
+      `SAME` would publish silently.
+
+      The proposal stays OPEN and unconsumed, so the farmer's own snapshot is still there to
+      publish when she answers the new confirmation.
+    */
+    const pausedListing =
+      providerAuthority !== null &&
+      providerAuthority.status === "authorized" &&
+      providerAuthority.paused;
+    /*
+      The consent is the FARMER'S, recorded when the prompt that stated the consequence was
+      written — never a flag the caller passes in. A caller-supplied boolean would let any
+      publication path assert consent that no farmer ever gave, which is precisely the
+      inference §facts and authority forbids.
+
+      Bound to the VERSION, so it counts only for the prompt it was stated on: a farmer who
+      sees the sentence and then revises her update gets an ordinary prompt, and her `YES`
+      answers that one instead.
+    */
+    const reopeningStatedVersion =
+      (proposal.reopening_stated_version as number | null) ?? null;
+    const reopeningAcknowledged =
+      reopeningStatedVersion !== null &&
+      reopeningStatedVersion === (proposal.proposal_version as number);
+    if (pausedListing && !reopeningAcknowledged) {
+      return { status: "paused_needs_reopening" };
+    }
+
     await tx`
       update inventory_publication_proposals
       set state = 'accepted', consumed_token = 'yes',
@@ -1402,6 +1483,25 @@ export async function confirmInventoryPublication(
             ${entry.quantity ?? null}, ${entry.unit ?? null}, ${entry.priceText ?? null},
             ${entry.approximation ?? null}, ${index}
           )
+        `;
+      }
+
+      /*
+        The re-opening the farmer just acknowledged (F-114 Phase C.4). Reaching here while
+        paused means `acknowledgedReopening` was true, because the gate above returns otherwise.
+
+        Publishing while LEAVING it paused would be the worse half of both answers: a current
+        revision sitting behind a listing no public reader shows, and a farmer told her stock
+        published while nothing changed on the map. The re-open is what she said yes to.
+
+        Guarded on the state rather than run unconditionally, so an ordinary active publication
+        does not write a no-op UPDATE on every message.
+      */
+      if (pausedListing) {
+        await tx`
+          update stand_providers
+          set lifecycle_state = 'active', updated_at = ${input.occurredAt}
+          where id = ${providerId}
         `;
       }
     }

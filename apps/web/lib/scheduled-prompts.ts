@@ -81,7 +81,7 @@ async function schedulePreference(
     const salesLocationId = preflight[0]?.sales_location_id as string;
 
     const locations = await tx`
-      select id, own_seller_id, name, timezone from sales_locations
+      select id, name, timezone from sales_locations
       where id = ${salesLocationId}
       for update
     `;
@@ -89,7 +89,7 @@ async function schedulePreference(
     const location = locations[0] as Record<string, unknown>;
 
     const preferences = await tx`
-      select id, provider_id, designated_authorization_id, cadence, version,
+      select id, provider_id, owner_seller_id, designated_authorization_id, cadence, version,
              next_due_at, last_due_slot_at, updated_at
       from inventory_prompt_preferences
       where id = ${candidate.preference_id}
@@ -114,24 +114,54 @@ async function schedulePreference(
     `;
     if (existing.length > 0) return "deferred";
 
+    /*
+      F-114 Phase C.4 — whose reminder this is is the PREFERENCE'S fact, not the roof's.
+
+      All three checks below read `preference.owner_seller_id`. They read
+      `sales_locations.own_seller_id` before, which is Kelsey for every listing at Kelsey's
+      stand — so Zoe's designated authorization (naming Gracie's Greens) failed the first check
+      and her cadence could never fire, while Kelsey's approval was the one consulted for goods
+      that are not Kelsey's.
+
+      `inventory_prompt_preferences_provider_seller_fk` (`0048`) is what makes reading it safe:
+      the seller on the preference is the seller of the listing it schedules, guaranteed by the
+      database rather than by this pass re-deriving it.
+    */
+    const ownerSellerId = preference.owner_seller_id as string;
+
     const authorizations = await tx`
       select auth.id
       from farmer_authorizations as auth
       join contacts as contact on contact.id = auth.contact_id
       where auth.id = ${preference.designated_authorization_id as string}
-        and auth.seller_id = ${location.own_seller_id as string}
+        and auth.seller_id = ${ownerSellerId}
         and contact.phone_hash = ${candidate.sender_hash}
         and auth.revoked_at is null
       for update of auth
     `;
     if (authorizations.length === 0) return "ineligible";
 
+    // VIGA's approval of the seller whose goods these are. §hosting and approval lifecycle lets
+    // VIGA revoke a seller globally, and a prompt is an offer to publish — so a hosted seller
+    // VIGA has revoked must not be prompted even though her host is approved and unaffected.
     const approvals = await tx`
       select id from seller_approvals
-      where seller_id = ${location.own_seller_id as string} and revoked_at is null
+      where seller_id = ${ownerSellerId} and revoked_at is null
       for update
     `;
     if (approvals.length === 0) return "ineligible";
+
+    // The relationship itself. A seller whose listing has ended still has a seller record, a
+    // live authorization and an approval — all three checks above pass — but there is nothing
+    // at this stand left to confirm.
+    const live = await tx`
+      select id from stand_providers
+      where id = ${preference.provider_id as string}
+        and ended_at is null
+        and lifecycle_state in ('active', 'paused')
+      for update
+    `;
+    if (live.length === 0) return "ineligible";
 
     const consent = await tx`
       select state from sms_consents where recipient_hash = ${candidate.sender_hash}
@@ -227,7 +257,7 @@ async function schedulePreference(
       ) values (
         ${proposalId}, 1, ${candidate.preference_id}, ${preference.version as number},
         ${preference.designated_authorization_id as string},
-        ${location.own_seller_id as string}, ${salesLocationId}, ${providerId},
+        ${ownerSellerId}, ${salesLocationId}, ${providerId},
         ${revisionId},
         ${(closureRow?.id as string | undefined) ?? null}, ${closureRow === undefined},
         ${dueSlotAt}, ${outbox[0]?.id as string}, ${offersSame}, ${now}

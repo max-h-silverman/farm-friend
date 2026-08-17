@@ -95,11 +95,13 @@ export default async function StandPage({
     settings.status === "active"
       ? Object.fromEntries(
           await Promise.all(
-            settings.locations.map(
-              async (location) =>
+            // Deduplicated by STAND: participants are the stand's own record, so two listings
+            // under one roof share one list and must not be fetched (or keyed) twice.
+            [...new Set(settings.listings.map((listing) => listing.salesLocationId))].map(
+              async (salesLocationId) =>
                 [
-                  location.salesLocationId,
-                  await listActiveSalesLocationParticipants(db, location.salesLocationId),
+                  salesLocationId,
+                  await listActiveSalesLocationParticipants(db, salesLocationId),
                 ] as const,
             ),
           ),
@@ -125,7 +127,7 @@ export default async function StandPage({
               schedules.
             */}
             {settings.status === "active" && (
-              <ReminderSchedules token={params.token} locations={settings.locations} />
+              <ReminderSchedules token={params.token} listings={settings.listings} />
             )}
           </>
         }
@@ -170,7 +172,7 @@ export default async function StandPage({
               {settings.status === "active" && (
                 <SettingsForm
                   token={params.token}
-                  locations={settings.locations}
+                  listings={settings.listings}
                   participantNamesByLocation={participantNamesByLocation}
                 />
               )}

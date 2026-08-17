@@ -85,6 +85,15 @@ than riding on the inbound message that asked for it.
 |---|---|
 | `YES` / `NO` | Commit / decline the sender's **one live inventory-publication confirmation**, using the fixed variants above. **Context-bound** — a YES/NO reply with no live pending inventory proposal does **not** commit or decline. A valid confirmation consumes the current proposal **exactly once** and **expires** (GC'd). |
 
+**A PAUSED listing is offered re-opening rather than refused** (F-114 C.4). A confirmation reply or
+a fresh update on a paused listing neither publishes silently nor is rejected: the prompt states
+*"Publishing this update will re-open your listing. Reply YES to confirm, NO to cancel."* and the
+ordinary `YES`/`NO` gate carries it — **no new keyword** (max, 2026-08-16). Because the `YES` is
+then ambiguous on its own, the fact that the sentence was sent is STORED
+(`inventory_publication_proposals.reopening_stated_version`) and bound to the proposal version, never
+inferred from the listing being paused. Publishing re-opens the listing; a reply to a prompt written
+before the pause refuses with a fresh confirmation instead.
+
 A database constraint permits at most one open inventory proposal per sender. The deterministic parser
 owns one fixed `YES`/`NO` vocabulary; proposal rows store only their version, expiry, and current
 prompt activation. New inventory text revises that proposal and suspends token acceptance until Telnyx

@@ -326,6 +326,28 @@ with the guard that protects each.
 - **SQL NULL semantics silently invert guards.** A CHECK constraint *passes* on NULL.
   `array_length` of an empty array returns NULL, not 0 — use `coalesce`. Postgres sorts NULLs FIRST
   under `order by … desc`. In JS, `Number(null)` is `0`.
+- **A JSON snapshot can hold DUPLICATE keys, and every parser silently keeps the last.** `0042`'s
+  snapshot carried two `public.sellers` blocks — the correct renamed table, and Phase B's deleted
+  one still referencing `farms` — so drizzle read the dead table. It was invisible because the
+  later snapshots were built as text deltas from the correct block. Two consequences: check for
+  duplicates before trusting a snapshot (`object_pairs_hook` in Python will report them), and
+  **never repair a snapshot by round-tripping it through a JSON parser** — that silently drops the
+  duplicate and, in the first attempt here, 209 unrelated lines with it. Edit snapshots as TEXT and
+  read the diff before believing it.
+- **A `truncate … cascade` reaches further than the tables you name.** A scheduler suite truncated
+  `inventory_publication_proposals` between cases and thereby deleted every `inventory_revisions`
+  row, because revisions key to their proposal. Each case then ran against a stand with no current
+  inventory — and still queued prompts, because `offers_same: false` with a null base is exactly
+  what an unpublished stand legitimately produces. Every structural assertion passed; only the
+  asserted BODY caught it. Rebuild what a cascade removes, and assert a VALUE that could only come
+  from the fixture.
+- **A refusal case must name the constraint it means to prove.** A row written without
+  `next_due_at` is refused by `inventory_prompt_preferences_due_state_coherent` — a CHECK,
+  evaluated before any foreign key — so a case probing a foreign key that way passes with or
+  without the migration under test. Assert `constraint_name`, not merely that it rejected.
+- **An UPDATE matching NO rows resolves rather than rejecting.** A constraint case that writes a
+  bad value with a `where` clause matching nothing passes whether or not the constraint exists.
+  Create the row first.
 - **A first-insert race is arbitrated by a unique index, never by a preceding read.**
   `select … for update` cannot serialize a row that does not exist yet, so both writers observe
   "none" and the second raises. Use `insert … on conflict do nothing returning …` and trust only

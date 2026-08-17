@@ -130,7 +130,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const preference = await setInventoryPromptPreference(handle(), {
       senderHash,
       authorizationId: ids.authorization!,
-      salesLocationId: ids.location!,
+      providerId: await ownProviderId(ids.location!),
       cadence: "weekly",
       clock: new FixedClock(BASE),
     });
@@ -153,6 +153,22 @@ describe("scheduled inventory prompt pass (integration)", () => {
   function handle(): Db {
     if (!db) throw new Error("database unavailable");
     return db;
+  }
+
+  /**
+   * The stand's own listing. C.4 made the cadence seam take a LISTING rather than a stand, and
+   * every fixture here is a single-seller stand, so it is the self-pointer's provider.
+   */
+  async function ownProviderId(salesLocationId: string): Promise<string> {
+    const rows = await handle().sql`
+      select provider.id from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      where provider.sales_location_id = ${salesLocationId}
+        and provider.seller_id = location.own_seller_id
+    `;
+    const id = rows[0]?.id as string | undefined;
+    if (id === undefined) throw new Error(`no own listing at stand ${salesLocationId}`);
+    return id;
   }
 
   let fixtureNumber = 0;
@@ -282,7 +298,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const preference = await setInventoryPromptPreference(handle(), {
       senderHash: fixtureSender,
       authorizationId,
-      salesLocationId,
+      providerId: await ownProviderId(salesLocationId),
       cadence: "weekly",
       clock: new FixedClock(BASE),
     });
@@ -1103,7 +1119,7 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const secondPreference = await setInventoryPromptPreference(handle(), {
       senderHash: fixture.senderHash,
       authorizationId: fixture.authorizationId,
-      salesLocationId: secondLocationId,
+      providerId: await ownProviderId(secondLocationId),
       cadence: "weekly",
       clock: new FixedClock(BASE),
     });

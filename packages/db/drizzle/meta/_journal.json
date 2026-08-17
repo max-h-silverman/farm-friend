@@ -337,6 +337,27 @@
       "when": 1788150413000,
       "tag": "0047_per_provider_targeting",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1788150414000,
+      "tag": "0048_per_provider_cadence",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1788150415000,
+      "tag": "0049_hosted_prompt_subjects",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1788150416000,
+      "tag": "0050_reopening_stated",
+      "breakpoints": true
     }
   ]
 }

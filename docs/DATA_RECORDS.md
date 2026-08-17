@@ -155,7 +155,10 @@ fabricated**, which is the whole reason the earlier one had to go.
 
 **Which facts live where:** the stand owns coordinates, address, directions, physical access, and
 stand-level closure. The provider owns current and usual inventory, prices, payment, season,
-schedule, pause, one public note, and its reminder cadence and recipient.
+schedule, pause, and one public note. Its reminder cadence and recipient are the provider's too,
+but they live on `inventory_prompt_preferences` rather than on the provider row — that table holds
+the scheduler's cursor beside them, and a listing's schedule must not be separable from its place
+in that schedule (F-114 C.4).
 
 **Payment is the seller's own fact** — their money, their account — so it belongs to the provider
 like the rest of that list. `sales_location_payment_methods` is still keyed on the stand alone,
@@ -258,11 +261,14 @@ would add a case to every reader and change no public output.
 - **farmer SMS target context** (F-051) — one selected authorization+owner+location tuple per sender,
   plus at most one 12-hour numbered menu whose options bind exact tuples. Selection is convenience,
   never authority: every use revalidates live authorization and location.
-- **inventory-prompt preferences** (F-052, F-081) — at most one cadence and designated authorization
-  per stand: every 2 days, weekly, every 2 weeks, or paused. A stand **starts at `weekly`** when its
-  farmer is set up, and the farmer changes or pauses it from settings or by texting `SETTINGS`.
-  Seeding is **first-write only** (`on conflict do nothing` against the per-location unique index) so
-  a farmer's own choice, including `paused`, is never overwritten. **No historical behavior, corpus
+- **inventory-prompt preferences** (F-052, F-081; per-LISTING since F-114 C.4) — at most one cadence
+  and designated authorization per PROVIDER: every 2 days, weekly, every 2 weeks, or paused. A
+  hosted seller restocking weekly at a stand whose owner restocks daily needs her own, and the
+  recipient differs by construction. A listing **starts at `weekly`** when its farmer is set up, and
+  the farmer changes or pauses it from settings or by texting `SETTINGS`. Only the SELLER'S own arm
+  may set it — `host_may_update_stock` grants a physical observation about stock, and a schedule is
+  not one. Seeding is **first-write only** (`on conflict do nothing` against the per-provider unique
+  index) so a farmer's own choice, including `paused`, is never overwritten. **No historical behavior, corpus
   statistic, or migration ever creates or infers a preference**: the default is a stated product
   decision, never a guess derived from what a farmer did before. A stand with no farmer gets no
   preference rather than a guessed recipient. Version, next due time, and last due slot let code

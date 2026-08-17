@@ -82,8 +82,10 @@ describe("the editing door commits once (F-098)", () => {
 describe("reminder schedules live with the stock errand (F-098)", () => {
   const LOCATIONS = [
     {
+      providerId: "prov-1",
       salesLocationId: "loc-1",
       locationName: "Demo Orchard Stand",
+      sellerName: null,
       selected: true,
       cadence: "weekly" as const,
     },
@@ -92,21 +94,23 @@ describe("reminder schedules live with the stock errand (F-098)", () => {
   it("asks how often we text on the tab where the farmer answers those texts", () => {
     // max's call (2026-08-09): "how often do we ask you" belongs under the inventory widget,
     // beside the errand it schedules — not filed under settings on the other tab.
-    render(<ReminderSchedules token="t" locations={LOCATIONS} />);
+    render(<ReminderSchedules token="t" listings={LOCATIONS} />);
 
     expect(screen.getByRole("heading", { name: /inventory reminders/i })).toBeVisible();
     expect(screen.getByLabelText(/reminder schedule/i)).toHaveValue("weekly");
   });
 
-  it("names each stand only when there is more than one to tell apart", () => {
+  it("names each listing only when there is more than one to tell apart", () => {
     render(
       <ReminderSchedules
         token="t"
-        locations={[
+        listings={[
           ...LOCATIONS,
           {
+            providerId: "prov-2",
             salesLocationId: "loc-2",
             locationName: "The Red Shed",
+            sellerName: null,
             selected: false,
             cadence: "paused" as const,
           },
@@ -115,6 +119,40 @@ describe("reminder schedules live with the stock errand (F-098)", () => {
     );
 
     expect(screen.getByRole("heading", { name: "The Red Shed" })).toBeVisible();
+  });
+
+  it("credits the seller only where it DIFFERS from the stand", () => {
+    /*
+      F-114 C.4. Two listings under one roof: without the seller name they are two rows reading
+      "Demo Orchard Stand" with two selects that save different things.
+
+      By SELF-POINTER, never a name match — `sellerName: null` IS the self-pointer, resolved in
+      the reader. A farmer who renames her seller stays unlabeled, and a hosted seller whose
+      name matches the stand's stays credited.
+    */
+    render(
+      <ReminderSchedules
+        token="t"
+        listings={[
+          ...LOCATIONS,
+          {
+            providerId: "prov-hosted",
+            salesLocationId: "loc-1",
+            locationName: "Demo Orchard Stand",
+            sellerName: "Fernhorn Bakery",
+            selected: false,
+            cadence: null,
+          },
+        ]}
+      />,
+    );
+
+    expect(
+      screen.getByRole("heading", { name: "Demo Orchard Stand — Fernhorn Bakery" }),
+    ).toBeVisible();
+    // The stand's own listing stays UNLABELLED, asserted as an absence: a renderer that
+    // credited everybody would satisfy the positive assertion above on its own.
+    expect(screen.getByRole("heading", { name: "Demo Orchard Stand" })).toBeVisible();
   });
 });
 
@@ -127,17 +165,26 @@ describe("reminder schedules live with the stock errand (F-098)", () => {
 */
 describe("saving a reminder schedule (F-098)", () => {
   const TWO = [
-    { salesLocationId: "stand-a", locationName: "Orchard Stand", selected: true, cadence: null },
     {
-      salesLocationId: "stand-b",
+      providerId: "stand-a",
+      salesLocationId: "loc-a",
+      locationName: "Orchard Stand",
+      sellerName: null,
+      selected: true,
+      cadence: null,
+    },
+    {
+      providerId: "stand-b",
+      salesLocationId: "loc-b",
       locationName: "Harbor Stand",
+      sellerName: null,
       selected: false,
       cadence: "paused" as const,
     },
   ];
 
-  it("shows unscheduled and paused stands as explicit per-stand states", () => {
-    render(<ReminderSchedules token="t" locations={TWO} />);
+  it("shows unscheduled and paused listings as explicit per-listing states", () => {
+    render(<ReminderSchedules token="t" listings={TWO} />);
 
     expect(screen.getAllByLabelText("Reminder schedule")).toHaveLength(2);
     expect(screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-a" }))
@@ -147,11 +194,11 @@ describe("saving a reminder schedule (F-098)", () => {
     expect(screen.getByText(/Pausing reminders does not stop your other texts/)).toBeVisible();
   });
 
-  it("writes only the stand whose schedule changed", async () => {
+  it("writes only the listing whose schedule changed", async () => {
     const fetchMock = vi.fn(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<ReminderSchedules token="private-token" locations={TWO} />);
+    render(<ReminderSchedules token="private-token" listings={TWO} />);
 
     await user.selectOptions(
       screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-a" }),
@@ -164,9 +211,12 @@ describe("saving a reminder schedule (F-098)", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/farmer/settings",
       expect.objectContaining({
+        // The LISTING (C.4), not the stand. Asserted as the exact posted body rather than a
+        // shape: the endpoint takes one id, and posting the stand's would still be a valid
+        // JSON body naming a real row.
         body: JSON.stringify({
           token: "private-token",
-          salesLocationId: "stand-a",
+          providerId: "stand-a",
           cadence: "every_2_days",
         }),
       }),
@@ -176,7 +226,7 @@ describe("saving a reminder schedule (F-098)", () => {
   it("explains a revoked link without claiming the schedule changed", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => new Response("{}", { status: 403 })));
     const user = userEvent.setup();
-    render(<ReminderSchedules token="t" locations={TWO} />);
+    render(<ReminderSchedules token="t" listings={TWO} />);
 
     await user.selectOptions(
       screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-a" }),
@@ -193,7 +243,7 @@ describe("saving a reminder schedule (F-098)", () => {
   it("shows a recoverable error without claiming the schedule changed", async () => {
     vi.stubGlobal("fetch", vi.fn(async () => { throw new Error("offline"); }));
     const user = userEvent.setup();
-    render(<ReminderSchedules token="t" locations={TWO} />);
+    render(<ReminderSchedules token="t" listings={TWO} />);
 
     await user.selectOptions(
       screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-a" }),
@@ -215,7 +265,7 @@ describe("saving a reminder schedule (F-098)", () => {
       .mockResolvedValueOnce(new Response("{}", { status: 500 }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<ReminderSchedules token="t" locations={TWO} />);
+    render(<ReminderSchedules token="t" listings={TWO} />);
 
     await user.selectOptions(
       screen.getByLabelText("Reminder schedule", { selector: "#cadence-stand-a" }),

@@ -3,9 +3,10 @@ import {
   type Clock,
   type PromptCadence,
 } from "@farm-friend/core";
-import { readCurrentRevisionRef, readNativeProviderId } from "./current-inventory";
+import { readCurrentRevisionRef } from "./current-inventory";
 import type { Db } from "./index";
 import { lockKnownSenderState } from "./farmer-targeting";
+import { resolveProviderWriteAuthority } from "./provider-write-authority";
 
 export type SetInventoryPromptPreferenceResult =
   | {
@@ -23,7 +24,20 @@ function laterDate(...values: (Date | null | undefined)[]): Date {
 }
 
 /**
- * Explicitly choose one stand cadence and make this live authorization its recipient.
+ * Explicitly choose one LISTING's cadence and make this live authorization its recipient.
+ *
+ * F-114 Phase C.4. This took a `salesLocationId` and said "the stand's own listing" three
+ * separate ways — locking `sales_locations`, checking the caller against `own_seller_id`, and
+ * calling `readNativeProviderId`. §facts and authority: **reminder cadence is per provider, not
+ * per stand.** A hosted seller restocking weekly at a stand whose owner restocks daily needs her
+ * own cadence, and the recipient differs by construction.
+ *
+ * Authority comes from `resolveProviderWriteAuthority` rather than a fourth enumeration of the
+ * arms — except that the HOST arm is deliberately rejected here. That seam answers *may this
+ * phone write this provider's stock*, and `host_may_update_stock` grants exactly that: a
+ * physical observation about goods on a shelf. A reminder schedule is not an observation, and
+ * its recipient is the seller by construction, so only the seller's own arm may set it.
+ *
  * Pausing is schedule state only; this transaction never reads or writes SMS consent.
  */
 export async function setInventoryPromptPreference(
@@ -31,7 +45,7 @@ export async function setInventoryPromptPreference(
   input: {
     senderHash: string;
     authorizationId: string;
-    salesLocationId: string;
+    providerId: string;
     cadence: PromptCadence;
     clock: Clock;
   },
@@ -42,39 +56,41 @@ export async function setInventoryPromptPreference(
       return { status: "not_authorized" as const };
     }
 
+    const authority = await resolveProviderWriteAuthority(tx, {
+      providerId: input.providerId,
+      senderHash: input.senderHash,
+    });
+    // The seller's own arm only — see the doc comment. `paused` is not consulted: a listing's
+    // schedule is exactly what a paused seller may still want to change, and pausing REMINDERS
+    // is itself one of the four cadences.
+    if (authority.status !== "authorized" || authority.via !== "seller") {
+      return { status: "not_authorized" as const };
+    }
+    // The caller names which authorization it is acting under, and the seam resolved one
+    // independently. They must be the same row, or a caller holding any valid id could present
+    // it beside another phone's and have the write filed under it.
+    if (authority.authorizationId !== input.authorizationId) {
+      return { status: "not_authorized" as const };
+    }
+
+    const salesLocationId = authority.salesLocationId;
     const locations = await tx`
-      select id, own_seller_id, timezone from sales_locations
-      where id = ${input.salesLocationId}
+      select id, timezone from sales_locations
+      where id = ${salesLocationId}
       for update
     `;
     if (locations.length === 0) return { status: "not_authorized" as const };
     const location = locations[0] as Record<string, unknown>;
 
-    const authorizations = await tx`
-      select auth.id
-      from farmer_authorizations as auth
-      join contacts as contact on contact.id = auth.contact_id
-      where auth.id = ${input.authorizationId}
-        and auth.seller_id = ${location.own_seller_id as string}
-        and contact.phone_hash = ${input.senderHash}
-        and auth.revoked_at is null
-      for update of auth
-    `;
-    if (authorizations.length === 0) return { status: "not_authorized" as const };
-
     const existing = await tx`
       select id, version, last_due_slot_at
       from inventory_prompt_preferences
-      where sales_location_id = ${input.salesLocationId}
+      where provider_id = ${input.providerId}
       for update
     `;
-    // F-114 Phase B — a cadence belongs to a provider. This path is the farmer saving their
-    // own stand's preference, which is the native slot.
-    const providerId = await readNativeProviderId(tx, {
-      salesLocationId: input.salesLocationId,
-    });
+    const providerId = input.providerId;
     const currentRevision = await readCurrentRevisionRef(tx, {
-      salesLocationId: input.salesLocationId,
+      salesLocationId,
       providerId,
       lock: false,
     });
@@ -96,7 +112,7 @@ export async function setInventoryPromptPreference(
             owner_seller_id, sales_location_id, provider_id,
             designated_authorization_id, cadence, version, next_due_at, updated_at
           ) values (
-            ${location.own_seller_id as string}, ${input.salesLocationId}, ${providerId},
+            ${authority.sellerId}, ${salesLocationId}, ${providerId},
             ${input.authorizationId}, ${input.cadence}, 1, ${nextDueAt}, ${now}
           ) returning id, version
         `

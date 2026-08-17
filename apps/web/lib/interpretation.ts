@@ -89,6 +89,13 @@ export type InterpretationOutcome =
       proposalVersion: number;
       /** The complete resulting snapshot the farmer will confirm. */
       confirmationText: string;
+      /**
+       * Publishing this will RE-OPEN a paused listing (F-114 C.4), so the caller states that
+       * consequence instead of the ordinary publish prompt. Reported by the proposal writer,
+       * which resolved the authority that knows it and recorded the farmer's consent slot in
+       * the same transaction.
+       */
+      requiresReopening: boolean;
     }
   | { outcome: "clarification"; question: string }
   | { outcome: "rejected"; reason: string };
@@ -349,6 +356,7 @@ export async function applyInterpretedInventory(
     outcome: "proposed",
     proposalId: opened.proposalId,
     proposalVersion: opened.proposalVersion,
+    requiresReopening: opened.requiresReopening,
     confirmationText: renderProposedFarmerUpdate({
       locationName: state.locationName,
       ...(proposedInventory !== undefined ? { inventory: proposedInventory } : {}),

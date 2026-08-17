@@ -3,14 +3,31 @@
 import Link from "next/link";
 import { useState } from "react";
 
-export interface ReminderLocation {
+export interface ReminderListing {
+  providerId: string;
   salesLocationId: string;
   locationName: string;
+  /** NULL where the listing IS the stand's own — there is nothing to disambiguate. */
+  sellerName: string | null;
   selected: boolean;
   cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
 }
 
-type Cadence = Exclude<ReminderLocation["cadence"], null>;
+type Cadence = Exclude<ReminderListing["cadence"], null>;
+
+/**
+ * What this row is called (F-114 C.4).
+ *
+ * The stand's own listing renders as the bare stand name; every other seller is credited
+ * beside it — by SELF-POINTER, never a name match, which is what `sellerName: null` encodes.
+ * The same rule the SMS menu follows, so a farmer cannot be shown one label by text and a
+ * different one on the page.
+ */
+function listingLabel(listing: ReminderListing): string {
+  return listing.sellerName === null
+    ? listing.locationName
+    : `${listing.locationName} — ${listing.sellerName}`;
+}
 
 /*
   HOW OFTEN FARM FRIEND ASKS — on the stock tab, under the widget that answers it (F-098).
@@ -32,16 +49,16 @@ type Cadence = Exclude<ReminderLocation["cadence"], null>;
 */
 export function ReminderSchedules({
   token,
-  locations,
+  listings,
 }: {
   token: string;
-  locations: ReminderLocation[];
+  listings: ReminderListing[];
 }) {
-  /** The stand's name only earns a line when there is more than one to tell apart. */
-  const hasSeveralStands = locations.length > 1;
+  /** A row's name only earns a line when there is more than one to tell apart. */
+  const hasSeveralListings = listings.length > 1;
   const [cadences, setCadences] = useState<Record<string, Cadence | "">>(
     Object.fromEntries(
-      locations.map((location) => [location.salesLocationId, location.cadence ?? ""]),
+      listings.map((listing) => [listing.providerId, listing.cadence ?? ""]),
     ),
   );
   /**
@@ -57,10 +74,10 @@ export function ReminderSchedules({
   const [error, setError] = useState<string | null>(null);
   const [linkInactive, setLinkInactive] = useState(false);
 
-  const changed = locations.filter(
-    (location) =>
-      (cadences[location.salesLocationId] ?? "") !== "" &&
-      cadences[location.salesLocationId] !== savedCadences[location.salesLocationId],
+  const changed = listings.filter(
+    (listing) =>
+      (cadences[listing.providerId] ?? "") !== "" &&
+      cadences[listing.providerId] !== savedCadences[listing.providerId],
   );
 
   async function save() {
@@ -70,15 +87,15 @@ export function ReminderSchedules({
     setSaved(false);
     setLinkInactive(false);
     try {
-      for (const location of changed) {
+      for (const listing of changed) {
         try {
           const response = await fetch("/api/farmer/settings", {
             method: "POST",
             headers: { "content-type": "application/json" },
             body: JSON.stringify({
               token,
-              salesLocationId: location.salesLocationId,
-              cadence: cadences[location.salesLocationId],
+              providerId: listing.providerId,
+              cadence: cadences[listing.providerId],
             }),
           });
           const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -99,11 +116,11 @@ export function ReminderSchedules({
           );
           return;
         }
-        // Marked saved one stand at a time, so a failure part-way leaves a retry sending only
-        // what is still outstanding rather than rewriting what already landed.
+        // Marked saved one LISTING at a time, so a failure part-way leaves a retry sending
+        // only what is still outstanding rather than rewriting what already landed.
         setSavedCadences((current) => ({
           ...current,
-          [location.salesLocationId]: cadences[location.salesLocationId] ?? "",
+          [listing.providerId]: cadences[listing.providerId] ?? "",
         }));
       }
       setSaved(true);
@@ -131,17 +148,17 @@ export function ReminderSchedules({
         </p>
       )}
 
-      {locations.map((location) => (
-        <div className="farmer-settings-schedule" key={`schedule-${location.salesLocationId}`}>
-          {hasSeveralStands && <h4>{location.locationName}</h4>}
-          <label htmlFor={`cadence-${location.salesLocationId}`}>Reminder schedule</label>
+      {listings.map((listing) => (
+        <div className="farmer-settings-schedule" key={`schedule-${listing.providerId}`}>
+          {hasSeveralListings && <h4>{listingLabel(listing)}</h4>}
+          <label htmlFor={`cadence-${listing.providerId}`}>Reminder schedule</label>
           <select
-            id={`cadence-${location.salesLocationId}`}
-            value={cadences[location.salesLocationId] ?? ""}
+            id={`cadence-${listing.providerId}`}
+            value={cadences[listing.providerId] ?? ""}
             onChange={(event) => {
               setCadences((current) => ({
                 ...current,
-                [location.salesLocationId]: event.target.value as Cadence | "",
+                [listing.providerId]: event.target.value as Cadence | "",
               }));
               setSaved(false);
             }}

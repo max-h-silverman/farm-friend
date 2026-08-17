@@ -19,7 +19,7 @@
 
 ## F-114 — what is on `main` and NOT deployed
 
-Phases B, C.0, C.1, C.2 (`214aeb2`) and C.3 (`daa499f`, PR #127) are merged. The governing contract is §the
+Phases B through C.4 are merged; **C.5 is all that remains.** The governing contract is §the
 stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; the reasoning
 behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 
@@ -58,27 +58,35 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 - **A leaked farmer link can create a seller and a `pending` relationship at its own stand.** It
   authorizes nobody — acceptance needs the invited seller's own handset and a bare `START` — and
   `pending` is invisible to every public reader. Asserted beside F-040's other five bounds.
-- **Still stand-shaped on purpose, for one sub-phase:** the farmer settings screen (per-listing
-  belongs with C.4's cadence, same save button) and VIGA's `issue_link`, which resolves its
+- **Reminder cadence is per LISTING**, in `inventory_prompt_preferences` alone — it holds the
+  scheduler's cursor, so nothing else may carry the cadence. The write seam refuses the HOST arm:
+  `host_may_update_stock` grants a physical observation about stock, and a schedule is not one, so
+  only the seller's own arm sets it. The scheduler pass and the settings screen both follow the
+  PREFERENCE'S seller, never the roof's.
+- **A paused listing is offered re-opening, never refused**, gated at
+  `confirmInventoryPublication` — the one seam a fresh update, a pre-pause prompt reply and `SAME`
+  all funnel through. The consent is `reopening_stated_version` on the proposal, written when the
+  prompt stating the consequence was composed and bound to that version; the farmer answers with an
+  ordinary `YES` (max, 2026-08-16), no new keyword. Publishing re-opens the listing.
+- **Still stand-shaped on purpose:** VIGA's `issue_link`, which resolves its
   `(authorization, stand)` pair to one listing and REFUSES on ambiguity rather than picking.
-- **What C remains: C.4** (reminder cadence + scheduler pass) **and C.5** (public seller list,
-  item-first cards). C.4 opens with a design question: `inventory_prompt_preferences` is already
-  one-per-provider with its own authorization, so `stand_providers.reminder_cadence` /
-  `reminder_authorization_id` are a second home for one fact and remain unread — likely to be
-  deleted rather than read.
 - Deliberately NOT renamed: `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table (those name
   the PERSON acting), the operator-facing **"Farms" tab label**, and `GENERIC_WORDS`.
 
 ## Deployment and migrations
 
-- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0047` are all
+- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0050` are all
   unapplied to production** and must land in that order. `0042`'s content changed: the merged
   `0042_multi_seller_stand_providers` was **replaced in place** by `0042_seller_root`, because no
   database anywhere had applied it — production therefore never sees the native-slot model at all.
+  C.4 edited `0042` in place again for the same reason, deleting the duplicate cadence columns, and
+  repaired a real defect in its snapshot: it carried **two `public.sellers` blocks**, the second
+  being Phase B's deleted table. JSON keeps the last duplicate, so drizzle read the dead one —
+  masked only because `0047` is the head `generate` diffs.
 - **`0042` must be applied before the merged code runs.** Every writer now supplies `provider_id`;
-  against the un-migrated schema they fail immediately. `0043`–`0047` add no such requirement on
+  against the un-migrated schema they fail immediately. `0043`–`0050` add no such requirement on
   their own, but must not land ahead of `0042`.
-- **`0045`, `0046` and `0047` are constraint-only and were NOT generated** — `drizzle-kit` does not
+- **`0045`–`0049` are constraint-only and were NOT generated** (`0050` adds one nullable column) — `drizzle-kit` does not
   emit them. **`0047`'s snapshot was built as a measured DELTA of `0046`'s**, not by introspection,
   and that is now the documented method: measured on this branch, `generate` on the merged base says
   *"No schema changes"*, an introspected `0047` snapshot makes it emit **16KB** of constraint churn,
@@ -91,7 +99,7 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 
 ## Verification
 
-- **2,075 unit tests pass; 7 corpus-only tests skip.** Integration is **1248/1248 across 88 of 88
+- **2,080 unit tests pass; 7 corpus-only tests skip.** Integration is **1289/1289 across 92 of 92
   files** against disposable local Postgres databases (2026-08-16).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it eight `farmer-stand` cases fail `ConfigurationError: PUBLIC_BASE_URL is required` — identical on
@@ -106,11 +114,11 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
   `{entryId, itemName}`, and `providerId` appears nowhere in the AI package — with the search proved
   against a known-present term (`entryId`) first.
 - **F-114 is sabotage-proved throughout.** 53 breakages across the seller root, authorization arms,
-  hosting invitation and doors; 22 more across C.2; **19 more across C.3** — each caught by the case
-  aimed at it. Every migration is proved against a **populated** copy of the schema that precedes it,
+  hosting invitation and doors; 22 more across C.2; 19 more across C.3; **21 more across C.4** —
+  each caught by the case aimed at it. Every migration is proved against a **populated** copy of the schema that precedes it,
   asserting exact row effects plus a re-run proving it is a no-op.
-- **Twelve escapes across F-114, and every one was ONE failure: a guard is unfalsifiable until a
-  case exists where it is the ONLY thing that could refuse.** All twelve are closed by cases that
+- **Fourteen escapes across F-114, and every one was ONE failure: a guard is unfalsifiable until a
+  case exists where it is the ONLY thing that could refuse.** All fourteen are closed by cases that
   construct exactly that. **Assert the absence of the wrong behavior; and when a breakage changes no
   test result, ask which other guard answered first.** The per-phase enumerations are in
   [SESSION_LOG.md](SESSION_LOG.md); the standing forms are in DEVELOPMENT.md §gotchas.
@@ -143,8 +151,8 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 
 ## Open before go-live
 
-- **`0042` through `0047`, in order, must be applied to production before the code that requires
-  them.** All six are Max's call.
+- **`0042` through `0050`, in order, must be applied to production before the code that requires
+  them.** All nine are Max's call.
 - **VIGA's stock-out queue is the only destination for reports at the 18 stands publishing no
   confirmed inventory** — decided and accepted (max, 2026-08-16), not an open question. Those stands
   are texted today and will not be once C.3 deploys; it resolves as they start confirming inventory.
@@ -152,6 +160,11 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 - Finish physical-handset checks: farmer onboarding/consent, contact card, paged SMS, administrator
   and settings flows, F-105 stand details at phone width, Squarespace embeds, and `?hidden=true`.
   Every texted link now carries `farmfriend.vigavashon.org` and none has been read on a handset.
+- **C.4 adds ONE farmer-facing sentence owing a handset pass**: `Publishing this update will
+  re-open your listing. Reply YES to confirm, NO to cancel.` — the paused listing's confirmation,
+  which replaces the ordinary publish prompt rather than joining it. Verified GSM-7 by
+  `reply-encoding.test.ts` and asserted in the rendered reply; not read on a phone. The settings
+  screen's new per-listing labels (`Stand — Seller`) owe the same pass.
 - **C.3's farmer-facing SMS copy owes a handset pass**: the menu now reads *"Which listing do you
   mean?"* and names the seller beside the stand where they differ, and `Using …` / `Update your
   listing for …` carry the same label. Verified in integration and by encoding (still GSM-7); not

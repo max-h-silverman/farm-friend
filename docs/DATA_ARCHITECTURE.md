@@ -125,8 +125,10 @@ participant names, onboarding requests, and prompt due-slots below.
   acting authorization is a plain reference: who may target whom is two live facts — the
   relationship's opt-in and the authorization's revocation — that a static key cannot see, and
   `PROVIDER_AUTHORITY_ARMS` enforces it at every reader.
-- **One prompt preference per stand and one subject per preference due slot** (F-052) — unique
-  constraints make both facts structural. Preference versions are positive; paused rows have no next
+- **One prompt preference per LISTING and one subject per preference due slot** (F-052; per-provider
+  since F-114 C.4) — unique constraints make both facts structural, and `(provider_id,
+  owner_seller_id)` binds the preference's seller to the listing's rather than to the stand owner's.
+  Preference versions are positive; paused rows have no next
   due time; active rows do. Subject versions are positive, owner/location/authorization and
   inventory/closure bases are composite-FK bound, and a subject may offer `SAME` only when an inventory
   base exists. The due-slot unique constraint arbitrates concurrent schedulers.

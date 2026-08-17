@@ -4720,19 +4720,6 @@
           "primaryKey": false,
           "notNull": false
         },
-        "reminder_cadence": {
-          "name": "reminder_cadence",
-          "type": "inventory_prompt_cadence",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "reminder_authorization_id": {
-          "name": "reminder_authorization_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -4807,19 +4794,6 @@
           "tableTo": "farmer_authorizations",
           "columnsFrom": [
             "approved_by_authorization_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "stand_providers_reminder_authorization_id_farmer_authorizations_id_fk": {
-          "name": "stand_providers_reminder_authorization_id_farmer_authorizations_id_fk",
-          "tableFrom": "stand_providers",
-          "tableTo": "farmer_authorizations",
-          "columnsFrom": [
-            "reminder_authorization_id"
           ],
           "columnsTo": [
             "id"

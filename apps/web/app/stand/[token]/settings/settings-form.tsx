@@ -4,11 +4,27 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useTabCommit } from "../details-panel";
 
-interface SettingsLocation {
+interface SettingsListing {
+  providerId: string;
   salesLocationId: string;
   locationName: string;
+  /** NULL where the listing IS the stand's own — there is nothing to disambiguate. */
+  sellerName: string | null;
   selected: boolean;
   cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
+}
+
+/**
+ * What this choice is called (F-114 C.4).
+ *
+ * The stand's own listing renders as the bare stand name; every other seller is credited
+ * beside it — by SELF-POINTER, never a name match. Shared shape with the reminder rows and
+ * with the SMS menu, so one listing cannot be labelled three ways.
+ */
+function listingLabel(listing: SettingsListing): string {
+  return listing.sellerName === null
+    ? listing.locationName
+    : `${listing.locationName} — ${listing.sellerName}`;
 }
 
 /*
@@ -41,25 +57,34 @@ interface SettingsLocation {
 */
 export function SettingsForm({
   token,
-  locations,
+  listings,
   participantNamesByLocation = {},
 }: {
   token: string;
-  locations: SettingsLocation[];
+  listings: SettingsListing[];
   participantNamesByLocation?: Record<string, string[]>;
 }) {
-  const initial = locations.find((location) => location.selected)?.salesLocationId
-    ?? locations[0]?.salesLocationId
+  const initial = listings.find((listing) => listing.selected)?.providerId
+    ?? listings[0]?.providerId
     ?? "";
   /**
-   * Whether the farmer has a real choice of default stand.
+   * The STAND behind the initially-selected listing (F-114 C.4).
    *
-   * One stand is not a choice, and a radio group holding a single radio asks a question with
+   * `participantNamesByLocation` is keyed by stand, because participants are the stand's own
+   * record — so the listing id cannot index it, and using it would silently show an empty
+   * seller list on every load.
+   */
+  const initialLocationId =
+    listings.find((listing) => listing.providerId === initial)?.salesLocationId ?? "";
+  /**
+   * Whether the farmer has a real choice of default LISTING (C.4).
+   *
+   * One listing is not a choice, and a radio group holding a single radio asks a question with
    * one answer. `STAND` (the SMS keyword) has the same shape and already says "if you have
    * more than one" — this is that rule on the web surface.
    */
-  const hasSeveralStands = locations.length > 1;
-  const [salesLocationId, setSalesLocationId] = useState(initial);
+  const hasSeveralListings = listings.length > 1;
+  const [providerId, setProviderId] = useState(initial);
   const [busy, setBusy] = useState(false);
   const [saved, setSaved] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -74,7 +99,7 @@ export function SettingsForm({
   const [savedDefault, setSavedDefault] = useState(initial);
   const [participantNames, setParticipantNames] = useState(participantNamesByLocation);
   const [participantText, setParticipantText] = useState(
-    (participantNamesByLocation[initial] ?? []).join("\n"),
+    (participantNamesByLocation[initialLocationId] ?? []).join("\n"),
   );
   const [savedParticipantText, setSavedParticipantText] = useState(participantText);
 
@@ -91,13 +116,18 @@ export function SettingsForm({
   const [inviteLink, setInviteLink] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
 
-  /** The stand the seller-name box is about — the default, or the only one there is. */
-  const participantLocationId = savedDefault;
+  /*
+    The seller-name box is about a STAND, not a listing, and stays that way: participants are
+    the stand's own record (max, 2026-08-15), so two listings under one roof share one list.
+    The selected listing names which stand that is.
+  */
+  const participantLocationId =
+    listings.find((listing) => listing.providerId === savedDefault)?.salesLocationId ?? "";
   const participantLocationName =
-    locations.find((location) => location.salesLocationId === participantLocationId)
-      ?.locationName ?? "this stand";
+    listings.find((listing) => listing.providerId === savedDefault)?.locationName
+      ?? "this stand";
 
-  const defaultChanged = salesLocationId !== savedDefault;
+  const defaultChanged = providerId !== savedDefault;
   const participantsChanged = participantText !== savedParticipantText;
   const nothingToSave = !defaultChanged && !participantsChanged;
 
@@ -153,15 +183,18 @@ export function SettingsForm({
       if (defaultChanged) {
         const payload = await post(
           "/api/farmer/settings",
-          { salesLocationId },
-          "Your default stand",
+          { providerId },
+          "Your default listing",
         );
         if (payload === null) return false;
-        setSavedDefault(salesLocationId);
-        // The seller-name box follows the default stand, so it reloads onto the new one —
-        // and its baseline moves with it, or the next Save would post one stand's names
-        // against another's.
-        const names = (participantNames[salesLocationId] ?? []).join("\n");
+        setSavedDefault(providerId);
+        // The seller-name box follows the default listing's STAND, so it reloads onto the new
+        // one — and its baseline moves with it, or the next Save would post one stand's names
+        // against another's. Two listings at one stand share a list and reload to the same
+        // text, which is correct: the participants did not change.
+        const nextLocationId =
+          listings.find((listing) => listing.providerId === providerId)?.salesLocationId ?? "";
+        const names = (participantNames[nextLocationId] ?? []).join("\n");
         setParticipantText(names);
         setSavedParticipantText(names);
       }
@@ -276,31 +309,35 @@ export function SettingsForm({
       )}
 
       {/*
-        THE DEFAULT STAND, asked only when there is more than one (max 2026-08-08). A single
-        stand makes this a question with one answer, which is noise on a settings screen.
+        THE DEFAULT LISTING, asked only when there is more than one (max 2026-08-08; per-listing
+        in F-114 C.4). A single listing makes this a question with one answer, which is noise on
+        a settings screen.
+
+        "Which listing" rather than "which stand", for the reason the SMS menu asks the same
+        way: a host choosing between two listings under one roof has no answer to "which stand".
       */}
-      {hasSeveralStands && (
+      {hasSeveralListings && (
         <div className="farmer-settings-section">
-          <h3>Which stand your texts are about</h3>
+          <h3>Which listing your texts are about</h3>
           <p id="default-stand-help" className="farmer-form-note">
-            When you text an update without saying which stand, we use this one. You can
+            When you text an update without saying which listing, we use this one. You can
             switch any time by texting STAND.
           </p>
           <fieldset className="farmer-settings-options" aria-describedby="default-stand-help">
-            <legend className="sr-only">Choose your default SMS stand</legend>
-            {locations.map((location) => (
-              <label className="farmer-settings-choice" key={location.salesLocationId}>
+            <legend className="sr-only">Choose your default SMS listing</legend>
+            {listings.map((listing) => (
+              <label className="farmer-settings-choice" key={listing.providerId}>
                 <input
                   type="radio"
                   name="default-stand"
-                  value={location.salesLocationId}
-                  checked={salesLocationId === location.salesLocationId}
+                  value={listing.providerId}
+                  checked={providerId === listing.providerId}
                   onChange={() => {
-                    setSalesLocationId(location.salesLocationId);
+                    setProviderId(listing.providerId);
                     setSaved(false);
                   }}
                 />
-                <span>{location.locationName}</span>
+                <span>{listingLabel(listing)}</span>
               </label>
             ))}
           </fieldset>

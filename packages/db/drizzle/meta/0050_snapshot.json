@@ -1,6 +1,6 @@
 {
-  "id": "8327b035-7626-44b4-a5f0-b7d5a434d8ff",
-  "prevId": "10de04e3-9832-49ca-921d-7c35044ffe1f",
+  "id": "b8d4a6e2-5f19-4c73-8e02-9a1d3b7f6c50",
+  "prevId": "7a2e5f14-3c8b-4d69-91af-2e6b0c7d5834",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -364,11 +364,11 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "owner_farm_id": {
-          "name": "owner_farm_id",
+        "owner_seller_id": {
+          "name": "owner_seller_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "sales_location_id": {
           "name": "sales_location_id",
@@ -392,7 +392,7 @@
           "name": "owner_approval_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "result": {
           "name": "result",
@@ -478,11 +478,11 @@
           "tableTo": "sales_locations",
           "columnsFrom": [
             "sales_location_id",
-            "owner_farm_id"
+            "owner_seller_id"
           ],
           "columnsTo": [
             "id",
-            "owner_farm_id"
+            "own_seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -493,11 +493,11 @@
           "tableTo": "farmer_authorizations",
           "columnsFrom": [
             "owner_authorization_id",
-            "owner_farm_id"
+            "owner_seller_id"
           ],
           "columnsTo": [
             "id",
-            "farm_id"
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -508,11 +508,11 @@
           "tableTo": "seller_approvals",
           "columnsFrom": [
             "owner_approval_id",
-            "owner_farm_id"
+            "owner_seller_id"
           ],
           "columnsTo": [
             "id",
-            "farm_id"
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -645,306 +645,6 @@
         }
       }
     },
-    "public.seller_approvals": {
-      "name": "seller_approvals",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "farm_id": {
-          "name": "farm_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "administrator_id": {
-          "name": "administrator_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "approved_at": {
-          "name": "approved_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "revoked_at": {
-          "name": "revoked_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {
-        "farm_approvals_one_current_per_farm": {
-          "name": "farm_approvals_one_current_per_farm",
-          "columns": [
-            {
-              "expression": "farm_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"farm_approvals\".\"revoked_at\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        }
-      },
-      "foreignKeys": {
-        "farm_approvals_farm_id_farms_id_fk": {
-          "name": "farm_approvals_farm_id_farms_id_fk",
-          "tableFrom": "seller_approvals",
-          "tableTo": "sellers",
-          "columnsFrom": [
-            "farm_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "farm_approvals_administrator_id_administrators_id_fk": {
-          "name": "farm_approvals_administrator_id_administrators_id_fk",
-          "tableFrom": "seller_approvals",
-          "tableTo": "administrators",
-          "columnsFrom": [
-            "administrator_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "farm_approvals_id_farm_unique": {
-          "name": "farm_approvals_id_farm_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "id",
-            "farm_id"
-          ]
-        }
-      }
-    },
-    "public.seller_email_verifications": {
-      "name": "seller_email_verifications",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "farm_id": {
-          "name": "farm_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "email_hash": {
-          "name": "email_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "code_hash": {
-          "name": "code_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "issued_at": {
-          "name": "issued_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "expires_at": {
-          "name": "expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "consumed_at": {
-          "name": "consumed_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "attempt_count": {
-          "name": "attempt_count",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        },
-        "grant_hash": {
-          "name": "grant_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "grant_expires_at": {
-          "name": "grant_expires_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "farm_email_verifications_farm_id_farms_id_fk": {
-          "name": "farm_email_verifications_farm_id_farms_id_fk",
-          "tableFrom": "seller_email_verifications",
-          "tableTo": "sellers",
-          "columnsFrom": [
-            "farm_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {}
-    },
-    "public.seller_emails": {
-      "name": "seller_emails",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "farm_id": {
-          "name": "farm_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "email": {
-          "name": "email",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "email_hash": {
-          "name": "email_hash",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "added_at": {
-          "name": "added_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "farm_emails_farm_id_farms_id_fk": {
-          "name": "farm_emails_farm_id_farms_id_fk",
-          "tableFrom": "seller_emails",
-          "tableTo": "sellers",
-          "columnsFrom": [
-            "farm_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {}
-    },
-    "public.seller_links": {
-      "name": "seller_links",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "farm_id": {
-          "name": "farm_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "label": {
-          "name": "label",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "url": {
-          "name": "url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "sort_order": {
-          "name": "sort_order",
-          "type": "integer",
-          "primaryKey": false,
-          "notNull": true,
-          "default": 0
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "farm_links_farm_id_farms_id_fk": {
-          "name": "farm_links_farm_id_farms_id_fk",
-          "tableFrom": "seller_links",
-          "tableTo": "sellers",
-          "columnsFrom": [
-            "farm_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {
-        "farm_links_farm_url_unique": {
-          "name": "farm_links_farm_url_unique",
-          "nullsNotDistinct": false,
-          "columns": [
-            "farm_id",
-            "url"
-          ]
-        }
-      }
-    },
     "public.farmer_authorizations": {
       "name": "farmer_authorizations",
       "schema": "",
@@ -956,11 +656,17 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "farm_id": {
-          "name": "farm_id",
+        "seller_id": {
+          "name": "seller_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "sales_location_id": {
+          "name": "sales_location_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
         },
         "contact_id": {
           "name": "contact_id",
@@ -988,11 +694,33 @@
         }
       },
       "indexes": {
-        "farmer_authorizations_one_active_contact_per_farm": {
-          "name": "farmer_authorizations_one_active_contact_per_farm",
+        "farmer_authorizations_one_active_contact_per_seller": {
+          "name": "farmer_authorizations_one_active_contact_per_seller",
           "columns": [
             {
-              "expression": "farm_id",
+              "expression": "seller_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "contact_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"farmer_authorizations\".\"revoked_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "farmer_authorizations_one_active_contact_per_stand": {
+          "name": "farmer_authorizations_one_active_contact_per_stand",
+          "columns": [
+            {
+              "expression": "sales_location_id",
               "isExpression": false,
               "asc": true,
               "nulls": "last"
@@ -1012,12 +740,25 @@
         }
       },
       "foreignKeys": {
-        "farmer_authorizations_farm_id_farms_id_fk": {
-          "name": "farmer_authorizations_farm_id_farms_id_fk",
+        "farmer_authorizations_seller_id_sellers_id_fk": {
+          "name": "farmer_authorizations_seller_id_sellers_id_fk",
           "tableFrom": "farmer_authorizations",
           "tableTo": "sellers",
           "columnsFrom": [
-            "farm_id"
+            "seller_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "farmer_authorizations_sales_location_id_sales_locations_id_fk": {
+          "name": "farmer_authorizations_sales_location_id_sales_locations_id_fk",
+          "tableFrom": "farmer_authorizations",
+          "tableTo": "sales_locations",
+          "columnsFrom": [
+            "sales_location_id"
           ],
           "columnsTo": [
             "id"
@@ -1041,12 +782,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "farmer_authorizations_id_farm_unique": {
-          "name": "farmer_authorizations_id_farm_unique",
+        "farmer_authorizations_id_seller_unique": {
+          "name": "farmer_authorizations_id_seller_unique",
           "nullsNotDistinct": false,
           "columns": [
             "id",
-            "farm_id"
+            "seller_id"
           ]
         }
       }
@@ -1062,8 +803,20 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "farm_id": {
-          "name": "farm_id",
+        "seller_id": {
+          "name": "seller_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "stand_provider_id": {
+          "name": "stand_provider_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "invited_by_authorization_id": {
+          "name": "invited_by_authorization_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -1137,14 +890,44 @@
           "notNull": false
         }
       },
-      "indexes": {},
+      "indexes": {
+        "farmer_invitations_one_open_per_provider": {
+          "name": "farmer_invitations_one_open_per_provider",
+          "columns": [
+            {
+              "expression": "stand_provider_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"farmer_invitations\".\"redeemed_at\" is null and \"farmer_invitations\".\"stand_provider_id\" is not null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
       "foreignKeys": {
-        "farmer_invitations_farm_id_farms_id_fk": {
-          "name": "farmer_invitations_farm_id_farms_id_fk",
+        "farmer_invitations_seller_id_sellers_id_fk": {
+          "name": "farmer_invitations_seller_id_sellers_id_fk",
           "tableFrom": "farmer_invitations",
           "tableTo": "sellers",
           "columnsFrom": [
-            "farm_id"
+            "seller_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "farmer_invitations_invited_by_authorization_id_farmer_authorizations_id_fk": {
+          "name": "farmer_invitations_invited_by_authorization_id_farmer_authorizations_id_fk",
+          "tableFrom": "farmer_invitations",
+          "tableTo": "farmer_authorizations",
+          "columnsFrom": [
+            "invited_by_authorization_id"
           ],
           "columnsTo": [
             "id"
@@ -1161,6 +944,21 @@
           ],
           "columnsTo": [
             "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "farmer_invitations_provider_seller_fk": {
+          "name": "farmer_invitations_provider_seller_fk",
+          "tableFrom": "farmer_invitations",
+          "tableTo": "stand_providers",
+          "columnsFrom": [
+            "stand_provider_id",
+            "seller_id"
+          ],
+          "columnsTo": [
+            "id",
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -1200,8 +998,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "owner_farm_id": {
-          "name": "owner_farm_id",
+        "owner_seller_id": {
+          "name": "owner_seller_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -1257,21 +1055,6 @@
         }
       },
       "foreignKeys": {
-        "farmer_links_targeted_authorization_owner_fk": {
-          "name": "farmer_links_targeted_authorization_owner_fk",
-          "tableFrom": "farmer_links",
-          "tableTo": "farmer_authorizations",
-          "columnsFrom": [
-            "authorization_id",
-            "owner_farm_id"
-          ],
-          "columnsTo": [
-            "id",
-            "farm_id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
         "farmer_links_targeted_location_provider_fk": {
           "name": "farmer_links_targeted_location_provider_fk",
           "tableFrom": "farmer_links",
@@ -1283,6 +1066,34 @@
           "columnsTo": [
             "id",
             "sales_location_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "farmer_links_targeted_authorization_fk": {
+          "name": "farmer_links_targeted_authorization_fk",
+          "tableFrom": "farmer_links",
+          "tableTo": "farmer_authorizations",
+          "columnsFrom": [
+            "authorization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "farmer_links_targeted_provider_seller_fk": {
+          "name": "farmer_links_targeted_provider_seller_fk",
+          "tableFrom": "farmer_links",
+          "tableTo": "stand_providers",
+          "columnsFrom": [
+            "provider_id",
+            "owner_seller_id"
+          ],
+          "columnsTo": [
+            "id",
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -1461,8 +1272,8 @@
           "primaryKey": false,
           "notNull": false
         },
-        "selected_owner_farm_id": {
-          "name": "selected_owner_farm_id",
+        "selected_owner_seller_id": {
+          "name": "selected_owner_seller_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": false
@@ -1557,21 +1368,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "farmer_target_contexts_selected_authorization_owner_fk": {
-          "name": "farmer_target_contexts_selected_authorization_owner_fk",
-          "tableFrom": "farmer_target_contexts",
-          "tableTo": "farmer_authorizations",
-          "columnsFrom": [
-            "selected_authorization_id",
-            "selected_owner_farm_id"
-          ],
-          "columnsTo": [
-            "id",
-            "farm_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "farmer_target_contexts_selected_location_provider_fk": {
           "name": "farmer_target_contexts_selected_location_provider_fk",
           "tableFrom": "farmer_target_contexts",
@@ -1583,6 +1379,34 @@
           "columnsTo": [
             "id",
             "sales_location_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "farmer_target_contexts_selected_authorization_fk": {
+          "name": "farmer_target_contexts_selected_authorization_fk",
+          "tableFrom": "farmer_target_contexts",
+          "tableTo": "farmer_authorizations",
+          "columnsFrom": [
+            "selected_authorization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "farmer_target_contexts_selected_provider_seller_fk": {
+          "name": "farmer_target_contexts_selected_provider_seller_fk",
+          "tableFrom": "farmer_target_contexts",
+          "tableTo": "stand_providers",
+          "columnsFrom": [
+            "selected_provider_id",
+            "selected_owner_seller_id"
+          ],
+          "columnsTo": [
+            "id",
+            "seller_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -1613,8 +1437,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "owner_farm_id": {
-          "name": "owner_farm_id",
+        "owner_seller_id": {
+          "name": "owner_seller_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -1647,21 +1471,6 @@
           "onDelete": "cascade",
           "onUpdate": "no action"
         },
-        "farmer_target_menu_options_authorization_owner_fk": {
-          "name": "farmer_target_menu_options_authorization_owner_fk",
-          "tableFrom": "farmer_target_menu_options",
-          "tableTo": "farmer_authorizations",
-          "columnsFrom": [
-            "authorization_id",
-            "owner_farm_id"
-          ],
-          "columnsTo": [
-            "id",
-            "farm_id"
-          ],
-          "onDelete": "cascade",
-          "onUpdate": "no action"
-        },
         "farmer_target_menu_options_location_provider_fk": {
           "name": "farmer_target_menu_options_location_provider_fk",
           "tableFrom": "farmer_target_menu_options",
@@ -1673,6 +1482,34 @@
           "columnsTo": [
             "id",
             "sales_location_id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "farmer_target_menu_options_authorization_fk": {
+          "name": "farmer_target_menu_options_authorization_fk",
+          "tableFrom": "farmer_target_menu_options",
+          "tableTo": "farmer_authorizations",
+          "columnsFrom": [
+            "authorization_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "farmer_target_menu_options_provider_seller_fk": {
+          "name": "farmer_target_menu_options_provider_seller_fk",
+          "tableFrom": "farmer_target_menu_options",
+          "tableTo": "stand_providers",
+          "columnsFrom": [
+            "provider_id",
+            "owner_seller_id"
+          ],
+          "columnsTo": [
+            "id",
+            "seller_id"
           ],
           "onDelete": "cascade",
           "onUpdate": "no action"
@@ -1698,125 +1535,6 @@
           ]
         }
       }
-    },
-    "public.sellers": {
-      "name": "sellers",
-      "schema": "",
-      "columns": {
-        "id": {
-          "name": "id",
-          "type": "uuid",
-          "primaryKey": true,
-          "notNull": true,
-          "default": "gen_random_uuid()"
-        },
-        "name": {
-          "name": "name",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": true
-        },
-        "description": {
-          "name": "description",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "photo_url": {
-          "name": "photo_url",
-          "type": "text",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "map_projection": {
-          "name": "map_projection",
-          "type": "public_map_projection",
-          "typeSchema": "public",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "public_latitude": {
-          "name": "public_latitude",
-          "type": "double precision",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "public_longitude": {
-          "name": "public_longitude",
-          "type": "double precision",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "test_farm_at": {
-          "name": "test_farm_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "test_farm_by_administrator_id": {
-          "name": "test_farm_by_administrator_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "retired_at": {
-          "name": "retired_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "retired_by_administrator_id": {
-          "name": "retired_by_administrator_id",
-          "type": "uuid",
-          "primaryKey": false,
-          "notNull": false
-        },
-        "created_at": {
-          "name": "created_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        },
-        "updated_at": {
-          "name": "updated_at",
-          "type": "timestamp with time zone",
-          "primaryKey": false,
-          "notNull": true,
-          "default": "now()"
-        }
-      },
-      "indexes": {},
-      "foreignKeys": {
-        "farms_test_farm_by_administrator_id_administrators_id_fk": {
-          "name": "farms_test_farm_by_administrator_id_administrators_id_fk",
-          "tableFrom": "sellers",
-          "tableTo": "administrators",
-          "columnsFrom": [
-            "test_farm_by_administrator_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        },
-        "farms_retired_by_administrator_id_administrators_id_fk": {
-          "name": "farms_retired_by_administrator_id_administrators_id_fk",
-          "tableFrom": "sellers",
-          "tableTo": "administrators",
-          "columnsFrom": [
-            "retired_by_administrator_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
-          "onDelete": "restrict",
-          "onUpdate": "no action"
-        }
-      },
-      "compositePrimaryKeys": {},
-      "uniqueConstraints": {}
     },
     "public.flags": {
       "name": "flags",
@@ -2029,8 +1747,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "owner_farm_id": {
-          "name": "owner_farm_id",
+        "owner_seller_id": {
+          "name": "owner_seller_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -2108,11 +1826,26 @@
           "tableTo": "farmer_authorizations",
           "columnsFrom": [
             "designated_authorization_id",
-            "owner_farm_id"
+            "owner_seller_id"
           ],
           "columnsTo": [
             "id",
-            "farm_id"
+            "seller_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "inventory_prompt_preferences_provider_seller_fk": {
+          "name": "inventory_prompt_preferences_provider_seller_fk",
+          "tableFrom": "inventory_prompt_preferences",
+          "tableTo": "stand_providers",
+          "columnsFrom": [
+            "provider_id",
+            "owner_seller_id"
+          ],
+          "columnsTo": [
+            "id",
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -2156,7 +1889,7 @@
           "name": "provider_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "payload": {
           "name": "payload",
@@ -2235,6 +1968,12 @@
         "activated_at": {
           "name": "activated_at",
           "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "reopening_stated_version": {
+          "name": "reopening_stated_version",
+          "type": "integer",
           "primaryKey": false,
           "notNull": false
         },
@@ -2374,8 +2113,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "farm_id": {
-          "name": "farm_id",
+        "seller_id": {
+          "name": "seller_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -2484,17 +2223,30 @@
           "onDelete": "restrict",
           "onUpdate": "no action"
         },
-        "inventory_revisions_authorization_farm_fk": {
-          "name": "inventory_revisions_authorization_farm_fk",
+        "inventory_revisions_provider_seller_fk": {
+          "name": "inventory_revisions_provider_seller_fk",
           "tableFrom": "inventory_revisions",
-          "tableTo": "farmer_authorizations",
+          "tableTo": "stand_providers",
           "columnsFrom": [
-            "published_by_authorization_id",
-            "farm_id"
+            "provider_id",
+            "seller_id"
           ],
           "columnsTo": [
             "id",
-            "farm_id"
+            "seller_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "inventory_revisions_authorization_fk": {
+          "name": "inventory_revisions_authorization_fk",
+          "tableFrom": "inventory_revisions",
+          "tableTo": "farmer_authorizations",
+          "columnsFrom": [
+            "published_by_authorization_id"
+          ],
+          "columnsTo": [
+            "id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -2505,11 +2257,11 @@
           "tableTo": "seller_approvals",
           "columnsFrom": [
             "farm_approval_id",
-            "farm_id"
+            "seller_id"
           ],
           "columnsTo": [
             "id",
-            "farm_id"
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -3357,8 +3109,8 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "owner_farm_id": {
-          "name": "owner_farm_id",
+        "owner_seller_id": {
+          "name": "owner_seller_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -3445,11 +3197,11 @@
           "tableTo": "sales_locations",
           "columnsFrom": [
             "sales_location_id",
-            "owner_farm_id"
+            "owner_seller_id"
           ],
           "columnsTo": [
             "id",
-            "owner_farm_id"
+            "own_seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -3460,11 +3212,11 @@
           "tableTo": "farmer_authorizations",
           "columnsFrom": [
             "confirmed_by_authorization_id",
-            "owner_farm_id"
+            "owner_seller_id"
           ],
           "columnsTo": [
             "id",
-            "farm_id"
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -3475,11 +3227,11 @@
           "tableTo": "farmer_authorizations",
           "columnsFrom": [
             "retired_by_authorization_id",
-            "owner_farm_id"
+            "owner_seller_id"
           ],
           "columnsTo": [
             "id",
-            "farm_id"
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -3543,11 +3295,11 @@
           "notNull": true,
           "default": "gen_random_uuid()"
         },
-        "owner_farm_id": {
-          "name": "owner_farm_id",
+        "own_seller_id": {
+          "name": "own_seller_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
         },
         "kind": {
           "name": "kind",
@@ -3761,12 +3513,12 @@
         }
       },
       "foreignKeys": {
-        "sales_locations_owner_farm_id_farms_id_fk": {
-          "name": "sales_locations_owner_farm_id_farms_id_fk",
+        "sales_locations_own_seller_id_sellers_id_fk": {
+          "name": "sales_locations_own_seller_id_sellers_id_fk",
           "tableFrom": "sales_locations",
           "tableTo": "sellers",
           "columnsFrom": [
-            "owner_farm_id"
+            "own_seller_id"
           ],
           "columnsTo": [
             "id"
@@ -3790,12 +3542,12 @@
       },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {
-        "sales_locations_id_owner_unique": {
-          "name": "sales_locations_id_owner_unique",
+        "sales_locations_id_own_seller_unique": {
+          "name": "sales_locations_id_own_seller_unique",
           "nullsNotDistinct": false,
           "columns": [
             "id",
-            "owner_farm_id"
+            "own_seller_id"
           ]
         }
       }
@@ -3834,8 +3586,8 @@
           "primaryKey": false,
           "notNull": true
         },
-        "owner_farm_id": {
-          "name": "owner_farm_id",
+        "owner_seller_id": {
+          "name": "owner_seller_id",
           "type": "uuid",
           "primaryKey": false,
           "notNull": true
@@ -3929,11 +3681,11 @@
           "tableTo": "farmer_authorizations",
           "columnsFrom": [
             "authorization_id",
-            "owner_farm_id"
+            "owner_seller_id"
           ],
           "columnsTo": [
             "id",
-            "farm_id"
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -3949,6 +3701,21 @@
           "columnsTo": [
             "id",
             "sales_location_id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "scheduled_prompt_subjects_provider_seller_fk": {
+          "name": "scheduled_prompt_subjects_provider_seller_fk",
+          "tableFrom": "scheduled_inventory_prompt_subjects",
+          "tableTo": "stand_providers",
+          "columnsFrom": [
+            "provider_id",
+            "owner_seller_id"
+          ],
+          "columnsTo": [
+            "id",
+            "seller_id"
           ],
           "onDelete": "restrict",
           "onUpdate": "no action"
@@ -4015,6 +3782,425 @@
           ]
         }
       }
+    },
+    "public.seller_approvals": {
+      "name": "seller_approvals",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "seller_id": {
+          "name": "seller_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "administrator_id": {
+          "name": "administrator_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "approved_at": {
+          "name": "approved_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "revoked_at": {
+          "name": "revoked_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {
+        "seller_approvals_one_current_per_farm": {
+          "name": "seller_approvals_one_current_per_farm",
+          "columns": [
+            {
+              "expression": "seller_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"seller_approvals\".\"revoked_at\" is null",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "seller_approvals_seller_id_sellers_id_fk": {
+          "name": "seller_approvals_seller_id_sellers_id_fk",
+          "tableFrom": "seller_approvals",
+          "tableTo": "sellers",
+          "columnsFrom": [
+            "seller_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "seller_approvals_administrator_id_administrators_id_fk": {
+          "name": "seller_approvals_administrator_id_administrators_id_fk",
+          "tableFrom": "seller_approvals",
+          "tableTo": "administrators",
+          "columnsFrom": [
+            "administrator_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "seller_approvals_id_farm_unique": {
+          "name": "seller_approvals_id_farm_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "seller_id"
+          ]
+        }
+      }
+    },
+    "public.seller_email_verifications": {
+      "name": "seller_email_verifications",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "seller_id": {
+          "name": "seller_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "code_hash": {
+          "name": "code_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "issued_at": {
+          "name": "issued_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "expires_at": {
+          "name": "expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "consumed_at": {
+          "name": "consumed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "attempt_count": {
+          "name": "attempt_count",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        },
+        "grant_hash": {
+          "name": "grant_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "grant_expires_at": {
+          "name": "grant_expires_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "seller_email_verifications_seller_id_sellers_id_fk": {
+          "name": "seller_email_verifications_seller_id_sellers_id_fk",
+          "tableFrom": "seller_email_verifications",
+          "tableTo": "sellers",
+          "columnsFrom": [
+            "seller_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.seller_emails": {
+      "name": "seller_emails",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "seller_id": {
+          "name": "seller_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "email_hash": {
+          "name": "email_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "added_at": {
+          "name": "added_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "seller_emails_seller_id_sellers_id_fk": {
+          "name": "seller_emails_seller_id_sellers_id_fk",
+          "tableFrom": "seller_emails",
+          "tableTo": "sellers",
+          "columnsFrom": [
+            "seller_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
+    },
+    "public.seller_links": {
+      "name": "seller_links",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "seller_id": {
+          "name": "seller_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "label": {
+          "name": "label",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "url": {
+          "name": "url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "sort_order": {
+          "name": "sort_order",
+          "type": "integer",
+          "primaryKey": false,
+          "notNull": true,
+          "default": 0
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "seller_links_seller_id_sellers_id_fk": {
+          "name": "seller_links_seller_id_sellers_id_fk",
+          "tableFrom": "seller_links",
+          "tableTo": "sellers",
+          "columnsFrom": [
+            "seller_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {
+        "seller_links_farm_url_unique": {
+          "name": "seller_links_farm_url_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "seller_id",
+            "url"
+          ]
+        }
+      }
+    },
+    "public.sellers": {
+      "name": "sellers",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "name": {
+          "name": "name",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "description": {
+          "name": "description",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "photo_url": {
+          "name": "photo_url",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "map_projection": {
+          "name": "map_projection",
+          "type": "public_map_projection",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "public_latitude": {
+          "name": "public_latitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "public_longitude": {
+          "name": "public_longitude",
+          "type": "double precision",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "test_seller_at": {
+          "name": "test_seller_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "test_seller_by_administrator_id": {
+          "name": "test_seller_by_administrator_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_at": {
+          "name": "retired_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "retired_by_administrator_id": {
+          "name": "retired_by_administrator_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {},
+      "foreignKeys": {
+        "sellers_test_seller_by_administrator_id_administrators_id_fk": {
+          "name": "sellers_test_seller_by_administrator_id_administrators_id_fk",
+          "tableFrom": "sellers",
+          "tableTo": "administrators",
+          "columnsFrom": [
+            "test_seller_by_administrator_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "sellers_retired_by_administrator_id_administrators_id_fk": {
+          "name": "sellers_retired_by_administrator_id_administrators_id_fk",
+          "tableFrom": "sellers",
+          "tableTo": "administrators",
+          "columnsFrom": [
+            "retired_by_administrator_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {}
     },
     "public.sender_states": {
       "name": "sender_states",
@@ -4449,7 +4635,7 @@
           "name": "seller_id",
           "type": "uuid",
           "primaryKey": false,
-          "notNull": false
+          "notNull": true
         },
         "lifecycle_state": {
           "name": "lifecycle_state",
@@ -4500,6 +4686,13 @@
           "type": "text",
           "primaryKey": false,
           "notNull": false
+        },
+        "host_may_update_stock": {
+          "name": "host_may_update_stock",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
         },
         "season_kind": {
           "name": "season_kind",
@@ -4579,22 +4772,6 @@
         }
       },
       "indexes": {
-        "stand_providers_one_native_per_location": {
-          "name": "stand_providers_one_native_per_location",
-          "columns": [
-            {
-              "expression": "sales_location_id",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last"
-            }
-          ],
-          "isUnique": true,
-          "where": "\"stand_providers\".\"seller_id\" is null",
-          "concurrently": false,
-          "method": "btree",
-          "with": {}
-        },
         "stand_providers_one_per_seller_per_location": {
           "name": "stand_providers_one_per_seller_per_location",
           "columns": [
@@ -4612,7 +4789,6 @@
             }
           ],
           "isUnique": true,
-          "where": "\"stand_providers\".\"seller_id\" is not null",
           "concurrently": false,
           "method": "btree",
           "with": {}
@@ -4671,7 +4847,7 @@
           "columnsTo": [
             "id"
           ],
-          "onDelete": "restrict",
+          "onDelete": "cascade",
           "onUpdate": "no action"
         }
       },
@@ -4683,6 +4859,14 @@
           "columns": [
             "id",
             "sales_location_id"
+          ]
+        },
+        "stand_providers_id_seller_unique": {
+          "name": "stand_providers_id_seller_unique",
+          "nullsNotDistinct": false,
+          "columns": [
+            "id",
+            "seller_id"
           ]
         }
       }
