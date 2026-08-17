@@ -18,12 +18,25 @@ stock-out web form. Anonymous, no signup. There is **no launch natural-language 
 
 `GET /api/public/stands` serves discovery; the map UI at `apps/web/app/page.tsx` renders those
 published records. Every card carries code-rendered recency, and a stale listing stays visible with
-a warning. Active owner-confirmed participant names appear as plain text under **Also selling here**,
+a warning. Since F-114 C.5 the payload carries **every seller at a stand** with its own items,
+price, freshness and open-now state, and the detail card is **item-first**: each item once, with
+its supporting sellers nested beneath it. The stand's own seller renders unlabelled by
+SELF-POINTER; every other is credited. An **active closure publishes nothing itemized** — both
+registers, every shape, and the recency that would date them. Active owner-confirmed participant names appear as plain text under **Also selling here**,
 separate from aggregate inventory. One canonical read-time closure projection feeds the map/detail
 status, the `Open now` decision, destination actions, discovery, and customer SMS: an active
 owner-confirmed closure overrides the standing schedule, while a future closure shows as upcoming.
 Optional browser geolocation sorts by approximate straight-line distance in the browser;
 destination-only Google Maps links delegate routing.
+
+`/sellers` is the second public list view (F-114 C.5): a browse list of every seller currently
+selling anywhere on the island, grouped by SELLER with their stands nested — the mirror of the
+stand card, which groups by item with sellers nested. It exists because a **hosted-only seller**
+owns no `sales_locations` row and therefore has no pin and no card; this page is their only
+discovery path. Its search matches a seller's own name and goods and deliberately NOT the stands
+they sell at, and it carries no confirmed inventory or freshness at all — what is out right now is
+the stand card's question, stated there with its own per-seller recency. Reached from the map's
+filter header ("Browse by seller"), and covered by the same model-free tripwire.
 
 `POST /api/public/stock-out` is the one public model-backed handler, behind the throttle.
 

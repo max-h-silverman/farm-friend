@@ -19,7 +19,8 @@
 
 ## F-114 — what is on `main` and NOT deployed
 
-Phases B through C.4 are merged (C.4 as `ac3fcd5`, PR #128); **C.5 is all that remains.** The governing contract is §the
+Phases B through C.4 are merged (C.4 as `ac3fcd5`, PR #128). **C.5 is built and green on
+`f-114-c5-public-seller-views`, unmerged.** The governing contract is §the
 stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; the reasoning
 behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 
@@ -68,6 +69,31 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
   all funnel through. The consent is `reopening_stated_version` on the proposal, written when the
   prompt stating the consequence was composed and bound to that version; the farmer answers with an
   ordinary `YES` (max, 2026-08-16), no new keyword. Publishing re-opens the listing.
+- **Every customer surface now reads PER SELLER**, from one seam
+  (`readStandProviderFacts`). The map, SMS retrieval and the seller list had each kept the Phase
+  A shape — `is_current` keyed on the stand — which after Phase B returned every seller's entries
+  under one stand-wide `published_at`, dating one farmer's goods by another's update with nothing
+  erroring. The stand card is **item-first**: each item once, its sellers nested with their own
+  price and freshness; the stand's own seller renders unlabelled **by self-pointer** and every
+  other is credited (`sellerCredit`/`creditSeller`, one predicate, two renderings, shared with the
+  SMS menu and the settings screens). `items` and `usualOfferings` are DERIVED from the per-seller
+  facts, so the two shapes cannot disagree.
+- **A stand shutdown publishes nothing itemized** — both registers, every shape, and the recency
+  that would date them. This REVERSED a prior deliberate choice (a closed stand used to keep its
+  card), and `closure-public.integration.test.ts` records the reversal.
+- **The seller list at `/sellers` is the only discovery path for a hosted-only seller**, who owns
+  no stand and has no pin. It carries search over a seller's own name and goods — deliberately
+  NOT the stands they sell at — and distinguishes "their own stand" from "selling at".
+- **A seller's open-now state is the INTERSECTION with the stand's**, and
+  `intersectAvailability` finally has a consumer. Closed inside an open stand; never open inside a
+  closed one; an unstated stand schedule permits rather than closes.
+- **An SMS fact id now names the provider** (`providerFactId`) — a suffix, because the offering
+  variant's nibble encoding has four values and a stand has unbounded sellers.
+  `standKeyOfFactId` strips it first, so every id already in a pending list still resolves.
+- **Two defects found in passing and fixed**: the SMS offerings half joined `stand_items` on the
+  stand, leaking a hosted seller's usual items from ended relationships, unaccepted invitations
+  and retired sellers; and the ADMIN roster listed a two-seller stand **twice** with half its
+  inventory each time. Both measured against a real database before and after.
 - **Still stand-shaped on purpose:** VIGA's `issue_link`, which resolves its
   `(authorization, stand)` pair to one listing and REFUSES on ambiguity rather than picking.
 - Deliberately NOT renamed: `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table (those name
@@ -99,7 +125,7 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 
 ## Verification
 
-- **2,080 unit tests pass; 7 corpus-only tests skip.** Integration is **1289/1289 across 92 of 92
+- **2,152 unit tests pass; 7 corpus-only tests skip.** Integration is **1347/1347 across 96 of 96
   files** against disposable local Postgres databases (2026-08-16).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it eight `farmer-stand` cases fail `ConfigurationError: PUBLIC_BASE_URL is required` — identical on
@@ -112,14 +138,23 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
   no live run is owed. Checked rather than assumed each time. For C.3: `packages/ai` and
   `packages/core` are untouched, `projectStockOutParse` still projects exactly
   `{entryId, itemName}`, and `providerId` appears nowhere in the AI package — with the search proved
-  against a known-present term (`entryId`) first.
+  against a known-present term (`entryId`) first. **For C.5**, which DOES change what retrieval
+  returns: `packages/ai` is untouched, `providerId` still appears nowhere in it, and the matcher's
+  catalog is a `Map` keyed on the lowercased name — so the extra per-seller rows collapse to the
+  same unique values, with no stand or provider association, and the seam's projection is
+  byte-identical for the same underlying data.
 - **F-114 is sabotage-proved throughout.** 53 breakages across the seller root, authorization arms,
-  hosting invitation and doors; 22 more across C.2; 19 more across C.3; **21 more across C.4** —
-  each caught by the case aimed at it. Every migration is proved against a **populated** copy of the schema that precedes it,
+  hosting invitation and doors; 22 more across C.2; 19 more across C.3; 21 more across C.4;
+  **31 more across C.5** — each caught by the case aimed at it. Every migration is proved against a **populated** copy of the schema that precedes it,
   asserting exact row effects plus a re-run proving it is a no-op.
-- **Fourteen escapes across F-114, and every one was ONE failure: a guard is unfalsifiable until a
-  case exists where it is the ONLY thing that could refuse.** All fourteen are closed by cases that
-  construct exactly that. **Assert the absence of the wrong behavior; and when a breakage changes no
+- **Eighteen escapes across F-114, and every one was ONE failure: a guard is unfalsifiable until a
+  case exists where it is the ONLY thing that could refuse.** All eighteen are closed by cases that
+  construct exactly that. C.5 added four: `usually_carried` with no unusual item beside a usual
+  one; a hidden-price case whose item had no price to hide; a venue case for the null self-pointer;
+  and the SMS offerings gate with no hosted seller to refuse. **C.5 also produced three MIS-AIMED
+  sabotages that looked like escapes** — a perl pattern that never matched, a `limit 1` inside an
+  aggregate, and a spread that did not remove the key it appeared to. Confirm the sabotage
+  actually applied before concluding a guard is redundant. **Assert the absence of the wrong behavior; and when a breakage changes no
   test result, ask which other guard answered first.** The per-phase enumerations are in
   [SESSION_LOG.md](SESSION_LOG.md); the standing forms are in DEVELOPMENT.md §gotchas.
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only. It
@@ -160,6 +195,12 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 - Finish physical-handset checks: farmer onboarding/consent, contact card, paged SMS, administrator
   and settings flows, F-105 stand details at phone width, Squarespace embeds, and `?hidden=true`.
   Every texted link now carries `farmfriend.vigavashon.org` and none has been read on a handset.
+- **C.5's two new customer surfaces owe a handset pass.** The item-first stand card (an item
+  once, sellers nested with their own price and freshness, the stale one ambered) and the seller
+  list at `/sellers` with its search box. Both were read in a browser and MEASURED — no horizontal
+  overflow at 360px and 390px, credited lines wrap rather than spill, and no C.5 rule sits in a
+  `prefers-color-scheme` block so the light-only palette holds under a dark OS. Neither has been
+  seen on a real phone. The map also gained a **"Browse by seller"** link in its filter header.
 - **C.4 adds ONE farmer-facing sentence owing a handset pass**: `Publishing this update will
   re-open your listing. Reply YES to confirm, NO to cancel.` — the paused listing's confirmation,
   which replaces the ordinary publish prompt rather than joining it. Verified GSM-7 by
