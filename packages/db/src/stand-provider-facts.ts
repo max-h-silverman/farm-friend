@@ -6,6 +6,7 @@ import {
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import { visibleFarms } from "./test-farms";
+import { publicProviders } from "./provider-liveness";
 
 /*
   F-114 Phase C.5 — WHAT EACH SELLER CLAIMS AT A STAND. The one public reader.
@@ -171,8 +172,7 @@ export async function readStandProviderFacts(
       left join inventory_revisions as revision
         on revision.provider_id = provider.id and revision.is_current
       where provider.sales_location_id = any($1::uuid[])
-        and provider.ended_at is null
-        and provider.lifecycle_state in ('active', 'paused')
+        and ${publicProviders("provider")}
         and ${visibleFarms("seller", input.includeTestFarms)}
       order by
         provider.sales_location_id asc,

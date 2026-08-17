@@ -1,5 +1,6 @@
 import type { Db } from "./index";
 import { visibleFarms } from "./test-farms";
+import { publicProviders } from "./provider-liveness";
 
 /*
   F-114 Phase C.5 — THE SELLER LIST.
@@ -91,8 +92,7 @@ export async function listPublicSellers(
       from stand_providers as provider
       join sellers as seller on seller.id = provider.seller_id
       join sales_locations as location on location.id = provider.sales_location_id
-      where provider.ended_at is null
-        and provider.lifecycle_state in ('active', 'paused')
+      where ${publicProviders("provider")}
         -- The STAND's own two gates. is_public is the farmer's switch and retired_at is VIGA's
         -- decision; they are deliberately separate columns (F-071) because the farmer's
         -- onboarding form rewrites the first on every save.

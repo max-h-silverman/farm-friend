@@ -28,6 +28,7 @@ import type {
 } from "@farm-friend/ai";
 import {
   currentEntriesJoin,
+  publicProviders,
   savePendingResultList,
   visibleFarms,
   type Db,
@@ -323,8 +324,7 @@ export async function retrieveSmsListings(
     */
     join stand_providers provider
       on provider.sales_location_id = l.id
-     and provider.ended_at is null
-     and provider.lifecycle_state in ('active', 'paused')
+     and ${publicProviders("provider")}
     -- The SELLER's own visibility, applied in the where clause below. A hosted seller VIGA
     -- retired leaves every stand they sold at, not only their own.
     join sellers provider_seller on provider_seller.id = provider.seller_id
@@ -427,8 +427,7 @@ export async function retrieveSmsListings(
     */
     join stand_providers offering_provider
       on offering_provider.id = o.provider_id
-     and offering_provider.ended_at is null
-     and offering_provider.lifecycle_state in ('active', 'paused')
+     and ${publicProviders("offering_provider")}
     join sellers offering_seller on offering_seller.id = offering_provider.seller_id
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current

@@ -38,7 +38,10 @@ standing link, and carry their own reminder cadence — independently. Hosting i
 acceptance with no VIGA step; the hosting invitation IS the farmer invitation, and both doors take
 a name, never a seller id. A paused listing is offered re-opening rather than refused. Two seams
 answer "may this phone write this": `resolveProviderWriteAuthority` (whose STOCK) and
-`resolveStandWriteAuthority` (facts about the PLACE).
+`resolveStandWriteAuthority` (facts about the PLACE). **Pausing HIDES a seller's current public
+facts and keeps her reachable** (max, 2026-08-17): `provider-liveness.ts` states those as two
+fragments — `publicProviders` (active only) and `reachableProviders` (active or paused) —
+composed by all ten sites that hand-wrote one predicate before F-115.
 
 **What a customer sees.** Every public and SMS surface reads PER SELLER from one seam
 (`readStandProviderFacts`), so one farmer's goods can never be dated by another's update. The
@@ -50,7 +53,9 @@ not recency.
 
 **Live consequences shipped deliberately (max, 2026-08-16):** the 18 stands publishing no
 confirmed inventory stop receiving stock-out alerts entirely, and a closed stand's card loses its
-item list.
+item list. **A paused listing now leaves the map, `/sellers`, the stand card and both SMS
+retrieval queries** (max, 2026-08-17) — two tests asserted the opposite, both written while
+`paused` was a state nothing could enter.
 
 **Deliberately unchanged:** VIGA's `issue_link` stays stand-shaped and REFUSES on ambiguity;
 `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table, the operator-facing "Farms" tab label,

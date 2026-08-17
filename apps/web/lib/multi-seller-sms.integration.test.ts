@@ -342,15 +342,45 @@ describe("multi-seller SMS parity (integration)", () => {
       await removeHosted(providerId);
     });
 
-    it("keeps a paused seller's standing claim, which they never withdrew", async () => {
-      // A pause stops the prompting, not the publication — the same rule the map obeys, so the
-      // two channels cannot disagree about what a pause means.
+    it("drops a PAUSED seller's standing claim, exactly as the map does", async () => {
+      /*
+        F-115 Tranche E (max, 2026-08-17). §hosting and approval lifecycle: *"Ending or pausing
+        hides current public facts without deleting history."*
+
+        This case asserted the opposite until F-115, on the reasoning that a pause only stops
+        the prompting — the SECOND copy of that claim, the other being the stand card's. Both
+        agreed, and neither was chosen: `paused` was unreachable until Tranche D built the
+        writer, so nothing had ever measured what a pause does to a customer.
+
+        The parity that matters is still the point of the case: SMS and the map must say the
+        same thing about a pause, and now they say the contract's thing rather than the same
+        accident twice. `provider-liveness.ts` is what makes that structural.
+      */
       const { providerId } = await addHostedUsualItem({
         sellerName: "Paused Bakery",
         itemName: "paused sourdough",
         lifecycleState: "paused",
       });
-      expect(await usualItemsInAnswers()).toContain("paused sourdough");
+      expect(await usualItemsInAnswers()).not.toContain("paused sourdough");
+      await removeHosted(providerId);
+    });
+
+    it("brings that same claim BACK when the seller resumes", async () => {
+      /*
+        The half that keeps the case above from being satisfied by a reader that drops
+        everything. Nothing is republished to get it back — the row is untouched, which is the
+        *"without deleting history"* half of the same sentence.
+      */
+      const { providerId } = await addHostedUsualItem({
+        sellerName: "Resuming Bakery",
+        itemName: "resumed sourdough",
+        lifecycleState: "paused",
+      });
+      expect(await usualItemsInAnswers()).not.toContain("resumed sourdough");
+      await sql()`
+        update stand_providers set lifecycle_state = 'active' where id = ${providerId}
+      `;
+      expect(await usualItemsInAnswers()).toContain("resumed sourdough");
       await removeHosted(providerId);
     });
   });

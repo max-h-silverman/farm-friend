@@ -1,5 +1,6 @@
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
+import { reachableProviders } from "./provider-liveness";
 
 /*
   F-114 Phase C.2 — the ONE place that answers "may this phone write this".
@@ -130,8 +131,7 @@ export type ProviderWriteAuthority =
  * paused seller their listing back rather than refusing them.
  */
 export const PROVIDER_AUTHORITY_ARMS = `
-  provider.ended_at is null
-  and provider.lifecycle_state in ('active', 'paused')
+  ${reachableProviders("provider")}
   and (
     auth.seller_id = provider.seller_id
     or (

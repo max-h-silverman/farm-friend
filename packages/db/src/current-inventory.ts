@@ -1,6 +1,7 @@
 import type { OpenNowAnswer, OpenState } from "@farm-friend/core";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
+import { publicProviders } from "./provider-liveness";
 
 /*
   B-074 / F-114 Phase A — the ONE place that answers "what is currently in stock here".
@@ -243,29 +244,33 @@ export async function readCurrentInventoryByProvider(
   input: { salesLocationId: string },
 ): Promise<ProviderCurrentEntries[]> {
   const sql = queryable(db);
-  const rows = await sql`
-    select
-      provider.id as provider_id,
-      provider.seller_id,
-      revision.id as revision_id,
-      revision.published_at,
-      entry.id as entry_id,
-      entry.item_name,
-      entry.quantity,
-      entry.unit,
-      entry.price_text,
-      entry.approximation,
-      entry.sort_order
-    from stand_providers as provider
-    join inventory_revisions as revision
-      on revision.provider_id = provider.id and revision.is_current
-    left join inventory_entries as entry
-      on entry.inventory_revision_id = revision.id
-    where provider.sales_location_id = ${input.salesLocationId}
-      and provider.ended_at is null
-      and provider.lifecycle_state in ('active', 'paused')
-    order by provider.id, entry.sort_order asc, entry.id asc
-  `;
+  // `.unsafe`, for the shared-fragment reason (DEVELOPMENT.md §gotchas): a tagged template
+  // sends `publicProviders` as a bind PARAMETER and dies at parse.
+  const rows = await sql.unsafe(
+    `
+      select
+        provider.id as provider_id,
+        provider.seller_id,
+        revision.id as revision_id,
+        revision.published_at,
+        entry.id as entry_id,
+        entry.item_name,
+        entry.quantity,
+        entry.unit,
+        entry.price_text,
+        entry.approximation,
+        entry.sort_order
+      from stand_providers as provider
+      join inventory_revisions as revision
+        on revision.provider_id = provider.id and revision.is_current
+      left join inventory_entries as entry
+        on entry.inventory_revision_id = revision.id
+      where provider.sales_location_id = $1
+        and ${publicProviders("provider")}
+      order by provider.id, entry.sort_order asc, entry.id asc
+    `,
+    [input.salesLocationId],
+  );
 
   const byProvider = new Map<string, ProviderCurrentEntries>();
   for (const raw of rows) {

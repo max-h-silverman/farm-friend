@@ -19,6 +19,7 @@ import { seedDefaultPromptPreference } from "./onboarding-listing";
 import type { Sql, Tx } from "./sql";
 import { applyConsentTransitionIn, queueOutbox } from "./transactions";
 import { visibleFarms } from "./test-farms";
+import { reachableProviders } from "./provider-liveness";
 
 // Farmer onboarding's durable writes (F-040).
 //
@@ -725,16 +726,20 @@ async function queueFarmerAuthorizedNotification(
     `order by created_at` is preserved on the PROVIDER, which is the same order for the 38
     stands that have one of their own: their provider is created by the stand's own insert.
   */
-  const locations = await tx`
-    select provider.id as provider_id
-    from stand_providers as provider
-    join sales_locations as location on location.id = provider.sales_location_id
-    where provider.seller_id = ${input.farmId}
-      and provider.ended_at is null
-      and provider.lifecycle_state in ('active', 'paused')
-      and location.retired_at is null
-    order by provider.created_at asc
-  `;
+  // `.unsafe`, for the shared-fragment reason (DEVELOPMENT.md §gotchas): a tagged template
+  // sends `reachableProviders` as a bind PARAMETER and dies at parse.
+  const locations = await tx.unsafe(
+    `
+      select provider.id as provider_id
+      from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      where provider.seller_id = $1
+        and ${reachableProviders("provider")}
+        and location.retired_at is null
+      order by provider.created_at asc
+    `,
+    [input.farmId],
+  );
   const providerId = locations[0]?.provider_id as string | undefined;
   // No stand yet: the administrator door can run before one exists. The farmer is still told
   // they are live, and still told the word that fetches a link once there is something to link.
@@ -1839,7 +1844,10 @@ export interface FarmerAuthorizationRow {
 export async function listFarmerAuthorizations(
   db: Db,
 ): Promise<FarmerAuthorizationRow[]> {
-  const rows = await driver(db)`
+  // `.unsafe`, because `reachableProviders` is composed SQL TEXT: a tagged template would send
+  // it as a bind PARAMETER and die at parse (DEVELOPMENT.md §gotchas). There is nothing else to
+  // bind here — every value in this statement is a literal.
+  const rows = await driver(db).unsafe(`
     select
       auth.id,
       auth.seller_id,
@@ -1864,8 +1872,7 @@ export async function listFarmerAuthorizations(
         from stand_providers as provider
         join sales_locations as location on location.id = provider.sales_location_id
         where provider.seller_id = auth.seller_id
-          and provider.ended_at is null
-          and provider.lifecycle_state in ('active', 'paused')
+          and ${reachableProviders("provider")}
       ), '[]'::jsonb) as stands,
       /*
         The link's own provider names the listing it opens (F-114 Phase C.3), so the stand
@@ -1886,7 +1893,7 @@ export async function listFarmerAuthorizations(
     join sellers as farm on farm.id = auth.seller_id
     join contacts as contact on contact.id = auth.contact_id
     order by farm.name, auth.authorized_at
-  `;
+  `);
 
   return rows.map((row) => ({
     authorizationId: row.id as string,
@@ -2209,8 +2216,7 @@ export async function requestFarmerStandLink(
         where auth.seller_id = $1
           and contact.phone_hash = $2
           and auth.revoked_at is null
-          and provider.ended_at is null
-          and provider.lifecycle_state in ('active', 'paused')
+          and ${reachableProviders("provider")}
           and location.retired_at is null
         order by location.name, location.id, provider.id
         limit 1
