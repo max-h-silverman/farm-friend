@@ -6422,7 +6422,7 @@ button.admin-action-danger,
    control rather than as navigation — the operator is not going anywhere. */
 .admin-view-tabs {
   display: inline-flex;
-  margin: 1.2rem 0 0;
+  align-items: center;
   padding: 0.25rem;
   background: var(--admin-cream);
   border: 1px solid var(--admin-leaf);
@@ -6646,20 +6646,27 @@ button.admin-action-danger,
 /* The view switch and the row count share a line: the count labels the list
    rather than announcing anything, so it sits beside the control that changes
    which list you are looking at. */
+/* The top margin belongs to the ROW, not to the switch inside it: a margin on
+   one flex child shifts that child's box under `stretch`, so the count would sit
+   1.2rem lower than the pill it is meant to line up with. */
 .admin-view-switch {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
+  align-items: stretch;
   gap: 0.9rem;
+  margin: 1.2rem 0 0;
 }
 
-/* Matches the switch's own height and centres within it, rather than relying on
-   the row's align-items alone: the tab is a 40px pill inside 0.25rem of padding,
-   so text centred on the CONTAINER still sits a hair high against the pill. */
+/* Stretch to the switch's height and centre inside that, rather than guessing at
+   it: `align-items: stretch` on the row makes this box exactly as tall as its
+   tallest sibling, whatever the pill's padding and border add up to, and the
+   inner centring then lands on the true middle. A computed min-height was off by
+   the border, and `min-height` is only a floor anyway — it cannot align text to a
+   sibling. `.admin-view-tabs` keeps its own `align-items: center` so the switch
+   itself is unaffected by the stretch. */
 .admin-view-count {
   display: inline-flex;
   align-items: center;
-  min-height: calc(40px + 0.5rem + 2px);
   color: var(--ink-soft);
   font-size: 0.9rem;
   line-height: 1;
