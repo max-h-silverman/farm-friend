@@ -10,6 +10,7 @@ export * from "./current-inventory";
 export * from "./stand-provider-facts";
 export * from "./public-sellers";
 export * from "./provider-invalidation";
+export * from "./provider-liveness";
 export * from "./provider-write-authority";
 export * from "./transactions";
 export * from "./admin";

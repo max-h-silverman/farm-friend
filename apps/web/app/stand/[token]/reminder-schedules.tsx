@@ -2,32 +2,20 @@
 
 import Link from "next/link";
 import { useState } from "react";
+import { creditSeller, LISTING_SEPARATOR } from "@farm-friend/core";
 
 export interface ReminderListing {
   providerId: string;
   salesLocationId: string;
   locationName: string;
-  /** NULL where the listing IS the stand's own — there is nothing to disambiguate. */
-  sellerName: string | null;
+  sellerName: string;
+  /** The SELF-POINTER: true when this seller IS the stand. `creditSeller` decides from it. */
+  describesOwnStand: boolean;
   selected: boolean;
   cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
 }
 
 type Cadence = Exclude<ReminderListing["cadence"], null>;
-
-/**
- * What this row is called (F-114 C.4).
- *
- * The stand's own listing renders as the bare stand name; every other seller is credited
- * beside it — by SELF-POINTER, never a name match, which is what `sellerName: null` encodes.
- * The same rule the SMS menu follows, so a farmer cannot be shown one label by text and a
- * different one on the page.
- */
-function listingLabel(listing: ReminderListing): string {
-  return listing.sellerName === null
-    ? listing.locationName
-    : `${listing.locationName} — ${listing.sellerName}`;
-}
 
 /*
   HOW OFTEN FARM FRIEND ASKS — on the stock tab, under the widget that answers it (F-098).
@@ -150,7 +138,7 @@ export function ReminderSchedules({
 
       {listings.map((listing) => (
         <div className="farmer-settings-schedule" key={`schedule-${listing.providerId}`}>
-          {hasSeveralListings && <h4>{listingLabel(listing)}</h4>}
+          {hasSeveralListings && <h4>{creditSeller(listing, LISTING_SEPARATOR)}</h4>}
           <label htmlFor={`cadence-${listing.providerId}`}>Reminder schedule</label>
           <select
             id={`cadence-${listing.providerId}`}

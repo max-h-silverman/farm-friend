@@ -70,7 +70,11 @@ const migrationFiles = readdirSync(migrationsDir)
    only while its own migration is the newest in the repo, and breaks the moment one lands after
    it. Several earlier migration suites were repaired for exactly this. */
 const beforeThisWork = migrationFiles.filter((name) => name < "0048_");
-const thisWork = migrationFiles.filter((name) => name >= "0048_");
+/* Bounded at BOTH ends, for the same reason. `>= "0048_"` alone is the exclusion filter in the
+   other direction: it silently swallows every migration that lands after this work, and the
+   first one that did (`0051`) failed the length assertion below rather than this file's claim
+   (F-115). The three files this suite proves are named by the range, not by "the rest". */
+const thisWork = migrationFiles.filter((name) => name >= "0048_" && name < "0051_");
 
 async function applyFile(db: Sql, fileName: string): Promise<void> {
   const body = readFileSync(resolve(migrationsDir, fileName), "utf8");

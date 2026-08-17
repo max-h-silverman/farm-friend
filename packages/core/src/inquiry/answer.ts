@@ -125,8 +125,10 @@ export function renderShortElapsed(asOf: Date, now: Date): string {
  * "Last updated 63 days ago": a two-month-old confirmation is not a fresher or staler fact
  * than a three-month-old one, and printing the arithmetic invites a customer to reason about
  * a number that has stopped meaning anything. This is a DISPLAY threshold and is deliberately
- * NOT `STALE_AFTER_HOURS` — staleness (48 hours) is when the warning starts; this is when the
- * count itself stops being worth stating.
+ * NOT `STALE_AFTER_HOURS` — staleness is when the warning starts; this is when the count itself
+ * stops being worth stating. The threshold is NAMED rather than restated: the 2026-08-11 change
+ * raised it from 48 hours and updated two of the four prose statements in this file, in the file
+ * that owns product-visible freshness (F-115 Tranche F).
  */
 export const NO_RECENT_UPDATE_AFTER_DAYS = 28;
 
@@ -138,8 +140,8 @@ export const NO_RECENT_UPDATE = "No recent update";
  * 2026-08-14).
  *
  * ONE WEEK, and it governs WORDING ONLY — never ranking, never the map's warning, never
- * whether the claim is shown. `STALE_AFTER_HOURS` (96h) still decides all three of those, and
- * the two thresholds are deliberately different jobs: at four days a confirmation stops
+ * whether the claim is shown. `STALE_AFTER_HOURS` still decides all three of those, and the two
+ * thresholds are deliberately different jobs: at the staleness threshold a confirmation stops
  * leading the page, and at a week it stops being worth counting in days.
  *
  * B-063 was a present-tense IN STOCK over a 16-day-old confirmation. The fix there swapped the
@@ -190,9 +192,9 @@ export function renderCardRecency(asOf: Date, now: Date): string {
 /**
  * True when a confirmation is too old for the card to keep claiming stock from it.
  *
- * THE DISTINCTION THIS HOLDS (max, 2026-08-10). `isStale` (48 hours) says *show the listing
- * with a warning* — a nine-day-old confirmation is real information on an island of unattended
- * stands, and hiding it would be the dishonesty in the other direction. This says something
+ * THE DISTINCTION THIS HOLDS (max, 2026-08-10). `isStale` (`STALE_AFTER_HOURS`) says *show the
+ * listing with a warning* — a nine-day-old confirmation is real information on an island of
+ * unattended stands, and hiding it would be the dishonesty in the other direction. This says something
  * stronger: the confirmation has stopped being evidence of anything, so the card must stop
  * printing an "In stock" heading over it entirely rather than hedge with a caption.
  *

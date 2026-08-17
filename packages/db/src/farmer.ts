@@ -19,6 +19,7 @@ import { seedDefaultPromptPreference } from "./onboarding-listing";
 import type { Sql, Tx } from "./sql";
 import { applyConsentTransitionIn, queueOutbox } from "./transactions";
 import { visibleFarms } from "./test-farms";
+import { reachableProviders } from "./provider-liveness";
 
 // Farmer onboarding's durable writes (F-040).
 //
@@ -725,16 +726,20 @@ async function queueFarmerAuthorizedNotification(
     `order by created_at` is preserved on the PROVIDER, which is the same order for the 38
     stands that have one of their own: their provider is created by the stand's own insert.
   */
-  const locations = await tx`
-    select provider.id as provider_id
-    from stand_providers as provider
-    join sales_locations as location on location.id = provider.sales_location_id
-    where provider.seller_id = ${input.farmId}
-      and provider.ended_at is null
-      and provider.lifecycle_state in ('active', 'paused')
-      and location.retired_at is null
-    order by provider.created_at asc
-  `;
+  // `.unsafe`, for the shared-fragment reason (DEVELOPMENT.md §gotchas): a tagged template
+  // sends `reachableProviders` as a bind PARAMETER and dies at parse.
+  const locations = await tx.unsafe(
+    `
+      select provider.id as provider_id
+      from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      where provider.seller_id = $1
+        and ${reachableProviders("provider")}
+        and location.retired_at is null
+      order by provider.created_at asc
+    `,
+    [input.farmId],
+  );
   const providerId = locations[0]?.provider_id as string | undefined;
   // No stand yet: the administrator door can run before one exists. The farmer is still told
   // they are live, and still told the word that fetches a link once there is something to link.
@@ -1839,7 +1844,10 @@ export interface FarmerAuthorizationRow {
 export async function listFarmerAuthorizations(
   db: Db,
 ): Promise<FarmerAuthorizationRow[]> {
-  const rows = await driver(db)`
+  // `.unsafe`, because `reachableProviders` is composed SQL TEXT: a tagged template would send
+  // it as a bind PARAMETER and die at parse (DEVELOPMENT.md §gotchas). There is nothing else to
+  // bind here — every value in this statement is a literal.
+  const rows = await driver(db).unsafe(`
     select
       auth.id,
       auth.seller_id,
@@ -1847,24 +1855,37 @@ export async function listFarmerAuthorizations(
       right(contact.phone_e164, 4) as sender_last_four,
       auth.authorized_at,
       auth.revoked_at,
+      /*
+        F-114 — the stands this seller SELLS AT, read from the relationship. Built from
+        sales_locations.own_seller_id = auth.seller_id before F-115, which names the seller
+        that IS the stand: a hosted seller appeared in this queue with an empty stand list,
+        indistinguishable on screen from a farmer who has set nothing up.
+
+        A relationship that has ended is not a stand she sells at, so it drops off, and a
+        pending one stays off — an unaccepted invitation is not yet a listing.
+      */
       coalesce((
         select jsonb_agg(
           jsonb_build_object('salesLocationId', location.id, 'name', location.name)
           order by location.name, location.id
         )
-        from sales_locations as location
-        where location.own_seller_id = auth.seller_id
+        from stand_providers as provider
+        join sales_locations as location on location.id = provider.sales_location_id
+        where provider.seller_id = auth.seller_id
+          and ${reachableProviders("provider")}
       ), '[]'::jsonb) as stands,
+      /*
+        The link's own provider names the listing it opens (F-114 Phase C.3), so the stand
+        comes from that row rather than from a second comparison against the stand's own
+        seller — which excluded every hosted seller's link.
+      */
       (
         select jsonb_build_object(
           'salesLocationId', location.id, 'name', location.name
         )
         from farmer_links as link
-        join sales_locations as location
-          on location.id = link.sales_location_id
-          and location.own_seller_id = link.owner_seller_id
+        join sales_locations as location on location.id = link.sales_location_id
         where link.authorization_id = auth.id
-          and link.owner_seller_id = auth.seller_id
           and link.revoked_at is null
         limit 1
       ) as live_link_stand
@@ -1872,7 +1893,7 @@ export async function listFarmerAuthorizations(
     join sellers as farm on farm.id = auth.seller_id
     join contacts as contact on contact.id = auth.contact_id
     order by farm.name, auth.authorized_at
-  `;
+  `);
 
   return rows.map((row) => ({
     authorizationId: row.id as string,
@@ -2195,8 +2216,7 @@ export async function requestFarmerStandLink(
         where auth.seller_id = $1
           and contact.phone_hash = $2
           and auth.revoked_at is null
-          and provider.ended_at is null
-          and provider.lifecycle_state in ('active', 'paused')
+          and ${reachableProviders("provider")}
           and location.retired_at is null
         order by location.name, location.id, provider.id
         limit 1

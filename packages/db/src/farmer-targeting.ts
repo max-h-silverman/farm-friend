@@ -446,6 +446,22 @@ export interface FarmerSettingsTarget {
   /** By SELF-POINTER: the settings list omits the seller name on the stand's own listing. */
   describesOwnStand: boolean;
   selected: boolean;
+  /**
+   * How often Farm Friend texts asking what she has — `"paused"` here means REMINDERS OFF.
+   *
+   * **Not the same `paused` as `TargetRow.paused` above** (F-115 Tranche G). That one is
+   * `stand_providers.lifecycle_state = 'paused'`: the seller's participation at the stand is
+   * suspended, so her goods leave the public. This one is
+   * `inventory_prompt_preferences.cadence = 'paused'`: she still sells there and still shows on
+   * the map, she has simply asked not to be texted about it. Two unrelated facts, one word, and
+   * they meet in this file 340 lines apart.
+   *
+   * **Deliberately NOT renamed to `off`** (F-115 Tranche G). It is the tidier name and the
+   * change is one migration with no behaviour change — but the value is internal (the farmer
+   * reads "Don't remind me"), no defect has come of the collision, and `0042`–`0051` are all
+   * unapplied to production with `0042` and `0051` as hard gates. An eleventh migration into
+   * that queue to improve a name is not worth the ordering risk. Revisit once the queue lands.
+   */
   cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
 }
 

@@ -48,6 +48,7 @@ describe("F-111 request-classification routing (integration)", () => {
   let databaseName = "";
   let ownStandId = "";
   let otherStandId = "";
+  let hostedSellerId = "";
 
   beforeAll(async () => {
     const base = process.env.DATABASE_URL;
@@ -81,6 +82,9 @@ describe("F-111 request-classification routing (integration)", () => {
     // The stand whose NAME contains an ordinary English word — defect B's whole cause. It is
     // seeded so the matcher has a real row to bind to if the bar ever drops again.
     await seedStand("Open Gate Lamb and Grazing", OTHER_FARMER_HASH, ["lamb"]);
+    // A HOSTED seller at the other farmer's stand: her own seller, her own handset, her own
+    // listing at a stand whose `own_seller_id` is someone else. The fork's fourth row.
+    hostedSellerId = await hostSeller("Gracies Greens", HOSTED_HASH, otherStandId);
   });
 
   function client(): Sql {
@@ -95,13 +99,46 @@ describe("F-111 request-classification routing (integration)", () => {
   const FARMER_HASH = "a".repeat(64);
   const OTHER_FARMER_HASH = "b".repeat(64);
   const CUSTOMER_HASH = "c".repeat(64);
+  const HOSTED_HASH = "d".repeat(64);
 
   /** Real E.164 numbers — `contacts_phone_e164_normalized` refuses anything else. */
   const PHONE_BY_HASH: Record<string, string> = {
     [FARMER_HASH]: "+12065550101",
     [OTHER_FARMER_HASH]: "+12065550102",
     [CUSTOMER_HASH]: "+12065550103",
+    [HOSTED_HASH]: "+12065550104",
   };
+
+  /**
+   * A seller with a listing at somebody else's stand — the F-114 shape. She has her own
+   * `sellers` row, her own verified handset, and an `active` `stand_providers` row at the
+   * host's stand; the host's `own_seller_id` is not her and never becomes her.
+   */
+  async function hostSeller(
+    name: string,
+    senderHash: string,
+    salesLocationId: string,
+  ): Promise<string> {
+    const sellers = await client()`insert into sellers (name) values (${name}) returning id`;
+    const sellerId = sellers[0]?.id as string;
+    const contacts = await client()`
+      insert into contacts (phone_hash, phone_e164)
+      values (${senderHash}, ${PHONE_BY_HASH[senderHash] ?? "+12065550198"}) returning id
+    `;
+    await client()`
+      insert into farmer_authorizations (seller_id, contact_id, authorized_at, phone_verified_at)
+      values (${sellerId}, ${contacts[0]?.id as string}, ${T0}, ${T0})
+    `;
+    await client()`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${salesLocationId}, ${sellerId}, 'active', false, ${T0}, ${T0}, 'viga', ${T0}
+      )
+    `;
+    return sellerId;
+  }
 
   /** A stand with a published revision and an authorized farmer to alert. */
   async function seedStand(
@@ -295,6 +332,73 @@ describe("F-111 request-classification routing (integration)", () => {
       expect(queued).toHaveLength(1);
       expect(queued[0]?.recipient_hash).toBe(OTHER_FARMER_HASH);
       expect(queued[0]?.recipient_hash).not.toBe(FARMER_HASH);
+    });
+
+    it("routes a HOSTED seller's report about her HOST'S stand to the update flow", async () => {
+      /*
+        F-115 Tranche A/B. The fork asked *is this phone authorized for the stand's OWN
+        seller?* — Plum Forest's own seller is the other farmer, never Zoe, so her own stock
+        update was filed as a customer stock-out report ABOUT HERSELF and her host got an alert
+        about goods that are not his.
+
+        Fail-safe in the Golden Rule #1 sense: it can only move a farmer away from publishing,
+        never toward publishing somebody else's goods. It is still her primary SMS journey
+        silently not working, and it files a report that misrepresents who said what.
+      */
+      const interpret = vi.fn(async () => ({
+        kind: "edits" as const,
+        additions: [{ itemName: "Sourdough" }],
+        changes: [],
+        removals: [],
+      }));
+      const d = deps({
+        classifier: classifier("inventory_report"),
+        interpreter: { interpret } as unknown as InventoryInterpreter,
+        stockOut: {
+          parseItem: async (): Promise<never> => {
+            throw new Error("a hosted seller's own update must not reach the stock-out seam");
+          },
+        },
+      });
+
+      const result = await send(d, HOSTED_HASH, "sourdough at Plum Forest Stand", "evt-hosted");
+
+      expect(interpret).toHaveBeenCalled();
+      expect(result.handled).toBe("farmer");
+      const proposals = await client()`
+        select provider_id from inventory_publication_proposals
+      `;
+      expect(proposals).toHaveLength(1);
+      // Her OWN listing, not the host's — the proposal must name her provider row.
+      expect(await client()`
+        select seller_id from stand_providers where id = ${proposals[0]?.provider_id as string}
+      `).toEqual([{ seller_id: hostedSellerId }]);
+      // Asserted as an absence too: the failure mode was a filed report, not a missing proposal.
+      expect(await client()`select id from stock_out_reports`).toHaveLength(0);
+      expect(await client()`
+        select id from outbox_work where message_category = 'stock_out_alert'
+      `).toHaveLength(0);
+    });
+
+    it("still routes a hosted seller's report about a stand she does NOT sell at", async () => {
+      // The refusal half. Zoe sells at Plum Forest and nowhere else; North Stand is the other
+      // farmer's, so the same words about it are a report like anyone else's. Without this,
+      // "read the provider arms" would be indistinguishable from deleting the check.
+      const d = deps({
+        classifier: classifier("inventory_report"),
+        interpreter: {
+          interpret: async () => {
+            throw new Error("another stand's stock-out must not open a proposal");
+          },
+        } as unknown as InventoryInterpreter,
+      });
+
+      const result = await send(d, HOSTED_HASH, "no kale left at North Stand", "evt-hosted-2");
+
+      expect(result.replies[0]?.body).toBe(STOCK_OUT_THANKS);
+      expect(await client()`select sales_location_id from stock_out_reports`)
+        .toEqual([{ sales_location_id: ownStandId }]);
+      expect(await client()`select id from inventory_publication_proposals`).toHaveLength(0);
     });
 
     it("treats a farmer's report naming NO stand as their own update", async () => {

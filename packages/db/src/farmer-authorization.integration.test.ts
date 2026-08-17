@@ -1220,5 +1220,157 @@ describe("farmer authorization and standing links (integration)", () => {
       // place to read a farmer's standing credential off a screen.
       expect(JSON.stringify(after)).not.toContain(token);
     });
+
+    it("lists the farmer's OWN stand, with its name", async () => {
+      /*
+        The populated case. Nothing in this suite asserted `stands` at all before F-115, and
+        the one place the column appeared anywhere was as `[]` — a reader that returned
+        nothing for every farmer in the corpus would have passed (DEVELOPMENT.md §gotchas).
+      */
+      const contactHash = await contact("f4");
+      const name = `Stand List ${randomUUID()}`;
+      const { farmId, salesLocationId } = await farmWithStand(name);
+      const authorized = await authorizeFarmer(database(), {
+        farmId,
+        requestId: await onboardingRequest(contactHash),
+        administratorId,
+        occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
+      });
+      const authorizationId =
+        authorized.status === "authorized" ? authorized.authorizationId : "";
+
+      const row = (await listFarmerAuthorizations(database())).find(
+        (r) => r.authorizationId === authorizationId,
+      );
+      expect(row?.stands).toEqual([{ salesLocationId, name: `${name} Stand` }]);
+    });
+
+    it("lists a HOSTED seller's stand, which she does not own", async () => {
+      /*
+        F-115 Tranche B2. The stand list was built from `location.own_seller_id =
+        auth.seller_id` — the seller that IS the stand — so a hosted seller appeared in VIGA's
+        Farmers queue with an EMPTY stand list and no live link, and the operator had no way to
+        tell that from a farmer who has not set anything up.
+
+        `stand_providers` is where a listing lives after F-114, and it is the only place a
+        hosted one has ever lived.
+      */
+      const hostName = `Hosting Stand ${randomUUID()}`;
+      const { salesLocationId } = await farmWithStand(hostName);
+      const guests = await sql()`
+        insert into sellers (name) values (${`Guest Seller ${randomUUID()}`}) returning id
+      `;
+      const guestSellerId = guests[0]?.id as string;
+      await sql()`
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+          invited_at, accepted_at, approval_source, approved_at
+        ) values (
+          ${salesLocationId}, ${guestSellerId}, 'active', false,
+          ${at(1).toISOString()}, ${at(1).toISOString()}, 'viga', ${at(1).toISOString()}
+        )
+      `;
+      const authorized = await authorizeFarmer(database(), {
+        farmId: guestSellerId,
+        requestId: await onboardingRequest(await contact("f5")),
+        administratorId,
+        occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
+      });
+      const authorizationId =
+        authorized.status === "authorized" ? authorized.authorizationId : "";
+
+      const row = (await listFarmerAuthorizations(database())).find(
+        (r) => r.authorizationId === authorizationId,
+      );
+      expect(row?.stands).toEqual([
+        { salesLocationId, name: `${hostName} Stand` },
+      ]);
+    });
+
+    it("reports a HOSTED seller's standing link, naming her host's stand", async () => {
+      /*
+        The link half of the same defect. `live_link_stand` joined
+        `location.own_seller_id = link.owner_seller_id` and filtered
+        `link.owner_seller_id = auth.seller_id` — two more comparisons of stored copies of the
+        same fact, and both false for a link to a hosted listing. The link's own
+        `provider_id` names the listing it opens (C.3), so the stand comes from that row.
+      */
+      const hostName = `Linked Host ${randomUUID()}`;
+      const { salesLocationId } = await farmWithStand(hostName);
+      const guests = await sql()`
+        insert into sellers (name) values (${`Linked Guest ${randomUUID()}`}) returning id
+      `;
+      const guestSellerId = guests[0]?.id as string;
+      const providers = await sql()`
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+          invited_at, accepted_at, approval_source, approved_at
+        ) values (
+          ${salesLocationId}, ${guestSellerId}, 'active', false,
+          ${at(1).toISOString()}, ${at(1).toISOString()}, 'viga', ${at(1).toISOString()}
+        ) returning id
+      `;
+      const authorized = await authorizeFarmer(database(), {
+        farmId: guestSellerId,
+        requestId: await onboardingRequest(await contact("f7")),
+        administratorId,
+        occurredAt: at(1),
+        publicBaseUrl: "https://farmfriend.test",
+      });
+      const authorizationId =
+        authorized.status === "authorized" ? authorized.authorizationId : "";
+      const issued = await issueFarmerLink(database(), {
+        authorizationId,
+        providerId: providers[0]?.id as string,
+        occurredAt: at(2),
+      });
+      expect(issued.status).toBe("issued");
+
+      const row = (await listFarmerAuthorizations(database())).find(
+        (r) => r.authorizationId === authorizationId,
+      );
+      expect(row?.hasLiveLink).toBe(true);
+      expect(row?.liveLinkStand).toEqual({
+        salesLocationId,
+        name: `${hostName} Stand`,
+      });
+    });
+
+    it("leaves a stand OFF the list once the seller's relationship to it ends", async () => {
+      // The refusal half: the list must shrink, or "read `stand_providers`" would be
+      // indistinguishable from listing every stand on the island.
+      const hostName = `Ending Stand ${randomUUID()}`;
+      const { salesLocationId } = await farmWithStand(hostName);
+      const guests = await sql()`
+        insert into sellers (name) values (${`Departing ${randomUUID()}`}) returning id
+      `;
+      const guestSellerId = guests[0]?.id as string;
+      await sql()`
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+          invited_at, accepted_at, approval_source, approved_at, ended_at
+        ) values (
+          ${salesLocationId}, ${guestSellerId}, 'active', false,
+          ${at(1).toISOString()}, ${at(1).toISOString()}, 'viga', ${at(1).toISOString()},
+          ${at(2).toISOString()}
+        )
+      `;
+      const authorized = await authorizeFarmer(database(), {
+        farmId: guestSellerId,
+        requestId: await onboardingRequest(await contact("f6")),
+        administratorId,
+        occurredAt: at(3),
+        publicBaseUrl: "https://farmfriend.test",
+      });
+      const authorizationId =
+        authorized.status === "authorized" ? authorized.authorizationId : "";
+
+      const row = (await listFarmerAuthorizations(database())).find(
+        (r) => r.authorizationId === authorizationId,
+      );
+      expect(row?.stands).toEqual([]);
+    });
   });
 });

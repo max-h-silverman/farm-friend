@@ -62,8 +62,22 @@ describe("desktop map layout", () => {
   });
 
   it("centers the complete map experience within a 1200px frame", () => {
-    expect(css).toMatch(
-      /@media \(min-width: 56rem\)[\s\S]*?\.page\s*\{[^}]*max-width:\s*75rem[^}]*margin:\s*0 auto/s,
+    /*
+      ANCHORED TO THE BLOCK, not spanning to it (F-115 Tranche G).
+
+      This was written as `@media (min-width: 56rem)[\s\S]*?.page { … 75rem … }` — an unbounded
+      wildcard between the anchor and the claim — and measured at 42,426 characters: it started
+      at the FIRST such media query, whose `.page` is `72rem`, and ran 42KB down the file to a
+      different block that happens to satisfy the rest. The property held, but nothing in the
+      assertion said which block carried it, and an edit to either could have moved it silently.
+
+      The slice idiom the rest of this file uses names the block by its own comment heading, so
+      the assertion reads the CSS a customer's desktop actually applies.
+    */
+    const desktopDensity = css.slice(css.indexOf("desktop directory density"));
+    expect(css).toContain("desktop directory density");
+    expect(desktopDensity).toMatch(
+      /@media \(min-width: 56rem\)\s*\{\s*\.page\s*\{[^}]*max-width:\s*75rem[^}]*margin:\s*0 auto/s,
     );
   });
 

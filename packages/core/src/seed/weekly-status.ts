@@ -16,8 +16,8 @@ import type { RejectedStand } from "./stand-csv";
 // farmers are texting yet.
 //
 // So a submission becomes a dated confirmation carrying `source = 'viga'` (F-063) — never an SMS
-// one, because a Google Form is not a handset. Age needs no special handling: past 48 hours the
-// card already shows its stale caution, which is exactly true. A farmer's own SMS supersedes
+// one, because a Google Form is not a handset. Age needs no special handling: past
+// `STALE_AFTER_HOURS` the card already shows its stale caution, which is exactly true. A farmer's own SMS supersedes
 // their weekly row the moment they send one; that is the migration path off the legacy form.
 //
 // WHAT IT REFUSES. A closure ("Closed for the season") is not stock and has its own consumer. A

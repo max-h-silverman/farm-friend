@@ -511,22 +511,46 @@ describe("stand provider facts (integration)", () => {
     await removeUnpublishedProvider(goneProviderId);
   });
 
-  it("keeps a paused provider's last published claim visible", async () => {
-    // A paused seller stopped being prompted; they did not withdraw what they published. What
-    // a customer already saw stays visible, exactly as `readCurrentInventoryByProvider` treats
-    // it, so the two readers cannot disagree about what a pause means.
+  it("takes a PAUSED provider off the public card, and puts them back on resume", async () => {
+    /*
+      F-115 Tranche E (max, 2026-08-17). §hosting and approval lifecycle: *"Ending or pausing
+      hides current public facts without deleting history."*
+
+      This case used to assert the opposite — that a paused seller's last claim stayed visible —
+      on the reasoning that a pause only stops the prompts. That reading survived because
+      `paused` was UNREACHABLE until Tranche D built the writer: no row could be in the state, so
+      nothing measured what a pause actually did to a customer, and the ten copies of the
+      liveness predicate all admitted `paused` without anyone choosing that.
+
+      A pause is a withdrawal. Leaving the last confirmation on the map publishes a claim the
+      seller has taken back, dated as though she still stood behind it.
+
+      History is untouched, which the resume half proves: the revision is still there and comes
+      straight back. Nothing is deleted, exactly as the contract says.
+    */
     await sql()`
       update stand_providers set lifecycle_state = 'paused' where id = ${guestProviderId}
     `;
-    const byStand = await readStandProviderFacts(database(), {
+    const paused = await readStandProviderFacts(database(), {
       salesLocationIds: [standId],
       includeTestFarms: false,
     });
-    const guest = (byStand.get(standId) ?? []).find((p) => p.providerId === guestProviderId);
-    expect(guest?.confirmedItems.map((i) => i.itemName)).toEqual(["salad greens"]);
+    const providers = paused.get(standId) ?? [];
+    expect(providers.map((p) => p.providerId)).not.toContain(guestProviderId);
+    // Asserted on the ITEM as well as the provider: a reader that dropped the row but kept the
+    // items on some other row would satisfy the first check alone.
+    expect(providers.flatMap((p) => p.confirmedItems.map((i) => i.itemName)))
+      .not.toContain("salad greens");
+
     await sql()`
       update stand_providers set lifecycle_state = 'active' where id = ${guestProviderId}
     `;
+    const resumed = await readStandProviderFacts(database(), {
+      salesLocationIds: [standId],
+      includeTestFarms: false,
+    });
+    const guest = (resumed.get(standId) ?? []).find((p) => p.providerId === guestProviderId);
+    expect(guest?.confirmedItems.map((i) => i.itemName)).toEqual(["salad greens"]);
   });
 
   it("reads several stands in one call without leaking rows between them", async () => {

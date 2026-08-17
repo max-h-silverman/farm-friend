@@ -160,26 +160,24 @@ describe("direct administrator identity (B-031)", () => {
       new URL("packages/core/src/index.ts", repositoryRoot),
       "utf8",
     );
-    const databaseAuth = readFileSync(
-      new URL("packages/db/src/admin.ts", repositoryRoot),
-      "utf8",
-    );
-    const webAuth = readFileSync(
-      new URL("apps/web/lib/auth.ts", repositoryRoot),
-      "utf8",
-    );
-    const webGuard = readFileSync(
-      new URL("apps/web/lib/admin-guard.ts", repositoryRoot),
-      "utf8",
-    );
+    /*
+      MODULE ABSENCE ONLY. This asserts the two things no runtime test can: a file that does not
+      exist, and an export that is not re-exported.
 
+      F-115 Tranche G removed three CALL-SITE SHAPE regexes that used to sit here — one matching
+      the exact return literal of `resolveAdministrator`, one its signature, one its call in the
+      guard. They were coupled to formatting rather than to behaviour: an added inline comment
+      or a reordered field broke them, and none could see whether the guard actually refused
+      anybody.
+
+      What they claimed is proved BEHAVIOURALLY, through the real routes, in
+      `admin-routes.integration.test.ts` — "refuses a live session whose administrator was
+      revoked" and "approves and revokes, recording the SESSION's administrator not the body's".
+      Those go through the guard, the session lookup and the write, and would fail on a facade
+      that resolved a role instead of an administrator. A source regex could not.
+    */
     expect(existsSync(rolesModule)).toBe(false);
     expect(coreIndex).not.toContain("./auth/roles");
-    expect(databaseAuth).toMatch(
-      /return\s*\{\s*administratorId:\s*row\.administrator_id as string,\s*email:\s*row\.email as string,?\s*\}/,
-    );
-    expect(webAuth).toMatch(/export async function resolveAdministrator\s*\(/);
-    expect(webGuard).toMatch(/await resolveAdministrator\(req\)/);
   });
 
   it("keeps enrollment request-bound and every standing link exact-targeted", () => {
@@ -204,12 +202,29 @@ describe("direct administrator identity (B-031)", () => {
     expect(routeInput).toMatch(/\brequestId\?:\s*unknown/);
     expect(routeInput).not.toMatch(/\bcontactHash\b/);
 
-    expect(databaseFarmer).toMatch(
-      /export async function issueFarmerLink\([\s\S]*?input:\s*\{[\s\S]*?salesLocationId:\s*string;[\s\S]*?\}/,
-    );
-    expect(databaseFarmer).toMatch(
-      /export async function resolveFarmerLink\([\s\S]*?join sales_locations as location\s+on location\.id = link\.sales_location_id/,
-    );
+    /*
+      TWO REGEXES USED TO SIT HERE AND NEITHER COULD FAIL (F-115 Tranche G).
+
+      They claimed `issueFarmerLink` takes a `salesLocationId` and that `resolveFarmerLink`
+      joins the stand through the link. Both were written as
+      `functionName\(  [\s\S]*?  <thing>` — an UNBOUNDED wildcard between the anchor and the
+      claim — so each matched from its function's name onward across the whole rest of the file
+      until it found the text anywhere. Measured: the first matched 5,319 characters, running
+      past `issueFarmerLink` entirely and satisfying itself on a LATER interface's field.
+
+      Which made it worse than fragile. F-114 Phase C.3 deliberately replaced that parameter
+      with `providerId` — a standing link opens ONE LISTING, not a stand — so the assertion had
+      been green for the whole of C.3 while claiming the design C.3 removed. A test that cannot
+      fail proves nothing; one that cannot fail while asserting the opposite of the contract is
+      a claim pointing the wrong way.
+
+      The exact-targeting property is proved BEHAVIOURALLY against real Postgres in
+      `farmer-authorization.integration.test.ts` — "rejects every NULL exact-target shape",
+      "dies on a revoked AUTHORIZATION even when its link row is still open", "dies when the
+      LINK alone is revoked", and C.3's hosted case, which asserts the link opens the hosted
+      seller's own listing at her host's stand. Every one of those goes through the writer and
+      the resolver; none can be satisfied by text in a neighbouring function.
+    */
   });
 });
 

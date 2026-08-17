@@ -195,9 +195,10 @@ with the guard that protects each.
   for SQL identifiers.
 - **Composing shared SQL text into a tagged template sends it as a bind PARAMETER.** A query written
   `` driver(db)`… ${fragment} …` `` passes the fragment as a *value*, not as SQL, and dies at parse
-  with `syntax error at or near "$1"`. Any statement composing `visibleFarms` or B-074's
-  `currentInventoryJoin`/`currentEntriesJoin` must use `.unsafe(…)` — which is why
-  `listClaimableFarms` and `listStandsForAdministration` are written that way. Typecheck cannot see
+  with `syntax error at or near "$1"`. Any statement composing `visibleFarms`,
+  `PROVIDER_AUTHORITY_ARMS`, `currentEntriesJoin`, or F-115's `publicProviders` /
+  `reachableProviders` must use `.unsafe(…)` — which is why `listClaimableFarms`,
+  `listStandsForAdministration` and `listFarmerAuthorizations` are written that way. Typecheck cannot see
   it and neither can any test that does not run the statement against a real database, so a
   fragment-composing query needs integration coverage on the day it is written.
 - **A sabotage aimed at the wrong tree is indistinguishable from a test that cannot fail.** A plan JSON
@@ -224,6 +225,21 @@ with the guard that protects each.
   and read failure `[1/N]`, never the tail. The defect itself: the query `select`s `own_seller_id`
   and the code read `.owner_seller_id`, so nothing errors until the undefined reaches a bind
   parameter, far from the mismatch. Grep for every `.owner_*` read after any column rename.
+- **An INNER join on a NULLABLE pointer is a silent WHERE clause.** The map reader and both SMS
+  retrieval queries each carried `join sellers f on f.id = l.own_seller_id` purely to label the
+  row and to carry the stand-owner visibility rule. `own_seller_id` is NULL for a venue — a place
+  several farmers sell at and nobody's farm, which is the shape the self-pointer exists to
+  represent — so all three surfaces deleted every venue from the customer's view, with no error
+  and every test green (no fixture had one). LEFT plus a `coalesce` for the label is the fix, and
+  `visibleFarms` still bites across it because `NULL is null` is TRUE. **When a join column is
+  nullable, ask what the INNER join is silently filtering out, and put that row in a fixture.**
+  Guard: `apps/web/lib/per-seller-freshness-differential.integration.test.ts`.
+- **Two readers of one fact must be compared on OUTPUT, not read side by side.** Both audits
+  confirmed SMS retrieval duplicates `readStandProviderFacts` and neither could say whether they
+  agreed. Reducing both to `provider id → {name, date, items}` and diffing them across the ragged
+  cases — a confirmed-EMPTY stand, a 40-day-old publication, standing-claims-only, a venue —
+  settled it in one test, and found three defects reading the source had not. The parity test that
+  existed compared them only on the case they agree on by construction.
 - **A historical migration test must select its predecessors BY ORDER, never by exclusion.** The
   *"every file that is not mine"* form is correct only while that migration is the newest in the
   repo, and every future migration breaks it the same way. Use `name < "00NN_"`. The failure is loud
@@ -298,8 +314,8 @@ with the guard that protects each.
   `0000`, and the snapshot — so a constraint NAME or even a doc comment trips it.
 - **A tagged template turns an interpolation into a bind PARAMETER.** Composing shared SQL text into
   a `` driver(db)`…` `` query sends the clause as a string value and dies at parse
-  (`syntax error at or near "$1"`). Any query composing `visibleFarms` or the B-074 join fragments
-  must use `.unsafe(…)`. Invisible to typecheck and to every test not run against a real database.
+  (`syntax error at or near "$1"`). Any query composing a shared fragment must use `.unsafe(…)`.
+  Invisible to typecheck and to every test not run against a real database.
 - **An assertion on an empty collection can be green whatever the code returns.** When a reader's
   only coverage is its empty case, it has no coverage; assert a populated value.
 - **One emoji doubles a message's cost.** A single non-GSM-7 character re-encodes the WHOLE body to

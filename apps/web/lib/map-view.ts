@@ -193,16 +193,43 @@ export function mapMarkerKind(stand: PublicStandPayload): MapMarkerKind {
     : "seasonal";
 }
 
+/*
+  THE ONE RECORDED EXCEPTION TO "no produce taxonomy in a behavioral branch".
+
+  CLAUDE.md's rule is that farms, foods and listings are DATA — no food vocabulary in behavioral
+  branches. This is the only place in the codebase that breaks it, and F-115 Tranche G decided to
+  record the exception rather than remove it (rather than leaving it unmarked, which is how it
+  stood). The reasoning, so a later change can revisit it with the same facts:
+
+  - **It is DISPLAY, not policy.** It picks a pin glyph and answers one map filter. It gates no
+    publication, no authority, no ranking and no answer text. A stand it gets wrong is still on
+    the map, still answerable over SMS, still able to publish. That is a materially different
+    class from the branches the rule exists to prevent, and it is why
+    `architecture.test.ts` — which forbids branching on a location-type enum VALUE — does not
+    reach it.
+  - **The honest data home is not free.** `sales_locations.offering_type` is the natural column,
+    and it is set by the FARMER at onboarding from their own words. Adding a `flowers` value
+    there makes a display distinction into a question a farmer has to answer about themselves,
+    and changes the onboarding form, the seed classifier and the enum — for a glyph.
+  - **The failure mode is known and bounded**, and `map-view.test.ts` §the flower vocabulary
+    exception measures it: a lavender farm that starts selling honey silently loses its glyph
+    and drops out of the "Flowers only" filter. It does not vanish, and it does not stop being
+    findable by what it sells.
+
+  **The vocabulary is not a taxonomy and must not grow into one.** If it ever needs a fourth
+  term, or a term for anything that is not a flower, that is the signal that this should have
+  been data — build the column then.
+*/
+const FLOWER_VOCABULARY = /\b(?:flower(?:s|ing)?|lavender|wreaths?|essential oils?)\b/i;
+
 /** Whether every published usual offering is a flower or flower-derived product. */
 export function isFlowerOnlyStand(stand: PublicStandPayload): boolean {
   const usualOfferings = stand.usuallySells ?? [];
   return (
     usualOfferings.length > 0 &&
-    usualOfferings.every((item) =>
-      // The NAME, never the whole fact — a price of "$5 a bunch" must not decide whether a
-      // stand is flowers-only.
-      /\b(?:flower(?:s|ing)?|lavender|wreaths?|essential oils?)\b/i.test(item.itemName),
-    )
+    // The NAME, never the whole fact — a price of "$5 a bunch" must not decide whether a stand
+    // is flowers-only.
+    usualOfferings.every((item) => FLOWER_VOCABULARY.test(item.itemName))
   );
 }
 

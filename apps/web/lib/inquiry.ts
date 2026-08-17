@@ -28,6 +28,7 @@ import type {
 } from "@farm-friend/ai";
 import {
   currentEntriesJoin,
+  publicProviders,
   savePendingResultList,
   visibleFarms,
   type Db,
@@ -294,7 +295,11 @@ export async function retrieveSmsListings(
       -- HERE rather than at the renderer so no downstream reader can print it by
       -- accident; the paging renderer already shows a null address as "address not listed".
       case when l.address_public then l.public_address else null end as public_address,
-      f.name as farm_name,
+      -- THE PROVIDER'S SELLER, not the stand's (F-115). This row IS one seller's claim, so the
+      -- name on it has to be that seller's — reading the stand's own_seller_id credited a
+      -- hosted seller's confirmed goods to the host, and at a VENUE, where the self-pointer is
+      -- NULL, the inner join it required dropped the entire stand out of SMS answers.
+      provider_seller.name as farm_name,
       provider.id as provider_id,
       r.published_at as published_at,
       e.item_name as item_name,
@@ -308,7 +313,11 @@ export async function retrieveSmsListings(
       c.starts_on::text as closure_starts_on,
       c.closed_through::text as closure_closed_through
     from sales_locations l
-    join sellers f on f.id = l.own_seller_id
+    -- LEFT, and that is the F-115 fix rather than a loosening. A VENUE has no own_seller_id —
+    -- Morgan Hill is a place several farmers sell at and nobody's farm — so an INNER join here
+    -- deleted every venue from SMS answers entirely. The alias survives only to carry the
+    -- stand-owner visibility rule in the where clause; nothing is projected from it.
+    left join sellers f on f.id = l.own_seller_id
     /*
       PER PROVIDER (F-114 C.5), not per stand.
 
@@ -323,8 +332,7 @@ export async function retrieveSmsListings(
     */
     join stand_providers provider
       on provider.sales_location_id = l.id
-     and provider.ended_at is null
-     and provider.lifecycle_state in ('active', 'paused')
+     and ${publicProviders("provider")}
     -- The SELLER's own visibility, applied in the where clause below. A hosted seller VIGA
     -- retired leaves every stand they sold at, not only their own.
     join sellers provider_seller on provider_seller.id = provider.seller_id
@@ -402,7 +410,11 @@ export async function retrieveSmsListings(
       -- HERE rather than at the renderer so no downstream reader can print it by
       -- accident; the paging renderer already shows a null address as "address not listed".
       case when l.address_public then l.public_address else null end as public_address,
-      f.name as farm_name,
+      -- The STAND's own name here, not a seller's, because this half groups per STAND: one
+      -- standing-offerings row carries every seller's usual items. Coalesced to the location
+      -- name for a VENUE, which has no owning farm — picking one of its sellers would credit
+      -- the whole stand's standing claims to whichever one the planner surfaced first.
+      coalesce(f.name, l.name) as farm_name,
       l.created_at as created_at,
       o.display_name as item,
       o.sort_order as sort_order,
@@ -411,7 +423,9 @@ export async function retrieveSmsListings(
       c.starts_on::text as closure_starts_on,
       c.closed_through::text as closure_closed_through
     from sales_locations l
-    join sellers f on f.id = l.own_seller_id
+    -- LEFT, for the reason stated on the confirmed half above: a venue has no owning farm, and
+    -- an inner join dropped every venue out of standing-offerings answers too.
+    left join sellers f on f.id = l.own_seller_id
     -- F-066 — usually_carried in the JOIN, not a WHERE: an item that exists only because a
     -- past revision named it must not enter the offerings half of retrieval, or a customer
     -- would be told a stand usually sells something nobody ever said that about.
@@ -427,8 +441,7 @@ export async function retrieveSmsListings(
     */
     join stand_providers offering_provider
       on offering_provider.id = o.provider_id
-     and offering_provider.ended_at is null
-     and offering_provider.lifecycle_state in ('active', 'paused')
+     and ${publicProviders("offering_provider")}
     join sellers offering_seller on offering_seller.id = offering_provider.seller_id
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current

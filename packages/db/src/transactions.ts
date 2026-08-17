@@ -1649,12 +1649,25 @@ async function lockScheduledDispatchBasis(
     for update
   `;
 
+  /*
+    F-114 — the SUBJECT names whose prompt this is, and the approval gate below follows it.
+    `sales_locations.own_seller_id` names the seller that IS the stand, which for a hosted
+    seller is her host and for a venue is nobody; reading it here looked up the wrong
+    approval and then compared the wrong seller, so a hosted prompt revalidated as invalid
+    and was destroyed between queue and claim.
+
+    This read stays unlocked and ahead of the lock order, exactly as the proposal discovery
+    above does. The locked re-read of the whole subject still happens last, in order; these
+    two columns are immutable for the life of a subject, so nothing turns on which copy the
+    approval lookup used.
+  */
   const preflight = await tx`
-    select sales_location_id from scheduled_inventory_prompt_subjects
+    select sales_location_id, owner_seller_id from scheduled_inventory_prompt_subjects
     where outbox_work_id = ${outboxWorkId}
   `;
   if (preflight.length === 0) return { kind: "scheduled", valid: false, proposalId };
   const salesLocationId = preflight[0]?.sales_location_id as string;
+  const subjectSellerId = preflight[0]?.owner_seller_id as string;
   const location = await tx`
     select own_seller_id from sales_locations
     where id = ${salesLocationId}
@@ -1684,14 +1697,12 @@ async function lockScheduledDispatchBasis(
       and auth.revoked_at is null
     for update of auth
   `;
-  const approval = location.length === 0
-    ? []
-    : await tx`
-        select id from seller_approvals
-        where seller_id = ${location[0]?.own_seller_id as string}
-          and revoked_at is null
-        for update
-      `;
+  const approval = await tx`
+    select id from seller_approvals
+    where seller_id = ${subjectSellerId}
+      and revoked_at is null
+    for update
+  `;
   const subjectRows = await tx`
     select * from scheduled_inventory_prompt_subjects
     where outbox_work_id = ${outboxWorkId}
@@ -1747,7 +1758,6 @@ async function lockScheduledDispatchBasis(
     (preferenceRow.last_due_slot_at as Date | null)?.getTime() ===
       (subject.due_slot_at as Date).getTime() &&
     authorizationRow.seller_id === subject.owner_seller_id &&
-    location[0]?.own_seller_id === subject.owner_seller_id &&
     currentInventoryId === ((subject.inventory_base_revision_id as string | null) ?? null) &&
     currentClosureId === ((subject.closure_base_revision_id as string | null) ?? null) &&
     projectClosure(closure, now).state !== "active" &&

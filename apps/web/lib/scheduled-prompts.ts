@@ -11,6 +11,7 @@ import {
 import {
   lockKnownSenderState,
   readCurrentInventory,
+  reachableProviders,
   type CurrentInventoryEntry,
   type Db,
 } from "@farm-friend/db";
@@ -154,13 +155,17 @@ async function schedulePreference(
     // The relationship itself. A seller whose listing has ended still has a seller record, a
     // live authorization and an approval — all three checks above pass — but there is nothing
     // at this stand left to confirm.
-    const live = await tx`
-      select id from stand_providers
-      where id = ${preference.provider_id as string}
-        and ended_at is null
-        and lifecycle_state in ('active', 'paused')
-      for update
-    `;
+    // `.unsafe`, for the shared-fragment reason (DEVELOPMENT.md §gotchas): a tagged template
+    // sends `reachableProviders` as a bind PARAMETER and dies at parse.
+    const live = await tx.unsafe(
+      `
+        select id from stand_providers
+        where id = $1
+          and ${reachableProviders("stand_providers")}
+        for update
+      `,
+      [preference.provider_id as string],
+    );
     if (live.length === 0) return "ineligible";
 
     const consent = await tx`

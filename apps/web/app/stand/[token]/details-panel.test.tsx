@@ -85,7 +85,8 @@ describe("reminder schedules live with the stock errand (F-098)", () => {
       providerId: "prov-1",
       salesLocationId: "loc-1",
       locationName: "Demo Orchard Stand",
-      sellerName: null,
+      sellerName: "Own Seller",
+      describesOwnStand: true,
       selected: true,
       cadence: "weekly" as const,
     },
@@ -110,7 +111,8 @@ describe("reminder schedules live with the stock errand (F-098)", () => {
             providerId: "prov-2",
             salesLocationId: "loc-2",
             locationName: "The Red Shed",
-            sellerName: null,
+            sellerName: "Own Seller",
+            describesOwnStand: true,
             selected: false,
             cadence: "paused" as const,
           },
@@ -126,9 +128,9 @@ describe("reminder schedules live with the stock errand (F-098)", () => {
       F-114 C.4. Two listings under one roof: without the seller name they are two rows reading
       "Demo Orchard Stand" with two selects that save different things.
 
-      By SELF-POINTER, never a name match — `sellerName: null` IS the self-pointer, resolved in
-      the reader. A farmer who renames her seller stays unlabeled, and a hosted seller whose
-      name matches the stand's stays credited.
+      By SELF-POINTER, never a name match — `describesOwnStand` IS the self-pointer, resolved
+      in the reader and carried to the renderer. A farmer who renames her seller stays
+      unlabelled, and a hosted seller whose name matches the stand's stays credited.
     */
     render(
       <ReminderSchedules
@@ -140,6 +142,7 @@ describe("reminder schedules live with the stock errand (F-098)", () => {
             salesLocationId: "loc-1",
             locationName: "Demo Orchard Stand",
             sellerName: "Fernhorn Bakery",
+            describesOwnStand: false,
             selected: false,
             cadence: null,
           },
@@ -169,7 +172,8 @@ describe("saving a reminder schedule (F-098)", () => {
       providerId: "stand-a",
       salesLocationId: "loc-a",
       locationName: "Orchard Stand",
-      sellerName: null,
+      sellerName: "Own Seller",
+      describesOwnStand: true,
       selected: true,
       cadence: null,
     },
@@ -177,7 +181,8 @@ describe("saving a reminder schedule (F-098)", () => {
       providerId: "stand-b",
       salesLocationId: "loc-b",
       locationName: "Harbor Stand",
-      sellerName: null,
+      sellerName: "Own Seller",
+      describesOwnStand: true,
       selected: false,
       cadence: "paused" as const,
     },
