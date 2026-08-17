@@ -59,11 +59,14 @@ from, and it is never sent.
 
 `/stand/<token>/settings` reuses that credential and revocation lifecycle, and owns:
 
-- only the authorization's **editable locations**;
-- one default SMS target;
-- the one inventory-reminder cadence per stand, changed or paused by the farmer (starts at `weekly`
-  at setup, F-081);
-- the structured one-name-per-line participant save for the selected stand — its own confirmation and
+- only the authorization's **editable listings** — one row per provider since F-114 C.4, with the
+  seller credited beside the stand name only where the two differ (by self-pointer, never a name
+  match);
+- one default SMS target, named as a LISTING;
+- the one inventory-reminder cadence per LISTING, changed or paused by the farmer (starts at
+  `weekly` at setup, F-081);
+- the structured one-name-per-line participant save for the selected listing's STAND — participants
+  are the stand's own record, so two listings under one roof share one list — its own confirmation and
   audit event, routed through db + clock before full model composition, re-resolving the link, and
   unable to grant access or attach names to profiles.
 - **the stand owner's own seller invitation** (F-114 Phase C.1) — `invite_seller` on

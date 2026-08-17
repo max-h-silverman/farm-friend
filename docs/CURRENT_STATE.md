@@ -19,8 +19,7 @@
 
 ## F-114 — what is on `main` and NOT deployed
 
-Phases B, C.0, C.1, C.2 (`214aeb2`) and C.3 (`daa499f`, PR #127) are merged. **C.4 is complete on
-`f-114-c4-cadence-scheduler` and NOT merged.** The governing contract is §the
+Phases B through C.4 are merged; **C.5 is all that remains.** The governing contract is §the
 stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; the reasoning
 behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 
@@ -59,21 +58,18 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 - **A leaked farmer link can create a seller and a `pending` relationship at its own stand.** It
   authorizes nobody — acceptance needs the invited seller's own handset and a bare `START` — and
   `pending` is invisible to every public reader. Asserted beside F-040's other five bounds.
-- **Reminder cadence is per LISTING, and so is the settings screen** (C.4). The duplicate
-  `stand_providers.reminder_cadence` / `reminder_authorization_id` pair was **deleted** rather
-  than read — `inventory_prompt_preferences` was already one-per-provider and carries the
-  scheduler's cursor. The write seam refuses the HOST arm deliberately: `host_may_update_stock`
-  grants a physical observation about stock, and a schedule is not one.
-- **The scheduler pass reaches a hosted seller.** It read `own_seller_id` three times
-  (authorization gate, approval gate, durable subject); it reads the PREFERENCE'S own seller now,
-  plus a relationship-liveness check it never had.
-- **A paused listing is offered re-opening**, gated at `confirmInventoryPublication` — the one
-  seam a fresh update, a pre-pause prompt reply, and `SAME` all funnel through. The consent is
-  `reopening_stated_version` on the proposal, written when the prompt stating the consequence was
-  composed; the farmer answers with an ordinary `YES` (max, 2026-08-16), no new keyword.
+- **Reminder cadence is per LISTING**, in `inventory_prompt_preferences` alone — it holds the
+  scheduler's cursor, so nothing else may carry the cadence. The write seam refuses the HOST arm:
+  `host_may_update_stock` grants a physical observation about stock, and a schedule is not one, so
+  only the seller's own arm sets it. The scheduler pass and the settings screen both follow the
+  PREFERENCE'S seller, never the roof's.
+- **A paused listing is offered re-opening, never refused**, gated at
+  `confirmInventoryPublication` — the one seam a fresh update, a pre-pause prompt reply and `SAME`
+  all funnel through. The consent is `reopening_stated_version` on the proposal, written when the
+  prompt stating the consequence was composed and bound to that version; the farmer answers with an
+  ordinary `YES` (max, 2026-08-16), no new keyword. Publishing re-opens the listing.
 - **Still stand-shaped on purpose:** VIGA's `issue_link`, which resolves its
   `(authorization, stand)` pair to one listing and REFUSES on ambiguity rather than picking.
-- **What C remains: C.5** (public seller list, item-first cards).
 - Deliberately NOT renamed: `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table (those name
   the PERSON acting), the operator-facing **"Farms" tab label**, and `GENERIC_WORDS`.
 
@@ -123,10 +119,7 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
   asserting exact row effects plus a re-run proving it is a no-op.
 - **Fourteen escapes across F-114, and every one was ONE failure: a guard is unfalsifiable until a
   case exists where it is the ONLY thing that could refuse.** All fourteen are closed by cases that
-  construct exactly that. C.4's two: an authorization-agreement check whose every probe also used a
-  mismatched PHONE (the seam resolves by phone, so it refused first — the isolating case is ONE
-  phone holding TWO live authorizations), and an SMS sentence whose only coverage asserted the
-  CONSTANT and the STATUS, never the rendered body. **Assert the absence of the wrong behavior; and when a breakage changes no
+  construct exactly that. **Assert the absence of the wrong behavior; and when a breakage changes no
   test result, ask which other guard answered first.** The per-phase enumerations are in
   [SESSION_LOG.md](SESSION_LOG.md); the standing forms are in DEVELOPMENT.md §gotchas.
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only. It
