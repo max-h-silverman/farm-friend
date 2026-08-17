@@ -42,9 +42,31 @@ export interface CreditableListing {
  * get a name, and that is the part this function owns.
  */
 export function creditSeller(listing: CreditableListing, separator: string): string {
-  return listing.describesOwnStand
+  const credit = sellerCredit(listing);
+  return credit === undefined
     ? listing.locationName
-    : `${listing.locationName}${separator}${listing.sellerName}`;
+    : `${listing.locationName}${separator}${credit}`;
+}
+
+/**
+ * The seller's name where it is owed, and NOTHING where it is not.
+ *
+ * The same decision `creditSeller` makes, without a location name attached — for the surfaces
+ * that already print the stand's name in a heading and need only the credit that goes beside an
+ * item. The stand detail card is the first: its heading says "Morgan Hill Stand", so a nested
+ * line wants "Tian Tian" alone, and for the stand's own seller wants nothing at all.
+ *
+ * **Returns `undefined`, never the empty string**, so a renderer has no value to print in the
+ * credit slot for a line that must render bare — the absence is the instruction.
+ *
+ * One predicate, two renderings. Composing this into a location name is what `creditSeller`
+ * does, which is what keeps the SMS menu, the settings screen and the public cards incapable of
+ * disagreeing about which sellers are named.
+ */
+export function sellerCredit(
+  listing: Pick<CreditableListing, "sellerName" | "describesOwnStand">,
+): string | undefined {
+  return listing.describesOwnStand ? undefined : listing.sellerName;
 }
 
 /**

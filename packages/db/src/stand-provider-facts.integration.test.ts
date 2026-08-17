@@ -50,7 +50,6 @@ describe("stand provider facts (integration)", () => {
 
   /** Morgan Hill: a VENUE — `own_seller_id` is null, so no provider is the stand. */
   let venueId = "";
-  let venueGuestProviderId = "";
   let venueGuestSellerId = "";
 
   /**
@@ -237,7 +236,7 @@ describe("stand provider facts (integration)", () => {
     // credited. Morgan Hill is the real case this shape exists for.
     venueGuestSellerId = await createSeller("Tian Tian");
     venueId = await createStand({ ownSellerId: null, name: "Morgan Hill Community Stand" });
-    venueGuestProviderId = await addProvider({
+    await addProvider({
       locationId: venueId,
       sellerId: venueGuestSellerId,
     });

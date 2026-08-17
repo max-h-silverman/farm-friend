@@ -4,16 +4,9 @@ import {
   renderCardRecency,
   renderElapsed,
   renderRecency,
-  renderStandItemPrice,
   type Clock,
-  type StandItemPrice,
 } from "@farm-friend/core";
-import {
-  currentEntriesJoin,
-  currentInventoryJoin,
-  visibleFarms,
-  type Db,
-} from "@farm-friend/db";
+import { readStandProviderFacts, visibleFarms, type Db } from "@farm-friend/db";
 // A TYPE-ONLY import of the browser view model's input shape. It adds no runtime edge (and
 // `map-view.ts` is already inside the public read graph, model-free and asserted so), and it
 // makes the wire format a compiler-checked contract between the server that writes it and the
@@ -210,7 +203,43 @@ export interface PublicStand {
    * deliberately not repeated here: one fact, one home, no way for the two to disagree.
    */
   paymentMethods: string[];
+  /**
+   * The stand-wide union of what every seller currently claims.
+   *
+   * **DERIVED from `sellers`** since F-114 C.5, not read separately. It is what the compact
+   * card, the search haystack and every SMS-parity surface need — a customer scanning a map
+   * asks "is there kale here", not "whose kale". Deriving it rather than reading it a second
+   * way is what makes web and SMS incapable of disagreeing about what a stand holds.
+   */
   items: PublicStandItem[];
+  /**
+   * Every live seller at this stand, each with its own items and its own freshness (C.5).
+   *
+   * The detail card's source. `items` above is the union of these; the two are one fact in two
+   * shapes rather than two facts. Empty for a venue nobody has been invited to.
+   */
+  sellers: PublicStandSeller[];
+}
+
+/** One seller at one stand, as the public surface carries them (F-114 C.5). */
+export interface PublicStandSeller {
+  providerId: string;
+  sellerId: string;
+  sellerName: string;
+  /** By SELF-POINTER, resolved in the reader. Never a name match. */
+  describesOwnStand: boolean;
+  /**
+   * This seller's own card-recency sentence — absent when they have confirmed nothing, and
+   * absent once their confirmation has aged out.
+   *
+   * Per SELLER, which is the whole point of C.5: at one stand Kelsey's venison may be three
+   * hours old and Zoe's greens two days.
+   */
+  cardRecency?: string;
+  stale?: boolean;
+  confirmedItems: PublicStandItem[];
+  /** Standing claims. They carry a price and NEVER a date. */
+  usualItems: UsualOffering[];
 }
 
 export interface PublicStandLink {
@@ -366,56 +395,10 @@ export async function listPublicStands(
       l.stocking_days as stocking_days,
       f.name as farm_name,
       f.description as farm_description,
-      r.published_at as published_at,
       c.result as closure_result,
       c.closure_kind as closure_kind,
       c.starts_on::text as closure_starts_on,
       c.closed_through::text as closure_closed_through,
-      -- F-042 — aggregated in a subquery rather than joined alongside inventory_entries.
-      -- A second LEFT JOIN would make this query a CROSS PRODUCT: 3 tags x 2 confirmed items
-      -- is 6 rows, and the loop below would push each item three times and each tag twice.
-      -- Every duplicate reads as a real second item on the card. Aggregating keeps the row
-      -- grain at one-per-inventory-entry, which is what the loop already assumes.
-      --
-      -- coalesce, because an aggregate over no rows is NULL rather than an empty array. The
-      -- untagged stands are the majority, so that is the common path, not the edge.
-      -- F-066 — the standing state of a stand item, not a table of its own. usually_carried
-      -- is what makes it a standing claim; an item that exists only because a past revision
-      -- named it is vocabulary, not something the stand says it usually has.
-      -- F-090 — the item AND its optional price, as objects. Two parallel arrays would have to
-      -- be zipped by index downstream, which is how a price ends up beside the wrong item.
-      --
-      -- F-092 — THE PRICE IS GATED ON l.prices_public, HERE IN THE QUERY. This is a customer
-      -- surface, and max's call was that hidden means hidden (2026-08-08): a farmer who turns
-      -- prices off must not find them on the map. Gating in SQL rather than in the renderer
-      -- means the value never leaves the database at all, so no later reader can leak what a
-      -- farmer chose to withhold — the same reasoning the privacy rules apply to phone numbers.
-      --
-      -- The item itself is NEVER gated. "This stand sells eggs" is the listing; only what they
-      -- cost is the farmer's to hide.
-      coalesce(
-        (
-          select jsonb_agg(
-            jsonb_build_object(
-              'itemName', o.display_name,
-              'price', case
-                when not l.prices_public then null
-                when o.price_amount is null then null
-                else jsonb_build_object(
-                  'amount', o.price_amount::text,
-                  'quantity', o.price_quantity::text,
-                  'unit', o.price_unit,
-                  'basis', o.price_basis
-                )
-              end
-            )
-            order by o.sort_order asc, o.display_name asc
-          )
-          from stand_items o
-          where o.sales_location_id = l.id and o.usually_carried
-        ),
-        '[]'::jsonb
-      ) as usual_offerings,
       coalesce(
         (
           select array_agg(
@@ -449,43 +432,11 @@ export async function listPublicStands(
           where payment.sales_location_id = l.id
         ),
         array[]::text[]
-      ) as payment_methods,
-      -- F-066 — a confirmed item is rendered in its STAND ITEM's words, so the confirmed list
-      -- and the usual list are one vocabulary by the time anything reads them.
-      --
-      -- Both columns hold the farmer's own words, but from different moments: the entry keeps
-      -- what was published (immutably — its table refuses every update), while the item is the
-      -- stand's current spelling. They legitimately differ in case — the weekly form states
-      -- "Eggs", the profile form seeded "eggs" — and standListingLines must subtract one list
-      -- from the other so nothing prints under two headings. Resolving here means that
-      -- subtraction is a plain set difference over one vocabulary instead of a case-fold in the
-      -- view standing in for a join.
-      --
-      -- coalesce, because an entry naming something with no item row must still render rather
-      -- than vanish. The backfill leaves none, and every writer creates the item, but a
-      -- confirmed item silently disappearing from a card is not a failure mode worth risking.
-      coalesce(item.display_name, e.item_name) as item_name,
-      e.quantity as quantity,
-      e.unit as unit,
-      e.price_text as price_text,
-      e.approximation as approximation
+      ) as payment_methods
     from sales_locations l
     join sellers f on f.id = l.own_seller_id
-    -- B-074 — the currency rule comes from the shared reader. LEFT, and that is load-bearing
-    -- (B-013): a stand with no current revision stays on the map with no recency and no items.
-    ${currentInventoryJoin({ locationAlias: "l", revisionAlias: "r", kind: "left" })}
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
-    ${currentEntriesJoin({ revisionAlias: "r", entryAlias: "e", kind: "left" })}
-    -- The entry's stand item, by the same normalized key the unique index enforces. This is
-    -- the link, and it is a join rather than a foreign key because inventory_entries refuses
-    -- every update — a reference column could never have been backfilled onto published rows
-    -- without disabling the immutability guard (see 0020_stand_items.sql). The index makes this
-    -- at most one row, so it cannot multiply the result.
-    left join stand_items item
-      on item.sales_location_id = e.sales_location_id
-     and lower(btrim(item.display_name, E' \\t\\r\\n'))
-       = lower(btrim(e.item_name, E' \\t\\r\\n'))
     -- F-071 — retired_at is a SECOND, operator-owned reason a stand leaves the public
     -- surface, and it is deliberately not folded into is_public: that column is a listing
     -- attribute the farmer's own onboarding form sets to true on every save, so VIGA's
@@ -497,11 +448,28 @@ export async function listPublicStands(
     -- and the map's filter proves nothing about those — three copies is three chances to leak.
     where l.is_public and l.retired_at is null
       and ${visibleFarms("f", scope.includeTestFarms)}
-    order by r.published_at desc nulls last, l.id asc, e.sort_order asc
+    -- ONE ROW PER STAND now (F-114 C.5). The inventory joins that used to fan this out per
+    -- entry are gone: after Phase B they returned every seller's entries under one stand-wide
+    -- published_at, which is the misattribution this phase exists to end. Inventory arrives
+    -- from readStandProviderFacts below, per provider, and the confirmation ordering the
+    -- product rule asks for is applied there — it needs the per-seller dates to be honest.
+    order by l.id asc
   `);
 
   const now = deps.clock.now();
   const byLocation = new Map<string, PublicStand>();
+
+  /*
+    THE PER-SELLER FACTS, from the one reader the map, SMS and the seller list share.
+
+    A second query rather than a join, deliberately: a stand has several sellers and each has
+    several items in two registers, so joining it here would be the cross product F-042 already
+    paid for once. The reader returns the nesting directly.
+  */
+  const providerFacts = await readStandProviderFacts(deps.db, {
+    salesLocationIds: rows.map((raw) => (raw as Record<string, unknown>).location_id as string),
+    includeTestFarms: scope.includeTestFarms,
+  });
 
   for (const raw of rows) {
     const row = raw as Record<string, unknown>;
@@ -509,12 +477,6 @@ export async function listPublicStands(
 
     let stand = byLocation.get(locationId);
     if (!stand) {
-      // `published_at` is null exactly when the left join found no current revision, and an
-      // aged-out confirmation is folded into that same case below. The three recency fields
-      // are then omitted TOGETHER — spreading them conditionally rather than assigning
-      // `undefined` keeps them absent from the object, so a downstream `"asOf" in stand` check
-      // and JSON serialization both agree that nothing was confirmed.
-      const publishedAt = row.published_at as Date | null;
       /*
         AN AGED-OUT CONFIRMATION IS TREATED AS NO CONFIRMATION (max, 2026-08-10).
 
@@ -523,19 +485,68 @@ export async function listPublicStands(
         same breath as admitting the claim could no longer be dated.
 
         Withheld HERE, where the dates are, rather than branched on in the component: past the
-        threshold the three recency fields simply never become fields, so an expired stand
-        reaches the view shaped exactly like a never-confirmed one and every downstream reader
-        — the map card, the payload, `standListingLines` — needs no new case. That is the same
-        conditional spread the `publishedAt === null` path already relies on.
+        threshold the recency fields simply never become fields, so an expired listing reaches
+        the view shaped exactly like a never-confirmed one and every downstream reader — the map
+        card, the payload, `standListingLines` — needs no new case.
 
         The stand itself stays listed. It keeps its specialties and reads "Nothing confirmed
         recently."; only the STOCK CLAIM goes. Losing the claim is not the same as disappearing,
         and the honor-system rule that stale listings stay visible is unaffected.
+
+        **APPLIED PER SELLER SINCE C.5.** A stand's sellers age out independently: Kelsey may
+        have confirmed this morning while Zoe's last update is five weeks old, and expiring the
+        stand as a whole would delete a live claim over a neighbour's stale one.
       */
+      const sellers = (providerFacts.get(locationId) ?? []).map(
+        (provider): PublicStandSeller => {
+          const asOf =
+            provider.publishedAt !== null &&
+            !isConfirmationExpired(provider.publishedAt, now)
+              ? provider.publishedAt
+              : undefined;
+          return {
+            providerId: provider.providerId,
+            sellerId: provider.sellerId,
+            sellerName: provider.sellerName,
+            describesOwnStand: provider.describesOwnStand,
+            ...(asOf === undefined
+              ? {}
+              : { cardRecency: renderCardRecency(asOf, now), stale: isStale(asOf, now) }),
+            // An expired confirmation contributes NO items, exactly as it contributes no date.
+            // Keeping the items while dropping the date is the "In stock, undatable" claim the
+            // rule above exists to refuse.
+            confirmedItems: asOf === undefined ? [] : provider.confirmedItems.map(publicItem),
+            usualItems: provider.usualItems.map((item) => ({
+              itemName: item.itemName,
+              ...(item.priceText === undefined ? {} : { priceText: item.priceText }),
+            })),
+          };
+        },
+      );
+
+      /*
+        THE STAND-WIDE FACTS, DERIVED FROM THE SELLERS RATHER THAN READ AGAIN.
+
+        `asOf` is the FRESHEST live confirmation at this stand, because the card's one-line
+        summary and the map's ordering both ask "how current is this stand" — and the honest
+        answer to that is the most recent thing anyone here vouched for. The per-seller dates
+        survive intact on `sellers`, so the detail card never has to fall back to this.
+
+        Deriving rather than re-reading is what makes the two shapes incapable of disagreeing;
+        a second query would be a second answer.
+      */
+      const liveConfirmations = (providerFacts.get(locationId) ?? [])
+        .map((provider) => provider.publishedAt)
+        .filter(
+          (publishedAt): publishedAt is Date =>
+            publishedAt !== null && !isConfirmationExpired(publishedAt, now),
+        );
       const asOf =
-        publishedAt !== null && !isConfirmationExpired(publishedAt, now)
-          ? publishedAt
-          : undefined;
+        liveConfirmations.length === 0
+          ? undefined
+          : liveConfirmations.reduce((newest, candidate) =>
+              candidate > newest ? candidate : newest,
+            );
 
       // F-038 — the place fields are spread conditionally, exactly like the recency fields
       // below, so a contact-only farm carries no address key at all rather than a null one.
@@ -604,24 +615,17 @@ export async function listPublicStands(
           : {}),
         // F-042 — spread flat rather than conditionally: an empty list is the honest answer
         // for an untagged stand, and there is no second fact for absence to distinguish.
-        // F-090 / F-092 — the price is RENDERED HERE, once, from the parts the query returned,
-        // and dropped when there is none rather than carried as null. The optionality then
-        // means what it says and no renderer downstream has to distinguish two spellings of
-        // "not stated".
         //
-        // The query has already withheld the parts for a stand with prices switched off, so a
-        // hidden price arrives as null and simply never becomes a field.
-        usualOfferings: (
-          (row.usual_offerings as
-            | { itemName: string; price: StandItemPrice | null }[]
-            | null) ?? []
-        ).map((offering) => {
-          const priceText = renderStandItemPrice(offering.price);
-          return {
-            itemName: offering.itemName,
-            ...(priceText === null ? {} : { priceText }),
-          };
-        }),
+        // DERIVED FROM THE SELLERS (C.5), deduplicated by name across them: a customer reading
+        // "usually sells" wants to know what is on offer here, and printing "eggs" twice
+        // because two sellers both usually carry them reads as two facts about eggs. WHOSE they
+        // are is the detail card's question, and `sellers` carries the answer intact.
+        //
+        // The price is already rendered by the reader, and already withheld there for a stand
+        // with prices switched off — gated in SQL so the value never leaves the database.
+        usualOfferings: dedupeByItemName(
+          sellers.flatMap((seller) => seller.usualItems),
+        ),
         // F-043 — always present, `{}` when the stand stated nothing. The inner fields carry
         // the stated/unstated distinction; see `readAvailability`.
         availability: readAvailability(row),
@@ -630,27 +634,76 @@ export async function listPublicStands(
         // Empty, never absent — the same rule as `usualOfferings` above.
         links: (row.links as PublicStandLink[] | null) ?? [],
         paymentMethods: (row.payment_methods as string[] | null) ?? [],
-        items: [],
+        // The stand-wide union, deduplicated the same way and for the same reason. Derived
+        // rather than read a second time, which is what keeps it from becoming a second fact.
+        items: dedupeByItemName(sellers.flatMap((seller) => seller.confirmedItems)),
+        sellers,
       };
       byLocation.set(locationId, stand);
     }
-
-    // A revision with no entries still appears — the farmer confirmed an empty stand, and
-    // that is a fact worth showing with its date.
-    if (row.item_name === null || row.item_name === undefined) continue;
-
-    stand.items.push({
-      itemName: row.item_name as string,
-      ...(row.quantity !== null ? { quantity: Number(row.quantity) } : {}),
-      ...(row.unit !== null ? { unit: row.unit as string } : {}),
-      ...(row.price_text !== null ? { priceText: row.price_text as string } : {}),
-      ...(row.approximation !== null
-        ? { approximation: row.approximation as "some" | "limited" | "plentiful" }
-        : {}),
-    });
   }
 
-  return [...byLocation.values()];
+  /*
+    MOST-RECENTLY-CONFIRMED FIRST, never-confirmed last (B-013).
+
+    Sorted here rather than in SQL since C.5: the ordering key is the stand's freshest LIVE
+    confirmation, and that is now a per-seller fact the database cannot express in one
+    `order by` without the stand-wide join this phase removed. `asOf` is absent exactly for a
+    stand nothing live was confirmed at, and those go last rather than being sorted as though
+    they were infinitely old.
+  */
+  return [...byLocation.values()].sort((a, b) => {
+    if (a.asOf === undefined && b.asOf === undefined) return a.factId.localeCompare(b.factId);
+    if (a.asOf === undefined) return 1;
+    if (b.asOf === undefined) return -1;
+    return b.asOf.getTime() - a.asOf.getTime() || a.factId.localeCompare(b.factId);
+  });
+}
+
+/**
+ * One published entry as the public surface carries it.
+ *
+ * The reader's `entryId` is deliberately dropped: it is a durable identifier the map has no use
+ * for, and a public payload states what a customer needs rather than every column that was read.
+ */
+function publicItem(item: {
+  itemName: string;
+  quantity?: number;
+  unit?: string;
+  priceText?: string;
+  approximation?: "some" | "limited" | "plentiful";
+}): PublicStandItem {
+  return {
+    itemName: item.itemName,
+    ...(item.quantity === undefined ? {} : { quantity: item.quantity }),
+    ...(item.unit === undefined ? {} : { unit: item.unit }),
+    ...(item.priceText === undefined ? {} : { priceText: item.priceText }),
+    ...(item.approximation === undefined ? {} : { approximation: item.approximation }),
+  };
+}
+
+/**
+ * Collapse a stand-wide list to one entry per item name, keeping the first.
+ *
+ * **The first, not a merge.** Two sellers' eggs have two prices and two freshnesses, and there
+ * is no honest way to state both on a single stand-wide line — §customer behavior rejects a
+ * price range and a suppressed price alike. So the stand-wide list answers "is there kale
+ * here" and the DETAIL CARD, reading `sellers`, answers "whose, at what price, confirmed when".
+ *
+ * Case-sensitive, matching `groupProviderItems` and for the same reason: the vocabulary is
+ * already reconciled by the reader's `stand_items` join, so a surviving difference is a real
+ * difference between two sellers' own words, and folding it would print one seller's spelling
+ * over another's.
+ */
+function dedupeByItemName<Item extends { itemName: string }>(items: Item[]): Item[] {
+  const seen = new Set<string>();
+  const kept: Item[] = [];
+  for (const item of items) {
+    if (seen.has(item.itemName)) continue;
+    seen.add(item.itemName);
+    kept.push(item);
+  }
+  return kept;
 }
 
 /**
@@ -762,5 +815,9 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     paymentMethods: stand.paymentMethods,
     ...(stand.closure !== undefined ? { closure: stand.closure } : {}),
     items: stand.items,
+    // F-114 C.5 — always sent, `[]` for a venue nobody has been invited to. The detail card's
+    // source; `items` above is the union of these, derived on the server so the two shapes
+    // cannot come to disagree about what a stand holds.
+    sellers: stand.sellers,
   };
 }
