@@ -146,6 +146,7 @@ function AccessRoster({
             <span>{row.senderMask}</span>
             <button
               type="button"
+              className="admin-action-danger"
               aria-label={`Revoke ${row.senderMask}`}
               disabled={busy === row.authorizationId}
               onClick={() => void revoke(row)}
@@ -169,6 +170,7 @@ function Card({
   title,
   subtitle,
   attention,
+  glyph,
   open,
   onToggle,
   children,
@@ -177,28 +179,49 @@ function Card({
   title: string;
   subtitle: string;
   attention: string | null;
+  /** One character standing for the kind of thing this row is. */
+  glyph: string;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
 }) {
   return (
-    <li className="admin-entity-card">
-      <button
-        type="button"
-        className="admin-entity-summary"
-        aria-expanded={open}
-        aria-controls={`entity-${id}`}
-        onClick={onToggle}
-      >
-        <span className="admin-entity-name">{title}</span>
-        <span className="admin-entity-subtitle">{subtitle}</span>
-        {attention !== null && <span className="admin-entity-attention">{attention}</span>}
-      </button>
-      {open && (
-        <div className="admin-entity-detail" id={`entity-${id}`} role="group" aria-label={title}>
-          {children}
-        </div>
-      )}
+    <li className="admin-farm-card">
+      <details open={open}>
+        {/*
+          The same scan row the farm directory already uses: caret, glyph, identity, meta,
+          states. Reused rather than restyled — a second row vocabulary would mean two visual
+          languages for one console, and the fixed leading columns are what keep every name on
+          the same x down a long list.
+        */}
+        <summary
+          className="admin-row"
+          onClick={(event) => {
+            event.preventDefault();
+            onToggle();
+          }}
+        >
+          <span className="admin-row-caret" aria-hidden="true" />
+          <span className="admin-row-glyph" aria-hidden="true">
+            {glyph}
+          </span>
+          <span className="admin-row-identity">
+            <strong>{title}</strong>
+            <span className="admin-row-sub">{subtitle}</span>
+          </span>
+          <span className="admin-row-meta" />
+          <span className="admin-row-states">
+            {attention !== null && (
+              <span className="admin-pill admin-pill--attention">{attention}</span>
+            )}
+          </span>
+        </summary>
+        {open && (
+          <div className="admin-entity-detail" id={`entity-${id}`} role="group" aria-label={title}>
+            {children}
+          </div>
+        )}
+      </details>
     </li>
   );
 }
@@ -301,7 +324,7 @@ export function StandsAndSellers({
       </p>
 
       {view === "stands" ? (
-        <ul className="admin-entity-list">
+        <ul className="admin-farms">
           {visibleStands.map((stand) => (
             <Card
               key={stand.standId}
@@ -309,6 +332,7 @@ export function StandsAndSellers({
               title={stand.name}
               subtitle={stand.farmName}
               attention={standAttention(stand)}
+              glyph="◱"
               open={open === stand.standId}
               onToggle={() => setOpen(open === stand.standId ? null : stand.standId)}
             >
@@ -318,7 +342,7 @@ export function StandsAndSellers({
           ))}
         </ul>
       ) : (
-        <ul className="admin-entity-list">
+        <ul className="admin-farms">
           {visibleSellers.map((seller) => (
             <Card
               key={seller.farmId}
@@ -330,6 +354,7 @@ export function StandsAndSellers({
                   : `${seller.providers.length} stands`
               }
               attention={sellerAttention(seller)}
+              glyph="✿"
               open={open === seller.farmId}
               onToggle={() => setOpen(open === seller.farmId ? null : seller.farmId)}
             >

@@ -176,22 +176,29 @@ export function SellerControls({
   return (
     <section className="admin-seller-controls">
       {editing === null ? (
-        <div className="admin-seller-actions">
+        <div className="admin-button-row">
           <button
             type="button"
             disabled={busy}
+            className="admin-action-secondary"
             onClick={() => setEditing({ name: row.name, description: row.description ?? "" })}
           >
             Edit details
           </button>
 
-          <button type="button" disabled={busy} onClick={() => void setApproved(!row.approved)}>
+          <button
+            type="button"
+            className={row.approved ? "admin-action-secondary" : "admin-action-primary"}
+            disabled={busy}
+            onClick={() => void setApproved(!row.approved)}
+          >
             {row.approved ? "Remove approval" : "Approve"}
           </button>
 
           {canUpdate ? null : (
             <button
               type="button"
+              className="admin-action-primary"
               disabled={busy}
               aria-label={`New setup link for ${row.name}`}
               onClick={() => void createSetupLink()}
@@ -200,14 +207,24 @@ export function SellerControls({
             </button>
           )}
 
-          <button type="button" disabled={busy} onClick={() => void setTestFarm(!row.isTestFarm)}>
+          <button
+            type="button"
+            className="admin-action-secondary"
+            disabled={busy}
+            onClick={() => void setTestFarm(!row.isTestFarm)}
+          >
             {row.isTestFarm ? "No longer a test farm" : "Mark as a test farm"}
           </button>
 
           {row.retired ? (
             // One click back, no confirmation: restoring is reversible and refusing to make it
             // easy only strands the operator (F-071).
-            <button type="button" disabled={busy} onClick={() => void setRetired(false)}>
+            <button
+              type="button"
+              className="admin-action-secondary"
+              disabled={busy}
+              onClick={() => void setRetired(false)}
+            >
               Put back on the map
             </button>
           ) : confirmingRetire ? (
@@ -215,21 +232,35 @@ export function SellerControls({
               <span>
                 Customers no longer see this farm or its stands. Everything it published is kept.
               </span>
-              <button type="button" disabled={busy} onClick={() => void setRetired(true)}>
+              <button
+                type="button"
+                className="admin-action-danger"
+                disabled={busy}
+                onClick={() => void setRetired(true)}
+              >
                 Remove
               </button>
-              <button type="button" onClick={() => setConfirmingRetire(false)}>
+              <button
+                type="button"
+                className="admin-action-secondary"
+                onClick={() => setConfirmingRetire(false)}
+              >
                 Keep
               </button>
             </span>
           ) : (
-            <button type="button" disabled={busy} onClick={() => setConfirmingRetire(true)}>
+            <button
+              type="button"
+              className="admin-action-danger"
+              disabled={busy}
+              onClick={() => setConfirmingRetire(true)}
+            >
               Take off the map
             </button>
           )}
         </div>
       ) : (
-        <div className="admin-seller-edit">
+        <div className="admin-seller-edit admin-button-row">
           <label htmlFor={`name-${row.farmId}`}>Farm name</label>
           <input
             id={`name-${row.farmId}`}
@@ -250,10 +281,15 @@ export function SellerControls({
               )
             }
           />
-          <button type="button" disabled={busy} onClick={() => void saveDetails()}>
+          <button
+            type="button"
+            className="admin-action-primary"
+            disabled={busy}
+            onClick={() => void saveDetails()}
+          >
             Save
           </button>
-          <button type="button" onClick={() => setEditing(null)}>
+          <button type="button" className="admin-action-secondary" onClick={() => setEditing(null)}>
             Cancel
           </button>
         </div>

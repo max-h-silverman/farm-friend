@@ -178,19 +178,24 @@ export function SellerParticipation({
             </span>
             <button
               type="button"
+              className="admin-action-danger"
               disabled={busy === row.providerId}
               onClick={() => void send(row, "end")}
             >
               Remove
             </button>
-            <button type="button" onClick={() => setConfirming(null)}>
+            <button
+              type="button"
+              className="admin-action-secondary"
+              onClick={() => setConfirming(null)}
+            >
               Keep
             </button>
           </span>
         ) : (
           <button
             type="button"
-            className="admin-participation-remove"
+            className="admin-participation-remove admin-action-danger"
             aria-label={`Remove ${subject}`}
             disabled={busy === row.providerId}
             onClick={() => setConfirming(row.providerId)}
