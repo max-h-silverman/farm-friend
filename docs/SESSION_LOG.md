@@ -13,9 +13,10 @@ mid-session defeats its own purpose.
 
 ## 2026-08-16 (latest) — Whose goods are these? (F-114 Phase C.5, the customer's half — the last phase)
 
-Merged as **`0f9f470`** (PR #129). Integration **1347/1347 across 96 of 96 files**, up from
+Merged as **`9d9ff58`** (PR #129). Integration **1347/1347 across 96 of 96 files**, up from
 1289/1289 across 92; unit **2,152** with the 7 corpus skips. Typecheck, lint and scripted evals
-(11/11, 4/4, 19/19) green. **F-114 is complete** — every phase from B to C.5 is on `main`, and the
+(11/11, 4/4, 19/19) green, and **re-verified on the merged base** — all four suites again, plus
+`drizzle-kit generate` still reporting *"No schema changes"*, so the snapshot is healthy. **F-114 is complete** — every phase from B to C.5 is on `main`, and the
 nine-migration queue (`0042`–`0050`) is unchanged, because C.5 added no migration at all: Phase B
 had already given `stand_items` and `inventory_revisions` their provider column. Every criterion
 in the PM item is checked except the physical-handset pass, which is max's.
