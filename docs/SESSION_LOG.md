@@ -100,9 +100,12 @@ because publication resets the cadence.
 
 **Owed:** `0042`–`0051` remain unapplied and nothing is deployed, so every defect above is latent
 rather than live. **F-116 now has a writer and no entry point** — `setProviderParticipation` has
-zero production callers, so pause/end is mechanism-complete and unreachable; max decided
-(2026-08-17) the surface is controls in the admin views and the seller's own settings screen,
-not an SMS keyword. The handset passes C.3/C.4/C.5 owe are unchanged.
+zero production callers, so pause/end is mechanism-complete and unreachable. max decided
+(2026-08-17) the surface is controls in the admin views and the seller's own settings screen, not
+an SMS keyword, and **it ships with F-101, which widened from the F-100 audit's leftover copy
+fixes into the admin UI refactor**: F-116 keeps the mechanism and its authority rule, F-101 owns
+the surface, so the two are not tracked in two places. The handset passes C.3/C.4/C.5 owe are
+unchanged.
 
 ---
 

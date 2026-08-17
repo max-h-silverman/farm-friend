@@ -145,10 +145,11 @@ and `GENERIC_WORDS` keep their names.
 
 - **`0042` through `0051`, in order, must be applied to production before the code that requires
   them.** All ten are Max's call.
-- **Pause/end has a writer and no entry point** (F-116). `setProviderParticipation`, its authority
-  rule and every consequence are built and tested, with **zero production callers** — nothing a
-  farmer or VIGA can press reaches it. The surface is decided (max, 2026-08-17): **controls in the
-  admin views and in the seller's own settings screen**, not an SMS keyword.
+- **Pause/end has a writer and no entry point.** `setProviderParticipation`, its authority rule and
+  every consequence are built and tested (F-116), with **zero production callers** — nothing a
+  farmer or VIGA can press reaches it. The surface ships with **F-101, the admin UI refactor**
+  (max, 2026-08-17): controls in the admin views and in the seller's own settings screen, not an
+  SMS keyword. F-116 keeps the mechanism; F-101 owns the surface.
 - **VIGA's stock-out queue is the only destination for reports at the 18 stands publishing no
   confirmed inventory** — decided and accepted (max, 2026-08-16), not an open question. Those stands
   are texted today and will not be once C.3 deploys; it resolves as they start confirming inventory.
@@ -190,7 +191,8 @@ and `GENERIC_WORDS` keep their names.
 - Phone-width visual checks remain owed for onboarding, farmer settings/listing, map details, and the
   three administrator tabs — including the two new invitation controls, whose once-shown link sits in
   a read-only input a farmer has to be able to select on a handset. F-065, F-084, B-008, B-034,
-  B-036, F-101, and B-048 remain planned.
+  B-036, and B-048 remain planned; **F-101 is now the admin UI refactor** and carries the pause/end
+  controls alongside the F-100 audit's remaining findings.
 - VIGA must decide whether Vashon Island Farmers Market belongs in the roster as a farm. F-108 remains
   an idea for a per-answer map showing only returned stands.
 
