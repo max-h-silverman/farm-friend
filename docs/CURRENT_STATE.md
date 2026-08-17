@@ -19,7 +19,7 @@
 
 ## F-114 — what is on `main` and NOT deployed
 
-Phases B through C.4 are merged; **C.5 is all that remains.** The governing contract is §the
+Phases B through C.4 are merged (C.4 as `ac3fcd5`, PR #128); **C.5 is all that remains.** The governing contract is §the
 stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; the reasoning
 behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 

@@ -13,9 +13,10 @@ mid-session defeats its own purpose.
 
 ## 2026-08-16 (latest) — Whose schedule is this? (F-114 Phase C.4, cadence + scheduler + paused re-opening)
 
-Merged as **`0a34bbd`** (PR #128). Integration is **1289/1289 across 92 of 92 files**, up from
+Merged as **`ac3fcd5`** (PR #128). Integration is **1289/1289 across 92 of 92 files**, up from
 1248/1248 across 88; unit is 2,080 with the 7 corpus skips. Typecheck, lint and scripted evals
-(11/11, 4/4, 19/19) green. `packages/ai` and `packages/core` are untouched across the whole phase —
+(11/11, 4/4, 19/19) green, and **re-verified on the merged base** — tests, typecheck, lint, and
+`drizzle-kit generate` still reporting "No schema changes" — not only on the branch. `packages/ai` and `packages/core` are untouched across the whole phase —
 `git diff --stat main` empty for both, with the search proved against a known-present term first —
 so no live eval run was owed. **`0048`, `0049` and `0050` join `0042`–`0047` unapplied to
 production, taking the queue to nine.** Five tranches.
@@ -123,6 +124,11 @@ legitimately produces. Every structural assertion passed; only the asserted BODY
 **One real defect, caught by a test rather than by reading.** `participantNamesByLocation` is keyed
 by stand, and the seller-name box initialised its text with what had just become a LISTING id. Both
 are UUIDs, both lookups compile, and every load would have shown an empty seller list.
+
+**Nothing deployed, deliberately** (max, 2026-08-16, asked at the wrap). Production is nine
+migrations behind and the merged code needs `0042` before it can serve a single write, so applying
+them and deploying is one act rather than two — and the nine are Max's call. Production keeps
+serving `farm-friend-web-00082-2pl`, which predates every writer that needs them and is unaffected.
 
 **Still not built: C.5** — the public seller list and item-first cards.
 
