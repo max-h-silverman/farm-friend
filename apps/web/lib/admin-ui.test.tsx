@@ -476,6 +476,7 @@ describe("the farmer stand form", () => {
       locationName: "Orchard Stand",
       sellerName: "Own Seller",
       describesOwnStand: true,
+      mayPause: true,
       selected: true,
       cadence: null,
     },

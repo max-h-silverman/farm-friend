@@ -3493,6 +3493,21 @@ form.farmer-picker-next {
   font-size: 1rem;
 }
 
+/* The pause/Remove pair under one listing (F-101). Wraps rather than shrinking, so the
+   confirmation's two buttons stay full-size on a phone — a farmer ending a listing should not
+   be aiming at a squeezed control. */
+.farmer-settings-listing-controls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.farmer-settings-listing-warning {
+  flex-basis: 100%;
+  margin: 0;
+}
+
 .farmer-settings-schedule label {
   font-size: 0.92rem;
 }

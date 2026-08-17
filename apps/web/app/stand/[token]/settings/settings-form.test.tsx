@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import "@testing-library/jest-dom/vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailsPanel, useTabCommit } from "../details-panel";
@@ -14,6 +14,7 @@ const listings: Parameters<typeof SettingsForm>[0]["listings"] = [
     locationName: "Orchard Stand",
     sellerName: "Own Seller",
     describesOwnStand: true,
+    mayPause: true,
     selected: true,
     cadence: null,
   },
@@ -23,6 +24,7 @@ const listings: Parameters<typeof SettingsForm>[0]["listings"] = [
     locationName: "Harbor Stand",
     sellerName: "Own Seller",
     describesOwnStand: true,
+    mayPause: true,
     selected: false,
     cadence: "paused" as const,
   },
@@ -36,6 +38,7 @@ const oneListing: Parameters<typeof SettingsForm>[0]["listings"] = [
     locationName: "Orchard Stand",
     sellerName: "Own Seller",
     describesOwnStand: true,
+    mayPause: true,
     selected: true,
     cadence: "weekly" as const,
   },
@@ -387,5 +390,139 @@ describe("farmer reminder settings", () => {
 
     expect(await screen.findByRole("alert")).toBeVisible();
     expect(screen.queryByText("Settings saved.")).not.toBeInTheDocument();
+  });
+  describe("pausing, resuming and ending her own listing", () => {
+    /*
+      F-101 — the seller half of the pause/end surface.
+
+      The authority rule (F-116, re-confirmed 2026-08-16): a SELLER may pause, resume and end;
+      a HOST may end and may NEVER pause; VIGA may do all three. The screen's obligation is
+      narrower than the seam's and stated in the acceptance criterion: it must never OFFER a
+      control that would be refused. `mayPause` carries the seam's own arm to the render, so
+      these cases assert presence and absence rather than re-deriving who is the seller.
+    */
+
+    const hosted: Parameters<typeof SettingsForm>[0]["listings"] = [
+      {
+        providerId: "own-listing",
+        salesLocationId: "loc-a",
+        locationName: "Orchard Stand",
+        sellerName: "Own Seller",
+        describesOwnStand: true,
+        mayPause: true,
+        selected: true,
+        cadence: null,
+      },
+      {
+        providerId: "guest-listing",
+        salesLocationId: "loc-a",
+        locationName: "Orchard Stand",
+        sellerName: "Fernhorn Bakery",
+        describesOwnStand: false,
+        // She HOSTS this one. End only — never a pause control.
+        mayPause: false,
+        selected: false,
+        cadence: null,
+      },
+    ];
+
+    it("pauses her own listing on its own press, and offers the way back afterwards", async () => {
+      const fetchMock = vi.fn(async () =>
+        Response.json({ status: "changed", lifecycleState: "paused", ended: false }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      render(<SettingsForm token="private-token" listings={oneListing} />);
+
+      // Her ONLY listing, so the control speaks about the stand — max's adapting label, on the
+      // farmer's own screen. It is still that provider's participation underneath.
+      await user.click(screen.getByRole("button", { name: /close my stand/i }));
+
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/farmer/participation",
+        expect.objectContaining({
+          body: JSON.stringify({
+            token: "private-token",
+            providerId: "stand-a",
+            transition: "pause",
+          }),
+        }),
+      );
+      // The control now offers the WAY BACK, because pausing is the reversible act.
+      expect(await screen.findByRole("button", { name: /open my stand/i })).toBeVisible();
+    });
+
+    it("never offers a HOST the pause control, and still offers her Remove", () => {
+      /*
+        The acceptance criterion exactly: an absent control, never a button that returns
+        `not_authorized`. Asserted as an absence scoped to the hosted listing — a page-wide
+        `queryByRole` would pass simply because her OWN listing's pause button exists.
+      */
+      render(<SettingsForm token="private-token" listings={hosted} />);
+
+      const guest = screen.getByRole("group", { name: "Orchard Stand — Fernhorn Bakery" });
+      expect(within(guest).queryByRole("button", { name: /pause/i })).toBeNull();
+      expect(within(guest).getByRole("button", { name: /remove/i })).toBeVisible();
+
+      // Her own listing, on the same screen, still has both. Without this the test would pass
+      // against a screen that had simply lost the pause control everywhere.
+      const own = screen.getByRole("group", { name: "Orchard Stand" });
+      expect(within(own).getByRole("button", { name: /pause/i })).toBeVisible();
+    });
+
+    it("puts Remove behind a confirmation and never offers to restore", async () => {
+      /*
+        Remove is `end` and is terminal (max, 2026-08-17): there is no inverse, so the UI must
+        not imply one. Coming back is a fresh invitation the seller must accept.
+      */
+      const fetchMock = vi.fn(async () =>
+        Response.json({ status: "changed", lifecycleState: "active", ended: true }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      render(<SettingsForm token="private-token" listings={oneListing} />);
+
+      await user.click(screen.getByRole("button", { name: /remove/i }));
+      // The first press ASKS. Nothing has been written yet.
+      expect(fetchMock).not.toHaveBeenCalled();
+
+      await user.click(screen.getByRole("button", { name: /yes, remove/i }));
+      expect(fetchMock).toHaveBeenCalledWith(
+        "/api/farmer/participation",
+        expect.objectContaining({
+          body: JSON.stringify({
+            token: "private-token",
+            providerId: "stand-a",
+            transition: "end",
+          }),
+        }),
+      );
+
+      // No inverse anywhere on screen afterwards.
+      expect(await screen.findByText(/removed/i)).toBeVisible();
+      expect(screen.queryByRole("button", { name: /restore|undo|re-?add/i })).toBeNull();
+      expect(screen.queryByRole("button", { name: /^pause$/i })).toBeNull();
+    });
+
+    it("does not ride Save settings, and Save does not end anything", async () => {
+      // The same guarantee Invite has, for the same reason: these acts are immediate and
+      // terminal, and a Save that carried them would end a listing nobody asked to end.
+      const fetchMock = vi.fn(async () =>
+        Response.json({ activeDisplayNames: ["Neighbor Farm"] }),
+      );
+      vi.stubGlobal("fetch", fetchMock);
+      const user = userEvent.setup();
+      render(<SettingsForm token="private-token" listings={oneListing} />);
+
+      await user.type(screen.getByLabelText("Seller names"), "Neighbor Farm");
+      await user.click(screen.getByRole("button", { name: "Save settings" }));
+      expect(await screen.findByText("Settings saved.")).toBeVisible();
+
+      expect(fetchMock).toHaveBeenCalledTimes(1);
+      expect(fetchMock).not.toHaveBeenCalledWith(
+        "/api/farmer/participation",
+        expect.anything(),
+      );
+    });
   });
 });
