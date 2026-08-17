@@ -110,6 +110,31 @@ const sellers: SellerCard[] = [
   },
 ];
 
+/** A seller nobody has approved yet, and one VIGA has taken off the map. */
+const unapproved: SellerCard[] = [
+  {
+    farmId: "seller-sprout",
+    name: "Sprout Farm",
+    approved: false,
+    retired: false,
+    isTestFarm: false,
+    providers: [],
+    access: [],
+  },
+];
+
+const retiredSeller: SellerCard[] = [
+  {
+    farmId: "seller-gone",
+    name: "Gone Farm",
+    approved: true,
+    retired: true,
+    isTestFarm: false,
+    providers: [],
+    access: [],
+  },
+];
+
 function renderPage() {
   return render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
 }
@@ -242,5 +267,166 @@ describe("a seller shows where she sells", () => {
     const card = screen.getByRole("group", { name: /Fernhorn Farm/i });
 
     expect(within(card).getByText(/nobody can update/i)).toBeInTheDocument();
+  });
+});
+
+/*
+  The controls that used to live on the old farm card, which no page rendered any more. They
+  are here because VIGA's job is to view and edit sellers (max, 2026-08-17) — each is a thing
+  an operator does while looking at a seller, not a screen of its own.
+
+  Each asserts the WIRE — the request that actually goes out — because that is what a migration
+  between components can silently break while the button still renders.
+*/
+async function openSeller(name: string): Promise<HTMLElement> {
+  await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
+  await userEvent.click(screen.getByText(name));
+  return screen.getByRole("group", { name: new RegExp(name, "i") });
+}
+
+function ok(payload: unknown = {}) {
+  return vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
+}
+
+describe("approving a seller", () => {
+  it("approves through the sellers route", async () => {
+    const fetcher = ok();
+    render(<StandsAndSellers stands={stands} sellers={unapproved} fetcher={fetcher} />);
+
+    const card = await openSeller("Sprout Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /^approve$/i }));
+
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/admin/sellers");
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      farmId: "seller-sprout",
+      action: "approve",
+    });
+    expect(await within(card).findByText(/can publish updates/i)).toBeInTheDocument();
+  });
+
+  it("removes approval from an approved seller", async () => {
+    const fetcher = ok();
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /remove approval/i }));
+
+    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ action: "revoke" });
+  });
+});
+
+describe("taking a seller off the map", () => {
+  it("asks before removing, and sends nothing until confirmed", async () => {
+    const fetcher = vi.fn();
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /take off the map/i }));
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(within(card).getByText(/customers no longer see/i)).toBeInTheDocument();
+  });
+
+  it("retires once confirmed", async () => {
+    const fetcher = ok();
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /take off the map/i }));
+    await userEvent.click(within(card).getByRole("button", { name: /^remove$/i }));
+
+    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ action: "retire" });
+  });
+
+  it("puts a retired seller back with one click, no confirmation", async () => {
+    const fetcher = ok();
+    render(<StandsAndSellers stands={stands} sellers={retiredSeller} fetcher={fetcher} />);
+
+    const card = await openSeller("Gone Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /put back on the map/i }));
+
+    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ action: "restore" });
+  });
+});
+
+describe("the setup link", () => {
+  it("mints a link and shows it on the card that made it", async () => {
+    const fetcher = ok({ link: "https://ff.example/farmer/start/abc123" });
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Fernhorn Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /setup link/i }));
+
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/admin/farmers");
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      action: "create_invite",
+      farmId: "seller-fern",
+      channel: "sms",
+    });
+    // Shown ON THIS CARD: it is never re-readable from the server, so a link that appeared
+    // somewhere else on the page would be a credential the operator could lose track of.
+    expect(await within(card).findByText(/ff\.example\/farmer\/start\/abc123/)).toBeInTheDocument();
+    // The lifetime belongs in the label — "link" alone is what made the two links
+    // indistinguishable to a volunteer.
+    expect(within(card).getByText(/7 days/i)).toBeInTheDocument();
+  });
+});
+
+describe("the setup link is offered only where it solves something", () => {
+  it("offers no setup link to a seller who already has someone who can update it", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
+
+    // Misty Hollow has a live authorization. The button would invite the operator to solve a
+    // problem this farm does not have.
+    const card = await openSeller("Misty Hollow Farm");
+    expect(within(card).queryByRole("button", { name: /setup link/i })).not.toBeInTheDocument();
+  });
+
+  it("says an earlier link cannot be looked up, so nobody waits for one", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
+
+    const card = await openSeller("Fernhorn Farm");
+    // The operator must not be left thinking the old link can be recovered — it cannot, and
+    // the copy has to say so rather than letting them assume otherwise.
+    expect(within(card).getByText(/cannot be looked up/i)).toBeInTheDocument();
+  });
+});
+
+describe("test farms", () => {
+  it("marks a seller as a test farm", async () => {
+    const fetcher = ok();
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /mark as a test farm/i }));
+
+    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ action: "mark_test" });
+  });
+});
+
+describe("editing a seller's details", () => {
+  it("saves a corrected name and description", async () => {
+    const fetcher = ok();
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /edit details/i }));
+
+    const name = within(card).getByLabelText(/farm name/i);
+    await userEvent.clear(name);
+    await userEvent.type(name, "Misty Hollow Farmstead");
+    await userEvent.click(within(card).getByRole("button", { name: /^save$/i }));
+
+    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      action: "save_details",
+      name: "Misty Hollow Farmstead",
+    });
   });
 });

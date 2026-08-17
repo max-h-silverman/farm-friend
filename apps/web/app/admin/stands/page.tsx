@@ -8,6 +8,7 @@ import {
 import { resolveAdministrator } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { AdminShell, SignedOutAdmin } from "../admin-shell";
+import { asStandCards } from "../stand-cards";
 import { StandsAndSellers, type SellerCard, type StandCard } from "../stands-and-sellers";
 
 // Stands & Sellers — the one destination VIGA spends its time in.
@@ -61,14 +62,23 @@ export default async function StandsAndSellersPage() {
     else sellerRows.push(row);
   }
 
-  const standCards: StandCard[] = stands.map((stand) => ({
-    standId: stand.standId,
-    name: stand.name,
-    farmName: stand.farmName,
-    approved: stand.approved,
-    retired: stand.retired,
-    providers: byStand.get(stand.standId) ?? [],
-  }));
+  // `asStandCards` builds the shape `StandDetails` already renders — the stand's own metadata,
+  // its retire/restore control, its Farm Bucks decision and the F-114 invite button. Reused
+  // rather than rebuilt, from the same query, so there is one way to render a stand.
+  const detailsByStand = new Map(asStandCards(stands).map((card) => [card.standId, card]));
+
+  const standCards: StandCard[] = stands.map((stand) => {
+    const details = detailsByStand.get(stand.standId);
+    return {
+      standId: stand.standId,
+      name: stand.name,
+      farmName: stand.farmName,
+      approved: stand.approved,
+      retired: stand.retired,
+      providers: byStand.get(stand.standId) ?? [],
+      ...(details === undefined ? {} : { details }),
+    };
+  });
 
   // Masked at the query boundary: `listFarmerAuthorizations` returns `senderMask` and no phone
   // or hash, so this page could not leak a number even if it tried to render one.
@@ -90,6 +100,7 @@ export default async function StandsAndSellersPage() {
     name: farm.name,
     approved: farm.approved,
     retired: farm.retired,
+    description: farm.description,
     isTestFarm: farm.isTestFarm,
     providers: bySeller.get(farm.farmId) ?? [],
     access: accessByFarm.get(farm.farmId) ?? [],

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState } from "react";
+import { SellerControls } from "./seller-controls";
+import { StandDetails, type AdminStandCard } from "./stand-list";
 import { SellerParticipation, type ParticipationRow } from "./seller-participation";
 
 /**
@@ -27,6 +29,14 @@ export interface StandCard {
   approved: boolean;
   retired: boolean;
   providers: ParticipationRow[];
+  /**
+   * The stand's own details and controls, in the shape `StandDetails` already renders.
+   *
+   * Reused rather than rebuilt: that component owns retire/restore, the Farm Bucks decision and
+   * the F-114 invite button, each with its own copy and its own tests. Rewriting them here
+   * would be a second way to do one thing, and the two would drift.
+   */
+  details?: AdminStandCard;
 }
 
 /**
@@ -43,6 +53,7 @@ export interface SellerAccessRow {
 export interface SellerCard {
   farmId: string;
   name: string;
+  description?: string | null;
   approved: boolean;
   retired: boolean;
   isTestFarm: boolean;
@@ -128,9 +139,7 @@ function AccessRoster({
     <section className="admin-access-roster">
       <h4>Who can update this listing</h4>
       {live.length === 0 ? (
-        <p className="admin-note">
-          Nobody can update this listing. Send a setup link so the farmer can take it over.
-        </p>
+        <p className="admin-note">No handset can publish for this farm.</p>
       ) : (
         live.map((row) => (
           <p key={row.authorizationId} className="admin-access-row">
@@ -303,6 +312,7 @@ export function StandsAndSellers({
               open={open === stand.standId}
               onToggle={() => setOpen(open === stand.standId ? null : stand.standId)}
             >
+              {stand.details !== undefined && <StandDetails stands={[stand.details]} />}
               <SellerParticipation view="stand" rows={stand.providers} fetcher={fetcher} />
             </Card>
           ))}
@@ -323,6 +333,11 @@ export function StandsAndSellers({
               open={open === seller.farmId}
               onToggle={() => setOpen(open === seller.farmId ? null : seller.farmId)}
             >
+              <SellerControls
+                seller={seller}
+                canUpdate={seller.access.some((row) => row.revokedAt === null)}
+                fetcher={fetcher}
+              />
               <SellerParticipation view="seller" rows={seller.providers} fetcher={fetcher} />
               <AccessRoster seller={seller} fetcher={fetcher} />
             </Card>
