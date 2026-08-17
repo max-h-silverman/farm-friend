@@ -44,6 +44,16 @@ describe("the admin desk", () => {
     expect(view).toContain("admin-attention-summary");
   });
 
+  it("repeats no tab name above the stands view (F-101)", () => {
+    // max, 2026-08-17. The tab already says where you are, so a heading under it saying the
+    // same words is chrome — the `<h1>` rule one level down. Scoped to this page rather than
+    // to every admin page: the other two use section titles to name sections WITHIN the
+    // screen ("Invite a farmer"), which is a different job and stays.
+    const stands = page("apps/web/app/admin/stands/page.tsx");
+    expect(stands).not.toContain("admin-section-title");
+    expect(stands).not.toContain("Everything VIGA knows");
+  });
+
   it("keeps browsable records off a queue screen", () => {
     // Reference records live on /admin/stands, inside the farm they belong to — never behind a
     // second disclosure on a different screen. Anchored on the disclosure CLASS, which is the
@@ -70,6 +80,7 @@ describe("the admin desk", () => {
       expect(page(path), `${path} must not carry a page intro block`).not.toContain(
         "admin-page-intro",
       );
+
     }
   });
 });

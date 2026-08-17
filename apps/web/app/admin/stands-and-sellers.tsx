@@ -170,7 +170,6 @@ function Card({
   title,
   subtitle,
   attention,
-  glyph,
   open,
   onToggle,
   children,
@@ -179,8 +178,6 @@ function Card({
   title: string;
   subtitle: string;
   attention: string | null;
-  /** One character standing for the kind of thing this row is. */
-  glyph: string;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
@@ -189,10 +186,10 @@ function Card({
     <li className="admin-farm-card">
       <details open={open}>
         {/*
-          The same scan row the farm directory already uses: caret, glyph, identity, meta,
-          states. Reused rather than restyled — a second row vocabulary would mean two visual
-          languages for one console, and the fixed leading columns are what keep every name on
-          the same x down a long list.
+          The farm directory's own scan row, minus its glyph (max, 2026-08-17): caret,
+          identity, meta, states. Reused rather than restyled — a second row vocabulary would
+          mean two visual languages for one console, and the fixed leading columns are what
+          keep every name on the same x down a long list.
         */}
         <summary
           className="admin-row"
@@ -202,9 +199,6 @@ function Card({
           }}
         >
           <span className="admin-row-caret" aria-hidden="true" />
-          <span className="admin-row-glyph" aria-hidden="true">
-            {glyph}
-          </span>
           <span className="admin-row-identity">
             <strong>{title}</strong>
             <span className="admin-row-sub">{subtitle}</span>
@@ -332,7 +326,6 @@ export function StandsAndSellers({
               title={stand.name}
               subtitle={stand.farmName}
               attention={standAttention(stand)}
-              glyph="◱"
               open={open === stand.standId}
               onToggle={() => setOpen(open === stand.standId ? null : stand.standId)}
             >
@@ -354,7 +347,6 @@ export function StandsAndSellers({
                   : `${seller.providers.length} stands`
               }
               attention={sellerAttention(seller)}
-              glyph="✿"
               open={open === seller.farmId}
               onToggle={() => setOpen(open === seller.farmId ? null : seller.farmId)}
             >

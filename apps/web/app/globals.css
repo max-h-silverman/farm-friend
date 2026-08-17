@@ -6626,3 +6626,19 @@ button.admin-action-danger,
   overflow-wrap: anywhere;
   font-size: 0.85rem;
 }
+
+/* No glyph column on these rows (max, 2026-08-17): a per-row icon repeated down
+   a list is chrome the eye learns to skip, and the caret already says the row
+   opens. The identity column takes the space back so names still share one x. */
+.admin-stands-and-sellers .admin-row {
+  grid-template-columns: 1.25rem minmax(0, auto) minmax(0, 1fr) auto;
+}
+
+/* Pure white cards (max, 2026-08-17). The farm directory's container paints
+   `--paper` behind its rows; on this screen the card face is the card, so the
+   list and the opened body both take `--card` and the cream is left to the
+   hover state alone. */
+.admin-stands-and-sellers .admin-farms:has(.admin-farm-card),
+.admin-stands-and-sellers .admin-entity-detail {
+  background: var(--card);
+}

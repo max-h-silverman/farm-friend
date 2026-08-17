@@ -107,12 +107,10 @@ export default async function StandsAndSellersPage() {
   }));
 
   return (
+    // No heading and no subtitle (max, 2026-08-17, extending F-071's rule to this screen).
+    // The tab already says where you are; repeating it underneath is chrome, and the intro
+    // paragraph said nothing an operator could act on.
     <AdminShell currentPath="/admin/stands">
-      <h2 className="admin-section-title">Stands &amp; Sellers</h2>
-      <p className="admin-note">
-        Everything VIGA knows about the island’s stands and the farms that sell at them. What a
-        stand has and when it is open belongs to the farmer — this is VIGA’s own record.
-      </p>
       <StandsAndSellers stands={standCards} sellers={sellerCards} />
     </AdminShell>
   );
