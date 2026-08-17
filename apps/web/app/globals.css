@@ -627,6 +627,107 @@ body {
   line-height: 1.5;
 }
 
+/*
+  F-114 C.5 — ITEM-FIRST, WITH SELLERS NESTED UNDER EACH ITEM.
+
+  The chip row above says "these things are here". It cannot say "these three sellers each have
+  tomatoes, at three prices, confirmed at three different times" — a chip has one line and the
+  card now has two axes. So the item becomes a heading and its sellers become the lines beneath
+  it, which overrides the flex-wrap chip layout for this list only.
+
+  WHY THE ITEM KEEPS THE CHIP'S WEIGHT AND LOSES ITS PILL. What a customer scans for is the
+  ITEM, so it stays the heaviest thing in the block. The pill shape goes because a pill implies
+  one countable fact, and this one now has children — a bordered capsule with a list inside it
+  reads as a container rather than as an item.
+
+  A SELLER LINE WITH NO NAME IS THE STAND'S OWN. `credit` is absent for it (by self-pointer),
+  so the line renders as price and freshness alone — nothing echoes the card's own heading back.
+*/
+.items-nested {
+  display: block;
+}
+
+.items-nested .item-group {
+  display: block;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  margin: 0 0 0.7rem;
+  font-size: inherit;
+}
+
+.items-nested .item-group:last-child {
+  margin-bottom: 0;
+}
+
+.items-nested .item-name {
+  display: block;
+  font-size: 0.98rem;
+  margin-bottom: 0.2rem;
+}
+
+.item-sellers {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0.75rem;
+  /* A quiet rule down the left, so the nesting is visible without indentation doing all the
+     work at phone width — where a 12px indent is nearly invisible on its own. */
+  border-left: 2px solid #cfe0d5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+/*
+  `.item-sellers .item-seller`, not `.item-seller` alone, and the extra class is load-bearing.
+
+  `.items li` is (0,1,1) and beat a bare (0,1,0) class, so the nested lines kept the chip's
+  pill background, border and 999px radius while this rule "read correctly" in the file. Only a
+  computed-style read of the running page showed it. Matching the parent's weight is what makes
+  the override actually apply.
+*/
+.item-sellers .item-seller {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  /* Overrides `.items li`'s chip: a nested line is a line, not a pill. */
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.item-seller-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/*
+  The per-seller freshness. Softer and smaller than the price beside it: it qualifies the claim
+  rather than being the claim, and the stand-level summary in the heading already carries the
+  headline answer.
+
+  It appears ONLY on a confirmed line. `standCardSections` leaves the field absent on a usual
+  one, so there is nothing here to style for a standing claim — the no-timestamp rule is
+  enforced in the data, and this stylesheet simply has no rule that could reveal one.
+*/
+.item-seller-recency {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* The same `--amber` `.listing-recency-aged` uses, so a stale seller line and a stale stand
+   heading warn in one colour rather than two near-misses. */
+.item-seller-recency-aged {
+  color: var(--amber);
+  font-weight: 600;
+}
+
 /* "Nothing confirmed recently." and the two no-listing sentences. */
 .listing-note {
   margin: 0 0 0.8rem;

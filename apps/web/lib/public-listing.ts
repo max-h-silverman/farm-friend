@@ -477,6 +477,27 @@ export async function listPublicStands(
 
     let stand = byLocation.get(locationId);
     if (!stand) {
+      const closure = readPublicClosure(row, now);
+      /*
+        A STAND SHUTDOWN OVERRIDES EVERY SELLER AND PUBLISHES NOTHING ITEMIZED (F-114).
+
+        A closed stand is a locked box. Whatever any seller published, and however fresh it is,
+        none of it is buyable there — so an active closure withholds every item, in BOTH
+        registers and in every shape the payload carries: the per-seller lists, the stand-wide
+        union, the usual offerings, and the recency that would date them.
+
+        Withheld HERE, beside the aged-out rule below and for the same reason: past this point
+        a closed stand is shaped exactly like a stand that has published nothing, so the map
+        card, the compact card, the search haystack and `standListingLines` all need no new
+        case. Suppressing in the detail card alone would leave a closed stand's stock answering
+        a produce search and printing on the compact card, with the card's own suite green.
+
+        The stand stays LISTED, with its closure notice — that is the point of publishing one.
+        Only the stock claim goes. An UPCOMING closure withholds nothing: it is information
+        about next week, and the stand is open now.
+      */
+      const shutDown = closure?.state === "active";
+
       /*
         AN AGED-OUT CONFIRMATION IS TREATED AS NO CONFIRMATION (max, 2026-08-10).
 
@@ -500,6 +521,7 @@ export async function listPublicStands(
       const sellers = (providerFacts.get(locationId) ?? []).map(
         (provider): PublicStandSeller => {
           const asOf =
+            !shutDown &&
             provider.publishedAt !== null &&
             !isConfirmationExpired(provider.publishedAt, now)
               ? provider.publishedAt
@@ -516,10 +538,15 @@ export async function listPublicStands(
             // Keeping the items while dropping the date is the "In stock, undatable" claim the
             // rule above exists to refuse.
             confirmedItems: asOf === undefined ? [] : provider.confirmedItems.map(publicItem),
-            usualItems: provider.usualItems.map((item) => ({
-              itemName: item.itemName,
-              ...(item.priceText === undefined ? {} : { priceText: item.priceText }),
-            })),
+            // A shutdown takes the STANDING claims too. "Fernhorn usually has sourdough" is as
+            // unbuyable as today's loaves when the stand is locked, and a usual line printing
+            // under a closure notice is the same false invitation the confirmed one would be.
+            usualItems: shutDown
+              ? []
+              : provider.usualItems.map((item) => ({
+                  itemName: item.itemName,
+                  ...(item.priceText === undefined ? {} : { priceText: item.priceText }),
+                })),
           };
         },
       );
@@ -542,7 +569,10 @@ export async function listPublicStands(
             publishedAt !== null && !isConfirmationExpired(publishedAt, now),
         );
       const asOf =
-        liveConfirmations.length === 0
+        // A shutdown takes the stand-wide date with the items it dated. Read from the same
+        // `shutDown` the sellers above were built from rather than re-testing the closure, so
+        // there is exactly one place the rule is decided.
+        shutDown || liveConfirmations.length === 0
           ? undefined
           : liveConfirmations.reduce((newest, candidate) =>
               candidate > newest ? candidate : newest,
@@ -555,7 +585,6 @@ export async function listPublicStands(
       const address = row.public_address as string | null;
       const latitude = row.public_latitude as number | null;
       const longitude = row.public_longitude as number | null;
-      const closure = readPublicClosure(row, now);
 
       stand = {
         factId: locationId,

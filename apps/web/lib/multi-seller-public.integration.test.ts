@@ -5,7 +5,7 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FixedClock } from "@farm-friend/core";
-import { createDb, type Db, type Sql } from "@farm-friend/db";
+import { createDb, openOrReviseProposal, type Db, type Sql } from "@farm-friend/db";
 import { listPublicStands, serializePublicStand } from "./public-listing";
 import { standCardSections } from "./stand-card";
 import { standListingLines } from "./map-view";
@@ -295,6 +295,121 @@ describe("multi-seller public surface (integration)", () => {
       "Last updated 2 hours ago",
       "Last updated 1 hour ago",
     ]);
+  });
+
+  describe("a stand shutdown overrides every seller", () => {
+    /*
+      F-114's open criterion: **a stand shutdown renders nothing itemized, and hosted sellers
+      are not notified.** A closed stand is a locked box — whatever any seller published, and
+      however fresh, none of it is buyable there.
+
+      ASSERTED ON THE PAYLOAD, not only on the card. `standCardSections` already refuses to
+      itemize under an active closure, but the payload feeds several readers: the compact card
+      reads `items`, the search haystack reads `items` and `usuallySells`, and SMS parity reads
+      the same fields. Suppressing only in the detail card would leave a closed stand's stock
+      answering a produce search and printing on the compact card, with the detail card's own
+      suite fully green — DEVELOPMENT.md §gotchas, the admin-reader lesson one level down.
+    */
+    /*
+      A closure revision names the authorization and approval it was published under — the
+      stand owner's, by `closure_revisions_guard_arm`. So closing the stand needs the host's
+      farmer authorization and VIGA approval to exist, which the fixture creates lazily here
+      rather than in `beforeAll`: no other case needs them, and a stand carrying a live
+      authorization would change what the other cases are reading.
+    */
+    const closeStand = async (): Promise<void> => {
+      const contacts = await sql()`
+        insert into contacts (phone_e164, phone_hash)
+        values ('+12065551234', 'closurehosthash0000000000000000000000')
+        on conflict (phone_hash) do update set phone_hash = excluded.phone_hash
+        returning id
+      `;
+      const authorizations = await sql()`
+        insert into farmer_authorizations (
+          seller_id, contact_id, phone_verified_at, authorized_at
+        )
+        select ${hostSellerId}, ${contacts[0]?.id as string}, ${hoursAgo(100)}, ${hoursAgo(100)}
+        where not exists (
+          select 1 from farmer_authorizations
+          where seller_id = ${hostSellerId} and contact_id = ${contacts[0]?.id as string}
+        )
+        returning id
+      `;
+      const authorizationId =
+        (authorizations[0]?.id as string | undefined) ??
+        ((
+          await sql()`
+            select id from farmer_authorizations
+            where seller_id = ${hostSellerId} and contact_id = ${contacts[0]?.id as string}
+          `
+        )[0]?.id as string);
+      const approvals = await sql()`
+        select id from seller_approvals where seller_id = ${hostSellerId}
+      `;
+      // Through the REAL proposal writer: a closure revision references
+      // `inventory_publication_proposals`, and hand-writing one would mean restating the
+      // payload shape and version rules the writer owns.
+      const proposal = await openOrReviseProposal(database(), {
+        senderHash: "closurehosthash0000000000000000000000",
+        salesLocationId: standId,
+        providerId: hostProviderId,
+        closure: { result: "close", closureKind: "temporary", startsOn: "2026-08-10" },
+        now: hoursAgo(6),
+      });
+      await sql()`
+        insert into closure_revisions (
+          owner_seller_id, sales_location_id, proposal_id, owner_authorization_id,
+          owner_approval_id, result, closure_kind, starts_on, published_at, is_current
+        ) values (
+          ${hostSellerId}, ${standId}, ${proposal.proposalId},
+          ${authorizationId}, ${approvals[0]?.id as string},
+          'close', 'temporary', '2026-08-10', ${hoursAgo(5)}, true
+        )
+      `;
+    };
+    /**
+     * Take the closure back down.
+     *
+     * SUPERSEDED, not deleted: `reject_closure_history_mutation` refuses every delete, because
+     * a stand's closure history is as immutable as its inventory. `is_current = false` is what
+     * a real reopening does, and `readPublicClosure` reads only the current row — so this is
+     * the production path rather than a test-only escape hatch.
+     */
+    const reopenStand = async (): Promise<void> => {
+      await sql()`
+        update closure_revisions set is_current = false, superseded_at = ${hoursAgo(4)}
+        where sales_location_id = ${standId} and is_current
+      `;
+    };
+
+    it("empties the itemized payload while the closure is active", async () => {
+      await closeStand();
+      try {
+        const payload = await findStand();
+        // The closure itself IS still published — the customer is told the stand is shut.
+        expect(payload.closure?.state).toBe("active");
+        // And nothing itemized survives it, in either register or either shape.
+        expect(payload.items).toEqual([]);
+        expect(payload.usuallySells).toEqual([]);
+        expect(
+          (payload.sellers ?? []).flatMap((seller) => seller.confirmedItems),
+        ).toEqual([]);
+        expect((payload.sellers ?? []).flatMap((seller) => seller.usualItems)).toEqual([]);
+        // No recency either: a date beside a closed stand claims a listing it does not have.
+        expect(payload.updated).toBeUndefined();
+        expect(standCardSections(payload)).toEqual([]);
+      } finally {
+        await reopenStand();
+      }
+    });
+
+    it("leaves everything itemized once the closure is gone", async () => {
+      // The other direction, and what makes the case above falsifiable — without it a reader
+      // that returned nothing for every stand would pass.
+      const payload = await findStand();
+      expect(payload.items.length).toBeGreaterThan(0);
+      expect(standCardSections(payload).length).toBeGreaterThan(0);
+    });
   });
 
   it("keeps the stand-wide item list agreeing with the per-seller one", async () => {

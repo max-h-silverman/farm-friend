@@ -1,9 +1,15 @@
+// The SUBPATH, not the barrel. This module is reached from `stand-map.tsx`, which is a client
+// component, so anything it imports is bundled for the BROWSER — and core's barrel re-exports
+// `privacy/phone`, which imports `node:crypto`. The build fails outright on it, which is the
+// good outcome; the failure mode worth naming is that no unit test can see this, because vitest
+// runs in Node where `node:crypto` resolves perfectly well. `map-view.ts` imports by subpath for
+// exactly this reason, and every browser-reachable core module needs one.
 import {
   groupProviderItems,
   sellerCredit,
   type ItemRegister,
   type ProviderItemFacts,
-} from "@farm-friend/core";
+} from "@farm-friend/core/seller-credit";
 import type { PublicStandPayload } from "./map-view";
 
 // F-114 Phase C.5 — THE STAND DETAIL CARD, ITEM-FIRST.
