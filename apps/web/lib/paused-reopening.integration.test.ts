@@ -9,6 +9,7 @@ import {
   confirmInventoryPublication,
   createDb,
   openOrReviseProposal,
+  setProviderParticipation,
   type Db,
 } from "@farm-friend/db";
 import {
@@ -202,26 +203,88 @@ describe("F-114 C.4 a paused listing is offered re-opening (integration)", () =>
     `;
   });
 
+  /**
+   * Pause through the REAL writer (F-115 Tranche D), never with a hand-written column.
+   *
+   * The whole point of this suite is that a paused listing behaves correctly, and until Tranche
+   * D there was no production statement that could produce one — so every case here proved the
+   * flow against a state no farmer could reach. Going through `setProviderParticipation` also
+   * exercises the invalidation that makes the re-open confirmation honest: the old token has to
+   * be dead, or a stale YES publishes silently and the seller is never asked.
+   */
   async function pause(): Promise<void> {
-    await handle().sql`
-      update stand_providers set lifecycle_state = 'paused' where id = ${providerId}
-    `;
+    const result = await setProviderParticipation(handle(), {
+      providerId,
+      transition: "pause",
+      senderHash,
+      occurredAt: BASE,
+    });
+    if (result.status !== "changed") {
+      throw new Error(`the pause fixture did not pause: ${result.status}`);
+    }
   }
 
-  it("refuses a prompt written BEFORE the pause, stating no consequence", async () => {
+  it("kills a token minted BEFORE the pause, and publishes nothing on its YES", async () => {
     /*
-      The whole rule in one case: not `not_authorized` (which would tell a paused seller she may
-      not update her own goods), not `published` (which would re-open a listing she deliberately
-      took down, on a YES that answered a sentence about stock), but a THIRD answer the caller
-      turns into a fresh confirmation.
+      F-115 Tranche D changed what this case measures, and the change is the point.
 
-      The prompt is composed while ACTIVE and the pause lands after — the scheduled-prompt case,
-      and the one where the farmer's YES genuinely cannot mean consent to re-opening because
-      nothing had mentioned it.
+      It used to pause by writing the column, so a token minted before the pause survived it and
+      landed on `paused_needs_reopening`. A real pause INVALIDATES that provider's open
+      confirmations (§facts and authority) — which is the guarantee the re-open confirmation
+      rests on: *"a stale YES must not publish silently and the seller must be asked."*
+
+      So the honest answer to a pre-pause YES is now `already_consumed` — the proposal is gone —
+      and the router turns that into "resend". What must be true either way is the part asserted
+      below: nothing publishes and the listing stays paused. The seller's next message opens a
+      NEW proposal that states the consequence, which the case after this one proves.
     */
     const { proposalId, requiresReopening } = await openProposal({ senderHash, providerId });
     expect(requiresReopening).toBe(false);
     await pause();
+
+    // The pause did the killing, before her YES ever arrives.
+    expect(await handle().sql`
+      select state from inventory_publication_proposals where id = ${proposalId}
+    `).toEqual([{ state: "invalidated" }]);
+
+    const result = await confirmInventoryPublication(handle(), {
+      proposalId,
+      senderHash,
+      token: "yes",
+      occurredAt: BASE,
+      providerEventId: `evt-${randomUUID()}`,
+      clock: new FixedClock(BASE),
+    });
+    expect(result.status).toBe("already_consumed");
+
+    // Nothing published, and the listing she took down stays down. These are the two claims
+    // that must hold whatever the refusal is CALLED.
+    expect(await handle().sql`
+      select count(*)::int as count from inventory_revisions where provider_id = ${providerId}
+    `).toEqual([{ count: 0 }]);
+    expect(await handle().sql`
+      select lifecycle_state from stand_providers where id = ${providerId}
+    `).toEqual([{ lifecycle_state: "paused" }]);
+  });
+
+  it("still answers `paused_needs_reopening` for a token that OUTLIVED the pause", async () => {
+    /*
+      `paused_needs_reopening` is not dead code, and this is the case that keeps it honest. A
+      proposal opened AFTER the pause but before the consequence was stated — the shape a
+      scheduled prompt composed against a stale basis produces — reaches the confirmation with
+      `reopening_stated_version` unset, and must be refused with the third answer rather than
+      published or rejected.
+
+      Reached by opening the proposal while paused and then clearing the statement the writer
+      recorded, which is the only way to construct "open, paused, consequence not stated" now
+      that the writer always records it.
+    */
+    await pause();
+    const { proposalId } = await openProposal({ senderHash, providerId });
+    await handle().sql`
+      update inventory_publication_proposals
+      set reopening_stated_version = null where id = ${proposalId}
+    `;
 
     const result = await confirmInventoryPublication(handle(), {
       proposalId,
@@ -233,14 +296,13 @@ describe("F-114 C.4 a paused listing is offered re-opening (integration)", () =>
     });
     expect(result.status).toBe("paused_needs_reopening");
 
-    // Nothing published, the listing stays paused, and the proposal is NOT consumed — the
-    // farmer's own snapshot must still be there to publish when she answers the new prompt.
-    expect(await handle().sql`
-      select count(*)::int as count from inventory_revisions where provider_id = ${providerId}
-    `).toEqual([{ count: 0 }]);
+    // Not consumed: her snapshot must still be there to publish when she answers the new prompt.
     expect(await handle().sql`
       select state from inventory_publication_proposals where id = ${proposalId}
     `).toEqual([{ state: "open" }]);
+    expect(await handle().sql`
+      select count(*)::int as count from inventory_revisions where provider_id = ${providerId}
+    `).toEqual([{ count: 0 }]);
     expect(await handle().sql`
       select lifecycle_state from stand_providers where id = ${providerId}
     `).toEqual([{ lifecycle_state: "paused" }]);
@@ -269,6 +331,38 @@ describe("F-114 C.4 a paused listing is offered re-opening (integration)", () =>
     expect(await handle().sql`
       select lifecycle_state from stand_providers where id = ${providerId}
     `).toEqual([{ lifecycle_state: "active" }]);
+  });
+
+  it("leaves the listing PAUSED when she answers NO", async () => {
+    /*
+      §facts and authority: *"The seller decides what they meant; code never infers it."* NO is
+      a real decision — she saw the consequence stated and declined it — so the listing stays
+      down. A writer that re-opened on any answered confirmation would turn a refusal into
+      exactly the publication she just refused.
+
+      Asserted as an ABSENCE beside the positive case above: "YES re-opens" says nothing about
+      what NO does, and a writer that re-opened unconditionally survives the YES case untouched.
+    */
+    await pause();
+    const { proposalId, requiresReopening } = await openProposal({ senderHash, providerId });
+    expect(requiresReopening).toBe(true);
+
+    const result = await confirmInventoryPublication(handle(), {
+      proposalId,
+      senderHash,
+      token: "no",
+      occurredAt: BASE,
+      providerEventId: `evt-${randomUUID()}`,
+      clock: new FixedClock(BASE),
+    });
+    expect(result.status).toBe("declined");
+
+    expect(await handle().sql`
+      select lifecycle_state from stand_providers where id = ${providerId}
+    `).toEqual([{ lifecycle_state: "paused" }]);
+    expect(await handle().sql`
+      select count(*)::int as count from inventory_revisions where provider_id = ${providerId}
+    `).toEqual([{ count: 0 }]);
   });
 
   it("does not carry the consent across a REVISION", async () => {

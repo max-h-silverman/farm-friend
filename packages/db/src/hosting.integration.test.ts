@@ -435,6 +435,86 @@ describe("hosted-seller invitation (integration)", () => {
       expect(invitations[0]?.total).toBe(1);
     });
 
+    it("invites a seller back after their previous relationship ENDED", async () => {
+      /*
+        F-115 Tranche D (max, 2026-08-17). §hosting and approval lifecycle says either side may
+        end an arrangement; it never said ending closes the door, and the schema was enforcing
+        the stronger rule by accident.
+
+        `stand_providers_one_per_seller_per_location` was a FULL unique index, so an ended row
+        occupied the slot forever, `on conflict do nothing returning` yielded nothing, and this
+        writer answered `already_selling_here` to a seller who is demonstrably NOT selling here.
+        Kelsey and Zoe part ways in April and Kelsey cannot invite her back in June, with a
+        refusal that says the opposite of the truth.
+
+        `0051` narrowed it to `ended_at is null`. The ENDED row stays beside the new one — it is
+        an episode of a history, not a duplicate — which is what the second assertion holds.
+      */
+      const seller = await sql()`
+        insert into sellers (name) values (${`Departed ${randomUUID()}`}) returning id
+      `;
+      const sellerId = seller[0]?.id as string;
+      await sql()`
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state, invited_at, accepted_at,
+          approval_source, approved_at, ended_at
+        ) values (
+          ${venueStandId}, ${sellerId}, 'active', ${now}, ${now}, 'viga', ${now},
+          ${new Date(now.getTime() + 1_000)}
+        )
+      `;
+
+      const result = await inviteSellerToStand(database(), {
+        salesLocationId: venueStandId,
+        sellerId,
+        administratorId,
+        occurredAt: new Date(now.getTime() + 2_000),
+      });
+
+      expect(result.status).toBe("invited");
+      // Two rows: the closed episode and the new invitation. The first is not overwritten, so
+      // what she published under the old arrangement keeps pointing at the old arrangement.
+      expect(await sql()`
+        select count(*)::int as count from stand_providers
+        where sales_location_id = ${venueStandId} and seller_id = ${sellerId}
+      `).toEqual([{ count: 2 }]);
+      expect(await sql()`
+        select count(*)::int as count from stand_providers
+        where sales_location_id = ${venueStandId} and seller_id = ${sellerId}
+          and ended_at is null and lifecycle_state = 'pending'
+      `).toEqual([{ count: 1 }]);
+    });
+
+    it("still refuses a seller whose relationship at this stand is LIVE", async () => {
+      // The narrowing must not become a removal: re-inviting somebody who is already selling
+      // here would mint a second link for one arrangement, and two handsets could each accept.
+      const seller = await sql()`
+        insert into sellers (name) values (${`Present ${randomUUID()}`}) returning id
+      `;
+      const sellerId = seller[0]?.id as string;
+      await sql()`
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state, invited_at, accepted_at,
+          approval_source, approved_at
+        ) values (
+          ${venueStandId}, ${sellerId}, 'active', ${now}, ${now}, 'viga', ${now}
+        )
+      `;
+
+      expect(
+        await inviteSellerToStand(database(), {
+          salesLocationId: venueStandId,
+          sellerId,
+          administratorId,
+          occurredAt: new Date(now.getTime() + 2_000),
+        }),
+      ).toMatchObject({ status: "already_selling_here" });
+      expect(await sql()`
+        select count(*)::int as count from stand_providers
+        where sales_location_id = ${venueStandId} and seller_id = ${sellerId}
+      `).toEqual([{ count: 1 }]);
+    });
+
     it("refuses an unknown stand", async () => {
       const result = await inviteSellerToStand(database(), {
         salesLocationId: randomUUID(),

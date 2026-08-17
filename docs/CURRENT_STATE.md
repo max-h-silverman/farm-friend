@@ -29,8 +29,9 @@ the per-phase sabotage enumerations, and the defects found on the way are in
 Hill; `stand_providers` holds one row per seller-at-stand. **Every suppression and labelling rule
 follows that pointer, never a name match** — `sellerCredit`/`creditSeller` state it once, and
 since F-115 the public cards, the SMS menu, the settings screen and the reminder rows all
-compose them (`listing-label-agreement.test.tsx` compares the surfaces, not the helper). An authorization names a seller OR a stand;
-"stand owner" stays derived. `provider-invalidation.ts` is the pause/revoke/close mechanism.
+compose them (`listing-label-agreement.test.tsx` compares the surfaces, not the helper). An
+authorization names a seller OR a stand; "stand owner" stays derived. `setProviderParticipation` (F-115) is the writer for pause, resume
+and end, and `provider-invalidation.ts` is the consequence it triggers for all three.
 
 **What a farmer can do.** Two sellers at one stand publish, are targeted by SMS, hold their own
 standing link, and carry their own reminder cadence — independently. Hosting is invitation →
@@ -57,12 +58,16 @@ and `GENERIC_WORDS` keep their names.
 
 ## Deployment and migrations
 
-- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0050` are all
+- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0051` are all
   unapplied to production** and must land in that order. **`0042` must be applied before the merged
   code runs** — every writer now supplies `provider_id`, and against the un-migrated schema they
   fail immediately. `0043`–`0050` add no such requirement on their own but must not land ahead of it.
-- **`0045`–`0049` are constraint-only and were NOT generated** (`0050` adds one nullable column);
-  `drizzle-kit` does not emit them. A hand-written migration's snapshot is repaired as a **measured
+  **`0051` is a second such gate**: it makes the `stand_providers` uniqueness partial, and
+  `inviteSellerToStand` now names that predicate in its `ON CONFLICT`, so against the un-migrated
+  index EVERY invitation raises *"no unique or exclusion constraint matching the ON CONFLICT
+  specification"*.
+- **`0045`–`0049` and `0051` are constraint-only and were NOT generated** (`0050` adds one nullable
+  column); `drizzle-kit` does not emit them. A hand-written migration's snapshot is repaired as a **measured
   DELTA of its predecessor, never by introspection** — RUNBOOK §Migrations and DEVELOPMENT.md
   §gotchas own the procedure and the evidence for it.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
@@ -124,8 +129,8 @@ and `GENERIC_WORDS` keep their names.
 
 ## Open before go-live
 
-- **`0042` through `0050`, in order, must be applied to production before the code that requires
-  them.** All nine are Max's call.
+- **`0042` through `0051`, in order, must be applied to production before the code that requires
+  them.** All ten are Max's call.
 - **VIGA's stock-out queue is the only destination for reports at the 18 stands publishing no
   confirmed inventory** — decided and accepted (max, 2026-08-16), not an open question. Those stands
   are texted today and will not be once C.3 deploys; it resolves as they start confirming inventory.

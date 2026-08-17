@@ -1875,19 +1875,31 @@ export const standProviders = pgTable(
     ),
 
     /**
-     * A stand admits at most one provider row per seller. One person selling under two brands
-     * at a single stand is not supported; a person needing two brands there needs two sellers.
+     * A stand admits at most one LIVE provider row per seller, and any number of ended ones
+     * (`0051`). One person selling under two brands at a single stand is not supported; a
+     * person needing two brands there needs two sellers.
+     *
+     * **Partial on `ended_at is null`, and that is the whole rule.** Two LIVE rows for one
+     * seller at one stand would be two listings under one name — the ambiguity this index
+     * exists to prevent. Two ENDED rows are two episodes of a history, which is what `ended_at`
+     * exists to record. It was full until F-115: an ended row went on occupying the slot
+     * forever, so `inviteSellerToStand` answered `already_selling_here` to a seller who had
+     * left, and a stand could never invite anyone back.
      *
      * **This is also the first-insert ARBITER.** Two writers racing to add the same seller at
      * one stand both find nothing and both insert; the winner is decided here by
      * `insert … on conflict do nothing returning …`, never by a preceding read —
-     * `select … for update` cannot serialize a row that does not exist yet. It is no longer
-     * partial: with the native slot gone every provider names a seller, so the predicate that
-     * excluded NULLs would exclude nothing.
+     * `select … for update` cannot serialize a row that does not exist yet. The predicate does
+     * not weaken that: both racers insert `ended_at` NULL, so both fall inside it.
+     *
+     * (The predicate is NOT the old `seller_id is not null` one C.0 removed. That one excluded
+     * nothing once the native-brand slot was gone; this one excludes the ended history.)
      */
     oneRowPerSellerPerLocation: uniqueIndex(
       "stand_providers_one_per_seller_per_location",
-    ).on(table.salesLocationId, table.sellerId),
+    )
+      .on(table.salesLocationId, table.sellerId)
+      .where(sql`${table.endedAt} is null`),
     /** Every corpus-wide reader joins providers to their stand; the live ones are the query. */
     liveIdx: index("stand_providers_live_idx")
       .on(table.salesLocationId)

@@ -5,6 +5,7 @@ import {
   type ProhibitedPublicStringKind,
 } from "@farm-friend/core";
 import type { Db } from "./index";
+import { invalidateProviderWork } from "./provider-invalidation";
 import type { Sql, Tx } from "./sql";
 
 /*
@@ -202,6 +203,13 @@ export async function inviteSellerToStand(
       does not exist yet, so both would observe "none" and the second insert would raise instead of
       answering. `on conflict do nothing returning` makes an empty result the honest "someone else
       already did this" — the same first-insert reasoning B-011, F-050 and Phase B all needed.
+
+      **`where ended_at is null` is the index's own predicate, and Postgres requires it.** The
+      index is PARTIAL since `0051` — at most one LIVE relationship per pair, any number of ended
+      ones, so a seller who left can be invited back. An `on conflict` target that omits the
+      predicate matches no index at all and raises *"there is no unique or exclusion constraint
+      matching the ON CONFLICT specification"* on EVERY invitation, which is how this was found.
+      Naming it also states which conflict is being answered: an ended row is not one.
     */
     const providers = await tx`
       insert into stand_providers (
@@ -209,7 +217,7 @@ export async function inviteSellerToStand(
       ) values (
         ${input.salesLocationId}, ${sellerId}, 'pending', ${input.occurredAt.toISOString()}
       )
-      on conflict (sales_location_id, seller_id) do nothing
+      on conflict (sales_location_id, seller_id) where ended_at is null do nothing
       returning id
     `;
     const standProviderId = providers[0]?.id as string | undefined;
@@ -305,4 +313,270 @@ async function authorizedForStand(
     for update
   `;
   return authorizations.length > 0;
+}
+
+/*
+  F-114 Phase C.4 / F-115 Tranche D — PAUSING AND ENDING A HOSTING RELATIONSHIP.
+
+  ## The gap this closes
+
+  Phase B built the whole CONSEQUENCE of pausing and left no way to do it. `paused` was in the
+  lifecycle enum, every liveness predicate excluded ended rows and admitted paused ones, the
+  re-open confirmation was written in C.4, and `invalidateProviderWork` was written and fully
+  tested — with zero production callers. No statement anywhere set `lifecycle_state = 'paused'`
+  or `ended_at`, so no row could ever be in the state all of that machinery served.
+
+  This is a trigger and a surface, not a new mechanism. `invalidateProviderWork` is the
+  consequence for both transitions, exactly as its own header says.
+
+  ## Who may do what, and why it is asymmetric
+
+  **PAUSE / RESUME — the seller, or VIGA. Never the host.**
+  **END — either party, or VIGA.**
+
+  The rule is §facts and authority's — *"Either side may end it; the seller may pause/resume
+  without ending it"* — and `stand_providers.host_may_update_stock` names pause explicitly among
+  what a host may never do.
+
+  The reason it is this way round and not the intuitive inverse: a host who could pause could
+  hide a seller's goods from the public indefinitely without ever ending anything — eviction by
+  another name, with no visible act and nothing for the seller to answer. Ending is visible and
+  final, so either party may walk away from an arrangement that is not working. **The graver
+  power is HIDING, not TERMINATING.**
+
+  `host_may_update_stock` governs CURRENT STOCK only and is not consulted here, with or without
+  it. The host arm never reaches the pause path, so the question of whether that opt-in widens it
+  does not arise.
+*/
+
+export type ProviderParticipationTransition = "pause" | "resume" | "end";
+
+/** The past-tense audit verb per transition. Spelled out so no template invents `endd`. */
+const PARTICIPATION_AUDIT_ACTION: Record<ProviderParticipationTransition, string> = {
+  pause: "paused",
+  resume: "resumed",
+  end: "ended",
+};
+
+export type SetProviderParticipationResult =
+  | {
+      status: "changed";
+      lifecycleState: "active" | "paused";
+      ended: boolean;
+      /** What the transition invalidated. Zero for a listing with nothing open. */
+      proposalsInvalidated: number;
+      remindersSuppressed: number;
+    }
+  /** The row is already in the state asked for. Idempotent, never an error. */
+  | { status: "unchanged"; lifecycleState: "active" | "paused"; ended: boolean }
+  | { status: "unknown_provider" }
+  /** The relationship has ended, or was never accepted. There is nothing to pause or resume. */
+  | { status: "provider_not_live" }
+  /** Authorized for this listing, but not for THIS act — the host asking to pause. */
+  | { status: "not_authorized" };
+
+/**
+ * Pause, resume, or end one seller's participation at one stand.
+ *
+ * **Authority is resolved inside the transaction, under lock**, and the pause arm is narrowed
+ * from it rather than checked separately: `resolveProviderWriteAuthority` already reports WHICH
+ * arm said yes, and `via: "host"` is exactly the case pause must refuse. A second enumeration of
+ * who counts as the seller would be a fourth place to keep the arms in step.
+ *
+ * **VIGA reaches every transition**, through `administratorId` rather than through a phone. The
+ * operator is not a farmer and holds no authorization; this is the same shape
+ * `inviteSellerToStand` uses.
+ *
+ * Every transition invalidates THAT PROVIDER'S open confirmations and queued reminders, and only
+ * that provider's — a seller pausing at a shared stand must not cancel her host's live
+ * confirmation. Resume invalidates too: a token minted while the listing was live and answered
+ * after a pause-and-resume would publish against a basis nobody re-confirmed.
+ */
+export async function setProviderParticipation(
+  db: Db,
+  input: {
+    providerId: string;
+    transition: ProviderParticipationTransition;
+    /** The acting phone. Mutually exclusive with `administratorId`. */
+    senderHash?: string;
+    /** VIGA. Mutually exclusive with `senderHash`. */
+    administratorId?: string;
+    occurredAt: Date;
+  },
+): Promise<SetProviderParticipationResult> {
+  const senderHash = input.senderHash ?? null;
+  const administratorId = input.administratorId ?? null;
+  if ((senderHash === null) === (administratorId === null)) {
+    return { status: "not_authorized" };
+  }
+
+  return driver(db).begin(async (tx) => {
+    // The row first and under lock, so two handsets racing to pause and end the same listing
+    // serialize here rather than both reading `active` and both writing.
+    const rows = await tx`
+      select id, sales_location_id, seller_id, lifecycle_state, ended_at
+      from stand_providers
+      where id = ${input.providerId}
+      for update
+    `;
+    const row = rows[0] as Record<string, unknown> | undefined;
+    if (row === undefined) return { status: "unknown_provider" as const };
+
+    const salesLocationId = row.sales_location_id as string;
+    const lifecycleState = row.lifecycle_state as "pending" | "active" | "paused";
+    const alreadyEnded = row.ended_at !== null;
+
+    /*
+      AUTHORITY, then the narrower question of whether this actor may make THIS transition.
+
+      VIGA reaches all three. A phone reaches them through the arm that granted it: the seller
+      arm reaches all three, the host arm reaches `end` alone. `pending` and ended are refused
+      by the seam itself as `provider_not_live`, which is the right answer here too — there is
+      no live arrangement to pause, resume, or walk away from.
+    */
+    if (administratorId === null) {
+      if (alreadyEnded || lifecycleState === "pending") {
+        return { status: "provider_not_live" as const };
+      }
+      const arm = await participationArm(tx, {
+        salesLocationId,
+        sellerId: row.seller_id as string,
+        senderHash: senderHash as string,
+      });
+      if (arm === null) return { status: "not_authorized" as const };
+      // THE CONTRACT'S CORE PROTECTION. A host may end and may never pause. Asserted on the ARM
+      // rather than on a role: `host_may_update_stock` is not consulted at all, because it
+      // governs current stock and this is participation.
+      if (arm === "host" && input.transition !== "end") {
+        return { status: "not_authorized" as const };
+      }
+    } else {
+      const administrators = await tx`
+        select id from administrators
+        where id = ${administratorId} and revoked_at is null
+        for update
+      `;
+      if (administrators.length === 0) return { status: "not_authorized" as const };
+      // VIGA gets the same liveness answer a phone would, from the row rather than the seam.
+      if (alreadyEnded || lifecycleState === "pending") {
+        return { status: "provider_not_live" as const };
+      }
+    }
+
+    const target: { lifecycleState: "active" | "paused"; ended: boolean } =
+      input.transition === "end"
+        ? { lifecycleState: lifecycleState as "active" | "paused", ended: true }
+        : {
+            lifecycleState: input.transition === "pause" ? "paused" : "active",
+            ended: false,
+          };
+
+    // Idempotent, and deliberately BEFORE the write rather than after: a second pause must not
+    // invalidate a confirmation the seller opened since the first one.
+    if (
+      target.ended === alreadyEnded &&
+      target.lifecycleState === lifecycleState
+    ) {
+      return {
+        status: "unchanged" as const,
+        lifecycleState: lifecycleState as "active" | "paused",
+        ended: alreadyEnded,
+      };
+    }
+
+    /*
+      `lifecycle_state` is left ALONE by an ending, and that is not an oversight.
+
+      `stand_providers_hosting_lifecycle_coherent` requires `active` or `paused` to carry an
+      acceptance and an approval, and ending removes neither — the seller did accept and VIGA
+      did approve. `ended_at` is the ending, exactly as the column's own comment says: *"Either
+      side ended it. Not a lifecycle value."* Writing a fourth state would put one fact in two
+      places and make every liveness predicate read both.
+    */
+    if (input.transition === "end") {
+      await tx`
+        update stand_providers
+        set ended_at = ${input.occurredAt}, updated_at = ${input.occurredAt}
+        where id = ${input.providerId} and ended_at is null
+      `;
+    } else {
+      await tx`
+        update stand_providers
+        set lifecycle_state = ${target.lifecycleState}, updated_at = ${input.occurredAt}
+        where id = ${input.providerId} and ended_at is null
+      `;
+    }
+
+    const invalidation = await invalidateProviderWork(tx, {
+      salesLocationId,
+      providerId: input.providerId,
+      occurredAt: input.occurredAt,
+    });
+
+    await tx`
+      insert into audit_events (
+        action, actor_administrator_id, actor_contact_hash, subject_type, subject_id, occurred_at
+      ) values (
+        ${`stand_provider_${PARTICIPATION_AUDIT_ACTION[input.transition]}`},
+        ${administratorId}, ${senderHash},
+        'stand_provider', ${input.providerId}, ${input.occurredAt}
+      )
+    `;
+
+    return {
+      status: "changed" as const,
+      lifecycleState: target.lifecycleState,
+      ended: target.ended,
+      proposalsInvalidated: invalidation.proposalsInvalidated,
+      remindersSuppressed: invalidation.remindersSuppressed,
+    };
+  }) as Promise<SetProviderParticipationResult>;
+}
+
+/**
+ * Which side of the relationship this phone is: the SELLER, the HOST, or neither.
+ *
+ * A separate question from `resolveProviderWriteAuthority`, and deliberately not that function
+ * with a flag. That seam answers *may this phone state THIS PROVIDER'S STOCK*, and its host arm
+ * is gated on `host_may_update_stock` — correctly, because stating someone else's stock is a
+ * grant the seller makes. **Participation is not a grant.** A host who never wanted to restock
+ * for a hosted seller is still the host, and §facts and authority lets either side walk away.
+ * Routing this through the stock seam would tie ending to an opt-in that has nothing to do with
+ * it: only the hosts who agreed to restock could end an arrangement.
+ *
+ * The two arms are the same two everywhere else — an authorization for the seller, or the
+ * stand's own authority, which at a venue takes the stand arm because there is no seller to
+ * name. Deliberately NOT composed from `PROVIDER_AUTHORITY_ARMS`: that fragment carries the
+ * stock opt-in and the liveness filter, both of which are the caller's business here (liveness
+ * is decided from the locked row above, so a phone gets `provider_not_live` rather than
+ * `not_authorized` for a relationship that already ended).
+ *
+ * **The seller arm wins when a phone holds both**, matching the stock seam for the same reason:
+ * the seller acting on her own participation needs nobody's permission, and attributing it to
+ * the host arm would then narrow what she may do.
+ */
+async function participationArm(
+  tx: Tx,
+  input: { salesLocationId: string; sellerId: string; senderHash: string },
+): Promise<"seller" | "host" | null> {
+  const rows = await tx`
+    select
+      (auth.seller_id is not null and auth.seller_id = ${input.sellerId}) as is_seller
+    from farmer_authorizations as auth
+    join contacts on contacts.id = auth.contact_id
+    join sales_locations as location on location.id = ${input.salesLocationId}
+    where contacts.phone_hash = ${input.senderHash}
+      and auth.revoked_at is null
+      and (
+        (auth.seller_id is not null and auth.seller_id = ${input.sellerId})
+        or (auth.seller_id is not null and auth.seller_id = location.own_seller_id)
+        or (auth.sales_location_id is not null and auth.sales_location_id = location.id)
+      )
+    order by is_seller desc
+    limit 1
+    for update of auth
+  `;
+  const row = rows[0] as Record<string, unknown> | undefined;
+  if (row === undefined) return null;
+  return row.is_seller === true ? "seller" : "host";
 }
