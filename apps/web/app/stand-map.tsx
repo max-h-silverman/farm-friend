@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CONTACT_CARD_PATH } from "@farm-friend/core/vcard";
 import {
@@ -19,6 +20,7 @@ import {
   type PublicStandPayload,
   type StandFilters,
 } from "../lib/map-view";
+import { standCardSections, type StandCardSection } from "../lib/stand-card";
 import { IslandArtwork } from "./island-artwork";
 import { mapFollowOffset } from "../lib/map-follow";
 import { useTransientOrigin } from "./use-transient-origin";
@@ -414,7 +416,133 @@ function PosterIndicators({
   mode `confirmedElapsed` exists to prevent — and states it in the browsed-card's own words
   ("Last updated 3 weeks ago", or "No recent update" past four weeks).
 */
+/*
+  F-114 C.5 — ITEM-FIRST, WITH SELLERS NESTED.
+
+  A stand now has several sellers publishing independently, so an item's row is a heading and
+  its supporting sellers are the lines beneath it: each with its own price and its own
+  freshness. Three sellers carrying tomatoes is ONE `Tomatoes` row with three lines under it,
+  never three rows.
+
+  WHERE THE RECENCY SITS MOVED, and that is the honest part. It used to caption the whole
+  In-stock heading, because one stand had one confirmation. It now sits on the SELLER LINE,
+  attached to the goods it actually covers — a stand-wide caption would date Zoe's greens by
+  Kelsey's venison. The heading keeps the stand's freshest live confirmation as a summary,
+  which is the honest stand-level answer to "how current is this".
+
+  A NESTED LINE FOR THE STAND'S OWN SELLER CARRIES NO NAME. `credit` is absent for it — by
+  self-pointer, never a name match — so there is no string to print and nothing that would
+  merely echo the stand's own heading back at the reader.
+*/
+function StandItemSections({
+  stand,
+  sections,
+}: {
+  stand: FilteredStand;
+  sections: readonly StandCardSection[];
+}) {
+  return (
+    <>
+      {sections.map((section) => (
+        <section
+          className={
+            section.register === "usual" ? "detail-usual-offerings" : "detail-inventory"
+          }
+          aria-label={
+            section.register === "usual"
+              ? "Typical offerings"
+              : "In-stock status and inventory"
+          }
+          key={section.register}
+        >
+          <div className={`listing listing-${section.register}`}>
+            {section.register === "confirmed" ? (
+              <DetailSectionHeading icon="inventory" className="detail-inventory-heading">
+                <span>In stock</span>
+                {stand.cardRecency === undefined ? null : (
+                  <span
+                    className={
+                      stand.stale === true
+                        ? "listing-recency listing-recency-aged"
+                        : "listing-recency"
+                    }
+                  >
+                    ({stand.cardRecency})
+                  </span>
+                )}
+              </DetailSectionHeading>
+            ) : (
+              <DetailSectionHeading icon="offerings">Typical offerings</DetailSectionHeading>
+            )}
+            <ul className="items items-nested">
+              {section.items.map((item) => (
+                <li className="item-group" key={`${section.register}-${item.itemName}`}>
+                  <span className="item-name">{item.itemName}</span>
+                  <ul className="item-sellers">
+                    {item.providers.map((provider) => (
+                      <li className="item-seller" key={provider.providerId}>
+                        {provider.credit === undefined ? null : (
+                          <span className="item-seller-name">{provider.credit}</span>
+                        )}
+                        {provider.quantity !== undefined ||
+                        provider.approximation !== undefined ? (
+                          <span className="item-detail">
+                            {provider.quantity !== undefined
+                              ? `${provider.quantity}${provider.unit !== undefined ? ` ${provider.unit}` : ""}`
+                              : provider.approximation}
+                          </span>
+                        ) : null}
+                        {provider.priceText !== undefined ? (
+                          <span className="item-price">{provider.priceText}</span>
+                        ) : null}
+                        {/*
+                          NO RECENCY ON A USUAL LINE, EVER. `standCardSections` leaves the field
+                          absent there rather than trusting this to omit it, so there is nothing
+                          to print even if this branch were written wrongly.
+                        */}
+                        {provider.recency === undefined ? null : (
+                          <span
+                            className={
+                              provider.stale === true
+                                ? "item-seller-recency item-seller-recency-aged"
+                                : "item-seller-recency"
+                            }
+                          >
+                            {provider.recency}
+                          </span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </li>
+              ))}
+            </ul>
+          </div>
+        </section>
+      ))}
+    </>
+  );
+}
+
 function StandListings({ stand }: { stand: FilteredStand }) {
+  /*
+    ONE DECISION: DOES THIS PAYLOAD CARRY PER-SELLER ATTRIBUTION?
+
+    When it does, the card is item-first with sellers nested — the only shape that can state
+    two sellers' different prices and different freshnesses for one item.
+
+    When it does not, the sentence-shaped lines render exactly as they always have. That is not
+    a second rendering of the same state: `standCardSections` returns nothing precisely when
+    there is nothing to attribute — no sellers, sellers claiming nothing, or a shutdown making
+    none of it buyable — and the cases below are the ones `standListingLines` already owns
+    ("Nothing confirmed recently.", the contact-only wording, "No listing yet", and a confirmed
+    list on a payload built without seller facts).
+  */
+  const sections = standCardSections(stand);
+  if (sections.length > 0) {
+    return <StandItemSections stand={stand} sections={sections} />;
+  }
+
   return (
     <>
       {standListingLines(stand).map((line) => (
@@ -924,6 +1052,16 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       <section className="filters" aria-labelledby="stand-finder-title">
         <header className="filter-header">
           <h2 id="stand-finder-title">Find a stand</h2>
+          {/*
+            THE DOOR TO THE SELLER LIST (F-114 C.5).
+
+            The map is a map of STANDS, and a seller who sells only at other people's stands
+            has no pin on it. This link is how that seller is reachable at all from the
+            island's main view — without it the seller list exists and nobody arrives there.
+          */}
+          <Link className="seller-list-link" href="/sellers">
+            Browse by seller
+          </Link>
           <p className="filter-results" aria-live="polite">
             {visible.length === view.stands.length
               ? `${visible.length} ${visible.length === 1 ? "stand" : "stands"} shown`

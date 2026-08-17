@@ -1525,3 +1525,156 @@ describe("structured links and payment methods (F-061)", () => {
     expect(within(card).queryByText(/Also accepts/)).toBeNull();
   });
 });
+
+/*
+  F-114 C.5 — THE ITEM-FIRST CARD, RENDERED.
+
+  `stand-card.test.ts` proves the sections are decided correctly; this proves the component
+  actually draws them. DEVELOPMENT.md §before you ship: bytes prove markup, not CSS, so these
+  cases assert STRUCTURE — how many rows an item gets, which line a credit sits on, which lines
+  carry a date — and the phone-width and light/dark appearance checks are done in a browser.
+*/
+describe("item-first stand card (F-114 C.5)", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  const sharedStand = (
+    overrides: Partial<PublicStandPayload> = {},
+  ): PublicStandPayload => ({
+    id: "venison-valley",
+    farmName: "Venison Valley",
+    locationName: "Venison Valley Stand",
+    visitability: "visitable",
+    offeringType: "produce",
+    address: "1 Vashon Hwy",
+    latitude: 47.44,
+    longitude: -122.46,
+    updated: "updated 2 hours ago",
+    confirmedElapsed: "2 hours ago",
+    cardRecency: "Last updated 2 hours ago",
+    stale: false,
+    availability: {},
+    alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
+    items: [{ itemName: "eggs" }],
+    sellers: [
+      {
+        providerId: "p-host",
+        sellerId: "s-host",
+        sellerName: "Venison Valley",
+        describesOwnStand: true,
+        cardRecency: "Last updated 2 hours ago",
+        stale: false,
+        openState: "open",
+        confirmedItems: [{ itemName: "eggs", priceText: "$8" }],
+        usualItems: [],
+      },
+      {
+        providerId: "p-guest",
+        sellerId: "s-guest",
+        sellerName: "Gracies Greens",
+        describesOwnStand: false,
+        cardRecency: "Last updated 3 weeks ago",
+        stale: true,
+        openState: "open",
+        confirmedItems: [{ itemName: "eggs", priceText: "$7" }],
+        usualItems: [{ itemName: "rhubarb", priceText: "$4 / bunch" }],
+      },
+    ],
+    ...overrides,
+  });
+
+  /** Render and open the card, which is where the detail listing lives. */
+  const openCard = async (stand: PublicStandPayload): Promise<HTMLElement> => {
+    const user = userEvent.setup();
+    render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: stand.locationName }));
+    return document.querySelector(".stands .stand") as HTMLElement;
+  };
+
+  it("draws one row for an item two sellers carry, with both nested beneath it", async () => {
+    const card = await openCard(sharedStand());
+
+    // ONE item group, not two. A card that printed a chip per seller would have two.
+    const groups = card.querySelectorAll(".item-group");
+    expect(groups).toHaveLength(2); // eggs (confirmed) + rhubarb (usual)
+    const eggs = [...groups].find(
+      (group) => group.querySelector(".item-name")?.textContent === "eggs",
+    )!;
+    expect(eggs.querySelectorAll(".item-seller")).toHaveLength(2);
+  });
+
+  it("prints each nested seller's own price and own freshness", async () => {
+    const card = await openCard(sharedStand());
+    const eggs = [...card.querySelectorAll(".item-group")].find(
+      (group) => group.querySelector(".item-name")?.textContent === "eggs",
+    )!;
+    const lines = [...eggs.querySelectorAll(".item-seller")];
+
+    expect(lines.map((line) => line.querySelector(".item-price")?.textContent)).toEqual([
+      "$8",
+      "$7",
+    ]);
+    expect(
+      lines.map((line) => line.querySelector(".item-seller-recency")?.textContent),
+    ).toEqual(["Last updated 2 hours ago", "Last updated 3 weeks ago"]);
+  });
+
+  it("leaves the stand's own seller unnamed and credits the hosted one", async () => {
+    const card = await openCard(sharedStand());
+    const eggs = [...card.querySelectorAll(".item-group")].find(
+      (group) => group.querySelector(".item-name")?.textContent === "eggs",
+    )!;
+    const lines = [...eggs.querySelectorAll(".item-seller")];
+
+    // No element at all for the stand's own line — not an empty one. A rendered empty span
+    // would leave a gap in the row and would mean a name could be put back into it.
+    expect(lines[0]!.querySelector(".item-seller-name")).toBeNull();
+    expect(lines[1]!.querySelector(".item-seller-name")?.textContent).toBe("Gracies Greens");
+  });
+
+  it("marks a stale seller line without marking the fresh one", async () => {
+    const card = await openCard(sharedStand());
+    const eggs = [...card.querySelectorAll(".item-group")].find(
+      (group) => group.querySelector(".item-name")?.textContent === "eggs",
+    )!;
+    const recencies = [...eggs.querySelectorAll(".item-seller-recency")];
+
+    expect(recencies[0]).not.toHaveClass("item-seller-recency-aged");
+    expect(recencies[1]).toHaveClass("item-seller-recency-aged");
+  });
+
+  it("gives a usual line no date at all", async () => {
+    // The rule §customer behavior states and `groupProviderItems` enforces: a hosted seller is
+    // public on standing claims alone, and a date beside one reads as a confirmation nobody
+    // made. The seller HAS a `cardRecency` in the fixture, so a component that passed it
+    // through would print it here.
+    const card = await openCard(sharedStand());
+    const rhubarb = [...card.querySelectorAll(".item-group")].find(
+      (group) => group.querySelector(".item-name")?.textContent === "rhubarb",
+    )!;
+
+    expect(rhubarb.querySelector(".item-seller-recency")).toBeNull();
+    expect(rhubarb.querySelector(".item-price")?.textContent).toBe("$4 / bunch");
+    expect(rhubarb.querySelector(".item-seller-name")?.textContent).toBe("Gracies Greens");
+  });
+
+  it("falls back to the chip list for a payload with no seller facts", async () => {
+    // Every stand the server serves now carries `sellers`. A payload without them is still a
+    // valid one, and it must render the listing it has rather than nothing at all.
+    const { sellers: _sellers, ...withoutSellers } = sharedStand();
+    const card = await openCard(withoutSellers);
+
+    expect(card.querySelectorAll(".item-group")).toHaveLength(0);
+    expect(within(card).getByText("eggs")).toBeTruthy();
+  });
+});

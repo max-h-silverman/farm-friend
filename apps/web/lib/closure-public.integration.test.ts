@@ -206,9 +206,28 @@ describe("one closure projection across public discovery and customer SMS (integ
     expect(payload.closure).toEqual(
       expect.objectContaining({ state: "active", label: expect.stringMatching(/Closed through/) }),
     );
-    expect(payload.items.map((item) => item.itemName)).toEqual(["Eggs"]);
-    expect(payload.usuallySells!.map((o) => o.itemName)).toEqual(["Honey"]);
-    expect(payload.updated).toBeDefined();
+    /*
+      NOTHING ITEMIZED WHILE THE CLOSURE IS ACTIVE — CHANGED DELIBERATELY BY F-114 C.5.
+
+      This case previously asserted the opposite: a closed stand kept `Eggs` and `Honey` on its
+      card, with the closure notice, the Open-now filter and the suppressed routing link doing
+      the work of saying it was shut. That was defensible while a stand had one seller.
+
+      §customer behavior overrides it: *"A stand shutdown overrides every provider, and renders
+      nothing itemized — no seller's items show, hosted or native. A closed stand is locked, so
+      no one's goods are buyable there."* The hosted seller's items remain on their own seller
+      page and at their other stands, which is what makes the suppression safe rather than a
+      disappearance — the thing that changes is only the claim that they are buyable HERE.
+
+      Both registers go, and so does the recency: a date beside a locked stand claims a listing
+      it does not have.
+    */
+    expect(payload.items).toEqual([]);
+    expect(payload.usuallySells).toEqual([]);
+    expect(payload.updated).toBeUndefined();
+    // The stand itself stays listed WITH its closure — suppression is of the stock claim, never
+    // of the stand. Losing the claim is not the same as disappearing.
+    expect(payload.locationName).toBeDefined();
 
     expect(
       applyStandFilters([payload], { openNow: true }, { at: T0, utcOffsetMinutes: -7 * 60 }),

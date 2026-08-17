@@ -348,6 +348,17 @@ with the guard that protects each.
 - **An UPDATE matching NO rows resolves rather than rejecting.** A constraint case that writes a
   bad value with a `where` clause matching nothing passes whether or not the constraint exists.
   Create the row first.
+- **A backtick inside a SQL template literal closes the string.** Every raw query here is a
+  tagged/`unsafe` template, and the house comment style reaches for backticks to quote an
+  identifier — inside one, that ends the string and the rest of the query becomes JavaScript.
+  Typecheck catches it every time and names a *column* (`Expected ")" but found "is_public"`),
+  far from the comment that caused it, so each one costs a hunt. F-114 C.5 hit it five times
+  across three files. Guard: `packages/core/src/sql-template-safety.test.ts`, which proves its
+  own scanner in both directions before trusting a clean sweep.
+- **A `Write` can emit a stray NUL byte, and nothing downstream complains.** F-114 C.5 shipped
+  one into a template literal where a space belonged; JS parsed it, tests passed, and only an
+  `od -c` of the line showed it. Sweep changed files for `\x00` before believing a green run —
+  `perl -ne '$n++ while /\x00/g; END{print $n}'` over `git status --porcelain` output.
 - **A first-insert race is arbitrated by a unique index, never by a preceding read.**
   `select … for update` cannot serialize a row that does not exist yet, so both writers observe
   "none" and the second raises. Use `insert … on conflict do nothing returning …` and trust only

@@ -17,89 +17,60 @@
   authenticates VIGA's mail (SPF includes Google; `_dmarc` at `p=none`).
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
 
-## F-114 — what is on `main` and NOT deployed
+## F-114 — the multi-seller model, on `main` and NOT deployed
 
-Phases B through C.4 are merged (C.4 as `ac3fcd5`, PR #128); **C.5 is all that remains.** The governing contract is §the
-stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; the reasoning
-behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
+All phases (B through C.5) are merged; C.5 was the last. The governing contract is §the
+stand-and-sellers correction in `docs/plans/farmer-behavior-architecture-plan.md`; the reasoning,
+the per-phase sabotage enumerations, and the defects found on the way are in
+[SESSION_LOG.md](SESSION_LOG.md), not here.
 
-- **A stand has a name, metadata, and nested sellers.** `sellers` is the identity root;
-  `sales_locations.own_seller_id` is the **self-pointer** naming the one nested seller that IS the
-  stand, NULL for a venue like Morgan Hill; `stand_providers` holds one row per seller-at-stand with
-  `seller_id` NOT NULL — there is no native brand slot. **Every suppression and labelling rule
-  follows that pointer, never a name match.** `provider-invalidation.ts` is the pause/revoke/close
-  mechanism.
-- **An authorization names a seller OR a stand** (`farmer_authorizations_subject_arm`, biconditional,
-  one partial uniqueness index per arm). **"Stand owner" stays derived** and is never stored.
-- **Two seams answer "may this phone write this".** `resolveProviderWriteAuthority` — whose STOCK:
-  the seller's own phone, the stand's phone under `host_may_update_stock` (off by default, the
-  seller's to grant), or the stand arm at a venue. `resolveStandWriteAuthority` — facts about the
-  PLACE, because a shutdown is not any seller's stock and a venue has no provider to ask about.
-  `PROVIDER_AUTHORITY_ARMS` states those three arms once for the readers that ask *which* providers
-  a phone may reach; the two directions' agreement is a tested invariant, not shared SQL.
-- **Hosting is invitation → acceptance, with no VIGA step.** A stand owner or VIGA names a seller and
-  gets a one-use link to forward; the invited seller fills the ordinary onboarding form and texts
-  `START`, which authorizes them and activates the relationship in one transaction. The hosting
-  invitation IS the farmer invitation. Both doors take a **name, never a seller id**, return the URL
-  once, and public-text-guard the name at the writer. No new SMS keyword — `LINK`/`SETTINGS` already
-  text the farmer that page.
-- **Two sellers at one stand publish and are reached independently.** Zoe states Gracie's Greens'
-  stock at Kelsey's stand without touching Kelsey's listing, is targetable by SMS in her own right,
-  and holds her own standing link. A target is a PROVIDER, not a stand; the menu names the seller
-  only where it differs from the stand and asks *"Which listing do you mean?"*. A withdrawn opt-in or
-  an ended relationship kills a bookmarked link on the next load.
-- **A venue can record a closure** (B-077 closed). `closure_revisions_guard_arm` makes the STAND
-  decide the arm, so no stand can take the venue's weaker arm and skip the approval gate.
-- **Stock-out reports route by CONTRADICTION, not recency.** Listed in a provider's current revision
-  → told; published a listing without it → agrees, skipped; no confirmed claim (usual-only or never
-  listed) → never told, filed for VIGA. Candidates span every live provider, so a hosted seller's
-  goods are reportable. **Live consequence, shipped deliberately (max, 2026-08-16): the 18 stands
-  publishing no confirmed inventory stop receiving stock-out alerts entirely.**
-- **A leaked farmer link can create a seller and a `pending` relationship at its own stand.** It
-  authorizes nobody — acceptance needs the invited seller's own handset and a bare `START` — and
-  `pending` is invisible to every public reader. Asserted beside F-040's other five bounds.
-- **Reminder cadence is per LISTING**, in `inventory_prompt_preferences` alone — it holds the
-  scheduler's cursor, so nothing else may carry the cadence. The write seam refuses the HOST arm:
-  `host_may_update_stock` grants a physical observation about stock, and a schedule is not one, so
-  only the seller's own arm sets it. The scheduler pass and the settings screen both follow the
-  PREFERENCE'S seller, never the roof's.
-- **A paused listing is offered re-opening, never refused**, gated at
-  `confirmInventoryPublication` — the one seam a fresh update, a pre-pause prompt reply and `SAME`
-  all funnel through. The consent is `reopening_stated_version` on the proposal, written when the
-  prompt stating the consequence was composed and bound to that version; the farmer answers with an
-  ordinary `YES` (max, 2026-08-16), no new keyword. Publishing re-opens the listing.
-- **Still stand-shaped on purpose:** VIGA's `issue_link`, which resolves its
-  `(authorization, stand)` pair to one listing and REFUSES on ambiguity rather than picking.
-- Deliberately NOT renamed: `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table (those name
-  the PERSON acting), the operator-facing **"Farms" tab label**, and `GENERIC_WORDS`.
+**The model.** `sellers` is the identity root; `sales_locations.own_seller_id` is the
+**self-pointer** naming the one nested seller that IS the stand, NULL for a venue like Morgan
+Hill; `stand_providers` holds one row per seller-at-stand. **Every suppression and labelling rule
+follows that pointer, never a name match** — `sellerCredit`/`creditSeller` state it once for the
+public cards, the SMS menu and the settings screens. An authorization names a seller OR a stand;
+"stand owner" stays derived. `provider-invalidation.ts` is the pause/revoke/close mechanism.
+
+**What a farmer can do.** Two sellers at one stand publish, are targeted by SMS, hold their own
+standing link, and carry their own reminder cadence — independently. Hosting is invitation →
+acceptance with no VIGA step; the hosting invitation IS the farmer invitation, and both doors take
+a name, never a seller id. A paused listing is offered re-opening rather than refused. Two seams
+answer "may this phone write this": `resolveProviderWriteAuthority` (whose STOCK) and
+`resolveStandWriteAuthority` (facts about the PLACE).
+
+**What a customer sees.** Every public and SMS surface reads PER SELLER from one seam
+(`readStandProviderFacts`), so one farmer's goods can never be dated by another's update. The
+stand card is item-first — each item once, its sellers nested with their own price and freshness.
+`/sellers` is the only discovery path for a hosted-only seller, who has no pin. A seller's
+open-now state is the INTERSECTION with the stand's. **A stand shutdown publishes nothing
+itemized** (this reversed a prior deliberate choice). Stock-out reports route by CONTRADICTION,
+not recency.
+
+**Live consequences shipped deliberately (max, 2026-08-16):** the 18 stands publishing no
+confirmed inventory stop receiving stock-out alerts entirely, and a closed stand's card loses its
+item list.
+
+**Deliberately unchanged:** VIGA's `issue_link` stays stand-shaped and REFUSES on ambiguity;
+`farm_bucks_*`, `farm_approval_id`, every `farmer_*` table, the operator-facing "Farms" tab label,
+and `GENERIC_WORDS` keep their names.
 
 ## Deployment and migrations
 
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0050` are all
-  unapplied to production** and must land in that order. `0042`'s content changed: the merged
-  `0042_multi_seller_stand_providers` was **replaced in place** by `0042_seller_root`, because no
-  database anywhere had applied it — production therefore never sees the native-slot model at all.
-  C.4 edited `0042` in place again for the same reason, deleting the duplicate cadence columns, and
-  repaired a real defect in its snapshot: it carried **two `public.sellers` blocks**, the second
-  being Phase B's deleted table. JSON keeps the last duplicate, so drizzle read the dead one —
-  masked only because `0047` is the head `generate` diffs.
-- **`0042` must be applied before the merged code runs.** Every writer now supplies `provider_id`;
-  against the un-migrated schema they fail immediately. `0043`–`0050` add no such requirement on
-  their own, but must not land ahead of `0042`.
-- **`0045`–`0049` are constraint-only and were NOT generated** (`0050` adds one nullable column) — `drizzle-kit` does not
-  emit them. **`0047`'s snapshot was built as a measured DELTA of `0046`'s**, not by introspection,
-  and that is now the documented method: measured on this branch, `generate` on the merged base says
-  *"No schema changes"*, an introspected `0047` snapshot makes it emit **16KB** of constraint churn,
-  and the delta-edited snapshot returns it to *"No schema changes"*. Introspection repairs an
-  already-drifted snapshot and DEGRADES a healthy one. DEVELOPMENT.md §gotchas owns the corrected
-  procedure, including that `generate` appends a journal entry as a side effect.
+  unapplied to production** and must land in that order. **`0042` must be applied before the merged
+  code runs** — every writer now supplies `provider_id`, and against the un-migrated schema they
+  fail immediately. `0043`–`0050` add no such requirement on their own but must not land ahead of it.
+- **`0045`–`0049` are constraint-only and were NOT generated** (`0050` adds one nullable column);
+  `drizzle-kit` does not emit them. A hand-written migration's snapshot is repaired as a **measured
+  DELTA of its predecessor, never by introspection** — RUNBOOK §Migrations and DEVELOPMENT.md
+  §gotchas own the procedure and the evidence for it.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
   neither revision has an error-level log. **B-074 and all of F-114 are on `main` and undeployed.**
 
 ## Verification
 
-- **2,080 unit tests pass; 7 corpus-only tests skip.** Integration is **1289/1289 across 92 of 92
+- **2,152 unit tests pass; 7 corpus-only tests skip.** Integration is **1347/1347 across 96 of 96
   files** against disposable local Postgres databases (2026-08-16).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it eight `farmer-stand` cases fail `ConfigurationError: PUBLIC_BASE_URL is required` — identical on
@@ -108,27 +79,28 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
   The build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
   broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5. Last
-  run 2026-08-14 — **no F-114 phase has changed a seam projection, schema, or output contract**, so
-  no live run is owed. Checked rather than assumed each time. For C.3: `packages/ai` and
-  `packages/core` are untouched, `projectStockOutParse` still projects exactly
-  `{entryId, itemName}`, and `providerId` appears nowhere in the AI package — with the search proved
-  against a known-present term (`entryId`) first.
-- **F-114 is sabotage-proved throughout.** 53 breakages across the seller root, authorization arms,
-  hosting invitation and doors; 22 more across C.2; 19 more across C.3; **21 more across C.4** —
-  each caught by the case aimed at it. Every migration is proved against a **populated** copy of the schema that precedes it,
-  asserting exact row effects plus a re-run proving it is a no-op.
-- **Fourteen escapes across F-114, and every one was ONE failure: a guard is unfalsifiable until a
-  case exists where it is the ONLY thing that could refuse.** All fourteen are closed by cases that
-  construct exactly that. **Assert the absence of the wrong behavior; and when a breakage changes no
-  test result, ask which other guard answered first.** The per-phase enumerations are in
-  [SESSION_LOG.md](SESSION_LOG.md); the standing forms are in DEVELOPMENT.md §gotchas.
+  run 2026-08-14 — **no F-114 phase changed a seam projection, schema, or output contract**, so no
+  live run is owed. Checked rather than assumed each time, including for C.5, which DOES change
+  what retrieval returns: `packages/ai` is untouched, `providerId` appears nowhere in it, and the
+  matcher's catalog is a `Map` keyed on the lowercased name, so the extra per-seller rows collapse
+  to the same unique values with no stand or provider association.
+- **F-114 is sabotage-proved throughout** — 146 deliberate breakages across its phases, each
+  caught by the case aimed at it, and every migration proved against a **populated** copy of the
+  schema that precedes it. **Eighteen escapes, and every one was ONE failure: a guard is
+  unfalsifiable until a case exists where it is the ONLY thing that could refuse.** All are closed.
+  **Assert the absence of the wrong behavior; when a breakage changes no test result, ask which
+  other guard answered first; and confirm the sabotage actually applied before concluding a guard
+  is redundant** — C.5 produced three mis-aimed sabotages that read exactly like escapes. The
+  per-phase enumerations are in [SESSION_LOG.md](SESSION_LOG.md); the standing forms are in
+  DEVELOPMENT.md §gotchas.
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only. It
   predates F-114 and seventeen `*_not_blank` CHECKs share it. The suite asserts that measured truth
   in two cases rather than the constraint's name; **B-076** files the sweep, and the admitting case
   is marked INVERT WHEN FIXED.
-- **One integration file failed intermittently under full-suite parallel load** (B-078) — 1124 tests
-  passed beside a failed *file*. Re-run was 77/77 and both heavy candidates were green in isolation.
-  Capture the full run to a file the next time it appears; the file name was lost to a summary grep.
+- **One integration file failed intermittently under full-suite parallel load** (B-078). **Not seen
+  again since** — two full runs this session were clean at 1347/1347, and the suite has grown by
+  four files since it last appeared. Capture the full run to a file the next time it does; the file
+  name was lost to a summary grep last time.
 
 ## Standing facts a cold start needs
 
@@ -160,6 +132,12 @@ behind each phase is in [SESSION_LOG.md](SESSION_LOG.md), not here.
 - Finish physical-handset checks: farmer onboarding/consent, contact card, paged SMS, administrator
   and settings flows, F-105 stand details at phone width, Squarespace embeds, and `?hidden=true`.
   Every texted link now carries `farmfriend.vigavashon.org` and none has been read on a handset.
+- **C.5's two new customer surfaces owe a handset pass.** The item-first stand card (an item
+  once, sellers nested with their own price and freshness, the stale one ambered) and the seller
+  list at `/sellers` with its search box. Both were read in a browser and MEASURED — no horizontal
+  overflow at 360px and 390px, credited lines wrap rather than spill, and no C.5 rule sits in a
+  `prefers-color-scheme` block so the light-only palette holds under a dark OS. Neither has been
+  seen on a real phone. The map also gained a **"Browse by seller"** link in its filter header.
 - **C.4 adds ONE farmer-facing sentence owing a handset pass**: `Publishing this update will
   re-open your listing. Reply YES to confirm, NO to cancel.` — the paused listing's confirmation,
   which replaces the ordinary publish prompt rather than joining it. Verified GSM-7 by

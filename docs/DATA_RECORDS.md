@@ -173,7 +173,9 @@ seller's goods is often unsettled between the farmers themselves: cash in a shar
 agreement because the money is separated when the box is emptied, but an instrument naming an
 account is that holder's claim to make. Recorded when stated, silent when not. **Availability is an
 intersection, never a union** — a provider may be closed inside an open stand and can never be open
-inside a closed one, computed once at `intersectAvailability`.
+inside a closed one, computed once at `intersectAvailability` and read by the public card as each
+seller's `openState` (F-114 C.5). An unstated stand schedule PERMITS rather than closes: a stand
+that said nothing has not said it is shut.
 
 **Three lifecycle states, not four.** `pending` is an unanswered invitation, `active` is public and
 may publish, `paused` is the seller's own temporary withdrawal. Ending a relationship is `ended_at`,

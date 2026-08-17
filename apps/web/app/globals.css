@@ -627,6 +627,107 @@ body {
   line-height: 1.5;
 }
 
+/*
+  F-114 C.5 — ITEM-FIRST, WITH SELLERS NESTED UNDER EACH ITEM.
+
+  The chip row above says "these things are here". It cannot say "these three sellers each have
+  tomatoes, at three prices, confirmed at three different times" — a chip has one line and the
+  card now has two axes. So the item becomes a heading and its sellers become the lines beneath
+  it, which overrides the flex-wrap chip layout for this list only.
+
+  WHY THE ITEM KEEPS THE CHIP'S WEIGHT AND LOSES ITS PILL. What a customer scans for is the
+  ITEM, so it stays the heaviest thing in the block. The pill shape goes because a pill implies
+  one countable fact, and this one now has children — a bordered capsule with a list inside it
+  reads as a container rather than as an item.
+
+  A SELLER LINE WITH NO NAME IS THE STAND'S OWN. `credit` is absent for it (by self-pointer),
+  so the line renders as price and freshness alone — nothing echoes the card's own heading back.
+*/
+.items-nested {
+  display: block;
+}
+
+.items-nested .item-group {
+  display: block;
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  margin: 0 0 0.7rem;
+  font-size: inherit;
+}
+
+.items-nested .item-group:last-child {
+  margin-bottom: 0;
+}
+
+.items-nested .item-name {
+  display: block;
+  font-size: 0.98rem;
+  margin-bottom: 0.2rem;
+}
+
+.item-sellers {
+  list-style: none;
+  margin: 0;
+  padding: 0 0 0 0.75rem;
+  /* A quiet rule down the left, so the nesting is visible without indentation doing all the
+     work at phone width — where a 12px indent is nearly invisible on its own. */
+  border-left: 2px solid #cfe0d5;
+  display: flex;
+  flex-direction: column;
+  gap: 0.22rem;
+}
+
+/*
+  `.item-sellers .item-seller`, not `.item-seller` alone, and the extra class is load-bearing.
+
+  `.items li` is (0,1,1) and beat a bare (0,1,0) class, so the nested lines kept the chip's
+  pill background, border and 999px radius while this rule "read correctly" in the file. Only a
+  computed-style read of the running page showed it. Matching the parent's weight is what makes
+  the override actually apply.
+*/
+.item-sellers .item-seller {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.4rem;
+  /* Overrides `.items li`'s chip: a nested line is a line, not a pill. */
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: 0;
+  font-size: 0.88rem;
+  line-height: 1.35;
+}
+
+.item-seller-name {
+  font-weight: 600;
+  color: var(--ink);
+}
+
+/*
+  The per-seller freshness. Softer and smaller than the price beside it: it qualifies the claim
+  rather than being the claim, and the stand-level summary in the heading already carries the
+  headline answer.
+
+  It appears ONLY on a confirmed line. `standCardSections` leaves the field absent on a usual
+  one, so there is nothing here to style for a standing claim — the no-timestamp rule is
+  enforced in the data, and this stylesheet simply has no rule that could reveal one.
+*/
+.item-seller-recency {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+/* The same `--amber` `.listing-recency-aged` uses, so a stale seller line and a stale stand
+   heading warn in one colour rather than two near-misses. */
+.item-seller-recency-aged {
+  color: var(--amber);
+  font-weight: 600;
+}
+
 /* "Nothing confirmed recently." and the two no-listing sentences. */
 .listing-note {
   margin: 0 0 0.8rem;
@@ -6150,4 +6251,158 @@ button.admin-action-danger,
   padding-bottom: 0.5rem;
   border-bottom: 1px solid var(--line);
   font-weight: 600;
+}
+
+/*
+  F-114 C.5 — THE SELLER DIRECTORY.
+
+  The island's second discovery view. It reuses the map page's palette and card feel rather
+  than introducing a second visual language: a customer arriving here from the map should read
+  it as the same guide, seen a different way.
+
+  DELIBERATELY NO CHIPS AND NO RECENCY. This page carries only standing claims — what a seller
+  usually sells — so nothing on it has the countable, dated shape of a confirmed stock list.
+  That is the same two-voices rule F-042 established for the stand card, applied by giving this
+  page only the quiet voice. What is out RIGHT NOW is the stand card's question.
+*/
+.seller-directory {
+  max-width: 60rem;
+  margin: 0 auto;
+  padding: 1.5rem 1rem 3rem;
+}
+
+.seller-directory-header h1 {
+  margin: 0 0 0.4rem;
+  color: var(--olive);
+  font-size: 1.5rem;
+  line-height: 1.2;
+}
+
+.seller-directory-lede {
+  margin: 0 0 0.6rem;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.5;
+  max-width: 42rem;
+}
+
+.seller-directory-back {
+  display: inline-block;
+  margin-bottom: 1.25rem;
+  color: var(--olive);
+  font-size: 0.9rem;
+  font-weight: 600;
+  text-decoration: none;
+}
+
+.seller-directory-back:hover,
+.seller-directory-back:focus-visible {
+  text-decoration: underline;
+}
+
+.seller-search {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin-bottom: 1.25rem;
+}
+
+.seller-search-label {
+  font-size: 0.9rem;
+  font-weight: 650;
+  color: var(--olive);
+}
+
+/* `flex: 1 1 14rem` rather than a fixed width: at phone width the input takes the row and the
+   count wraps beneath it, instead of the two fighting over one line. */
+.seller-search-input {
+  flex: 1 1 14rem;
+  min-width: 0;
+  padding: 0.55rem 0.8rem;
+  border: 1px solid #cfe0d5;
+  border-radius: 0.6rem;
+  background: #fff;
+  color: var(--ink);
+  font-size: 0.95rem;
+}
+
+.seller-search-count {
+  color: var(--ink-soft);
+  font-size: 0.8rem;
+  font-weight: 650;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.seller-directory-empty {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.95rem;
+  line-height: 1.5;
+}
+
+.seller-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  /* auto-fit with a min of 17rem: one column on a phone, two or three on a laptop, with no
+     media query deciding where the break is. */
+  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
+  gap: 0.9rem;
+}
+
+.seller-card {
+  padding: 0.95rem 1.05rem;
+  background: #fff;
+  border: 1px solid #cfe0d5;
+  border-radius: 0.75rem;
+}
+
+.seller-card-name {
+  margin: 0 0 0.3rem;
+  color: var(--ink);
+  font-size: 1.05rem;
+  line-height: 1.25;
+}
+
+.seller-card-description {
+  margin: 0 0 0.4rem;
+  color: var(--ink-soft);
+  font-size: 0.88rem;
+  line-height: 1.5;
+}
+
+/* Where they sell — the line a hosted-only seller's whole discovery story hangs on. Given the
+   olive the headings use, because it is the answer this page exists to give. */
+.seller-card-where {
+  margin: 0 0 0.35rem;
+  color: var(--olive);
+  font-size: 0.9rem;
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+/* A plain grey sentence, exactly like `.items-usual` on the stand card: a standing claim gets
+   the quiet voice, and no shape a date could sit in. */
+.seller-card-items {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1.5;
+}
+
+/* The map's door to this page. */
+.seller-list-link {
+  color: var(--olive);
+  font-size: 0.85rem;
+  font-weight: 650;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.seller-list-link:hover,
+.seller-list-link:focus-visible {
+  text-decoration: underline;
 }

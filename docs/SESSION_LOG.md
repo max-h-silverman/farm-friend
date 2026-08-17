@@ -11,7 +11,98 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-16 (latest) — Whose schedule is this? (F-114 Phase C.4, cadence + scheduler + paused re-opening)
+## 2026-08-16 (latest) — Whose goods are these? (F-114 Phase C.5, the customer's half — the last phase)
+
+Merged as **`0f9f470`** (PR #129). Integration **1347/1347 across 96 of 96 files**, up from
+1289/1289 across 92; unit **2,152** with the 7 corpus skips. Typecheck, lint and scripted evals
+(11/11, 4/4, 19/19) green. **F-114 is complete** — every phase from B to C.5 is on `main`, and the
+nine-migration queue (`0042`–`0050`) is unchanged, because C.5 added no migration at all: Phase B
+had already given `stand_items` and `inventory_revisions` their provider column. Every criterion
+in the PM item is checked except the physical-handset pass, which is max's.
+
+**The phase was one defect, in three places.** The map, SMS retrieval and the admin roster had all
+kept the Phase A shape — `is_current` keyed on `sales_location_id` alone. That was correct while
+every stand had one seller and silently wrong the moment one had two: both sellers' entries come
+back interleaved under whichever `published_at` the loop saw first, so one farmer's goods are
+dated by another's update. Nothing errors. Every item is present. The card is wrong. Phase A
+consolidated those sites precisely so this would be one change; C.5 is that change.
+
+The new seam is `readStandProviderFacts`, and it is a NEW reader rather than a widened
+`currentInventoryJoin` because the *shape* of the answer changed, not just the predicate — the
+corpus-wide surfaces select one row per stand, this returns a nesting. That let the three surfaces
+adopt it one at a time without dragging the admin roster along, which genuinely does want
+stand-wide aggregates.
+
+**`items` is now DERIVED from `sellers`, not read a second way.** The stand-wide union is what a
+customer scanning a map needs ("is there kale here"); the per-seller nesting is what the detail
+card needs ("whose, at what price, confirmed when"). Two shapes of one fact rather than two facts,
+which is the only construction that makes web-and-SMS agreement structural instead of promised.
+
+**Two rules moved into core, because they were about to be written a fourth and fifth time.**
+`creditSeller` — the stand's own seller renders unlabelled, **by self-pointer, never a name match**
+— already existed three times (the SMS target menu, the settings screen, the reminder list). Its
+separator is a *parameter*: SMS is GSM-7-bound and one em-dash re-encodes a whole message to
+UCS-2, so what must not differ between channels is *which* listings get a name, not the
+punctuation. `sellerCredit` was factored out beside it when the card needed the credit without a
+location name attached — one predicate, two renderings, rather than composing a string and
+trimming it back off.
+
+**A prior deliberate decision was reversed, deliberately.** `closure-public.integration.test.ts`
+asserted that a closed stand KEEPS its items, with the notice, the Open-now filter and the
+suppressed routing link doing the work. §customer behavior overrides it: a shutdown renders
+nothing itemized, both registers, because a closed stand is a locked box and a standing claim is
+as unbuyable as a dated one. Suppressed in `public-listing` rather than the card — suppressing
+only in the detail card would leave a closed stand's stock answering a produce search and printing
+on the compact card, with the card's own suite fully green.
+
+**The seller list is why hosted sellers can be named at all.** It survived an over-engineering cut,
+and the reason is narrow: a bakery selling only at other people's stands owns no `sales_locations`
+row, so it has no pin and no card. Crediting it by name on someone else's card while leaving it
+findable nowhere is worse than not naming it. Its search matches a seller's own name and goods and
+deliberately NOT the stands they sell at — matching those answers "who is at Morgan Hill" with
+every baker who has a table there, which the map already answers properly.
+
+**`intersectAvailability` finally has a consumer.** Phase A built it and shipped it as an identity
+function with `provider: undefined` everywhere; C.5 is the surface that asks it. Both directions
+are proved and both were checked on the live wire, not only in the suite: a seller closed inside an
+open stand, and a seller claiming `all_day` still closed inside a shut one.
+
+**Three defects found in passing, none of them C.5's own scope, all measured against a real
+database before being touched.** The SMS *offerings* half still joined `stand_items` on the stand,
+so a hosted seller's usual items reached customers from ended relationships, unaccepted
+invitations, and sellers VIGA had retired — the map had closed all three and SMS runs its own SQL.
+The admin roster listed a two-seller stand **twice**, each row carrying half the inventory. And a
+`Write` emitted a stray NUL byte into a template literal where a space belonged: JS parsed it,
+every test passed, and only `od -c` showed it.
+
+**Two verification lessons worth the standing entry.** First: *a mis-aimed sabotage is
+indistinguishable from a test that cannot fail*, and C.5 produced three — a perl pattern that never
+matched the source, a `limit 1` inside an aggregate that limited nothing, and an object spread that
+did not remove the key it appeared to. Each read as an escape until the sabotage itself was
+checked. Second: the four real escapes were all the same standing failure — `usually_carried` with
+no unusual item beside a usual one, a hidden-price case whose item had no price to hide, a venue
+case for the null self-pointer, an SMS offerings gate with no hosted seller to refuse. Also: the
+empty-id-list guard proved *genuinely* redundant (ids travel as an array parameter, so `= any('{}')`
+already matches nothing) and was deleted rather than left unfalsifiable.
+
+**Two traps got tripwires.** A backtick in a SQL comment closes the template literal and typecheck
+names a *column* far from the comment — five hunts this phase, now
+`packages/core/src/sql-template-safety.test.ts`, which proves its own scanner in both directions
+before trusting a clean sweep. The NUL-byte sweep is documented in DEVELOPMENT.md §gotchas.
+
+**Read in a browser, not just asserted.** The item-first card and `/sellers` were both loaded
+against the real dev database with a seeded hosted bakery; the served `/api/public/stands` payload
+was read on the wire. Two things only the running page showed: `stand-card.ts` imported core's
+*barrel*, which re-exports `privacy/phone` and pulled `node:crypto` into the browser bundle (the
+page 500'd; vitest runs in Node, where it resolves fine, so no unit test could have caught it), and
+the nested seller lines kept the chip's pill because `.items li` at (0,1,1) beat a bare
+`.item-seller` class — the file read correctly and only a computed-style read of the live page
+showed otherwise. Geometry measured at 360px and 390px: no horizontal overflow, credited lines
+wrap; no C.5 rule sits in a `prefers-color-scheme` block, so the light-only palette holds.
+
+**Owed:** the two new customer surfaces have not been seen on a real phone.
+
+## 2026-08-16 — Whose schedule is this? (F-114 Phase C.4, cadence + scheduler + paused re-opening)
 
 Merged as **`ac3fcd5`** (PR #128). Integration is **1289/1289 across 92 of 92 files**, up from
 1248/1248 across 88; unit is 2,080 with the 7 corpus skips. Typecheck, lint and scripted evals

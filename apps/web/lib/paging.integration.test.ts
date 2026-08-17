@@ -11,7 +11,12 @@ import {
 } from "@farm-friend/ai";
 import { FixedClock, PAGE_SIZE } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
-import { answerInquiry, offeringFactId, standKeyOfFactId } from "./inquiry";
+import {
+  answerInquiry,
+  offeringFactId,
+  providerFactId,
+  standKeyOfFactId,
+} from "./inquiry";
 import { handleNextPage } from "./paging";
 
 // F-046 part 3 — a question and its MORE, end to end against real Postgres.
@@ -451,8 +456,28 @@ describe("SMS result paging end to end (integration)", () => {
       await alsoUsuallySells(i, "kale");
     }
 
+    /*
+      F-114 C.5 — a CONFIRMED id now names the provider, not the stand.
+
+      Two sellers at one stand each publish independently, so the saved list has to be able to
+      hold both; `standKeyOfFactId` recovers the stand from either, which is what keeps this
+      test's own guarantee intact. The ids are built here the way retrieval builds them rather
+      than read back from a saved list, because the point of this case is a list THIS PROCESS
+      DID NOT WRITE — the pager's own measurement, not the grouping at save time.
+    */
+    const providerIdOf = async (locationId: string): Promise<string> => {
+      const rows = await client()`
+        select p.id from stand_providers p
+        join sales_locations l on l.id = p.sales_location_id
+        where p.sales_location_id = ${locationId} and p.seller_id = l.own_seller_id
+      `;
+      return rows[0]?.id as string;
+    };
+    const providerIds = await Promise.all(
+      [0, 1, 2].map((i) => providerIdOf(locationIds[i]!)),
+    );
     const interleaved = [
-      ...[0, 1, 2].map((i) => locationIds[i]!),
+      ...[0, 1, 2].map((i) => providerFactId(locationIds[i]!, providerIds[i]!)),
       ...[0, 1, 2].map((i) => offeringFactId(locationIds[i]!)),
     ];
     await client()`

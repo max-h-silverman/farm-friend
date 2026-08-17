@@ -126,6 +126,45 @@ export interface PublicStandPayload {
     priceText?: string;
     approximation?: "some" | "limited" | "plentiful";
   }[];
+  /**
+   * Every seller at this stand, each with its own items and its own freshness (F-114 C.5).
+   *
+   * **This is the item-first card's source; `items` remains the stand-wide list** the compact
+   * card and every SMS-parity surface read. They are not duplicates of one fact: `items` is the
+   * union a customer scanning a map needs, and this is the attribution the detail card needs.
+   * The union is derived FROM these on the server, so they cannot come to disagree.
+   *
+   * Optional so the type stays honest about the venue case — a stand nobody has been invited
+   * to has no sellers, and an empty list is a different fact from a stand that was never asked.
+   * `standCardSections` returns nothing for either, and the sentence-shaped lines take over.
+   */
+  sellers?: {
+    providerId: string;
+    sellerId: string;
+    sellerName: string;
+    /** By SELF-POINTER, resolved server-side. Never a name match. */
+    describesOwnStand: boolean;
+    cardRecency?: string;
+    stale?: boolean;
+    /**
+     * Whether THIS seller can honestly be called open right now (F-114 C.5).
+     *
+     * The intersection of their own schedule with the stand's, resolved server-side. Carried on
+     * every seller rather than only the open ones, for the same reason the stand's own
+     * `openState` is: the UI must be able to distinguish "open" from "we don't know" for a
+     * seller it is SHOWING.
+     */
+    openState: OpenState;
+    confirmedItems: {
+      itemName: string;
+      quantity?: number;
+      unit?: string;
+      priceText?: string;
+      approximation?: "some" | "limited" | "plentiful";
+    }[];
+    /** Standing claims. They carry a price and NEVER a date. */
+    usualItems: { itemName: string; priceText?: string }[];
+  }[];
 }
 
 export type MapMarkerKind =

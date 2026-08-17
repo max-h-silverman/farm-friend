@@ -28,7 +28,6 @@ import type {
 } from "@farm-friend/ai";
 import {
   currentEntriesJoin,
-  currentInventoryJoin,
   savePendingResultList,
   visibleFarms,
   type Db,
@@ -141,11 +140,40 @@ export function offeringFactId(locationId: string): string {
  */
 const CONFIRMED_VARIANT_NIBBLE: Record<string, string> = { c: "8", d: "9", e: "a", f: "b" };
 
+/**
+ * The separator between a stand's fact id and the PROVIDER it belongs to (F-114 C.5).
+ *
+ * `@` cannot occur in a uuid, which is what makes the split unambiguous.
+ */
+const PROVIDER_FACT_SEPARATOR = "@";
+
+/**
+ * The paging identifier for ONE SELLER's row at a stand.
+ *
+ * **A suffix rather than another nibble, and that is forced.** The offering variant rewrites
+ * one hex nibble inside the uuid — four values, exactly enough for "confirmed or offering". A
+ * stand now has an unbounded number of sellers, so there is no nibble left and no fixed-size
+ * encoding could carry a uuid anyway.
+ *
+ * It COMPOSES with the offering variant rather than replacing it: a seller's standing
+ * offerings at a stand carry both markers, and `standKeyOfFactId` strips this suffix first and
+ * then applies the nibble rule to what remains. One mechanism gained a case; nothing already
+ * encoded had to be re-encoded, and every id already saved in a pending list still resolves.
+ */
+export function providerFactId(standFactId: string, providerId: string): string {
+  return `${standFactId}${PROVIDER_FACT_SEPARATOR}${providerId}`;
+}
+
 export function standKeyOfFactId(factId: string): string {
-  if (factId.endsWith("z")) return factId.slice(0, -1);
-  const nibble = CONFIRMED_VARIANT_NIBBLE[factId[19] ?? ""];
-  if (nibble === undefined) return factId;
-  return `${factId.slice(0, 19)}${nibble}${factId.slice(20)}`;
+  // The provider suffix comes off FIRST, so what remains is exactly the id the nibble rule was
+  // written for. Reversing the order would leave the rule reading position 19 of a string that
+  // may not be a bare uuid at all.
+  const separatorAt = factId.indexOf(PROVIDER_FACT_SEPARATOR);
+  const withoutProvider = separatorAt === -1 ? factId : factId.slice(0, separatorAt);
+  if (withoutProvider.endsWith("z")) return withoutProvider.slice(0, -1);
+  const nibble = CONFIRMED_VARIANT_NIBBLE[withoutProvider[19] ?? ""];
+  if (nibble === undefined) return withoutProvider;
+  return `${withoutProvider.slice(0, 19)}${nibble}${withoutProvider.slice(20)}`;
 }
 
 export type PagedStandFactKind = "payment" | "farm_bucks" | "open_now";
@@ -253,7 +281,7 @@ export interface LocationRow {
  * Retrieval stays deliberately general — it selects rows, and the layers above order and
  * select. There is no food vocabulary or farm name in this query.
  */
-async function retrieveCurrentListings(
+export async function retrieveSmsListings(
   db: Db,
   at: Date,
   scope: SmsViewerScope,
@@ -267,6 +295,7 @@ async function retrieveCurrentListings(
       -- accident; the paging renderer already shows a null address as "address not listed".
       case when l.address_public then l.public_address else null end as public_address,
       f.name as farm_name,
+      provider.id as provider_id,
       r.published_at as published_at,
       e.item_name as item_name,
       e.quantity as quantity,
@@ -280,10 +309,29 @@ async function retrieveCurrentListings(
       c.closed_through::text as closure_closed_through
     from sales_locations l
     join sellers f on f.id = l.own_seller_id
-    -- B-074 — the currency rule comes from the shared reader, not from this query. It is an
-    -- INNER join here deliberately: a stand with no confirmed revision reaches a customer
-    -- through the offerings half below, never as an empty confirmed listing.
-    ${currentInventoryJoin({ locationAlias: "l", revisionAlias: "r", kind: "inner" })}
+    /*
+      PER PROVIDER (F-114 C.5), not per stand.
+
+      This used to join the current revision on the STAND, which after Phase B returns every
+      seller's entries interleaved under whichever published_at the loop saw first — one
+      farmer's goods dated by another's update, on the answer path, with nothing erroring.
+
+      The join is INNER on both the provider and the revision, deliberately: a seller with no
+      confirmed revision reaches a customer through the offerings half below, never as an empty
+      confirmed listing. Pending and ended relationships are excluded here exactly as they are
+      from the map, so the two channels cannot disagree about who is selling.
+    */
+    join stand_providers provider
+      on provider.sales_location_id = l.id
+     and provider.ended_at is null
+     and provider.lifecycle_state in ('active', 'paused')
+    -- The SELLER's own visibility, applied in the where clause below. A hosted seller VIGA
+    -- retired leaves every stand they sold at, not only their own.
+    join sellers provider_seller on provider_seller.id = provider.seller_id
+    -- B-074 — the currency rule still comes from the shared predicate; what changed is the KEY
+    -- it is applied on.
+    inner join inventory_revisions r
+      on r.provider_id = provider.id and r.is_current
     ${currentEntriesJoin({ revisionAlias: "r", entryAlias: "e", kind: "inner" })}
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
@@ -296,19 +344,30 @@ async function retrieveCurrentListings(
     -- asked" true rather than promised: the model only ever selects from what came back here.
     where l.is_public and l.retired_at is null
       and ${visibleFarms("f", scope.includeTestFarms)}
-    order by l.id asc, e.sort_order asc
+      -- The PROVIDER's seller, checked independently of the stand's own. A hosted seller VIGA
+      -- retired, or a test seller, must leave every stand they sell at — filtering only the
+      -- stand's own seller would leave a hosted one answering texts from a host that is fine.
+      and ${visibleFarms("provider_seller", scope.includeTestFarms)}
+    order by l.id asc, provider.id asc, e.sort_order asc
   `);
 
+  // Keyed on the PROVIDER (F-114 C.5). Keyed on the stand, two sellers' entries land in one
+  // row under whichever published_at arrived first — the misattribution this phase ends.
   const byLocation = new Map<string, LocationRow>();
   for (const raw of rows) {
     const row = raw as Record<string, unknown>;
     if (readPublicClosure(row, at)?.state === "active") continue;
     const locationId = row.location_id as string;
 
-    let entry = byLocation.get(locationId);
+    const providerId = row.provider_id as string;
+    let entry = byLocation.get(providerId);
     if (!entry) {
       entry = {
-        factId: locationId,
+        // The provider's own identifier, so two sellers at one stand cannot collide in the
+        // pending list. `standKeyOfFactId` recovers the stand, which is what lets
+        // `groupSelectableStands` collapse them back into ONE answer per stand — the
+        // deduplication half of the criterion.
+        factId: providerFactId(locationId, providerId),
         farmName: row.farm_name as string,
         locationName: row.location_name as string,
         // `as string` was a lie even before F-088 — the column has been nullable since
@@ -319,7 +378,7 @@ async function retrieveCurrentListings(
         basis: "confirmed",
         items: [],
       };
-      byLocation.set(locationId, entry);
+      byLocation.set(providerId, entry);
     }
 
     entry.items.push({
@@ -357,6 +416,20 @@ async function retrieveCurrentListings(
     -- past revision named it must not enter the offerings half of retrieval, or a customer
     -- would be told a stand usually sells something nobody ever said that about.
     join stand_items o on o.sales_location_id = l.id and o.usually_carried
+    /*
+      THE ITEM'S OWN PROVIDER (F-114 C.5), and its seller's visibility.
+
+      stand_items gained a provider in Phase B, and this query still joined it on the STAND
+      alone — so a hosted seller's usual items reached SMS answers from a relationship that had
+      ended, from an invitation nobody accepted, and from a seller VIGA had retired. The map
+      closed all three when it moved to the shared reader; this is the same three on the answer
+      path, which runs its own SQL and was proved by none of the map's tests.
+    */
+    join stand_providers offering_provider
+      on offering_provider.id = o.provider_id
+     and offering_provider.ended_at is null
+     and offering_provider.lifecycle_state in ('active', 'paused')
+    join sellers offering_seller on offering_seller.id = offering_provider.seller_id
     left join closure_revisions c
       on c.sales_location_id = l.id and c.is_current
     -- The SECOND query in this function, and it needs the F-074 filter independently. A stand
@@ -364,6 +437,7 @@ async function retrieveCurrentListings(
     -- confirmed query alone would hide a test farm's fresh items and publish its standing ones.
     where l.is_public and l.retired_at is null
       and ${visibleFarms("f", scope.includeTestFarms)}
+      and ${visibleFarms("offering_seller", scope.includeTestFarms)}
     order by l.id asc, o.sort_order asc
   `);
 
@@ -429,7 +503,7 @@ export async function dereferenceFacts(
   },
 ): Promise<PageableFact[]> {
   const byId = new Map(
-    (await retrieveCurrentListings(db, input.at, input.scope)).map((row) => [
+    (await retrieveSmsListings(db, input.at, input.scope)).map((row) => [
       row.factId,
       row,
     ]),
@@ -731,7 +805,7 @@ async function answerResolvedInquiry(
     { db: deps.db, clock: deps.clock },
     input.scope,
   );
-  const listings = await retrieveCurrentListings(deps.db, deps.clock.now(), input.scope);
+  const listings = await retrieveSmsListings(deps.db, deps.clock.now(), input.scope);
   let resolvedStand: PublicStand | undefined;
   const candidateStands =
     input.mode === "stand_lookup"

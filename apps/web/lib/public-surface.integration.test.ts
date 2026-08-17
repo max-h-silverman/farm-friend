@@ -27,7 +27,7 @@ import {
   type Db,
   type Sql,
 } from "@farm-friend/db";
-import { answerInquiry } from "./inquiry";
+import { answerInquiry, standKeyOfFactId } from "./inquiry";
 import { standListingLines } from "./map-view";
 import {
   handleStandsRequest,
@@ -654,7 +654,19 @@ ${farmerHash}, ${ids.location},
 
       expect(answer.outcome).toBe("answered");
       if (answer.outcome !== "answered") throw new Error("expected an answer");
-      expect(answer.selectedFactIds).toEqual([stands[0]!.factId]);
+      /*
+        F-114 C.5 — the SMS fact id names the PROVIDER, the map's names the stand.
+
+        They are deliberately different strings now, because two sellers at one stand each
+        need their own identifier in a saved paging list. What parity requires is that both
+        describe the same PLACE, which `standKeyOfFactId` is the one function that decides —
+        so comparing through it asserts the property rather than a string coincidence that
+        held only while every stand had one seller.
+      */
+      expect(answer.selectedFactIds.map(standKeyOfFactId)).toEqual([stands[0]!.factId]);
+      // And the id really did carry a provider, so this is not passing because both sides are
+      // bare stand ids again.
+      expect(answer.selectedFactIds[0]).not.toBe(stands[0]!.factId);
       // F-107 — the two channels no longer share WORDING, deliberately: SMS abbreviates
       // ("3h ago") because it pays per character, and the map spells it out ("updated 3 hours
       // ago") because it does not. What must still hold is that both describe the SAME
