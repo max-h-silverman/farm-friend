@@ -73,8 +73,8 @@ customer). Renaming the cadence value to `off` is one migration with no behaviou
 only because `0042`–`0051` are unapplied. Revisit once that queue lands.
 
 **Deliberately unchanged:** VIGA's `issue_link` stays stand-shaped and REFUSES on ambiguity;
-`farm_bucks_*`, `farm_approval_id`, every `farmer_*` table, the operator-facing "Farms" tab label,
-and `GENERIC_WORDS` keep their names.
+`farm_bucks_*`, `farm_approval_id`, every `farmer_*` table and `GENERIC_WORDS` keep their names.
+(The operator-facing "Farms" tab is **gone** as of F-101 — see the admin console section.)
 
 ## Deployment and migrations
 
@@ -92,11 +92,11 @@ and `GENERIC_WORDS` keep their names.
   §gotchas own the procedure and the evidence for it.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
-  neither revision has an error-level log. **B-074 and all of F-114 are on `main` and undeployed.**
+  neither revision has an error-level log. **B-074, all of F-114/F-115, and F-101's admin console are on `main` and undeployed.**
 
 ## Verification
 
-- **2,165 unit tests pass; 7 corpus-only tests skip.** Integration is **1400/1400 across 100 of 100
+- **2,189 unit tests pass; 7 corpus-only tests skip.** Integration is **1409/1409 across 102 of 102
   files** against disposable local Postgres databases (2026-08-17).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it six `farmer-stand` cases fail `ConfigurationError: PUBLIC_BASE_URL is required` — identical on
@@ -105,9 +105,9 @@ and `GENERIC_WORDS` keep their names.
   The build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
   broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5. Last
-  run 2026-08-14. **No live run is owed** — checked rather than assumed each time: no F-114 phase
-  and no F-115 tranche changed a seam projection, schema, or output contract, and `packages/ai`
-  and `evals/` are untouched by both branches.
+  run 2026-08-14. **No live run is owed** — checked rather than assumed each time: no F-114 phase,
+  F-115 tranche or F-101 commit changed a seam projection, schema, or output contract, and
+  `packages/ai` and `evals/` are untouched by all three branches.
 - **F-114 and F-115 are sabotage-proved throughout** — every fix has a breakage that the case aimed
   at it caught, and every migration is proved against a **populated** copy of the schema that
   precedes it. The standing lessons: **assert the absence of the wrong behavior; when a breakage
@@ -121,6 +121,37 @@ and `GENERIC_WORDS` keep their names.
 - **One integration file failed intermittently under full-suite parallel load** (B-078). **Not seen
   again** across several clean full runs since. Capture the full run to a file the next time it
   does; the file name was lost to a summary grep last time.
+
+## The admin console (F-101) — on `main`, NOT deployed
+
+**Three destinations: Stands & Sellers · SMS Users · Alerts.** The "Farms" tab is **gone, not
+renamed** (max, 2026-08-17): VIGA's job is *view and edit stands and sellers, invite new stands or
+sellers*, so approval, retirement, test-farm marking and setup links are things done inside a
+seller's card rather than screens of their own. `/admin/sellers` no longer exists; `/admin`
+redirects to `/admin/stands`.
+
+**Stands & Sellers is one destination holding two views**, and **the lists are entities, not
+states** — one row per stand, one per seller, with a participation always a detail inside a row.
+The singular case renders as a plain fact, never a one-item list, on both views.
+
+**`setProviderParticipation` finally has a caller**: `POST /api/admin/participation`, thin by
+design — it resolves the administrator from the session and hands the transition to the seam,
+which keeps the lock ordering, the authority arms and the invalidation. The toggle is
+pause/resume; **Remove is `end`, terminal, behind a confirmation, with no restore** — returning is
+a fresh invitation.
+
+**The adapting label**: on a stand whose only arrangement is its own seller's, the toggle reads as
+the stand being open or closed, because there that is its true effect. **No stand-level closed
+state exists**, and the framing is computed from the whole set so it can never say "closed" while
+a guest is still selling there.
+
+**"Unclaimed" is a state chip, never an alert** (max, 2026-08-17) — most farms begin with nobody
+able to publish for them, so alerting on it made the attention line permanent furniture.
+
+**Owed:** the **seller half has not started** — the farmer settings screen (permanent unguessable
+link, re-sent on `LINK` or `SETTINGS`), editable stand metadata for VIGA *or* the stand's owner,
+and the F-100 audit's remaining copy findings. The console was verified as **served markup and CSS,
+not as pixels** — the browser extension was unavailable.
 
 ## Standing facts a cold start needs
 
@@ -145,11 +176,11 @@ and `GENERIC_WORDS` keep their names.
 
 - **`0042` through `0051`, in order, must be applied to production before the code that requires
   them.** All ten are Max's call.
-- **Pause/end has a writer and no entry point.** `setProviderParticipation`, its authority rule and
-  every consequence are built and tested (F-116), with **zero production callers** — nothing a
-  farmer or VIGA can press reaches it. The surface ships with **F-101, the admin UI refactor**
-  (max, 2026-08-17): controls in the admin views and in the seller's own settings screen, not an
-  SMS keyword. F-116 keeps the mechanism; F-101 owns the surface.
+- **Pause/end is reachable by VIGA, not yet by a farmer.** F-101 shipped the admin half — the
+  toggle and Remove on both Stands & Sellers views, through `POST /api/admin/participation`. The
+  **seller's own settings screen does not exist yet** (`/farmer` holds onboarding and start only),
+  so a farmer still cannot pause or end her own listing. That half, its entry link and the
+  `LINK`/`SETTINGS` keywords remain in F-101.
 - **VIGA's stock-out queue is the only destination for reports at the 18 stands publishing no
   confirmed inventory** — decided and accepted (max, 2026-08-16), not an open question. Those stands
   are texted today and will not be once C.3 deploys; it resolves as they start confirming inventory.
@@ -189,10 +220,11 @@ and `GENERIC_WORDS` keep their names.
 - Provider-failure copy is integration-tested only. A real outage test belongs on an isolated preview
   service, never VIGA's production model account.
 - Phone-width visual checks remain owed for onboarding, farmer settings/listing, map details, and the
-  three administrator tabs — including the two new invitation controls, whose once-shown link sits in
-  a read-only input a farmer has to be able to select on a handset. F-065, F-084, B-008, B-034,
-  B-036, and B-048 remain planned; **F-101 is now the admin UI refactor** and carries the pause/end
-  controls alongside the F-100 audit's remaining findings.
+  three administrator tabs — now **Stands & Sellers · SMS Users · Alerts** — including the once-shown
+  setup link, which sits in a control a farmer has to be able to select on a handset. **The whole
+  F-101 console is owed a look at any width**: it was verified as served markup and CSS, never as
+  pixels. F-065, F-084, B-008, B-034, B-036, B-048 and **B-079** (four Alerts-page tests lost to
+  F-101's cleanup) remain planned.
 - VIGA must decide whether Vashon Island Farmers Market belongs in the roster as a farm. F-108 remains
   an idea for a per-answer map showing only returned stands.
 

@@ -52,13 +52,29 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Farms | `/admin/farms` | Everything about one farm on one card: approve it, edit its name and description, see and revoke who can update it, send a setup link, review its stands and their Farm Bucks status (an eligible farmer states acceptance on their own listing), take a stand or the whole farm off the map and put it back, mark it a test farm |
-| Messages | `/admin/messages` | Everything a person sent us: customer `FLAG` messages with the thread viewer (phones masked), stock-out reports, and questions about VIGA's own records |
-| Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm; prepare an invitation; decide access requests that arrived by text with no farm attached |
+| Stands & Sellers | `/admin/stands` | Two views of the island's farms. **Stands**: each stand, who sells there, and its own details. **Sellers**: each farm, where it sells, who can update it, and everything VIGA decides about it — approve it, edit its name and description, revoke access, send a setup link, take it off the map and put it back, mark it a test farm |
+| SMS Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm; prepare an invitation; decide access requests that arrived by text with no farm attached |
+| Alerts | `/admin/messages` | Everything a person sent us: customer `FLAG` messages with the thread viewer (phones masked), stock-out reports, and questions about VIGA's own records |
 
-**Three tabs: Farms, Messages, Users** — a farm, a message, a person. One screen owns each entity.
-**There is no Home tab** (max, 2026-08-10): counts sit on the tab that owns the work, above the rows
-they describe. `/admin` redirects to Farms, so an existing bookmark keeps working.
+**Three tabs: Stands & Sellers, SMS Users, Alerts** (F-101, max 2026-08-17). **There is no Farms
+tab** — your whole job is viewing and editing stands and sellers and inviting new ones, so approving
+a farm or sending its setup link happens *inside that farm's card*, not on a screen of its own.
+**There is no Home tab** either (max, 2026-08-10): counts sit on the tab that owns the work, above
+the rows they describe. `/admin` redirects to Stands & Sellers, so an existing bookmark keeps
+working.
+
+**Stands and Sellers list things, not situations.** One row per stand and one per seller — a farm
+selling at three stands is still one row. Open a row to see and change its arrangements.
+
+**Pausing and removing a seller from a stand.** Inside a stand (or inside a seller) each
+arrangement has a switch and a **Remove** button. The switch pauses and resumes: a paused seller's
+goods leave the map and the text answers while the arrangement stays in place. **Remove ends it and
+cannot be undone** — it asks first, and bringing that seller back means inviting them again. On a
+stand whose only seller is the farm that owns it, the switch reads **Stand is open / Stand is
+closed**, because that is what pausing does there.
+
+**"Unclaimed" is not a problem to fix.** It means no phone can publish for that farm yet, which is
+normal for a farm VIGA entered from the map. Send a setup link when you have someone to send it to.
 
 Each page resolves the administrator before querying its queue. The browser posts decisions to a
 guarded mutation route; the acting administrator always comes from the **session**, never the
@@ -88,21 +104,21 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   they accept the SMS agreement and send the prepared `JOIN <invite>` from their phone, Farm
   Friend sets them up and approves the farm, and texts them that they are ready. So check the
   person really runs the farm **before you send the link**; nothing asks you again afterwards.
-- **A farmer lost their setup link:** open the farm on `/admin/farms`. Its **Who can update this
-  farm** section says whether the most recent link is still open, has expired, or was never sent.
+- **A farmer lost their setup link:** open the farm on the **Sellers** view of `/admin/stands`.
+  Its **Who can update this listing** section says whether the most recent link is still open, has expired, or was never sent.
   **The original link cannot be shown again** — only a scrambled form of it is stored, the same
   reason a website sends a password reset instead of your old password. Press **New setup link**;
   it is copied to your clipboard and shown on that farm's card, it replaces any earlier link, and
-  the same "sending it is your approval" rule applies. Home counts these under **Farms nobody can
-  update**, so you do not have to go looking for them.
-- **Take a stand off the map:** open its farm on `/admin/farms`, open the stand in the green
-  **stands** group (headed by the count — "1 stand", "3 stands"), and press **Take off the map**,
-  then confirm. The stand leaves the map and the text answers, and its farmer
+  the same "sending it is your approval" rule applies. A farm with nobody who can update it is
+  marked **Unclaimed** on its row, so you can spot them without opening every card.
+- **Take a stand off the map:** find it on the **Stands** view of `/admin/stands`, open its row, and
+  press **Take off the map** in the stand's own details, then confirm. The stand leaves the map and
+  the text answers, and its farmer
   can no longer publish updates to it. **Nothing it already published is deleted** — the record of
   what that stand said it had, and when, is kept. Press **Put back on the map** to undo it. Use this
   when a farm stops running a stand; it is not how you fix a wrong listing detail.
-- **Someone else sells at a stand — set them up with their own listing:** open the stand in the
-  green **stands** group and use **Invite a seller**. Type their name and press **Invite and copy
+- **Someone else sells at a stand — set them up with their own listing:** open the stand on the
+  **Stands** view and use **Invite a seller**. Type their name and press **Invite and copy
   link**. This is for a grower or maker whose *own* goods are on someone else's table and who should
   keep their own stock up to date from their own phone — Venison Valley carrying Gracie's Greens.
   It is a different thing from the **Also selling here** names a farmer types on their own settings
@@ -117,17 +133,17 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
     goes on the public map, and the launch rule is no direct farmer contact there.
   - The stand owner can do this themselves from their own settings page, so you only need to when
     they ask you to.
-- **Correct a farm's name or description:** open it on `/admin/farms` and press **Edit details**.
+- **Correct a farm's name or description:** open it on the **Sellers** view and press **Edit details**.
   This is VIGA's own record of the farm — its name and description. It is **not** the listing:
   what a stand has, when it is open, and what it costs stay the farmer's (Golden Rule #1), and
   there is deliberately no control here that changes them.
-- **Remove a whole farm:** open it on `/admin/farms` and press **Remove this farm**, then confirm.
+- **Remove a whole farm:** open it on the **Sellers** view and press **Take off the map**, then confirm.
   The farm and **all of its stands** leave the map and the text answers. **Nothing it already
   published is deleted** — a farm cannot be erased, because that would erase the record of what
   its stands said they had and when. Its farmer also stops being able to publish updates to it,
   the same way removing a single stand works. Press **Put this farm back** to undo it. A stand you
   had already taken off the map on its own stays off when the farm comes back.
-- **Rehearse against the real site with a test farm (F-074):** open the farm on `/admin/farms` and
+- **Rehearse against the real site with a test farm (F-074):** open the farm on the **Sellers** view and
   press **Mark as test farm**.
   Marking a farm as a test farm makes it **absent** — from the map, from `/api/public/stands`,
   from customer text answers, and from the farm list at `/farmer/start`. It is not a listing with
@@ -152,7 +168,7 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   **Check that the person really runs the farm before you authorize them** — a phone number only
   proves someone has that phone. On authorizing, Farm Friend texts them that they are set up and
   how to post their first listing. A farm set up this way still needs approving (below).
-- **Turn off a farmer's link:** open the FARM on `/admin/farms` and use **Remove access** under
+- **Turn off a farmer's link:** open the FARM on the **Sellers** view and use **Revoke** under
   **Who can update this farm**. A farmer's update link **keeps working
   until you revoke it** — so if a farmer loses their phone, or a link gets shared or forwarded,
   revoke it. It stops working on the very next request, and the farmer can text `LINK` for a new
