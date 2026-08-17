@@ -52,15 +52,16 @@ describe("F-051 farmer settings surface wiring", () => {
     expect(reminders).not.toMatch(/\/api\/farmer\/settings\?/);
   });
 
-  it("asks which stand the texts are about only when there are several", () => {
+  it("asks which listing the texts are about only when there are several", () => {
     const form = source("apps/web/app/stand/[token]/settings/settings-form.tsx");
-    // The default-stand choice still exists — now behind `hasSeveralStands`, because a farmer
-    // with one stand is being asked to choose between one option (F-097).
+    // The default choice still exists — now behind `hasSeveralListings`, because a farmer with
+    // one listing is being asked to choose between one option (F-097; per-LISTING in F-114
+    // C.4, since a host holds two under one roof and "which stand" cannot separate them).
     expect(form).toMatch(/type=["']radio["']/);
-    expect(form).toMatch(/hasSeveralStands/);
+    expect(form).toMatch(/hasSeveralListings/);
   });
 
-  it("offers explicit per-stand cadence controls without presenting consent as schedule state", () => {
+  it("offers explicit per-listing cadence controls without presenting consent as schedule state", () => {
     // F-098 moved this control to the STOCK tab, under the widget that answers the reminder.
     // The guarantees are unchanged and follow the control to the file that now renders it.
     const form = source("apps/web/app/stand/[token]/reminder-schedules.tsx");
@@ -70,8 +71,9 @@ describe("F-051 farmer settings surface wiring", () => {
       /Every 2 days[\s\S]*Weekly[\s\S]*Every 2 weeks[\s\S]*Don&apos;t remind me/,
     );
     expect(form).toMatch(/value=["']paused["']/);
-    // The cadence write still names ONE stand's id, never a farmer-supplied location.
-    expect(form).toMatch(/salesLocationId:\s*location\.salesLocationId,\s*\n?\s*cadence:/);
+    // The cadence write still names ONE row's own id, never a farmer-supplied one — the
+    // LISTING now (F-114 C.4), which is what the cadence actually belongs to.
+    expect(form).toMatch(/providerId:\s*listing\.providerId,\s*\n?\s*cadence:/);
     /*
       PAUSING IS NOT OPTING OUT, said in the farmer's own words.
 

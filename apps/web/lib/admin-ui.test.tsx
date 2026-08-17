@@ -1122,8 +1122,15 @@ describe("administrator queue interactions", () => {
 });
 
 describe("the farmer stand form", () => {
-  const settingsLocations = [
-    { salesLocationId: "stand-a", locationName: "Orchard Stand", selected: true, cadence: null },
+  const settingsListings = [
+    {
+      providerId: "prov-a",
+      salesLocationId: "stand-a",
+      locationName: "Orchard Stand",
+      sellerName: null,
+      selected: true,
+      cadence: null,
+    },
   ];
 
   it("saves the one-name-per-line seller list separately from inventory", async () => {
@@ -1135,7 +1142,7 @@ describe("the farmer stand form", () => {
       }),
     );
     vi.stubGlobal("fetch", fetcher);
-    render(<SettingsForm token="private-token" locations={settingsLocations} participantNamesByLocation={{ "stand-a": ["Guest Growers"] }} />);
+    render(<SettingsForm token="private-token" listings={settingsListings} participantNamesByLocation={{ "stand-a": ["Guest Growers"] }} />);
 
     const names = screen.getByRole("textbox", { name: "Seller names" });
     expect(names).toHaveValue("Guest Growers");
@@ -1170,7 +1177,7 @@ describe("the farmer stand form", () => {
     render(
       <SettingsForm
         token="private-token"
-        locations={settingsLocations}
+        listings={settingsListings}
         participantNamesByLocation={{ "stand-a": ["Guest Growers"] }}
       />,
     );
@@ -1204,7 +1211,7 @@ describe("the farmer stand form", () => {
       .mockResolvedValueOnce(response(409, { message: "Please remove the phone number." }))
       .mockResolvedValueOnce(response(403));
     vi.stubGlobal("fetch", fetcher);
-    render(<SettingsForm token="private-token" locations={settingsLocations} participantNamesByLocation={{ "stand-a": ["Guest Growers"] }} />);
+    render(<SettingsForm token="private-token" listings={settingsListings} participantNamesByLocation={{ "stand-a": ["Guest Growers"] }} />);
 
     const names = screen.getByRole("textbox", { name: "Seller names" });
     await user.type(names, "{enter}Call 206-555-0199");

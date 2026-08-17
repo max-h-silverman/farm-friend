@@ -8,7 +8,7 @@ import { issueFarmerLink, readNativeProviderId, type Db, type Sql } from "@farm-
 import {
   handleFarmerSettingsPost,
   loadFarmerSettings,
-  saveFarmerDefaultStand,
+  saveFarmerDefaultListing,
 } from "./farmer-settings";
 
 const T0 = new Date(Date.now() - 60_000);
@@ -86,10 +86,21 @@ describe("F-051 farmer default stand settings (integration)", () => {
       occurredAt: T0,
     });
     if (issued.status !== "issued") throw new Error("fixture link was not issued");
+    // The stand's own listing at each stand, by SELF-POINTER. The screen speaks in listings
+    // now (C.4), so the cases need their ids alongside the stands'.
+    const providerIds: string[] = [];
+    for (const locationId of locationIds) {
+      const rows = await client()`
+        select id from stand_providers
+        where sales_location_id = ${locationId} and seller_id = ${farmId}
+      `;
+      providerIds.push(rows[0]?.id as string);
+    }
     return {
       authorizationId: authorizations[0]?.id as string,
       farmId,
       locationIds,
+      providerIds,
       token: issued.token,
     };
   }
@@ -102,9 +113,23 @@ describe("F-051 farmer default stand settings (integration)", () => {
 
     expect(settings).toEqual({
       status: "active",
-      locations: [
-        { salesLocationId: own.locationIds[0], locationName: "North Stand", selected: false, cadence: null },
-        { salesLocationId: own.locationIds[1], locationName: "South Stand", selected: false, cadence: null },
+      listings: [
+        {
+          providerId: own.providerIds[0],
+          salesLocationId: own.locationIds[0],
+          locationName: "North Stand",
+          sellerName: null,
+          selected: false,
+          cadence: null,
+        },
+        {
+          providerId: own.providerIds[1],
+          salesLocationId: own.locationIds[1],
+          locationName: "South Stand",
+          sellerName: null,
+          selected: false,
+          cadence: null,
+        },
       ],
     });
     const serialized = JSON.stringify(settings);
@@ -114,44 +139,112 @@ describe("F-051 farmer default stand settings (integration)", () => {
     expect(serialized).not.toMatch(/\+1\d{10}/);
   });
 
-  it("lists each stand ONCE even when the farmer also reaches a hosted listing", async () => {
+  it("shows a hosted listing as its OWN row, credited to its seller", async () => {
     /*
-      F-114 C.3. `listFarmerSettingsTargets` returns one row per LISTING now, and this screen
-      shows stands — so a host who may restock for a seller at her own stand would otherwise see
-      that stand twice under one name, with two radios that read identically and save different
-      things. The stand's own listing is kept by SELF-POINTER; the per-listing screen belongs
-      with C.4's reminder cadence, which is the setting that actually differs per listing.
+      F-114 C.4, inverting C.3's deliberate placeholder.
 
-      Every other case in this file has one listing per stand, where filtering and not filtering
-      give the same answer — which is why removing the filter passed the whole web suite.
+      C.3 kept the stand's own listing and DROPPED the hosted one, because this screen showed
+      stands and a stand rendered twice under one name is two radios that read identically and
+      save different things. The row is a LISTING now, so both belong — and the seller name is
+      what tells them apart.
+
+      Credited by SELF-POINTER, never a name match: the stand's own listing carries
+      `sellerName: null`, and that is the whole labelling rule the SMS menu follows too.
     */
     const own = await farmer("e".repeat(64), ["North Stand"]);
     const guests = await client()`
       insert into sellers (name) values ('Fernhorn Bakery') returning id
     `;
-    await client()`
+    const hosted = await client()`
       insert into stand_providers (
         sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
         invited_at, accepted_at, approval_source, approved_at
       ) values (
         ${own.locationIds[0] as string}, ${guests[0]?.id as string}, 'active', true,
         ${T0}, ${T0}, 'viga', ${T0}
-      )
+      ) returning id
     `;
 
     const settings = await loadFarmerSettings(database(), own.token);
     expect(settings).toEqual({
       status: "active",
-      locations: [
+      listings: expect.arrayContaining([
         {
+          providerId: own.providerIds[0],
           salesLocationId: own.locationIds[0],
           locationName: "North Stand",
+          sellerName: null,
+          selected: false,
+          cadence: null,
+        },
+        {
+          providerId: hosted[0]?.id as string,
+          salesLocationId: own.locationIds[0],
+          locationName: "North Stand",
+          sellerName: "Fernhorn Bakery",
+          selected: false,
+          cadence: null,
+        },
+      ]),
+    });
+    if (settings.status !== "active") throw new Error("expected active settings");
+    expect(settings.listings).toHaveLength(2);
+    // Asserted as an absence too: a reader that credited EVERY seller would satisfy the
+    // positive assertion above while labelling the farmer's own stand with her own name, which
+    // is the `Provo Farms — Provo Farms` §suppression follows a pointer forbids.
+    expect(
+      settings.listings.filter((listing) => listing.sellerName === null),
+    ).toHaveLength(1);
+  });
+
+  it("refuses a farmer whose only listing is at somebody else's stand", async () => {
+    // A hosted-only seller like Zoe has no stand of her own, and before C.4 this screen
+    // refused her outright — her only listing was filtered away and the empty result read as
+    // "not authorized". She holds a real link to a real listing now.
+    const host = await farmer("g".repeat(64), ["Host Stand"]);
+    const guests = await client()`
+      insert into sellers (name) values ('Gracies Greens') returning id
+    `;
+    const guestSellerId = guests[0]?.id as string;
+    const hosted = await client()`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${host.locationIds[0] as string}, ${guestSellerId}, 'active', false,
+        ${T0}, ${T0}, 'viga', ${T0}
+      ) returning id
+    `;
+    const guestHash = "h".repeat(64);
+    const contacts = await client()`
+      insert into contacts (phone_e164, phone_hash) values ('+12065559099', ${guestHash})
+      returning id
+    `;
+    const guestAuth = await client()`
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${guestSellerId}, ${contacts[0]?.id as string}, ${T0}, ${T0}) returning id
+    `;
+    const issued = await issueFarmerLink(database(), {
+      authorizationId: guestAuth[0]?.id as string,
+      providerId: hosted[0]?.id as string,
+      occurredAt: T0,
+    });
+    if (issued.status !== "issued") throw new Error("guest link was not issued");
+
+    const settings = await loadFarmerSettings(database(), issued.token);
+    expect(settings).toEqual({
+      status: "active",
+      listings: [
+        {
+          providerId: hosted[0]?.id as string,
+          salesLocationId: host.locationIds[0],
+          locationName: "Host Stand",
+          sellerName: "Gracies Greens",
           selected: false,
           cadence: null,
         },
       ],
     });
-    expect(JSON.stringify(settings)).not.toContain("Fernhorn Bakery");
   });
 
   it("saves and returns one revalidated exact default without changing STOP consent", async () => {
@@ -164,34 +257,35 @@ describe("F-051 farmer default stand settings (integration)", () => {
       values (${senderHash}, 'stopped', 'start', ${T0}, 'settings-consent', ${T0})
     `;
 
-    const saved = await saveFarmerDefaultStand(
+    const saved = await saveFarmerDefaultListing(
       { db: database(), clock: new FixedClock(new Date(T0.getTime() + 1_000)) },
-      { token: own.token, salesLocationId: own.locationIds[1] as string },
+      { token: own.token, providerId: own.providerIds[1] as string },
     );
 
     expect(saved).toEqual({
       status: "saved",
+      providerId: own.providerIds[1],
       salesLocationId: own.locationIds[1],
       locationName: "South Stand",
     });
     expect(await loadFarmerSettings(database(), own.token)).toMatchObject({
       status: "active",
-      locations: [
-        { salesLocationId: own.locationIds[0], selected: false },
-        { salesLocationId: own.locationIds[1], selected: true },
+      listings: [
+        { providerId: own.providerIds[0], selected: false },
+        { providerId: own.providerIds[1], selected: true },
       ],
     });
     expect(await client()`select state from sms_consents where recipient_hash = ${senderHash}`)
       .toEqual([{ state: "stopped" }]);
   });
 
-  it("refuses a location outside the link authorization and a revoked or fabricated token", async () => {
+  it("refuses a listing outside the link authorization and a revoked or fabricated token", async () => {
     const own = await farmer("d".repeat(64), ["Own Stand"]);
     const other = await farmer("e".repeat(64), ["Other Stand"]);
 
-    await expect(saveFarmerDefaultStand(
+    await expect(saveFarmerDefaultListing(
       { db: database(), clock: new FixedClock(T0) },
-      { token: own.token, salesLocationId: other.locationIds[0] as string },
+      { token: own.token, providerId: other.providerIds[0] as string },
     )).resolves.toEqual({ status: "not_authorized" });
     expect(await client()`select * from farmer_target_contexts`).toHaveLength(0);
 
@@ -207,7 +301,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
     });
   });
 
-  it("accepts only a structured token and stand id at the settings API boundary", async () => {
+  it("accepts only a structured token and LISTING id at the settings API boundary", async () => {
     const own = await farmer("f".repeat(64), ["North Stand", "South Stand"]);
     const deps = { db: database(), clock: new FixedClock(T0) };
 
@@ -228,19 +322,36 @@ describe("F-051 farmer default stand settings (integration)", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           token: own.token,
-          salesLocationId: own.locationIds[1],
+          providerId: own.providerIds[1],
         }),
       }),
     );
     expect(saved.status).toBe(200);
     await expect(saved.json()).resolves.toEqual({
       status: "saved",
+      providerId: own.providerIds[1],
       salesLocationId: own.locationIds[1],
       locationName: "South Stand",
     });
+
+    // A STAND id is now a malformed body, not a quieter way to say the same thing. Asserted
+    // because the two are both UUIDs: without this the route would happily take either and the
+    // seam would refuse the stand id for an unrelated reason one layer down.
+    const standShaped = await handleFarmerSettingsPost(
+      deps,
+      new Request("https://farmfriend.example/api/farmer/settings", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          token: own.token,
+          salesLocationId: own.locationIds[1],
+        }),
+      }),
+    );
+    expect(standShaped.status).toBe(400);
   });
 
-  it("saves one explicit cadence for the chosen stand without changing STOP consent", async () => {
+  it("saves one explicit cadence for the chosen LISTING without changing STOP consent", async () => {
     const senderHash = "1".repeat(64);
     const own = await farmer(senderHash, ["Cadence Stand"]);
     await client()`
@@ -255,7 +366,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
           token: own.token,
-          salesLocationId: own.locationIds[0]!,
+          providerId: own.providerIds[0]!,
           cadence: "weekly",
         }),
       }),
@@ -263,7 +374,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
     expect(response.status).toBe(200);
     expect(await client()`
       select designated_authorization_id, cadence, version, next_due_at
-      from inventory_prompt_preferences where sales_location_id = ${own.locationIds[0]!}
+      from inventory_prompt_preferences where provider_id = ${own.providerIds[0]!}
     `).toEqual([expect.objectContaining({
       designated_authorization_id: own.authorizationId,
       cadence: "weekly",

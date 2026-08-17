@@ -7,14 +7,35 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import { DetailsPanel, useTabCommit } from "../details-panel";
 import { SettingsForm } from "./settings-form";
 
-const locations: Parameters<typeof SettingsForm>[0]["locations"] = [
-  { salesLocationId: "stand-a", locationName: "Orchard Stand", selected: true, cadence: null },
-  { salesLocationId: "stand-b", locationName: "Harbor Stand", selected: false, cadence: "paused" as const },
+const listings: Parameters<typeof SettingsForm>[0]["listings"] = [
+  {
+    providerId: "stand-a",
+    salesLocationId: "loc-a",
+    locationName: "Orchard Stand",
+    sellerName: null,
+    selected: true,
+    cadence: null,
+  },
+  {
+    providerId: "stand-b",
+    salesLocationId: "loc-b",
+    locationName: "Harbor Stand",
+    sellerName: null,
+    selected: false,
+    cadence: "paused" as const,
+  },
 ];
 
-/** The common case on Vashon: one stand, so no stand to choose between. */
-const oneStand: Parameters<typeof SettingsForm>[0]["locations"] = [
-  { salesLocationId: "stand-a", locationName: "Orchard Stand", selected: true, cadence: "weekly" as const },
+/** The common case on Vashon: one listing, so nothing to choose between. */
+const oneListing: Parameters<typeof SettingsForm>[0]["listings"] = [
+  {
+    providerId: "stand-a",
+    salesLocationId: "loc-a",
+    locationName: "Orchard Stand",
+    sellerName: null,
+    selected: true,
+    cadence: "weekly" as const,
+  },
 ];
 
 afterEach(() => {
@@ -27,8 +48,8 @@ describe("farmer reminder settings", () => {
     render(
       <SettingsForm
         token="private-token"
-        locations={locations}
-        participantNamesByLocation={{ "stand-a": ["Neighbor Farm"] }}
+        listings={listings}
+        participantNamesByLocation={{ "loc-a": ["Neighbor Farm"] }}
       />,
     );
     expect(screen.getByRole("heading", { name: "Also selling here" })).toBeVisible();
@@ -38,7 +59,7 @@ describe("farmer reminder settings", () => {
   it("asks nothing about a default stand when there is only one", () => {
     // F-097 (max, 2026-08-08). A radio group with a single radio is a question with one
     // answer. `STAND` already says "if you have more than one"; this is that rule on the web.
-    render(<SettingsForm token="private-token" locations={oneStand} />);
+    render(<SettingsForm token="private-token" listings={oneListing} />);
 
     expect(screen.queryByRole("radio")).not.toBeInTheDocument();
     expect(screen.queryByText(/which stand your texts are about/i)).not.toBeInTheDocument();
@@ -48,7 +69,7 @@ describe("farmer reminder settings", () => {
   });
 
   it("offers the default-stand choice as soon as there are two", () => {
-    render(<SettingsForm token="private-token" locations={locations} />);
+    render(<SettingsForm token="private-token" listings={listings} />);
     expect(screen.getByRole("radio", { name: "Orchard Stand" })).toBeVisible();
     expect(screen.getByRole("radio", { name: "Harbor Stand" })).toBeVisible();
   });
@@ -59,7 +80,7 @@ describe("farmer reminder settings", () => {
     const fetchMock = vi.fn(async () => Response.json({}));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<SettingsForm token="private-token" locations={oneStand} />);
+    render(<SettingsForm token="private-token" listings={oneListing} />);
 
     expect(screen.queryByRole("button", { name: /submit/i })).not.toBeInTheDocument();
     /*
@@ -90,8 +111,8 @@ describe("farmer reminder settings", () => {
     render(
       <SettingsForm
         token="private-token"
-        locations={locations}
-        participantNamesByLocation={{ "stand-a": ["Neighbor Farm"] }}
+        listings={listings}
+        participantNamesByLocation={{ "loc-a": ["Neighbor Farm"] }}
       />,
     );
 
@@ -104,9 +125,11 @@ describe("farmer reminder settings", () => {
     expect(fetchMock).toHaveBeenCalledWith(
       "/api/farmer/settings",
       expect.objectContaining({
+        // The LISTING (C.4). Its own id, not the stand's — the two differ in this fixture
+        // precisely so a body posting `loc-b` could not pass.
         body: JSON.stringify({
           token: "private-token",
-          salesLocationId: "stand-b",
+          providerId: "stand-b",
         }),
       }),
     );
@@ -116,7 +139,7 @@ describe("farmer reminder settings", () => {
     const fetchMock = vi.fn(async () => Response.json({ activeDisplayNames: ["Neighbor Farm"] }));
     vi.stubGlobal("fetch", fetchMock);
     const user = userEvent.setup();
-    render(<SettingsForm token="private-token" locations={oneStand} />);
+    render(<SettingsForm token="private-token" listings={oneListing} />);
 
     await user.type(screen.getByLabelText("Seller names"), "Neighbor Farm");
     await user.click(screen.getByRole("button", { name: "Save settings" }));
@@ -144,10 +167,12 @@ describe("farmer reminder settings", () => {
     render(
       <SettingsForm
         token="private-token"
-        locations={locations}
+        listings={listings}
+        // Keyed by STAND — participants are the stand's own record, and the ids here differ
+        // from the listing ids so a lookup through the wrong one yields nothing.
         participantNamesByLocation={{
-          "stand-a": ["Neighbor Farm"],
-          "stand-b": ["Harbor Apiary"],
+          "loc-a": ["Neighbor Farm"],
+          "loc-b": ["Harbor Apiary"],
         }}
       />,
     );
@@ -189,7 +214,7 @@ describe("farmer reminder settings", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
       const user = userEvent.setup();
-      render(<SettingsForm token="private-token" locations={oneStand} />);
+      render(<SettingsForm token="private-token" listings={oneListing} />);
 
       await user.type(screen.getByLabelText(/who are you inviting/i), "Gracies Greens");
       // Typing a name is not an unsaved setting: the Save button has nothing to write.
@@ -230,7 +255,7 @@ describe("farmer reminder settings", () => {
       );
       vi.stubGlobal("fetch", fetchMock);
       const user = userEvent.setup();
-      render(<SettingsForm token="private-token" locations={oneStand} />);
+      render(<SettingsForm token="private-token" listings={oneListing} />);
 
       await user.type(screen.getByLabelText(/who are you inviting/i), "Gracies Greens");
       // A typed name is not an unsaved change, so Save is inert and cannot even be pressed.
@@ -275,7 +300,7 @@ describe("farmer reminder settings", () => {
       render(
         <DetailsPanel>
           <ListingFormStandIn />
-          <SettingsForm token="private-token" locations={oneStand} />
+          <SettingsForm token="private-token" listings={oneListing} />
         </DetailsPanel>,
       );
 
@@ -293,7 +318,7 @@ describe("farmer reminder settings", () => {
     it("tells the farmer to send it, and that nothing is public yet", async () => {
       // max, 2026-08-15: the host forwards the link, and nothing is public until the seller
       // finishes. A farmer who thought Farm Friend had texted them would wait for nothing.
-      render(<SettingsForm token="private-token" locations={oneStand} />);
+      render(<SettingsForm token="private-token" listings={oneListing} />);
       expect(screen.getByText(/send them the link|you send them/i)).toBeVisible();
       expect(screen.getByText(/nobody.*listed until|not.*public until/i)).toBeVisible();
     });
@@ -302,7 +327,7 @@ describe("farmer reminder settings", () => {
       const fetchMock = vi.fn();
       vi.stubGlobal("fetch", fetchMock);
       const user = userEvent.setup();
-      render(<SettingsForm token="private-token" locations={oneStand} />);
+      render(<SettingsForm token="private-token" listings={oneListing} />);
 
       await user.click(screen.getByRole("button", { name: /^invite/i }));
       expect(fetchMock).not.toHaveBeenCalled();
@@ -325,7 +350,7 @@ describe("farmer reminder settings", () => {
         ),
       );
       const user = userEvent.setup();
-      render(<SettingsForm token="private-token" locations={oneStand} />);
+      render(<SettingsForm token="private-token" listings={oneListing} />);
 
       await user.type(
         screen.getByLabelText(/who are you inviting/i),
@@ -349,8 +374,8 @@ describe("farmer reminder settings", () => {
     render(
       <SettingsForm
         token="private-token"
-        locations={locations}
-        participantNamesByLocation={{ "stand-a": ["Neighbor Farm"] }}
+        listings={listings}
+        participantNamesByLocation={{ "loc-a": ["Neighbor Farm"] }}
       />,
     );
 
