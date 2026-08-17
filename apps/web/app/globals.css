@@ -6406,3 +6406,268 @@ button.admin-action-danger,
 .seller-list-link:focus-visible {
   text-decoration: underline;
 }
+
+/* ---------------------------------------------------------------------------
+   Stands & Sellers (F-101).
+
+   The two views share one destination, so they share one visual language — and
+   that language is the farm directory's, reused rather than restated: rows are
+   `.admin-row` inside `.admin-farms`, states are `.admin-pill`, and every
+   button is one of the three `.admin-action-*` kinds. What is genuinely new is
+   only what did not exist before: the view switch, the participation toggle,
+   and the detail body those two sit in.
+   --------------------------------------------------------------------------- */
+
+/* The view switch. Two labels for one set of things, so it reads as a segmented
+   control rather than as navigation — the operator is not going anywhere. */
+.admin-view-tabs {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.25rem;
+  background: var(--admin-cream);
+  border: 1px solid var(--admin-leaf);
+  border-radius: 999px;
+}
+
+.admin-view-tab {
+  min-height: 40px;
+  padding: 0 1.1rem;
+  color: var(--ink-soft);
+  background: transparent;
+  border: 0;
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.admin-view-tab[aria-selected="true"] {
+  color: var(--ink);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(28 35 33 / 12%);
+}
+
+.admin-view-tab:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.admin-filter {
+  display: block;
+  width: 100%;
+  max-width: 24rem;
+  min-height: 44px;
+  margin: 0.9rem 0 0;
+  padding: 0 0.8rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+/* The opened card's body. Indented to the identity column above it, so the
+   detail reads as belonging to the row rather than as a new section. */
+.admin-entity-detail {
+  display: grid;
+  gap: 1rem;
+  padding: 0.4rem 1rem 1.2rem 4.35rem;
+  background: var(--paper);
+  border-top: 1px solid var(--line);
+}
+
+@media (max-width: 640px) {
+  .admin-entity-detail {
+    padding-left: 1rem;
+  }
+}
+
+/* One arrangement: who (or where), and what may be done about it. A list only
+   when there is more than one — the singular case is a plain fact, which is a
+   rule the component enforces and this only has to not fight. */
+.admin-participation {
+  display: grid;
+  gap: 0.5rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-participation-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+}
+
+/* The toggle carries its own state in TEXT as well as in colour, so "paused"
+   never depends on a colour the operator has to have learned. */
+.admin-participation-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+  min-height: 44px;
+  padding: 0 0.9rem;
+  color: var(--ink);
+  background: var(--green-soft);
+  border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line));
+  border-radius: 999px;
+  font: inherit;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.admin-participation-toggle::before {
+  content: "";
+  width: 0.62rem;
+  height: 0.62rem;
+  background: var(--green);
+  border-radius: 50%;
+}
+
+/* Paused is withdrawn, not faulty: it loses its fill the same way a retired
+   stand's chip does, rather than turning red. */
+.admin-participation-toggle[aria-checked="false"] {
+  color: var(--ink-soft);
+  background: transparent;
+  border-style: dashed;
+}
+
+.admin-participation-toggle[aria-checked="false"]::before {
+  background: var(--ink-faint);
+}
+
+.admin-participation-toggle:disabled {
+  opacity: 0.65;
+  cursor: default;
+}
+
+.admin-participation-toggle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline-offset: 2px;
+}
+
+/* The confirmation sits in the row it belongs to, never above the list: a
+   question about the third seller shown above the first is a question the
+   operator answers for the wrong one. */
+.admin-participation-confirm,
+.admin-seller-confirm {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.55rem;
+  padding: 0.6rem 0.8rem;
+  background: var(--amber-soft);
+  border: 1px solid var(--amber-line);
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.admin-seller-controls {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.admin-seller-edit {
+  display: grid;
+  gap: 0.4rem;
+  max-width: 34rem;
+}
+
+.admin-seller-edit label {
+  font-size: 0.86rem;
+  font-weight: 650;
+}
+
+.admin-seller-edit input,
+.admin-seller-edit textarea {
+  width: 100%;
+  padding: 0.55rem 0.7rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  font: inherit;
+}
+
+.admin-seller-edit textarea {
+  min-height: 5rem;
+  resize: vertical;
+}
+
+.admin-access-roster h4 {
+  margin: 0 0 0.4rem;
+  font-size: 0.95rem;
+}
+
+.admin-access-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.6rem;
+  margin: 0 0 0.4rem;
+}
+
+/* A credential shown once. It reads as something to act on before leaving,
+   which is why it carries the same weight as the invite result panel. */
+.admin-fresh-link {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0.8rem;
+  background: var(--green-soft);
+  border: 1px solid color-mix(in srgb, var(--green) 60%, var(--line));
+  border-left: 4px solid var(--green);
+  border-radius: 10px;
+  font-size: 0.9rem;
+}
+
+.admin-fresh-link code {
+  overflow-wrap: anywhere;
+  font-size: 0.85rem;
+}
+
+/* No glyph column on these rows (max, 2026-08-17): a per-row icon repeated down
+   a list is chrome the eye learns to skip, and the caret already says the row
+   opens. The identity column takes the space back so names still share one x. */
+.admin-stands-and-sellers .admin-row {
+  grid-template-columns: 1.25rem minmax(0, auto) minmax(0, 1fr) auto;
+}
+
+/* Pure white cards (max, 2026-08-17). The farm directory's container paints
+   `--paper` behind its rows; on this screen the card face is the card, so the
+   list and the opened body both take `--card` and the cream is left to the
+   hover state alone. */
+.admin-stands-and-sellers .admin-farms:has(.admin-farm-card),
+.admin-stands-and-sellers .admin-entity-detail {
+  background: var(--card);
+}
+
+/* The view switch and the row count share a line: the count labels the list
+   rather than announcing anything, so it sits beside the control that changes
+   which list you are looking at. */
+/* The top margin belongs to the ROW, not to the switch inside it: a margin on
+   one flex child shifts that child's box under `stretch`, so the count would sit
+   1.2rem lower than the pill it is meant to line up with. */
+.admin-view-switch {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: stretch;
+  gap: 0.9rem;
+  margin: 1.2rem 0 0;
+}
+
+/* Stretch to the switch's height and centre inside that, rather than guessing at
+   it: `align-items: stretch` on the row makes this box exactly as tall as its
+   tallest sibling, whatever the pill's padding and border add up to, and the
+   inner centring then lands on the true middle. A computed min-height was off by
+   the border, and `min-height` is only a floor anyway — it cannot align text to a
+   sibling. `.admin-view-tabs` keeps its own `align-items: center` so the switch
+   itself is unaffected by the stretch. */
+.admin-view-count {
+  display: inline-flex;
+  align-items: center;
+  color: var(--ink-soft);
+  font-size: 0.9rem;
+  line-height: 1;
+}

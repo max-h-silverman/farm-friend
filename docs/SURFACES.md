@@ -152,18 +152,24 @@ bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
 - **Farmer address lookup:** `POST /api/farmer/address-lookup` — invitation-gated, throttled,
   server-side geocoding that returns a coordinate and writes nothing. The **only** source of a
   stand's coordinate.
-- **Admin:** sign-in → **single-level** VIGA administration across three surfaces, one per subject
-  (F-100): **Farms** (approval, farm details, who can update it, setup links, its stands, taking a
-  farm or stand down), **Messages** (flags, stock-out reports, questions about VIGA's own records),
-  and **Users** (everyone who has texted, inviting a farmer, deciding access requests). `/admin`
-  redirects to Farms. Organizing by subject rather than by queue keeps one screen owning each
-  entity; see ADMIN_OPERATIONS.md.
+- **Admin:** sign-in → **single-level** VIGA administration across three surfaces (F-100, restructured
+  by F-101): **Stands & Sellers** (`/admin/stands` — one destination holding two views: stands with
+  who sells there, sellers with where they sell; approval, farm details, who can update it, setup
+  links, taking a farm or stand down, and pause/resume/Remove per arrangement), **SMS Users**
+  (everyone who has texted, inviting a farmer, deciding access requests), and **Alerts** (flags,
+  stock-out reports, questions about VIGA's own records). `/admin` redirects to `/admin/stands`.
+  **There is no Farms tab** — VIGA's job is view and edit stands and sellers, so acts about a farm
+  live inside that farm's card rather than on a screen of their own. See ADMIN_OPERATIONS.md.
   `POST /api/admin/stands` carries the per-stand acts: Farm Bucks, retire/restore, and — since
   F-114 Phase C.1 — `invite_seller`, which mints a one-use link inviting a seller to sell at that
   stand and answers with the complete onboarding URL, **shown once**. Its button lives inside each
-  stand's card on Farms, and is absent for a stand that is off the map. The acting administrator
-  always comes from the session, never the body. A seller name is public text and is refused with
-  the same code-owned copy the farmer's door uses.
+  stand's card, and is absent for a stand that is off the map.
+  `POST /api/admin/participation` (F-101) is the **only production caller** of
+  `setProviderParticipation`: pause, resume or end one seller's participation at one stand. It is
+  deliberately thin — it never writes `stand_providers` itself, so the seam keeps the lock ordering,
+  the authority arms and the invalidation of that provider's open confirmations.
+  On every admin route the acting administrator comes from the session, never the body. A seller
+  name is public text and is refused with the same code-owned copy the farmer's door uses.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
 - **Scheduled jobs:** farmer prompting, outbound delivery, retry, and retention.
 

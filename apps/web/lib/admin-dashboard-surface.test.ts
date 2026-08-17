@@ -15,7 +15,7 @@ import { describe, expect, it } from "vitest";
 const page = (path: string) => readFileSync(resolve(process.cwd(), path), "utf8");
 
 const ADMIN_PAGES = [
-  "apps/web/app/admin/sellers/page.tsx",
+  "apps/web/app/admin/stands/page.tsx",
   "apps/web/app/admin/messages/page.tsx",
   "apps/web/app/admin/users/page.tsx",
 ] as const;
@@ -27,22 +27,35 @@ describe("the admin desk", () => {
     // redirect now. Anchored on the redirect CALL, not on the import, because an import line
     // survives the call site being deleted.
     const landing = page("apps/web/app/admin/page.tsx");
-    expect(landing).toMatch(/redirect\(\s*["']\/admin\/sellers["']\s*\)/);
+    expect(landing).toMatch(/redirect\(\s*["']\/admin\/stands["']\s*\)/);
     expect(landing).not.toContain("Needs attention");
   });
 
   it("counts pending work on the tab that owns it", () => {
     // The counts did not disappear with the desk; they moved above the rows they describe.
-    // "Farms nobody can update" is the one that matters most: routinely NOT empty, and
-    // previously countable only by navigating to a screen that never said it had work.
-    const sellers = page("apps/web/app/admin/sellers/page.tsx");
-    expect(sellers).toContain("waiting for approval");
-    expect(sellers).toContain("nobody who can update");
-    expect(sellers).toContain("admin-attention-summary");
+    // F-101 — they live in the component that renders the rows, not in the server page, so a
+    // filtered list and its summary cannot disagree. Asserted where they now are.
+    const view = page("apps/web/app/admin/stands-and-sellers.tsx");
+    expect(view).toContain("waiting for approval");
+    expect(view).toContain("admin-attention-summary");
+    // max, 2026-08-17 — having no owner is a STATE, not work waiting. It must not reappear in
+    // the alert line: most farms start unclaimed, so counting it there made the line permanent
+    // furniture and trained the operator to skip the real alert beside it.
+    expect(view).not.toContain("nobody who can update");
+  });
+
+  it("repeats no tab name above the stands view (F-101)", () => {
+    // max, 2026-08-17. The tab already says where you are, so a heading under it saying the
+    // same words is chrome — the `<h1>` rule one level down. Scoped to this page rather than
+    // to every admin page: the other two use section titles to name sections WITHIN the
+    // screen ("Invite a farmer"), which is a different job and stays.
+    const stands = page("apps/web/app/admin/stands/page.tsx");
+    expect(stands).not.toContain("admin-section-title");
+    expect(stands).not.toContain("Everything VIGA knows");
   });
 
   it("keeps browsable records off a queue screen", () => {
-    // Reference records live on /admin/sellers, inside the farm they belong to — never behind a
+    // Reference records live on /admin/stands, inside the farm they belong to — never behind a
     // second disclosure on a different screen. Anchored on the disclosure CLASS, which is the
     // construct that used to carry them.
     for (const path of ADMIN_PAGES) {
@@ -67,6 +80,7 @@ describe("the admin desk", () => {
       expect(page(path), `${path} must not carry a page intro block`).not.toContain(
         "admin-page-intro",
       );
+
     }
   });
 });

@@ -1044,6 +1044,83 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
   }));
 }
 
+/**
+ * One seller's live participation at one stand, as the admin Stands and Sellers views need it
+ * (F-101).
+ *
+ * **This is an ARRANGEMENT, not a name.** `AdminStandRow.participantNames` also answers "who
+ * sells here", but from `sales_location_participants` — display strings a stand owner typed,
+ * with no identity and no lifecycle. Those two reads must not be conflated on a screen that
+ * renders a control per row: a typed name has no row to pause, so a toggle beside one would
+ * act on nothing. Both views render their controls from THIS read alone.
+ *
+ * One row per live arrangement, so the same relationship is returned once and appears under
+ * the stand on one view and under the seller on the other.
+ */
+export interface AdminStandProviderRow {
+  /** What `setProviderParticipation` acts on. Without it a control has no argument. */
+  providerId: string;
+  salesLocationId: string;
+  standName: string;
+  sellerId: string;
+  sellerName: string;
+  /** `active` or `paused` — what the pause/resume toggle reflects. */
+  lifecycleState: "active" | "paused";
+  /**
+   * This seller owns the stand.
+   *
+   * The views need it for presentation, not authority: the singular case renders as a plain
+   * fact rather than a one-item list, and on a stand whose only arrangement is its native
+   * seller the toggle reads as the stand being open or closed.
+   */
+  nativeSeller: boolean;
+  /** Always false today — ended arrangements are not returned. Present so the field is honest. */
+  ended: boolean;
+}
+
+/**
+ * Every live arrangement, for the admin Stands and Sellers views.
+ *
+ * **`pending` and ended rows are excluded**, and both for the same reason: the lists are
+ * entities, and neither an unanswered invitation nor a finished relationship is one. It also
+ * matches what `setProviderParticipation` will do if asked — both answer `provider_not_live` —
+ * so the views never render a control that could only be refused.
+ */
+export async function listStandProvidersForAdministration(
+  db: Db,
+): Promise<AdminStandProviderRow[]> {
+  const rows = await driver(db)`
+    select
+      provider.id as provider_id,
+      provider.sales_location_id,
+      location.name as stand_name,
+      provider.seller_id,
+      seller.name as seller_name,
+      provider.lifecycle_state,
+      provider.seller_id = location.own_seller_id as native_seller
+    from stand_providers provider
+    join sales_locations location on location.id = provider.sales_location_id
+    join sellers seller on seller.id = provider.seller_id
+    where provider.ended_at is null
+      and provider.lifecycle_state in ('active', 'paused')
+    order by lower(location.name), location.id,
+      -- The stand's own seller first: on a shared stand it is the row the others are guests of.
+      (provider.seller_id = location.own_seller_id) desc,
+      lower(seller.name), provider.id
+  `;
+
+  return rows.map((row) => ({
+    providerId: row.provider_id as string,
+    salesLocationId: row.sales_location_id as string,
+    standName: row.stand_name as string,
+    sellerId: row.seller_id as string,
+    sellerName: row.seller_name as string,
+    lifecycleState: row.lifecycle_state as "active" | "paused",
+    nativeSeller: row.native_seller as boolean,
+    ended: false,
+  }));
+}
+
 export interface AdminUserRow {
   userId: string;
   senderMask: string;
