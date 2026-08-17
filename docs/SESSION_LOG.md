@@ -13,10 +13,12 @@ mid-session defeats its own purpose.
 
 ## 2026-08-17 (latest) — F-115: retiring the derivations F-114 left behind, and the venue nobody could see
 
-Merged as **`<squash>`** (PR #130), eight commits on `f-115-de-vibe-remediation`. Unit **2,165**
+Merged as **`a32a4a7`** (PR #130), nine commits on `f-115-de-vibe-remediation`. Unit **2,165**
 with the 7 corpus skips; integration **1400/1400 across 100 of 100 files**, up from 1347/1347
-across 96. Typecheck and lint green. No live eval run owed — `packages/ai` and `evals/` are
-untouched by the whole branch, checked rather than assumed.
+across 96. Typecheck and lint green, and **re-verified on the merged base** — all four suites
+again, plus `drizzle-kit generate` still reporting *"No schema changes"*, so the `0051` snapshot
+delta is healthy. No live eval run owed — `packages/ai` and `evals/` are untouched by the whole
+branch, checked rather than assumed.
 
 **The work order.** Two independent architecture audits, run cold against `main` at `3abe2fc`
 after F-114 and before QA, found one root cause in seven places: *F-114 built the right owners and
