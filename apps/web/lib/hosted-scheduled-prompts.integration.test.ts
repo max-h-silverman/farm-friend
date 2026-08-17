@@ -5,7 +5,12 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FixedClock } from "@farm-friend/core";
-import { createDb, setInventoryPromptPreference, type Db } from "@farm-friend/db";
+import {
+  authorizeDispatch,
+  createDb,
+  setInventoryPromptPreference,
+  type Db,
+} from "@farm-friend/db";
 import { runScheduledPromptPass } from "./scheduled-prompts";
 
 /*
@@ -61,6 +66,13 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
   let guestSenderHash = "";
   let guestPreferenceId = "";
   let guestRevisionId = "";
+
+  let venueStandId = "";
+  let venueSellerId = "";
+  let venueProviderId = "";
+  let venueAuthorizationId = "";
+  let venueSenderHash = "";
+  let venuePreferenceId = "";
 
   function handle(): Db {
     if (!db) throw new Error("database unavailable");
@@ -205,6 +217,37 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
     `;
     guestProviderId = hosted[0]?.id as string;
 
+    /*
+      A VENUE — `own_seller_id` NULL, the Morgan Hill shape. Nobody owns the place; every
+      seller there is a provider and nothing else. The old dispatch revalidation looked up
+      VIGA's approval for the stand's own seller, so here it looked one up for NULL, found
+      nothing, and refused before any of its other checks could speak.
+    */
+    ({ sellerId: venueSellerId, authorizationId: venueAuthorizationId,
+       senderHash: venueSenderHash } = await mkSeller({
+      name: "Hollow Creek Orchard", phone: "+12065554002", administratorId,
+    }));
+    const venues = await sql`
+      insert into sales_locations (
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude,
+        farm_bucks_accepted, farm_bucks_eligible
+      ) values (
+        null, 'farm_stand', 'Hollow Creek Commons', 'America/Los_Angeles',
+        'visitable', 'produce', '9 Hollow Creek Rd', 47.42, -122.48, false, true
+      ) returning id
+    `;
+    venueStandId = venues[0]?.id as string;
+    const venueProviders = await sql`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${venueStandId}, ${venueSellerId}, 'active', false,
+        ${BASE}, ${BASE}, 'viga', ${BASE}
+      ) returning id
+    `;
+    venueProviderId = venueProviders[0]?.id as string;
   }, 90_000);
 
   afterAll(async () => {
@@ -251,11 +294,23 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
       cadence: "weekly",
       clock: new FixedClock(BASE),
     });
-    if (host.status !== "saved" || guest.status !== "saved") {
-      throw new Error("hosted prompt fixture failed to save both cadences");
+    await publish({
+      sellerId: venueSellerId, salesLocationId: venueStandId, providerId: venueProviderId,
+      authorizationId: venueAuthorizationId, senderHash: venueSenderHash, itemName: "Cider",
+    });
+    const venue = await setInventoryPromptPreference(handle(), {
+      senderHash: venueSenderHash,
+      authorizationId: venueAuthorizationId,
+      providerId: venueProviderId,
+      cadence: "weekly",
+      clock: new FixedClock(BASE),
+    });
+    if (host.status !== "saved" || guest.status !== "saved" || venue.status !== "saved") {
+      throw new Error("hosted prompt fixture failed to save every cadence");
     }
     hostPreferenceId = host.preferenceId;
     guestPreferenceId = guest.preferenceId;
+    venuePreferenceId = venue.preferenceId;
     await sql`update inventory_prompt_preferences set next_due_at = ${DUE}`;
   });
 
@@ -270,7 +325,7 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
       assertion would still pass.
     */
     expect(await runScheduledPromptPass({ db: handle(), clock: new FixedClock(DUE) })).toEqual({
-      scheduled: 2,
+      scheduled: 3,
       deferred: 0,
     });
 
@@ -317,6 +372,7 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
       select subject.provider_id, subject.owner_seller_id, work.recipient_hash
       from scheduled_inventory_prompt_subjects subject
       join outbox_work work on work.id = subject.outbox_work_id
+      where subject.sales_location_id = ${hostStandId}
       order by work.recipient_hash
     `;
     expect(rows).toHaveLength(2);
@@ -350,7 +406,7 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
       update seller_approvals set revoked_at = null where seller_id = ${guestSellerId}
     `;
 
-    expect(result).toEqual({ scheduled: 1, deferred: 0 });
+    expect(result).toEqual({ scheduled: 2, deferred: 0 });
     expect(await handle().sql`
       select count(*)::int as count from scheduled_inventory_prompt_subjects
       where preference_id = ${guestPreferenceId}
@@ -373,7 +429,7 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
       update farmer_authorizations set revoked_at = null where id = ${guestAuthorizationId}
     `;
 
-    expect(result).toEqual({ scheduled: 1, deferred: 0 });
+    expect(result).toEqual({ scheduled: 2, deferred: 0 });
     expect(await handle().sql`
       select count(*)::int as count from scheduled_inventory_prompt_subjects
       where preference_id = ${guestPreferenceId}
@@ -391,7 +447,7 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
       update stand_providers set ended_at = null where id = ${guestProviderId}
     `;
 
-    expect(result).toEqual({ scheduled: 1, deferred: 0 });
+    expect(result).toEqual({ scheduled: 2, deferred: 0 });
     expect(await handle().sql`
       select count(*)::int as count from scheduled_inventory_prompt_subjects
       where preference_id = ${guestPreferenceId}
@@ -445,9 +501,97 @@ describe("F-114 C.4 scheduled prompts for a hosted seller (integration)", () => 
       where id = ${closure[0]?.id as string}
     `;
 
-    expect(result).toEqual({ scheduled: 0, deferred: 2 });
+    // The venue is a different place and its seller is prompted regardless; only Kelsey's
+    // stand is shut, so only its two listings defer.
+    expect(result).toEqual({ scheduled: 1, deferred: 2 });
     expect(await handle().sql`
       select count(*)::int as count from scheduled_inventory_prompt_subjects
+      where sales_location_id = ${hostStandId}
     `).toEqual([{ count: 0 }]);
+  });
+
+  /*
+    THE DISPATCH END OF THE SAME QUESTION.
+
+    Queuing a prompt is half the journey; `authorizeDispatch` revalidates the whole basis under
+    lock before the message is claimed, and an invalid basis is not a deferral — it closes the
+    proposal `invalidated` and suppresses the outbox row. Nothing logs it.
+
+    The pass above was converted to read the PREFERENCE'S provider and seller; the revalidation
+    was not, so it re-derived both from `sales_locations.own_seller_id`. For Zoe that is Kelsey,
+    so her basis reads invalid and her prompt is destroyed silently between queue and send.
+  */
+  async function authorizeFor(preferenceId: string) {
+    const rows = await handle().sql`
+      select outbox_work_id from scheduled_inventory_prompt_subjects
+      where preference_id = ${preferenceId}
+    `;
+    if (rows.length !== 1) throw new Error("expected exactly one queued subject");
+    return authorizeDispatch(handle(), {
+      outboxWorkId: rows[0]?.outbox_work_id as string,
+      now: DUE,
+    });
+  }
+
+  it("dispatches the HOSTED seller's prompt rather than suppressing it", async () => {
+    await runScheduledPromptPass({ db: handle(), clock: new FixedClock(DUE) });
+
+    expect(await authorizeFor(guestPreferenceId)).toMatchObject({ status: "authorized" });
+    // Asserted as an absence too: the failure mode is a silent suppression that leaves her
+    // proposal closed, so "not suppressed" and "her proposal is still open" are two claims.
+    expect(await handle().sql`
+      select proposal.state from scheduled_inventory_prompt_subjects subject
+      join inventory_publication_proposals proposal on proposal.id = subject.proposal_id
+      where subject.preference_id = ${guestPreferenceId}
+    `).toEqual([{ state: "open" }]);
+  });
+
+  it("still dispatches the stand owner's own prompt", async () => {
+    // The 31-of-38 case that kept the defect invisible. It must stay working after the fix.
+    await runScheduledPromptPass({ db: handle(), clock: new FixedClock(DUE) });
+    expect(await authorizeFor(hostPreferenceId)).toMatchObject({ status: "authorized" });
+  });
+
+  it("dispatches a VENUE seller's prompt, where the stand owns no seller at all", async () => {
+    /*
+      The harder half of the same defect. A hosted seller's prompt revalidated against the
+      WRONG seller; a venue seller's revalidated against NULL, so `seller_approvals` returned
+      no rows and the basis was invalid before any real check ran. Nothing distinguishes that
+      refusal from a genuinely revoked approval.
+    */
+    await runScheduledPromptPass({ db: handle(), clock: new FixedClock(DUE) });
+    expect(await authorizeFor(venuePreferenceId)).toMatchObject({ status: "authorized" });
+  });
+
+  it("still suppresses a venue prompt when VIGA revokes that seller", async () => {
+    // Proves the approval gate is live on the venue arm rather than merely skipped: with the
+    // stand owning nobody, the subject's seller is the only seller this lookup can name.
+    await runScheduledPromptPass({ db: handle(), clock: new FixedClock(DUE) });
+    await handle().sql`
+      update seller_approvals set revoked_at = ${DUE} where seller_id = ${venueSellerId}
+    `;
+    const claim = await authorizeFor(venuePreferenceId);
+    await handle().sql`
+      update seller_approvals set revoked_at = null where seller_id = ${venueSellerId}
+    `;
+    expect(claim).toEqual({ status: "suppressed" });
+  });
+
+  it("still suppresses a hosted prompt whose basis moved under it", async () => {
+    /*
+      The revalidation must keep REFUSING, or "read the subject's seller" would be
+      indistinguishable from deleting the check. The hosted seller changing her own cadence
+      between queue and claim bumps the preference version, which is what the subject records
+      and what the stale prompt no longer matches — the ordinary invalidation, exercised on the
+      hosted arm for the first time.
+    */
+    await runScheduledPromptPass({ db: handle(), clock: new FixedClock(DUE) });
+    await handle().sql`
+      update inventory_prompt_preferences set version = version + 1
+      where id = ${guestPreferenceId}
+    `;
+    expect(await authorizeFor(guestPreferenceId)).toEqual({ status: "suppressed" });
+    // The stand owner's prompt, queued in the same pass, is untouched by her change.
+    expect(await authorizeFor(hostPreferenceId)).toMatchObject({ status: "authorized" });
   });
 });
