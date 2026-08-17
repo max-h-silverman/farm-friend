@@ -57,6 +57,20 @@ item list. **A paused listing now leaves the map, `/sellers`, the stand card and
 retrieval queries** (max, 2026-08-17) — two tests asserted the opposite, both written while
 `paused` was a state nothing could enter.
 
+**One recorded exception to "no produce taxonomy in a behavioral branch"** (F-115 Tranche G):
+`map-view.ts`'s `FLOWER_VOCABULARY` matches item names to pick a pin glyph and answer the
+"Flowers only" filter. Kept in code because it is DISPLAY — it gates no publication, authority,
+ranking or answer text — and because the honest data home (`sales_locations.offering_type`) is a
+farmer-set onboarding field. `map-view.test.ts` measures the known failure (a flower farm adding
+honey loses its glyph) and guards the vocabulary against growing into a taxonomy. A term for
+anything that is not a flower means it should become data.
+
+**`paused` means two unrelated things and stays that way for now** (F-115 Tranche G):
+`stand_providers.lifecycle_state = 'paused'` is a suspended selling relationship (goods leave the
+public); `inventory_prompt_preferences.cadence = 'paused'` is reminders off (nothing changes for a
+customer). Renaming the cadence value to `off` is one migration with no behaviour change, and is
+deferred only because `0042`–`0051` are all unapplied. Revisit once that queue lands.
+
 **Deliberately unchanged:** VIGA's `issue_link` stays stand-shaped and REFUSES on ambiguity;
 `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table, the operator-facing "Farms" tab label,
 and `GENERIC_WORDS` keep their names.

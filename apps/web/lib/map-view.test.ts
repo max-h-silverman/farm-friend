@@ -5,6 +5,7 @@ import {
   mapMarkerKind,
   numberStands,
   hoistStand,
+  isFlowerOnlyStand,
   sortStandsByNumber,
   standListingLines,
   type PublicStandPayload,
@@ -1386,5 +1387,119 @@ describe("hoistStand", () => {
         "c",
       ]);
     });
+  });
+});
+
+describe("the flower vocabulary exception (F-115 Tranche G)", () => {
+  /*
+    THE ONE RECORDED EXCEPTION to CLAUDE.md's "no produce taxonomy in a behavioral branch".
+
+    Recorded rather than removed (see the comment on `FLOWER_VOCABULARY`): it is a DISPLAY rule —
+    a pin glyph and one map filter — and it gates no publication, no authority, no ranking and no
+    answer text. The honest data home is `sales_locations.offering_type`, which the FARMER sets at
+    onboarding, so moving it there turns a glyph into a question a farmer answers about herself.
+
+    These cases exist to make the known failure MEASURABLE rather than merely documented. Before
+    F-115 the function had no coverage at all, which is how a documented-nowhere exception with a
+    silent failure mode stayed invisible.
+  */
+  const flowerStand = (items: string[]): PublicStandPayload => ({
+    id: "flowers",
+    farmName: "Lavender Farm",
+    locationName: "Lavender Stand",
+    visitability: "visitable",
+    offeringType: "produce",
+    address: "3 Lavender Lane",
+    latitude: 47.5,
+    longitude: -122.46,
+    updated: "updated 1 hour ago",
+    stale: false,
+    availability: {},
+    alsoSellingHere: [],
+    links: [],
+    paymentMethods: [],
+    items: [],
+    // The glyph also requires the stand NOT to take VIGA Farm Bucks, which outranks it. Stated
+    // here so the marker cases below measure the vocabulary and not that.
+    farmBucksAccepted: false,
+    usuallySells: items.map((itemName) => ({ itemName })),
+  });
+
+  it("recognises each term the vocabulary actually carries", () => {
+    // Named individually rather than as one pass over a list, so a term deleted from the regex
+    // fails by name instead of shrinking a count nobody reads.
+    for (const term of [
+      "Cut flowers",
+      "Flowering plants",
+      "Lavender bundles",
+      "Wreaths",
+      "Essential oil",
+    ]) {
+      expect(isFlowerOnlyStand(flowerStand([term]))).toBe(true);
+    }
+  });
+
+  it("matches the NAME and never the rest of the fact", () => {
+    // A price of "$5 a bunch" or a note mentioning flowers must not make a vegetable stand
+    // flowers-only. The regex sees `itemName` alone, and this is what holds it there.
+    const stand = flowerStand(["Kale"]);
+    stand.usuallySells = [{ itemName: "Kale", priceText: "$5 a bunch of flowers" }];
+    expect(isFlowerOnlyStand(stand)).toBe(false);
+  });
+
+  it("needs EVERY offering to be a flower, not merely one", () => {
+    expect(isFlowerOnlyStand(flowerStand(["Lavender", "Wreaths"]))).toBe(true);
+    expect(isFlowerOnlyStand(flowerStand(["Lavender", "Honey"]))).toBe(false);
+  });
+
+  it("says no for a stand that has published no usual offerings at all", () => {
+    // The empty case is a real one — a stand with only confirmed inventory — and `every` on an
+    // empty array is TRUE, so without the length guard every such stand would get the glyph.
+    expect(isFlowerOnlyStand(flowerStand([]))).toBe(false);
+  });
+
+  it("MEASURES the known failure: a flower farm that adds one other product", () => {
+    /*
+      The documented cost of keeping this in code. A lavender farm that starts selling honey
+      loses its glyph and drops out of the "Flowers only" filter, silently — nothing tells VIGA
+      or the farmer, because there is nothing to tell.
+
+      Asserted rather than described, so the exception is a measured trade-off. It does NOT drop
+      off the map and it stays findable by what it sells, which is what keeps this a display
+      defect rather than the class of failure the rule exists to prevent.
+    */
+    const beforeHoney = flowerStand(["Lavender bundles", "Dried wreaths"]);
+    expect(isFlowerOnlyStand(beforeHoney)).toBe(true);
+
+    const afterHoney = flowerStand(["Lavender bundles", "Dried wreaths", "Honey"]);
+    expect(isFlowerOnlyStand(afterHoney)).toBe(false);
+    // Still on the map, still an ordinary stand — the bound on the damage. It loses the glyph
+    // and gets the ordinary one; it does not vanish and it is not marked unreachable.
+    expect(mapMarkerKind(beforeHoney)).toBe("flower-only");
+    expect(mapMarkerKind(afterHoney)).toBe("seasonal");
+    expect(buildMapView([afterHoney], null).stands).toHaveLength(1);
+  });
+
+  it("keeps the vocabulary from growing into a taxonomy", () => {
+    /*
+      The tripwire on the exception itself. Every term must be a flower or a flower-derived
+      product; a term for anything else means this stopped being one narrow display rule and
+      became the produce taxonomy CLAUDE.md forbids — at which point it has to become data.
+
+      Asserted by measuring what the vocabulary ADMITS, not by reading its source: a source scan
+      would pass on a regex that had been rewritten into an unrecognisable but equivalent form,
+      and would fail on a comment. These are the foods most likely to be added next.
+    */
+    for (const notAFlower of [
+      "Honey",
+      "Eggs",
+      "Kale",
+      "Soap",
+      "Candles",
+      "Jam",
+      "Herbs",
+    ]) {
+      expect(isFlowerOnlyStand(flowerStand([notAFlower]))).toBe(false);
+    }
   });
 });
