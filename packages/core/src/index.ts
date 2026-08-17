@@ -26,6 +26,8 @@ export * from "./public/island-projection";
 export * from "./public/item-price";
 export * from "./public/vcard";
 export * from "./public/public-string";
+export * from "./public/seller-credit";
+export * from "./public/availability-columns";
 export * from "./auth/farmer-link";
 export * from "./auth/farmer-invite";
 export * from "./auth/session";

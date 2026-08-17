@@ -7,6 +7,7 @@ export * from "./schema";
 export { schema };
 
 export * from "./current-inventory";
+export * from "./stand-provider-facts";
 export * from "./provider-invalidation";
 export * from "./provider-write-authority";
 export * from "./transactions";
