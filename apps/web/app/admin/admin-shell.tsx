@@ -6,7 +6,21 @@ import { useState } from "react";
 import { LoginForm } from "./login/login-form";
 
 /**
- * Three destinations, each owning one subject: a farm, a message, a person.
+ * Three destinations, named for what a volunteer does rather than for what the database holds.
+ *
+ * **The order is the order of the work** (max, 2026-08-17): the farms first, the people second,
+ * the inbox last.
+ *
+ * **"Farms" is gone, not renamed.** VIGA's whole job is four verbs — view and edit stands and
+ * sellers, invite new stands or sellers — so a farm is no longer a destination. Approval,
+ * retirement, test-farm marking and setup links are things an operator does *while looking at*
+ * a seller or a stand, and they live inside those detail views. A screen per act was the
+ * original sin the F-100 restructure started undoing.
+ *
+ * **Stands & Sellers is ONE destination holding two views**, because they are two ways of
+ * looking at the same arrangements: a stand lists who sells there, a seller lists where she
+ * sells. Two tabs would ask the volunteer to know which side of a relationship they wanted
+ * before they could look at it.
  *
  * The console used to be organized by database table — one screen per queue — which is why a
  * farm appeared six ways and no screen owned it. "Customer reports" and "Stock reports" were
@@ -18,9 +32,9 @@ import { LoginForm } from "./login/login-form";
  * describe — so the number and the thing it counts are in one place instead of two.
  */
 const ADMIN_ROUTES = [
-  { href: "/admin/sellers", label: "Farms" },
-  { href: "/admin/messages", label: "Messages" },
-  { href: "/admin/users", label: "Users" },
+  { href: "/admin/stands", label: "Stands & Sellers" },
+  { href: "/admin/users", label: "SMS Users" },
+  { href: "/admin/messages", label: "Alerts" },
 ] as const;
 
 /**

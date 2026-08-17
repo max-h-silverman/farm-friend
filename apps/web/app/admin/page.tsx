@@ -16,5 +16,5 @@ import { redirect } from "next/navigation";
 export const dynamic = "force-dynamic";
 
 export default function AdminPage(): never {
-  redirect("/admin/sellers");
+  redirect("/admin/stands");
 }

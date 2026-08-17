@@ -47,19 +47,32 @@ function response(status: number, payload: Record<string, unknown> = {}): Respon
 }
 
 describe("the shared administrator shell", () => {
-  it("navigates by subject: a farm, a message, a person", () => {
+  it("navigates by what VIGA actually does: the farms, the people, the inbox", () => {
     render(
-      <AdminShell currentPath="/admin/sellers">
+      <AdminShell currentPath="/admin/stands">
         <p>Stands</p>
       </AdminShell>,
     );
 
+    // F-101 (max, 2026-08-17). VIGA's whole job is four verbs — view and edit stands and
+    // sellers, invite new stands or sellers — so Stands & Sellers is ONE destination holding
+    // two views, and everything else an operator does happens inside a detail view rather
+    // than on a screen of its own.
     expect(
-      screen.getAllByRole("link", { name: /^(farms|messages|users)$/i }),
+      screen.getAllByRole("link", { name: /^(stands & sellers|sms users|alerts)$/i }),
     ).toHaveLength(3);
-    expect(screen.getByRole("link", { name: "Farms" })).toHaveAttribute("href", "/admin/sellers");
-    expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute("href", "/admin/messages");
-    expect(screen.getByRole("link", { name: "Users" })).toHaveAttribute("href", "/admin/users");
+    expect(screen.getByRole("link", { name: "Stands & Sellers" })).toHaveAttribute(
+      "href",
+      "/admin/stands",
+    );
+    expect(screen.getByRole("link", { name: "SMS Users" })).toHaveAttribute("href", "/admin/users");
+    expect(screen.getByRole("link", { name: "Alerts" })).toHaveAttribute("href", "/admin/messages");
+
+    // Alerts is LAST, and Stands & Sellers first: the order is the order of the work.
+    const labels = screen
+      .getAllByRole("link")
+      .map((link) => link.textContent);
+    expect(labels).toEqual(["Stands & Sellers", "SMS Users", "Alerts"]);
 
     // No Home tab (max, 2026-08-10). A desk whose only content was counts pointing at the
     // other tabs made every task two clicks; the counts moved to the tabs that own the work.
@@ -69,6 +82,10 @@ describe("the shared administrator shell", () => {
     expect(screen.queryByRole("link", { name: "Customer reports" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Stock reports" })).toBeNull();
     expect(screen.queryByRole("link", { name: "Farmers" })).toBeNull();
+    // F-101 — "Farms" is GONE, not renamed. A farm is no longer a destination.
+    expect(screen.queryByRole("link", { name: /^farms$/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^messages$/i })).toBeNull();
+    expect(screen.queryByRole("link", { name: /^users$/i })).toBeNull();
     expect(screen.queryByRole("banner")).toBeNull();
     expect(screen.getByRole("navigation")).toContainElement(
       screen.getByRole("button", { name: "Sign out" }),
@@ -90,7 +107,7 @@ describe("the shared administrator shell", () => {
       </AdminShell>,
     );
 
-    expect(screen.getByRole("link", { name: "Messages" })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: "Alerts" })).toHaveAttribute(
       "aria-current",
       "page",
     );
