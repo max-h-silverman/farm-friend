@@ -12,7 +12,8 @@ import { parseWeeklyStatus } from "./weekly-status";
 //
 // So a weekly submission becomes a DATED CONFIRMATION carrying `source = 'viga'` (F-063), sitting
 // on top of the seeded specialties rather than replacing them. Age is handled by the machinery
-// that already exists: past 48 hours the card shows its stale caution, which is exactly true. A
+// that already exists: past `STALE_AFTER_HOURS` the card shows its stale caution, which is
+// exactly true. A
 // farmer's own SMS supersedes their weekly row the moment they send one — that is the migration
 // path off the legacy form, not a competition with it.
 //

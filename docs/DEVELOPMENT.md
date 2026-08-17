@@ -195,9 +195,10 @@ with the guard that protects each.
   for SQL identifiers.
 - **Composing shared SQL text into a tagged template sends it as a bind PARAMETER.** A query written
   `` driver(db)`… ${fragment} …` `` passes the fragment as a *value*, not as SQL, and dies at parse
-  with `syntax error at or near "$1"`. Any statement composing `visibleFarms` or B-074's
-  `currentInventoryJoin`/`currentEntriesJoin` must use `.unsafe(…)` — which is why
-  `listClaimableFarms` and `listStandsForAdministration` are written that way. Typecheck cannot see
+  with `syntax error at or near "$1"`. Any statement composing `visibleFarms`,
+  `PROVIDER_AUTHORITY_ARMS`, `currentEntriesJoin`, or F-115's `publicProviders` /
+  `reachableProviders` must use `.unsafe(…)` — which is why `listClaimableFarms`,
+  `listStandsForAdministration` and `listFarmerAuthorizations` are written that way. Typecheck cannot see
   it and neither can any test that does not run the statement against a real database, so a
   fragment-composing query needs integration coverage on the day it is written.
 - **A sabotage aimed at the wrong tree is indistinguishable from a test that cannot fail.** A plan JSON
@@ -298,8 +299,8 @@ with the guard that protects each.
   `0000`, and the snapshot — so a constraint NAME or even a doc comment trips it.
 - **A tagged template turns an interpolation into a bind PARAMETER.** Composing shared SQL text into
   a `` driver(db)`…` `` query sends the clause as a string value and dies at parse
-  (`syntax error at or near "$1"`). Any query composing `visibleFarms` or the B-074 join fragments
-  must use `.unsafe(…)`. Invisible to typecheck and to every test not run against a real database.
+  (`syntax error at or near "$1"`). Any query composing a shared fragment must use `.unsafe(…)`.
+  Invisible to typecheck and to every test not run against a real database.
 - **An assertion on an empty collection can be green whatever the code returns.** When a reader's
   only coverage is its empty case, it has no coverage; assert a populated value.
 - **One emoji doubles a message's cost.** A single non-GSM-7 character re-encodes the WHOLE body to

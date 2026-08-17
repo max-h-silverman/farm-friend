@@ -5,8 +5,6 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
-  currentEntriesJoin,
-  currentInventoryJoin,
   readCurrentInventory,
   readCurrentRevisionRef,
 } from "./current-inventory";
@@ -447,114 +445,6 @@ describe("B-074 shared current-inventory reader (integration)", () => {
         providerId: await nativeProvider(richLocationId),
       });
       expect(shared?.entries.map((e) => e.itemName)).not.toContain("STALE PARSNIPS");
-    });
-  });
-
-  /*
-    ============================================================================
-    Sites 1-3 — the corpus-wide SQL fragments.
-
-    These are proved by composing the fragment into the SAME statement the site runs and
-    comparing against the site's original hand-written join text. What matters is that the
-    fragment produces the identical result set, including the left/inner distinction that
-    decides whether an unconfirmed stand survives.
-    ============================================================================
-  */
-  describe("site 1-3 — the composed join fragments", () => {
-    it("the inner join matches inquiry.ts:277's original, dropping unconfirmed stands", async () => {
-      const originalSql = `
-        select l.id as location_id, e.item_name, r.published_at
-        from sales_locations l
-        join inventory_revisions r
-          on r.sales_location_id = l.id and r.is_current
-        join inventory_entries e on e.inventory_revision_id = r.id
-        order by l.id asc, e.sort_order asc, e.id asc
-      `;
-      const sharedSql = `
-        select l.id as location_id, e.item_name, r.published_at
-        from sales_locations l
-        ${currentInventoryJoin({ locationAlias: "l", revisionAlias: "r", kind: "inner" })}
-        ${currentEntriesJoin({ revisionAlias: "r", entryAlias: "e", kind: "inner" })}
-        order by l.id asc, e.sort_order asc, e.id asc
-      `;
-      const original = await client().unsafe(originalSql);
-      const shared = await client().unsafe(sharedSql);
-      expect(shared).toEqual(original);
-      // The inner join is load-bearing: the two stands with no entries must be ABSENT.
-      const locations = new Set(original.map((r) => r.location_id as string));
-      expect(locations.has(richLocationId)).toBe(true);
-      expect(locations.has(emptyLocationId)).toBe(false);
-      expect(locations.has(unpublishedLocationId)).toBe(false);
-      expect(original.map((r) => r.item_name as string)).not.toContain("STALE PARSNIPS");
-    });
-
-    it("the left join matches public-listing.ts:469's original, keeping unconfirmed stands", async () => {
-      const originalSql = `
-        select l.id as location_id, r.published_at, e.item_name
-        from sales_locations l
-        left join inventory_revisions r
-          on r.sales_location_id = l.id and r.is_current
-        left join inventory_entries e on e.inventory_revision_id = r.id
-        order by r.published_at desc nulls last, l.id asc, e.sort_order asc, e.id asc
-      `;
-      const sharedSql = `
-        select l.id as location_id, r.published_at, e.item_name
-        from sales_locations l
-        ${currentInventoryJoin({ locationAlias: "l", revisionAlias: "r", kind: "left" })}
-        ${currentEntriesJoin({ revisionAlias: "r", entryAlias: "e", kind: "left" })}
-        order by r.published_at desc nulls last, l.id asc, e.sort_order asc, e.id asc
-      `;
-      const original = await client().unsafe(originalSql);
-      const shared = await client().unsafe(sharedSql);
-      expect(shared).toEqual(original);
-      // B-013 — the left join is what keeps a never-confirmed stand on the map.
-      const locations = new Set(original.map((r) => r.location_id as string));
-      expect(locations.has(unpublishedLocationId)).toBe(true);
-      expect(locations.has(emptyLocationId)).toBe(true);
-    });
-
-    it("the left join matches admin.ts:940's original, keeping every stand in the roster", async () => {
-      // The admin roster aggregates entries in a correlated subquery rather than joining them,
-      // so only the REVISION join comes from the fragment. Retired stands stay listed here,
-      // which is why the operator can restore one.
-      const originalSql = `
-        select location.id as stand_id, inventory.id as revision_id,
-          coalesce(
-            (select jsonb_agg(jsonb_build_object('itemName', entry.item_name)
-               order by entry.sort_order, entry.id)
-             from inventory_entries entry
-             where entry.inventory_revision_id = inventory.id),
-            '[]'::jsonb
-          ) as current_items
-        from sales_locations location
-        left join inventory_revisions inventory
-          on inventory.sales_location_id = location.id and inventory.is_current
-        order by location.name, location.id
-      `;
-      const sharedSql = `
-        select location.id as stand_id, inventory.id as revision_id,
-          coalesce(
-            (select jsonb_agg(jsonb_build_object('itemName', entry.item_name)
-               order by entry.sort_order, entry.id)
-             from inventory_entries entry
-             where entry.inventory_revision_id = inventory.id),
-            '[]'::jsonb
-          ) as current_items
-        from sales_locations location
-        ${currentInventoryJoin({
-          locationAlias: "location",
-          revisionAlias: "inventory",
-          kind: "left",
-        })}
-        order by location.name, location.id
-      `;
-      const original = await client().unsafe(originalSql);
-      const shared = await client().unsafe(sharedSql);
-      expect(shared).toEqual(original);
-      expect(original).toHaveLength(3);
-      const rich = original.find((r) => r.stand_id === richLocationId);
-      expect(rich?.revision_id).toBe(currentRevisionId);
-      expect(JSON.stringify(rich?.current_items)).not.toContain("STALE PARSNIPS");
     });
   });
 });

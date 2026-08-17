@@ -8,8 +8,8 @@
 // really did — so each farm's latest submission becomes a dated confirmation on its card.
 //
 // A customer wants both facts: the standing "usually sells" sets expectations, the dated one says
-// how much to trust it today. Age needs no special handling — past 48 hours the card already
-// shows its stale caution, which is exactly true.
+// how much to trust it today. Age needs no special handling — past `STALE_AFTER_HOURS` the card
+// already shows its stale caution, which is exactly true.
 //
 // PROVENANCE. Every row carries `source = 'viga'` (F-063). A Google Form is not a handset, so
 // none of the three keys asserting an authorized phone sent a message is written. And a farmer's

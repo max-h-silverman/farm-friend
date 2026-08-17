@@ -25,18 +25,25 @@ import { publicProviders } from "./provider-liveness";
 
   ## Three shapes, deliberately, not one union
 
-  The twelve sites ask the same question in three ways, and collapsing them into one row type
-  would make every caller carry columns it does not use:
+  The sites ask the same question in three ways, and collapsing them into one row type would make
+  every caller carry columns it does not use:
 
-    1. `currentInventoryJoin` — a SQL FRAGMENT the three corpus-wide surfaces compose into their
-       own larger queries (customer SMS retrieval, the public map, the VIGA admin roster). They
-       select stand facts, farm facts, closure, offerings and payment in ONE round trip; turning
-       that into a separate call per stand would multiply queries by the size of the corpus and
-       change the ordering semantics each surface depends on. `visibleFarms` in test-sellers.ts is
+    1. `currentEntriesJoin` — a SQL FRAGMENT that customer SMS retrieval composes into its own
+       larger query. It selects stand facts, farm facts, closure, offerings and payment in ONE
+       round trip; turning that into a call per stand would multiply queries by the size of the
+       corpus and change the ordering semantics it depends on. `visibleFarms` in test-farms.ts is
        the existing precedent for exactly this, adopted for exactly this reason.
-    2. `readCurrentInventory` — the stand-scoped reader, returning the revision and its entries.
+    2. `readCurrentInventoryByProvider` / `readCurrentInventory` — the per-listing readers, which
+       the public map, the stand card and the admin roster all use.
     3. `readCurrentRevisionRef` — the revision identity alone, with optional `for update`, for
        the writers that need the incumbent they are about to supersede.
+
+  **A revision-level join fragment used to sit beside the first, and its removal is the point**
+  (F-115 Tranche F). `currentInventoryJoin` attached a revision on `sales_location_id` ALONE —
+  the provider-blind key C.5 exists to eliminate — and its last caller was removed deliberately
+  when a two-seller stand appeared in the operator's roster twice, each row carrying half the
+  inventory. It then sat exported with no production caller, reading like the sanctioned way to
+  ask "what is current here", so the next caller would have reintroduced that defect.
 
   ## The writers keep their locks
 
@@ -48,39 +55,19 @@ import { publicProviders } from "./provider-liveness";
   would put row locks on read-only paths.
 */
 
-/** The single predicate. Everything in this module is a way of asking it. */
-const CURRENT = "is_current";
-
 /**
- * The join that attaches a stand's current inventory revision to a corpus-wide query.
+ * The join that attaches a revision's entries to a corpus-wide query.
  *
- * `locationAlias` is the caller's `sales_locations` alias; `revisionAlias` is what the caller
- * will refer to the revision by. `kind` is the caller's existing join semantics, preserved
- * exactly — `left` keeps a never-confirmed stand in the result (B-013, the public map and the
- * admin roster), `inner` drops it (customer SMS retrieval, whose offerings half carries those
- * stands instead).
+ * Returns SQL text rather than a composed query because its caller builds one large statement
+ * with its own projections, filters and ordering. What is shared is the CURRENCY RULE, not the
+ * query, and `visibleFarms` in test-farms.ts is the existing precedent for exactly this shape.
  *
- * Returns SQL text rather than a composed query because the three callers each build one large
- * statement with their own projections, filters and ordering. What is shared here is the
- * PREDICATE — the thing that changes when a provider dimension arrives — not the query.
- */
-export function currentInventoryJoin(input: {
-  locationAlias: string;
-  revisionAlias: string;
-  kind: "inner" | "left";
-}): string {
-  const { locationAlias, revisionAlias, kind } = input;
-  return `${kind} join inventory_revisions ${revisionAlias}
-      on ${revisionAlias}.sales_location_id = ${locationAlias}.id and ${revisionAlias}.${CURRENT}`;
-}
-
-/**
- * The join that attaches a revision's entries.
- *
- * Separate from `currentInventoryJoin` because the two corpus-wide surfaces that aggregate
- * entries in a subquery (the admin roster) join them differently from the two that fan them out
- * as rows. Keeping them separate lets each caller keep its existing shape while both state the
- * currency rule once, above.
+ * Its sibling `currentInventoryJoin` is GONE (F-115 Tranche F). It attached a revision on
+ * `sales_location_id` alone — the provider-blind key C.5 exists to eliminate — and its last
+ * caller was removed deliberately, because on a two-seller stand it produced the stand TWICE,
+ * each row carrying half the inventory (see `admin.ts`). It survived with no production caller,
+ * exported from `@farm-friend/db` and reading like the sanctioned way to ask "what is current
+ * here", so the next caller would have reintroduced the exact defect C.5 removed.
  */
 export function currentEntriesJoin(input: {
   revisionAlias: string;
