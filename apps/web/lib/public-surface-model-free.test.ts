@@ -69,10 +69,25 @@ function transitivePackageImports(entry: string): {
   return { packages, visited };
 }
 
-/** The two entry points a customer's browser can reach without authentication. */
-const PUBLIC_READ_ENTRIES = [
-  "apps/web/app/api/public/stands/route.ts",
-  "apps/web/app/(map)/page.tsx",
+/**
+ * Every entry point a customer's browser can reach without authentication.
+ *
+ * Each is paired with a module its graph MUST contain, which is what proves the crawler
+ * actually walked it rather than resolving nothing and passing vacuously. The anchor differs
+ * per entry because they read different things: the map and its API read `public-listing.ts`,
+ * and the seller list (F-114 C.5) reads `seller-list.ts` — it carries no inventory at all, so
+ * anchoring it to the map's reader would fail for a correct page.
+ */
+const PUBLIC_READ_ENTRIES: readonly { entry: string; reaches: string }[] = [
+  {
+    entry: "apps/web/app/api/public/stands/route.ts",
+    reaches: "apps/web/lib/public-listing.ts",
+  },
+  { entry: "apps/web/app/(map)/page.tsx", reaches: "apps/web/lib/public-listing.ts" },
+  {
+    entry: "apps/web/app/(map)/sellers/page.tsx",
+    reaches: "apps/web/lib/seller-list.ts",
+  },
 ];
 
 describe("the public read surface is model-free (F-019, preserved by F-017)", () => {
@@ -80,16 +95,16 @@ describe("the public read surface is model-free (F-019, preserved by F-017)", ()
     // Guard against the test passing because the crawler is broken. If this file ever stops
     // resolving imports, every assertion below would vacuously pass — so prove the crawler
     // actually walked into the modules that matter first.
-    for (const entry of PUBLIC_READ_ENTRIES) {
+    for (const { entry, reaches } of PUBLIC_READ_ENTRIES) {
       const { visited, packages } = transitivePackageImports(entry);
       expect(visited.length, entry).toBeGreaterThan(1);
       expect(packages.size, entry).toBeGreaterThan(0);
-      expect(visited, entry).toContain("apps/web/lib/public-listing.ts");
+      expect(visited, entry).toContain(reaches);
     }
   });
 
   it("imports no model package anywhere in its transitive graph", () => {
-    for (const entry of PUBLIC_READ_ENTRIES) {
+    for (const { entry } of PUBLIC_READ_ENTRIES) {
       const { packages } = transitivePackageImports(entry);
       expect([...packages].sort(), entry).not.toContain("@farm-friend/ai");
     }
@@ -109,7 +124,7 @@ describe("the public read surface is model-free (F-019, preserved by F-017)", ()
       "StubLLMProvider",
     ];
 
-    for (const entry of PUBLIC_READ_ENTRIES) {
+    for (const { entry } of PUBLIC_READ_ENTRIES) {
       const { visited } = transitivePackageImports(entry);
       for (const file of visited) {
         const source = readFileSync(new URL(file, repositoryRoot), "utf8");

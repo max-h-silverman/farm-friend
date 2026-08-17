@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CONTACT_CARD_PATH } from "@farm-friend/core/vcard";
 import {
@@ -1051,6 +1052,16 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       <section className="filters" aria-labelledby="stand-finder-title">
         <header className="filter-header">
           <h2 id="stand-finder-title">Find a stand</h2>
+          {/*
+            THE DOOR TO THE SELLER LIST (F-114 C.5).
+
+            The map is a map of STANDS, and a seller who sells only at other people's stands
+            has no pin on it. This link is how that seller is reachable at all from the
+            island's main view — without it the seller list exists and nobody arrives there.
+          */}
+          <Link className="seller-list-link" href="/sellers">
+            Browse by seller
+          </Link>
           <p className="filter-results" aria-live="polite">
             {visible.length === view.stands.length
               ? `${visible.length} ${visible.length === 1 ? "stand" : "stands"} shown`
