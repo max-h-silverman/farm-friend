@@ -6,6 +6,7 @@ import {
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import { invalidateProviderWork } from "./provider-invalidation";
+import { PROVIDER_SELLER_ARM } from "./provider-write-authority";
 import type { Sql, Tx } from "./sql";
 
 /*
@@ -559,23 +560,29 @@ async function participationArm(
   tx: Tx,
   input: { salesLocationId: string; sellerId: string; senderHash: string },
 ): Promise<"seller" | "host" | null> {
-  const rows = await tx`
-    select
-      (auth.seller_id is not null and auth.seller_id = ${input.sellerId}) as is_seller
-    from farmer_authorizations as auth
-    join contacts on contacts.id = auth.contact_id
-    join sales_locations as location on location.id = ${input.salesLocationId}
-    where contacts.phone_hash = ${input.senderHash}
-      and auth.revoked_at is null
-      and (
-        (auth.seller_id is not null and auth.seller_id = ${input.sellerId})
-        or (auth.seller_id is not null and auth.seller_id = location.own_seller_id)
-        or (auth.sales_location_id is not null and auth.sales_location_id = location.id)
-      )
-    order by is_seller desc
-    limit 1
-    for update of auth
-  `;
+  // The seller test is `PROVIDER_SELLER_ARM`'s, against a provider projected from the caller's
+  // ids rather than joined — this walks in from the CONTACT, so there is no `provider` row in
+  // scope to join to. Same sentence, one statement of it (F-101).
+  const rows = await tx.unsafe(
+    `
+      select (${PROVIDER_SELLER_ARM}) as is_seller
+      from farmer_authorizations as auth
+      join contacts on contacts.id = auth.contact_id
+      join sales_locations as location on location.id = $2
+      cross join (select $3::uuid as seller_id) as provider
+      where contacts.phone_hash = $1
+        and auth.revoked_at is null
+        and (
+          ${PROVIDER_SELLER_ARM}
+          or (auth.seller_id is not null and auth.seller_id = location.own_seller_id)
+          or (auth.sales_location_id is not null and auth.sales_location_id = location.id)
+        )
+      order by is_seller desc
+      limit 1
+      for update of auth
+    `,
+    [input.senderHash, input.salesLocationId, input.sellerId],
+  );
   const row = rows[0] as Record<string, unknown> | undefined;
   if (row === undefined) return null;
   return row.is_seller === true ? "seller" : "host";

@@ -4,14 +4,29 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { FixedClock, issueFarmerLinkToken } from "@farm-friend/core";
-import { issueFarmerLink, readNativeProviderId, type Db, type Sql } from "@farm-friend/db";
 import {
+  issueFarmerLink,
+  readNativeProviderId,
+  setProviderParticipation,
+  type Db,
+  type Sql,
+} from "@farm-friend/db";
+import {
+  handleFarmerParticipationPost,
   handleFarmerSettingsPost,
   loadFarmerSettings,
   saveFarmerDefaultListing,
 } from "./farmer-settings";
 
 const T0 = new Date(Date.now() - 60_000);
+/**
+ * After every fixture row, for the acts that WRITE a timestamp.
+ *
+ * `stand_providers_ending_coherent` requires `ended_at >= invited_at`, and the fixtures invite
+ * at `T0`. Acting at `T0` too would end a relationship at the instant it began — which the
+ * schema refuses, correctly.
+ */
+const T_ACT = new Date(Date.now() + 60_000);
 
 describe("F-051 farmer default stand settings (integration)", () => {
   let admin: Sql | undefined;
@@ -105,6 +120,24 @@ describe("F-051 farmer default stand settings (integration)", () => {
     };
   }
 
+  function request(body: unknown): Request {
+    return new Request("https://example.test/api/farmer/participation", {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+  }
+
+  /** The row's real state, read back rather than inferred from the handler's own answer. */
+  async function lifecycleOf(providerId: string): Promise<{ state: string; ended: boolean }> {
+    const rows = await client()`
+      select lifecycle_state, ended_at from stand_providers where id = ${providerId}
+    `;
+    return {
+      state: rows[0]?.lifecycle_state as string,
+      ended: rows[0]?.ended_at !== null,
+    };
+  }
+
   it("loads only the standing link authorization's owned locations and no contact identity", async () => {
     const own = await farmer("a".repeat(64), ["North Stand", "South Stand"]);
     const other = await farmer("b".repeat(64), ["Private Other Stand"]);
@@ -120,6 +153,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
           locationName: "North Stand",
           sellerName: "Settings Farm",
           describesOwnStand: true,
+          mayPause: true,
           selected: false,
           cadence: null,
         },
@@ -129,6 +163,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
           locationName: "South Stand",
           sellerName: "Settings Farm",
           describesOwnStand: true,
+          mayPause: true,
           selected: false,
           cadence: null,
         },
@@ -178,6 +213,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
           locationName: "North Stand",
           sellerName: "Settings Farm",
           describesOwnStand: true,
+          mayPause: true,
           selected: false,
           cadence: null,
         },
@@ -187,6 +223,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
           locationName: "North Stand",
           sellerName: "Fernhorn Bakery",
           describesOwnStand: false,
+          mayPause: false,
           selected: false,
           cadence: null,
         },
@@ -246,11 +283,196 @@ describe("F-051 farmer default stand settings (integration)", () => {
           locationName: "Host Stand",
           sellerName: "Gracies Greens",
           describesOwnStand: false,
+          // NOT her stand, but her GOODS — she is the seller, so pause is hers. The two fields
+          // answer different questions and this row is where they diverge: a screen deriving
+          // the control from `describesOwnStand` would refuse a hosted seller her own pause.
+          mayPause: true,
           selected: false,
           cadence: null,
         },
       ],
     });
+  });
+
+  it("says which ARM reaches each listing, so the screen never offers a refused control", async () => {
+    /*
+      F-101 — the seller half. `setProviderParticipation` refuses a host who asks to pause, and
+      the acceptance criterion is that the UI never offers the control it would be refused for.
+      A screen cannot honour that without knowing WHICH arm reached each listing, so the reader
+      states it.
+
+      The case that matters is a host holding `host_may_update_stock`: that opt-in is what
+      reaches a hosted listing at all, so the host's row is present and looks in every other
+      respect like the seller's. `mayPause` is the only thing that separates them, and it must
+      be false — a host may end and may NEVER pause, with or without that opt-in.
+
+      Asserted from the HOST's token, not the guest's, so a reader that returned the guest's
+      arm for every row would fail here rather than pass by coincidence.
+    */
+    const host = await farmer("i".repeat(64), ["Shared Stand"]);
+    const guests = await client()`
+      insert into sellers (name) values ('Fernhorn Bakery') returning id
+    `;
+    const hosted = await client()`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${host.locationIds[0] as string}, ${guests[0]?.id as string}, 'active', true,
+        ${T0}, ${T0}, 'viga', ${T0}
+      ) returning id
+    `;
+
+    const settings = await loadFarmerSettings(database(), host.token);
+    if (settings.status !== "active") throw new Error("expected active settings");
+    const byProvider = new Map(
+      settings.listings.map((listing) => [listing.providerId, listing]),
+    );
+
+    // Her own listing: she IS the seller, so all three transitions are hers.
+    expect(byProvider.get(host.providerIds[0] as string)?.mayPause).toBe(true);
+    // The bakery's listing at her stand: she is the HOST. End only.
+    expect(byProvider.get(hosted[0]?.id as string)?.mayPause).toBe(false);
+  });
+
+  it("refuses a host pause with and without the stock opt-in, from the same screen", async () => {
+    /*
+      The arm is a PRESENTATION fact; the refusal is the seam's. Both are asserted because a
+      screen that hid the control while the seam allowed the write would be a UI-only guarantee,
+      which Golden Rule #3 forbids — and a seam that refused while the screen offered the button
+      is the `not_authorized` the criterion names.
+
+      Run BOTH ways on `host_may_update_stock` (F-115's own requirement): the flag governs stock
+      and must never widen participation. Without it the host does not reach the listing at all,
+      so the row is absent AND the write is refused.
+    */
+    const host = await farmer("j".repeat(64), ["Opt-in Stand"]);
+    const guests = await client()`
+      insert into sellers (name) values ('Gracies Greens') returning id
+    `;
+
+    for (const optIn of [true, false]) {
+      const hosted = await client()`
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+          invited_at, accepted_at, approval_source, approved_at
+        ) values (
+          ${host.locationIds[0] as string}, ${guests[0]?.id as string}, 'active', ${optIn},
+          ${T0}, ${T0}, 'viga', ${T0}
+        ) returning id
+      `;
+      const providerId = hosted[0]?.id as string;
+
+      const settings = await loadFarmerSettings(database(), host.token);
+      if (settings.status !== "active") throw new Error("expected active settings");
+      const row = settings.listings.find((listing) => listing.providerId === providerId);
+      // Present only when the opt-in reaches it; never pausable either way.
+      expect(row?.mayPause ?? false).toBe(false);
+
+      const refused = await setProviderParticipation(database(), {
+        providerId,
+        transition: "pause",
+        senderHash: "j".repeat(64),
+        occurredAt: new Date(),
+      });
+      expect(refused.status).toBe("not_authorized");
+
+      await client()`delete from stand_providers where id = ${providerId}`;
+    }
+  });
+
+  it("pauses, resumes and ends the seller's OWN listing through the seam", async () => {
+    /*
+      F-101 — the seller half's write path. The farmer's token replaces the admin session; the
+      seam is the same one `/api/admin/participation` calls, and it stays the only writer.
+
+      All three transitions in one case because the acceptance criterion is all three, and
+      because resume has to be reachable FROM paused — a handler that wrote `active`
+      unconditionally would pass a pause-only test.
+    */
+    const own = await farmer("k".repeat(64), ["Own Stand"]);
+    const providerId = own.providerIds[0] as string;
+
+    const paused = await handleFarmerParticipationPost(
+      { db: database(), clock: new FixedClock(T_ACT) },
+      request({ token: own.token, providerId, transition: "pause" }),
+    );
+    expect(paused.status).toBe(200);
+    expect(await lifecycleOf(providerId)).toEqual({ state: "paused", ended: false });
+
+    const resumed = await handleFarmerParticipationPost(
+      { db: database(), clock: new FixedClock(T_ACT) },
+      request({ token: own.token, providerId, transition: "resume" }),
+    );
+    expect(resumed.status).toBe(200);
+    expect(await lifecycleOf(providerId)).toEqual({ state: "active", ended: false });
+
+    const ended = await handleFarmerParticipationPost(
+      { db: database(), clock: new FixedClock(T_ACT) },
+      request({ token: own.token, providerId, transition: "end" }),
+    );
+    expect(ended.status).toBe(200);
+    expect((await lifecycleOf(providerId)).ended).toBe(true);
+  });
+
+  it("refuses a host's pause at the write path and lets the same host END", async () => {
+    /*
+      THE CONTRACT'S CORE PROTECTION, asserted at the surface a farmer can actually reach.
+
+      The seam's own suite proves the rule; this proves the ROUTE inherits it rather than
+      resolving authority for itself. Both halves matter: a route that refused everything would
+      pass the pause assertion and fail the end one, which is why `end` is asserted here too.
+    */
+    const host = await farmer("l".repeat(64), ["Host Stand"]);
+    const guests = await client()`
+      insert into sellers (name) values ('Fernhorn Bakery') returning id
+    `;
+    const hosted = await client()`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state, host_may_update_stock,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${host.locationIds[0] as string}, ${guests[0]?.id as string}, 'active', true,
+        ${T0}, ${T0}, 'viga', ${T0}
+      ) returning id
+    `;
+    const providerId = hosted[0]?.id as string;
+
+    const refused = await handleFarmerParticipationPost(
+      { db: database(), clock: new FixedClock(T_ACT) },
+      request({ token: host.token, providerId, transition: "pause" }),
+    );
+    expect(refused.status).toBe(403);
+    expect(await lifecycleOf(providerId)).toEqual({ state: "active", ended: false });
+
+    const ended = await handleFarmerParticipationPost(
+      { db: database(), clock: new FixedClock(T_ACT) },
+      request({ token: host.token, providerId, transition: "end" }),
+    );
+    expect(ended.status).toBe(200);
+    expect((await lifecycleOf(providerId)).ended).toBe(true);
+  });
+
+  it("refuses a listing outside the token's authority, and a fabricated token", async () => {
+    // The token is the whole credential here, so the two ways to misuse it are asserted
+    // together: a real token pointed at somebody else's listing, and no real token at all.
+    const own = await farmer("m".repeat(64), ["Mine"]);
+    const stranger = await farmer("n".repeat(64), ["Theirs"]);
+    const strangerProvider = stranger.providerIds[0] as string;
+
+    const crossed = await handleFarmerParticipationPost(
+      { db: database(), clock: new FixedClock(T_ACT) },
+      request({ token: own.token, providerId: strangerProvider, transition: "end" }),
+    );
+    expect(crossed.status).toBe(403);
+    expect((await lifecycleOf(strangerProvider)).ended).toBe(false);
+
+    const forged = await handleFarmerParticipationPost(
+      { db: database(), clock: new FixedClock(T_ACT) },
+      request({ token: "0".repeat(64), providerId: own.providerIds[0] as string, transition: "end" }),
+    );
+    expect(forged.status).toBe(403);
+    expect((await lifecycleOf(own.providerIds[0] as string)).ended).toBe(false);
   });
 
   it("saves and returns one revalidated exact default without changing STOP consent", async () => {

@@ -1,4 +1,4 @@
-import { PROVIDER_AUTHORITY_ARMS } from "./provider-write-authority";
+import { PROVIDER_AUTHORITY_ARMS, PROVIDER_SELLER_ARM } from "./provider-write-authority";
 import type { Db } from "./index";
 import type { Tx } from "./sql";
 
@@ -447,6 +447,21 @@ export interface FarmerSettingsTarget {
   describesOwnStand: boolean;
   selected: boolean;
   /**
+   * Whether THIS phone may pause and resume this listing — true for the seller, false for a host.
+   *
+   * F-101. The settings screen must not offer a control the seam would refuse, and only the arm
+   * that reached the row can answer that: a host reaches a hosted listing through
+   * `host_may_update_stock`, and that opt-in governs stock alone. Ending is not gated by this —
+   * §facts and authority lets either side walk away — so this field says PAUSE, not "may act".
+   *
+   * Derived from `PROVIDER_SELLER_ARM`, the same text `setProviderParticipation` narrows its
+   * pause arm from, so the screen and the seam cannot come to disagree about who is the seller.
+   *
+   * **Not the same question as either `paused` below.** This is who may press the control; those
+   * are what state the thing is in.
+   */
+  mayPause: boolean;
+  /**
    * How often Farm Friend texts asking what she has — `"paused"` here means REMINDERS OFF.
    *
    * **Not the same `paused` as `TargetRow.paused` above** (F-115 Tranche G). That one is
@@ -483,6 +498,7 @@ export async function listFarmerSettingsTargets(
         location.name as location_name,
         seller.name as seller_name,
         (provider.seller_id is not distinct from location.own_seller_id) as describes_own_stand,
+        (${PROVIDER_SELLER_ARM}) as may_pause,
         (context.selected_authorization_id = auth.id
           and context.selected_provider_id = provider.id) as selected,
         preference.cadence
@@ -508,6 +524,7 @@ export async function listFarmerSettingsTargets(
     locationName: row.location_name as string,
     sellerName: row.seller_name as string,
     describesOwnStand: row.describes_own_stand === true,
+    mayPause: row.may_pause === true,
     selected: row.selected === true,
     cadence: (row.cadence as FarmerSettingsTarget["cadence"]) ?? null,
   }));
