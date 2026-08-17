@@ -13,9 +13,12 @@ mid-session defeats its own purpose.
 
 ## 2026-08-17 (latest) — F-101: the admin console becomes Stands & Sellers, and the pause/end mechanism gets its first caller
 
-Merged from `f-101-admin-ui-refactor`, nine commits (`5cb490d`…`a29d032`). Unit **2,189** with the
-7 corpus skips; integration **1409/1409 across 102 files**; typecheck and lint clean. No live eval
-run owed — `packages/ai` and `evals/` are untouched, checked rather than assumed.
+Merged as **`dc0b831`** (PR #131), ten commits on `f-101-admin-ui-refactor`. Unit **2,189** with the
+7 corpus skips; integration **1409/1409 across 102 files**; typecheck and lint clean — all four
+**re-verified on the merged base**, not just on the branch. No live eval run owed: `packages/ai`
+and `evals/` are untouched, checked rather than assumed. **Nothing deployed** (max, 2026-08-17) —
+production is already behind by F-114/F-115 with `0042`–`0051` unapplied, so this joins that queue
+rather than shipping alone.
 
 **The gap this closes.** F-115 Tranche D built `setProviderParticipation`, its authority resolver
 and every consequence, fully tested, with **zero production callers**. Pausing or ending a hosted
