@@ -11,7 +11,100 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-16 (latest) — Whose goods are these? (F-114 Phase C.5, the customer's half — the last phase)
+## 2026-08-17 (latest) — F-115: retiring the derivations F-114 left behind, and the venue nobody could see
+
+Merged as **`<squash>`** (PR #130), eight commits on `f-115-de-vibe-remediation`. Unit **2,165**
+with the 7 corpus skips; integration **1400/1400 across 100 of 100 files**, up from 1347/1347
+across 96. Typecheck and lint green. No live eval run owed — `packages/ai` and `evals/` are
+untouched by the whole branch, checked rather than assumed.
+
+**The work order.** Two independent architecture audits, run cold against `main` at `3abe2fc`
+after F-114 and before QA, found one root cause in seven places: *F-114 built the right owners and
+left the old call sites in place.* Each phase introduced a correct seam and converted the callers
+it was looking at; callers outside that set kept deriving through `sales_locations.own_seller_id`,
+which is right for 31 of 38 stands and wrong for exactly the hosting relationships F-114 exists to
+serve. Nothing failed in testing, in the corpus, or in review. Tranches A–G in
+`docs/plans/de-vibe-remediation-plan.md`; the pause/end writer is filed separately as **F-116**
+because it was feature work rather than cleanup.
+
+**The rule throughout was DELETE the stale derivation, never widen it.** The composite FKs added
+in `0042`–`0049` already guarantee the coherence those comparisons were re-deriving, so widening
+one recreates the root cause. `standBelongsToSender` and `currentInventoryJoin` are gone rather
+than fixed.
+
+**Tranche E found that "one liveness predicate" was TWO.** Ten sites hand-wrote
+`ended_at is null and lifecycle_state in ('active','paused')`, and collapsing them into one
+fragment would have been wrong. They are two rules that agreed only because `paused` was
+unreachable: **PUBLIC** (what a customer may be shown — active only) and **REACHABLE** (whose
+listing a farmer may still act on — active or paused, because §facts and authority says a paused
+provider is *offered re-opening, never refused*). `provider-liveness.ts` states both, so a new
+site has to choose, and choosing wrongly is a visible name rather than a mistyped predicate.
+
+**Pausing hid nothing, and nobody had chosen that.** All ten predicates admitted `paused`, so a
+paused seller's goods stayed on the map — contradicting the architecture plan's *"ending or
+pausing hides current public facts."* Two tests asserted the opposite in near-identical words and
+their parity assertion passed, because both were written while `paused` was a state nothing could
+enter. Invisible until Tranche D built the writer. max decided: **pause hides.** The ordering of
+the work order is what surfaced it — a fragment written against an unreachable state records
+whatever its author assumed.
+
+**Re-invitation after ending was impossible** (the plan's one open question, D2), measured with a
+probe rather than reasoned from the schema. `0051` makes the `stand_providers` uniqueness partial
+(`where ended_at is null`); max decided a seller may be invited back. `ON CONFLICT` then had to
+name that predicate or every invitation raised — caught by the writer's own suite, not by the
+migration test.
+
+**The differential closed the plan's Unverified item, and the duplication was the non-finding.**
+Both audits confirmed `inquiry.ts` builds its own per-seller SQL rather than calling
+`readStandProviderFacts`; neither checked whether the two agree on freshness. They do — exactly,
+on every seller's date and on which items belong to whom — and they keep separate shapes for the
+reason the audits' STRONG list gives. What measuring found instead was three defects in one line:
+
+```
+join sellers f on f.id = l.own_seller_id
+```
+
+INNER, in the map reader and in **both** SMS retrieval queries. A **venue** has no
+`own_seller_id` — a place several farmers sell at and nobody's farm, which is what the
+self-pointer exists to represent — so every venue was dropped from the map and from both halves of
+SMS retrieval entirely. Now LEFT, with the stand-owner visibility rule the alias carries still
+biting, proved by retiring the host and watching the stand leave both channels. The same line gave
+every hosted seller's confirmed SMS row the **host's** name; that row is one seller's claim, so it
+now carries the provider's own seller. Nothing renders `farmName` today, which is why no existing
+test saw it — one renderer away from naming the wrong farm.
+
+**One difference is deliberate and stated rather than asserted away.** A seller who confirmed an
+EMPTY stand is a dated fact on the card ("confirmed empty") and absent from SMS, per that query's
+own documented rule: an SMS answer lists places to go for a thing, and a seller with nothing is
+not one. Asserting equality there would have forced one of the two surfaces to be wrong.
+
+**Two source-text tripwires could not fail**, both measured rather than reasoned about.
+`architecture.test.ts`'s `issueFarmerLink` regex matched 5,319 characters — running past its own
+function into a later interface — and asserted the `salesLocationId` parameter F-114 C.3
+deliberately replaced with `providerId`: green throughout C.3 while claiming the removed design.
+`map-marker-styles.test.ts`'s CSS regex matched 42,426 characters spanning two unrelated blocks
+42KB apart. Both replaced by anchored assertions or by pointers to behavioural coverage.
+
+**A migration test's range filter had no upper bound** — `name >= "0048_"` with nothing above it,
+the exclusion anti-pattern DEVELOPMENT.md warns about, running in the other direction. `0051` was
+the first migration to trip it.
+
+**Sabotage notes worth keeping.** A refusal case in Tranche A was *impossible to construct*: the
+composite FKs refuse an incoherent subject row, which is precisely the plan's point that
+re-deriving proves nothing. One sabotage produced malformed SQL and failed four tests for the
+wrong reason — indistinguishable from a test that cannot fail until you read the error. And a
+scheduler fixture went silently `ineligible` when forced earlier than the writer's computed slot,
+because publication resets the cadence.
+
+**Owed:** `0042`–`0051` remain unapplied and nothing is deployed, so every defect above is latent
+rather than live. **F-116 now has a writer and no entry point** — `setProviderParticipation` has
+zero production callers, so pause/end is mechanism-complete and unreachable; max decided
+(2026-08-17) the surface is controls in the admin views and the seller's own settings screen,
+not an SMS keyword. The handset passes C.3/C.4/C.5 owe are unchanged.
+
+---
+
+## 2026-08-16 — Whose goods are these? (F-114 Phase C.5, the customer's half — the last phase)
 
 Merged as **`9d9ff58`** (PR #129). Integration **1347/1347 across 96 of 96 files**, up from
 1289/1289 across 92; unit **2,152** with the 7 corpus skips. Typecheck, lint and scripted evals
