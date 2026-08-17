@@ -5,7 +5,6 @@ import {
   renderStandItemPrice,
   type StandItemPrice,
 } from "@farm-friend/core";
-import { currentInventoryJoin } from "./current-inventory";
 import type { Db } from "./index";
 import type { Sql, Tx } from "./sql";
 
@@ -885,7 +884,13 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       location.farm_bucks_accepted,
       location.farm_bucks_eligible,
       approval.approved_at,
-      inventory.published_at,
+      -- The FRESHEST live confirmation at this stand (F-114 C.5), across every seller. The
+      -- operator's question is "how current is this stand", and the honest answer is the most
+      -- recent thing anyone here vouched for — the same rule the public card's heading uses.
+      -- Null for a stand nobody has published at, exactly as the removed LEFT join left it.
+      (select max(revision.published_at) from inventory_revisions revision
+       where revision.sales_location_id = location.id and revision.is_current
+      ) as published_at,
       closure.result as closure_result,
       closure.closure_kind as closure_kind,
       closure.starts_on::text as closure_starts_on,
@@ -927,6 +932,18 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
          where participant.sales_location_id = location.id and participant.retired_at is null),
         array[]::text[]
       ) as participant_names,
+      /*
+        EVERY LIVE SELLER'S CURRENT ITEMS AT THIS STAND (F-114 C.5).
+
+        The roster is one row per STAND, and after Phase B a stand has several sellers each
+        publishing their own current revision. Correlated on the LOCATION rather than on one
+        revision, so the operator sees the whole table rather than whichever seller's revision
+        the join happened to surface.
+
+        Ordered by provider first so one seller's items stay together, which is how they read
+        on the shelf. The operator's screen deliberately does NOT attribute them: this is the
+        roster of what is out, and whose goods are whose is the stand's own detail view.
+      */
       coalesce(
         (select jsonb_agg(jsonb_build_object(
           'itemName', entry.item_name,
@@ -934,23 +951,30 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
           'unit', entry.unit,
           'priceText', entry.price_text,
           'approximation', entry.approximation
-        ) order by entry.sort_order, entry.id)
-         from inventory_entries entry
-         where entry.inventory_revision_id = inventory.id),
+        ) order by revision.provider_id, entry.sort_order, entry.id)
+         from inventory_revisions revision
+         join inventory_entries entry on entry.inventory_revision_id = revision.id
+         where revision.sales_location_id = location.id and revision.is_current),
         '[]'::jsonb
       ) as current_items
     from sales_locations location
     join sellers farm on farm.id = location.own_seller_id
     left join seller_approvals approval
       on approval.seller_id = farm.id and approval.revoked_at is null
-    -- B-074 — the currency rule comes from the shared reader. LEFT, so a stand with no
-    -- confirmation is still in the operator's roster; the entries are aggregated in the
-    -- correlated subquery above rather than joined, so only the revision join is shared.
-    ${currentInventoryJoin({
-      locationAlias: "location",
-      revisionAlias: "inventory",
-      kind: "left",
-    })}
+    /*
+      THE REVISION JOIN IS GONE (F-114 C.5), and its removal is the fix.
+
+      B-074 shared currentInventoryJoin here so the currency rule had one home. After Phase B
+      that join matches one row per SELLER, so a two-seller stand appeared in the operator's
+      roster TWICE, each row carrying only half the inventory — measured against a real database
+      before this was changed. A stand listed twice with split stock is a screen that invents
+      work for VIGA.
+
+      Nothing else read the join's alias: the recency below and the items above are both
+      correlated subqueries over the location, which is the grain this query has always had.
+      A stand with no confirmation is still listed, exactly as the LEFT join made it — the
+      subqueries simply return nothing for it.
+    */
     left join closure_revisions closure
       on closure.sales_location_id = location.id and closure.is_current
     -- A retired stand is still LISTED here, deliberately: this queue is where an operator
