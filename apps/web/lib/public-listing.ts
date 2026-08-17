@@ -1,12 +1,22 @@
 import {
   isConfirmationExpired,
   isStale,
+  openNow,
   renderCardRecency,
   renderElapsed,
   renderRecency,
+  timeZoneOffsetMinutes,
+  VASHON_TIME_ZONE,
   type Clock,
+  type OpenState,
+  type StandAvailabilityFacts,
 } from "@farm-friend/core";
-import { readStandProviderFacts, visibleFarms, type Db } from "@farm-friend/db";
+import {
+  intersectAvailability,
+  readStandProviderFacts,
+  visibleFarms,
+  type Db,
+} from "@farm-friend/db";
 // A TYPE-ONLY import of the browser view model's input shape. It adds no runtime edge (and
 // `map-view.ts` is already inside the public read graph, model-free and asserted so), and it
 // makes the wire format a compiler-checked contract between the server that writes it and the
@@ -237,6 +247,23 @@ export interface PublicStandSeller {
    */
   cardRecency?: string;
   stale?: boolean;
+  /**
+   * What can honestly be said about THIS seller being open right now (F-114 C.5).
+   *
+   * The INTERSECTION of the seller's own stated schedule with the stand's, computed once by
+   * `intersectAvailability` — which is the seam Phase A created for exactly this and which had
+   * no consumer until now.
+   *
+   * The rule is one-directional. A stand that is shut makes every seller at it unavailable,
+   * whatever the seller says: the stand is locked, so nobody's goods are buyable there. A stand
+   * that IS open does not make a seller open — the seller's own answer stands, which supports
+   * the real case of a hosted seller who locks their box before the stand shuts.
+   *
+   * `unknown` is preserved rather than resolved. 5 of 34 production stands state no season and
+   * 12 state no hours; a stand that stated nothing has not stated that it is shut, and must not
+   * close a seller who DID state a schedule.
+   */
+  openState: OpenState;
   confirmedItems: PublicStandItem[];
   /** Standing claims. They carry a price and NEVER a date. */
   usualItems: UsualOffering[];
@@ -518,6 +545,30 @@ export async function listPublicStands(
         have confirmed this morning while Zoe's last update is five weeks old, and expiring the
         stand as a whole would delete a live claim over a neighbour's stale one.
       */
+      /*
+        THE INTERSECTION'S TWO INPUTS, computed once per stand.
+
+        The stand's own open-now answer is what every seller's is clamped to, so it is resolved
+        here rather than inside the per-seller map — recomputing it per seller would be the same
+        arithmetic several times and, worse, a second place it could be resolved differently.
+      */
+      const availability = readAvailability(row);
+      const utcOffsetMinutes = timeZoneOffsetMinutes(now, VASHON_TIME_ZONE);
+      const standCoordinates =
+        row.public_latitude !== null && row.public_longitude !== null
+          ? {
+              latitude: Number(row.public_latitude),
+              longitude: Number(row.public_longitude),
+            }
+          : {};
+      const standOpenNow = openNow({
+        availability,
+        ...(closure !== undefined ? { closure } : {}),
+        at: now,
+        utcOffsetMinutes,
+        ...standCoordinates,
+      });
+
       const sellers = (providerFacts.get(locationId) ?? []).map(
         (provider): PublicStandSeller => {
           const asOf =
@@ -534,6 +585,28 @@ export async function listPublicStands(
             ...(asOf === undefined
               ? {}
               : { cardRecency: renderCardRecency(asOf, now), stale: isStale(asOf, now) }),
+            /*
+              THE SEAM PHASE A BUILT FOR THIS. A seller who stated no schedule of their own
+              passes `undefined`, and the stand's answer comes back untouched — which is what
+              keeps every single-seller stand on the island answering exactly as it did before.
+            */
+            openState: intersectAvailability({
+              stand: standOpenNow,
+              ...(hasStatedAvailability(provider.availability)
+                ? {
+                    provider: openNow({
+                      availability: provider.availability,
+                      // The seller's answer is computed WITHOUT the closure: a stand closure is
+                      // the stand's fact, and applying it on both sides would make the clamp
+                      // meaningless — every seller would already read `farmer_closed` and the
+                      // intersection would have nothing left to decide.
+                      at: now,
+                      utcOffsetMinutes,
+                      ...standCoordinates,
+                    }),
+                  }
+                : {}),
+            }).state,
             // An expired confirmation contributes NO items, exactly as it contributes no date.
             // Keeping the items while dropping the date is the "In stock, undatable" claim the
             // rule above exists to refuse.
@@ -849,4 +922,21 @@ export function serializePublicStand(stand: PublicStand): PublicStandPayload {
     // cannot come to disagree about what a stand holds.
     sellers: stand.sellers,
   };
+}
+
+/**
+ * Did this seller state ANY schedule of their own?
+ *
+ * `intersectAvailability` takes `undefined` to mean "no schedule of their own", and gives back
+ * the stand's answer untouched. An empty facts object is not the same thing to `openNow`, which
+ * would resolve it to `unknown` and then clamp — arriving at the same answer today by a
+ * different route, and at a different one the moment either rule changes. Asking the question
+ * explicitly keeps the two spellings of "said nothing" from being two behaviours.
+ */
+function hasStatedAvailability(availability: StandAvailabilityFacts): boolean {
+  return (
+    availability.season !== undefined ||
+    availability.hours !== undefined ||
+    (availability.days !== undefined && availability.days.length > 0)
+  );
 }

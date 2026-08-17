@@ -412,6 +412,143 @@ describe("multi-seller public surface (integration)", () => {
     });
   });
 
+  describe("a seller's availability is the INTERSECTION with the stand's", () => {
+    /*
+      §facts and authority, and the last of F-114's open criteria: *"Provider availability is
+      the intersection with the stand's — closed inside an open stand, never open inside a
+      closed one."*
+
+      The real case it supports is a hosted seller who takes only cash and locks their box
+      before the stand shuts. `intersectAvailability` has decided this since Phase A and had NO
+      consumer until now — it was the seam the readers were being moved onto, and this is the
+      surface that finally asks it.
+
+      **`unknown` PERMITS.** 5 of 34 production stands state no season and 12 state no hours,
+      so a stand that stated nothing has not stated that it is shut and cannot close a seller
+      who DID state a schedule. That is the case a naive "both must be open" rule gets wrong.
+    */
+    /*
+      THE SEASON IS SET ALONGSIDE THE HOURS, and it has to be.
+
+      `openNow` answers `unknown` whenever the season is unresolved, BEFORE it looks at the time
+      of day — an honest rule (a stand out of season is not open whatever its hours say), and one
+      that makes a fixture stating hours alone answer `unknown` for a reason that has nothing to
+      do with the intersection. Measured, not assumed: the first version of these cases set hours
+      only and every one returned `unknown`.
+    */
+    const setStandHours = async (input: {
+      kind: string | null;
+      from?: number | null;
+      until?: number | null;
+    }): Promise<void> => {
+      await sql()`
+        update sales_locations
+        set season_kind = ${input.kind === null ? null : "year_round"}::season_kind,
+            open_hours_kind = ${input.kind}::open_hours_kind,
+            open_from_minutes = ${input.from ?? null},
+            open_until_minutes = ${input.until ?? null}
+        where id = ${standId}
+      `;
+    };
+    const setSellerHours = async (input: {
+      providerId: string;
+      kind: string | null;
+      from?: number | null;
+      until?: number | null;
+    }): Promise<void> => {
+      await sql()`
+        update stand_providers
+        set season_kind = ${input.kind === null ? null : "year_round"}::season_kind,
+            open_hours_kind = ${input.kind}::open_hours_kind,
+            open_from_minutes = ${input.from ?? null},
+            open_until_minutes = ${input.until ?? null}
+        where id = ${input.providerId}
+      `;
+    };
+    const clearHours = async (): Promise<void> => {
+      await setStandHours({ kind: null });
+      await setSellerHours({ providerId: guestProviderId, kind: null });
+    };
+
+    /** NOW is 18:00 UTC — 11:00 in Vashon's summer, so a 9–13 window is open and 14–17 is not. */
+    const openState = async (providerId: string): Promise<string | undefined> => {
+      const payload = await findStand();
+      return (payload.sellers ?? []).find((seller) => seller.providerId === providerId)
+        ?.openState;
+    };
+
+    it("lets a seller be closed inside an open stand", async () => {
+      await setStandHours({ kind: "clock_range", from: 9 * 60, until: 18 * 60 });
+      await setSellerHours({
+        providerId: guestProviderId,
+        kind: "clock_range",
+        from: 14 * 60,
+        until: 17 * 60,
+      });
+      try {
+        expect(await openState(hostProviderId)).toBe("open");
+        // The seller's own window has not started. The STAND is open, and the seller is not.
+        expect(await openState(guestProviderId)).toBe("closed");
+      } finally {
+        await clearHours();
+      }
+    });
+
+    it("never lets a seller be open inside a closed stand", async () => {
+      /*
+        THE ONE-DIRECTIONAL HALF, and the one that matters. A stand that is shut is a locked
+        box: the seller's own schedule cannot reopen it, however emphatically it says 9-to-13.
+        Without this a customer is sent to a locked stand by a line that says "open now".
+      */
+      await setStandHours({ kind: "clock_range", from: 14 * 60, until: 17 * 60 });
+      await setSellerHours({
+        providerId: guestProviderId,
+        kind: "clock_range",
+        from: 9 * 60,
+        until: 13 * 60,
+      });
+      try {
+        expect(await openState(guestProviderId)).toBe("closed");
+        expect(await openState(guestProviderId)).not.toBe("open");
+      } finally {
+        await clearHours();
+      }
+    });
+
+    it("does not let an unstated stand schedule close a seller who stated one", async () => {
+      // `unknown` PERMITS. A stand that said nothing has not said it is shut.
+      await setStandHours({ kind: null });
+      await setSellerHours({
+        providerId: guestProviderId,
+        kind: "clock_range",
+        from: 9 * 60,
+        until: 13 * 60,
+      });
+      try {
+        expect(await openState(guestProviderId)).toBe("open");
+      } finally {
+        await clearHours();
+      }
+    });
+
+    it("reports unknown for a seller who stated nothing at an unstated stand", async () => {
+      // Neither said anything, and "we don't know" is the honest answer — never "closed".
+      await clearHours();
+      expect(await openState(guestProviderId)).toBe("unknown");
+    });
+
+    it("gives a seller who stated nothing the stand's own answer", async () => {
+      await setStandHours({ kind: "clock_range", from: 9 * 60, until: 18 * 60 });
+      await setSellerHours({ providerId: guestProviderId, kind: null });
+      try {
+        expect(await openState(guestProviderId)).toBe("open");
+        expect(await openState(hostProviderId)).toBe("open");
+      } finally {
+        await clearHours();
+      }
+    });
+  });
+
   it("keeps the stand-wide item list agreeing with the per-seller one", async () => {
     /*
       WEB AND SMS MUST AGREE (DEVELOPMENT.md §before you ship). `items` is what the compact card

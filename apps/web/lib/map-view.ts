@@ -146,6 +146,15 @@ export interface PublicStandPayload {
     describesOwnStand: boolean;
     cardRecency?: string;
     stale?: boolean;
+    /**
+     * Whether THIS seller can honestly be called open right now (F-114 C.5).
+     *
+     * The intersection of their own schedule with the stand's, resolved server-side. Carried on
+     * every seller rather than only the open ones, for the same reason the stand's own
+     * `openState` is: the UI must be able to distinguish "open" from "we don't know" for a
+     * seller it is SHOWING.
+     */
+    openState: OpenState;
     confirmedItems: {
       itemName: string;
       quantity?: number;

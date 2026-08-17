@@ -10,6 +10,7 @@ import {
   type ItemRegister,
   type ProviderItemFacts,
 } from "@farm-friend/core/seller-credit";
+import type { OpenState } from "@farm-friend/core/open-now";
 import type { PublicStandPayload } from "./map-view";
 
 // F-114 Phase C.5 — THE STAND DETAIL CARD, ITEM-FIRST.
@@ -61,6 +62,18 @@ export interface StandCardSeller {
    */
   cardRecency?: string;
   stale?: boolean;
+  /**
+   * Whether this seller is open right now — the intersection with the stand's schedule,
+   * resolved server-side (F-114 C.5).
+   *
+   * Carried through the card's types because a later renderer will want to mark a seller who is
+   * shut inside an open stand. `standCardSections` does not READ it today: which items a card
+   * shows is a question about what was published, not about whether the till is staffed, and
+   * hiding a closed seller's listing would remove information a customer planning tomorrow
+   * needs. What it must never do is claim they are open, and the field is what lets the
+   * renderer say so.
+   */
+  openState: OpenState;
   confirmedItems: StandCardItem[];
   usualItems: StandCardItem[];
 }

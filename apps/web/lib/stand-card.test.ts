@@ -52,6 +52,9 @@ const seller = (
   providerId: `p-${overrides.sellerName}`,
   sellerId: `s-${overrides.sellerName}`,
   describesOwnStand: false,
+  // Every fixture is open unless a case says otherwise: `standCardSections` does not read this,
+  // and defaulting it here keeps the cases about the thing they are testing.
+  openState: "open",
   confirmedItems: [],
   usualItems: [],
   ...overrides,
