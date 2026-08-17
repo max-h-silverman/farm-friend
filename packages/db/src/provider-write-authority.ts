@@ -187,6 +187,48 @@ function queryable(db: AuthorityReader): Sql | Tx {
 }
 
 /**
+ * Does this phone hold a live listing at the stand it just named?
+ *
+ * The access fork in `free-text.ts` asks exactly this and nothing more: a farmer's words about a
+ * stand they sell at are an update to publish; the same words about anyone else's stand are a
+ * report to pass along. It needs a boolean, not an authorization — the update path resolves its
+ * own target afterwards through `resolveFarmerTarget`, which reads the same arms.
+ *
+ * It was written as *is this phone authorized for the stand's OWN seller?*, so a hosted seller
+ * naming her host's stand failed and her own inventory update was filed as a customer stock-out
+ * report about herself. Fail-safe in the Golden Rule #1 sense — it can only move a farmer away
+ * from publishing — but her primary SMS journey silently did not work.
+ *
+ * The arms are the shared ones, which is what keeps this from being a fourth enumeration: a
+ * stand the fork sends to the publish path is a stand `resolveFarmerTarget` can then target.
+ */
+export async function senderHasListingAtStand(
+  db: AuthorityReader,
+  input: { senderHash: string; salesLocationId: string; occurredAt: Date },
+): Promise<boolean> {
+  const sql = queryable(db);
+  // `.unsafe` because the arms are composed SQL TEXT; a tagged template would send them as a
+  // bind parameter and die at parse (DEVELOPMENT.md §gotchas).
+  const rows = await sql.unsafe(
+    `
+      select 1
+      from stand_providers as provider
+      join sales_locations as location on location.id = provider.sales_location_id
+      join farmer_authorizations as auth on ${PROVIDER_AUTHORITY_ARMS}
+      join contacts on contacts.id = auth.contact_id
+      where location.id = $1
+        and contacts.phone_hash = $2
+        and auth.revoked_at is null
+        and auth.phone_verified_at is not null
+        and auth.authorized_at <= $3
+      limit 1
+    `,
+    [input.salesLocationId, input.senderHash, input.occurredAt],
+  );
+  return rows.length > 0;
+}
+
+/**
  * Resolve who, if anyone, this phone is when it writes this provider's stock.
  *
  * Both arms are resolved in ONE statement rather than two round trips, so a revocation

@@ -1847,24 +1847,38 @@ export async function listFarmerAuthorizations(
       right(contact.phone_e164, 4) as sender_last_four,
       auth.authorized_at,
       auth.revoked_at,
+      /*
+        F-114 — the stands this seller SELLS AT, read from the relationship. Built from
+        sales_locations.own_seller_id = auth.seller_id before F-115, which names the seller
+        that IS the stand: a hosted seller appeared in this queue with an empty stand list,
+        indistinguishable on screen from a farmer who has set nothing up.
+
+        A relationship that has ended is not a stand she sells at, so it drops off, and a
+        pending one stays off — an unaccepted invitation is not yet a listing.
+      */
       coalesce((
         select jsonb_agg(
           jsonb_build_object('salesLocationId', location.id, 'name', location.name)
           order by location.name, location.id
         )
-        from sales_locations as location
-        where location.own_seller_id = auth.seller_id
+        from stand_providers as provider
+        join sales_locations as location on location.id = provider.sales_location_id
+        where provider.seller_id = auth.seller_id
+          and provider.ended_at is null
+          and provider.lifecycle_state in ('active', 'paused')
       ), '[]'::jsonb) as stands,
+      /*
+        The link's own provider names the listing it opens (F-114 Phase C.3), so the stand
+        comes from that row rather than from a second comparison against the stand's own
+        seller — which excluded every hosted seller's link.
+      */
       (
         select jsonb_build_object(
           'salesLocationId', location.id, 'name', location.name
         )
         from farmer_links as link
-        join sales_locations as location
-          on location.id = link.sales_location_id
-          and location.own_seller_id = link.owner_seller_id
+        join sales_locations as location on location.id = link.sales_location_id
         where link.authorization_id = auth.id
-          and link.owner_seller_id = auth.seller_id
           and link.revoked_at is null
         limit 1
       ) as live_link_stand

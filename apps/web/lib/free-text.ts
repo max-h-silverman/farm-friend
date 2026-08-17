@@ -20,6 +20,7 @@ import {
   readPendingStockOutReport,
   resolveFarmerTarget,
   savePendingStockOutReport,
+  senderHasListingAtStand,
   type Db,
 } from "@farm-friend/db";
 import { answerInquiry } from "./inquiry";
@@ -303,41 +304,6 @@ async function handleCustomerInquiry(
 }
 
 /**
- * Resolve which stand a customer's report is about, deterministically, from their own words.
- *
- * **Code matches; the model never names a stand.** This is Golden Rule #1 at the door: a
- * customer's report must not be able to land on a farmer they did not identify, and a model
- * that could choose a location could route a stranger's report at any farm on the island.
- * So the match runs against real rows, in code.
- *
- * **A cold message is matched exactly** — not fuzzily, not ranked, not "closest". A near-miss
- * is an ambiguity to ask about, never a guess to act on (max, 2026-08-11). The one exception
- * is an open clarification, where Farm Friend has already asked which stand and the reply is
- * presumed to be the answer; `allowFuzzy` is that context and nothing else grants it (B-065).
- *
- * Returns the single unambiguous match, or `null` when zero or several stands match. Both of
- * those mean the same thing to the caller: ask which stand they are at.
- */
-async function standBelongsToSender(
-  db: Db,
-  input: { senderHash: string; salesLocationId: string; occurredAt: Date },
-): Promise<boolean> {
-  const rows = await db.sql`
-    select 1
-    from sales_locations l
-    join farmer_authorizations a on a.seller_id = l.own_seller_id
-    join contacts c on c.id = a.contact_id
-    where l.id = ${input.salesLocationId}
-      and c.phone_hash = ${input.senderHash}
-      and a.revoked_at is null
-      and a.phone_verified_at is not null
-      and a.authorized_at <= ${input.occurredAt}
-    limit 1
-  `;
-  return rows.length > 0;
-}
-
-/**
  * Fold a string to the form both sides of the stand-name match are compared in (F-106).
  *
  * Lowercase, strip everything that is not a letter, digit or space, then collapse runs of
@@ -488,6 +454,22 @@ async function resolveStandByDistinctiveWords(
   );
 }
 
+/**
+ * Resolve which stand a report is about, deterministically, from the sender's own words.
+ *
+ * **Code matches; the model never names a stand.** This is Golden Rule #1 at the door: a
+ * customer's report must not be able to land on a farmer they did not identify, and a model
+ * that could choose a location could route a stranger's report at any farm on the island.
+ * So the match runs against real rows, in code.
+ *
+ * **A cold message is matched exactly** — not fuzzily, not ranked, not "closest". A near-miss
+ * is an ambiguity to ask about, never a guess to act on (max, 2026-08-11). The one exception
+ * is an open clarification, where Farm Friend has already asked which stand and the reply is
+ * presumed to be the answer; `allowFuzzy` is that context and nothing else grants it (B-065).
+ *
+ * Returns the single unambiguous match, or `null` when zero or several stands match. Both of
+ * those mean the same thing to the caller: ask which stand they are at.
+ */
 async function resolveReportedStand(
   db: Db,
   taskText: string,
@@ -881,16 +863,19 @@ async function handleInventoryReport(
     return handleFarmerInventoryUpdate(deps, input);
   }
 
-  const ownsIt = await standBelongsToSender(deps.db, {
+  // F-114 — a LISTING at the named stand, never the stand's own seller. A hosted seller's
+  // host owns the stand and never owns her goods; asking the old question filed her own
+  // update as a customer report about herself.
+  const sellsThere = await senderHasListingAtStand(deps.db, {
     senderHash: input.senderHash,
     salesLocationId: stand.id,
     occurredAt: input.occurredAt,
   });
 
-  // Their own stand → publish path. Someone else's → they are a reporter like anyone else,
-  // and this can only ever move a farmer's message AWAY from publishing, never toward
+  // A stand they sell at → publish path. Anyone else's → they are a reporter like anyone
+  // else, and this can only ever move a farmer's message AWAY from publishing, never toward
   // publishing someone else's (Golden Rule #1).
-  return ownsIt
+  return sellsThere
     ? handleFarmerInventoryUpdate(deps, input)
     : handleCustomerStockOut(deps, input);
 }
