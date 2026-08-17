@@ -2,29 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { creditSeller, LISTING_SEPARATOR } from "@farm-friend/core";
 import { useTabCommit } from "../details-panel";
 
 interface SettingsListing {
   providerId: string;
   salesLocationId: string;
   locationName: string;
-  /** NULL where the listing IS the stand's own — there is nothing to disambiguate. */
-  sellerName: string | null;
+  sellerName: string;
+  /** The SELF-POINTER: true when this seller IS the stand. `creditSeller` decides from it. */
+  describesOwnStand: boolean;
   selected: boolean;
   cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
-}
-
-/**
- * What this choice is called (F-114 C.4).
- *
- * The stand's own listing renders as the bare stand name; every other seller is credited
- * beside it — by SELF-POINTER, never a name match. Shared shape with the reminder rows and
- * with the SMS menu, so one listing cannot be labelled three ways.
- */
-function listingLabel(listing: SettingsListing): string {
-  return listing.sellerName === null
-    ? listing.locationName
-    : `${listing.locationName} — ${listing.sellerName}`;
 }
 
 /*
@@ -337,7 +326,7 @@ export function SettingsForm({
                     setSaved(false);
                   }}
                 />
-                <span>{listingLabel(listing)}</span>
+                <span>{creditSeller(listing, LISTING_SEPARATOR)}</span>
               </label>
             ))}
           </fieldset>

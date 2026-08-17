@@ -20,8 +20,9 @@ import { resolveStandFromToken } from "./farmer-stand";
   sees two rows that say which is which rather than one stand name twice.
 
   The seller is named only where it DIFFERS from the stand, by self-pointer and never a name
-  match (§suppression follows a pointer) — the same rule the SMS menu follows, so the two
-  surfaces cannot come to label the same listing differently.
+  match (§suppression follows a pointer). This loader states the pointer and stops there;
+  `creditSeller` in core turns it into a label, on every surface, so the SMS menu and the two
+  screens beneath cannot come to label the same listing differently (F-115 Tranche C).
 */
 
 export type FarmerSettingsResult =
@@ -31,8 +32,16 @@ export type FarmerSettingsResult =
         providerId: string;
         salesLocationId: string;
         locationName: string;
-        /** NULL where the listing IS the stand's own — nothing to disambiguate. */
-        sellerName: string | null;
+        sellerName: string;
+        /**
+         * The SELF-POINTER, carried to the renderer rather than applied here.
+         *
+         * F-115 — this used to be a pre-reduced `sellerName: string | null`, which made the
+         * two screens beneath decide the labelling rule for themselves from the null. Both
+         * wrote their own copy of it. `creditSeller` owns the rule; the wire carries the fact
+         * it needs.
+         */
+        describesOwnStand: boolean;
         selected: boolean;
         cadence: PromptCadence | null;
       }[];
@@ -53,7 +62,8 @@ export async function loadFarmerSettings(
     providerId: target.providerId,
     salesLocationId: target.salesLocationId,
     locationName: target.locationName,
-    sellerName: target.describesOwnStand ? null : target.sellerName,
+    sellerName: target.sellerName,
+    describesOwnStand: target.describesOwnStand,
     selected: target.selected,
     cadence: target.cadence,
   }));

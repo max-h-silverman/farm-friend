@@ -1,7 +1,9 @@
 import {
+  creditSeller,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   farmerLinkUrl,
   farmerSettingsUrl,
+  SMS_LISTING_SEPARATOR,
 } from "@farm-friend/core";
 import {
   issueFarmerLink,
@@ -53,9 +55,7 @@ function refusal(providerEventId: string): FarmerTargetHandlerResult {
  * a farmer who renamed her seller would suddenly see herself credited on her own stand.
  */
 export function describeFarmerTarget(target: FarmerTarget): string {
-  return target.describesOwnStand
-    ? target.locationName
-    : `${target.locationName} - ${target.sellerName}`;
+  return creditSeller(target, SMS_LISTING_SEPARATOR);
 }
 
 export function renderFarmerTargetMenu(options: FarmerTargetOption[]): string {

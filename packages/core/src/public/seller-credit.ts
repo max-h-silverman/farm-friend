@@ -2,10 +2,16 @@
 //
 // After Phase B a stand has several sellers, and two questions follow every one of them to
 // every surface: whose listing is this, and how do several sellers' claims about one item read
-// as one card. Both answers were about to be written a fourth and a fifth time — the SMS target
-// menu, the farmer settings screen and the reminder schedule list already each carried their
-// own copy of the first — so they live here, in core, with no database and no framework, where
-// the map, the SMS answer, the seller list and the farmer surfaces all reach them.
+// as one card. Both live here, in core, with no database and no framework, where the map, the
+// SMS answer, the seller list and the farmer surfaces all reach them.
+//
+// **C.5 wrote the rule and converted only the cards it was building** (F-115 Tranche C). Four
+// other surfaces went on deciding it for themselves — the SMS target menu, the settings loader,
+// and two character-identical `listingLabel` copies in React whose comments each claimed the
+// ownership this module actually holds. They agreed by habit; nothing compared them. All four
+// now compose `creditSeller`, and `listing-label-agreement.test.tsx` compares the surfaces
+// rather than the helper, because a second unit test of this function would prove nothing about
+// whether anybody calls it.
 
 /**
  * A listing that may or may not need its seller named.
@@ -41,6 +47,24 @@ export interface CreditableListing {
  * `" - "` and the web passes `" — "`. What must not differ between channels is WHICH listings
  * get a name, and that is the part this function owns.
  */
+/**
+ * What separates a stand's name from its seller's on a SCREEN.
+ *
+ * An em-dash, because nothing on the web is bound by encoding. Named rather than typed at each
+ * caller so the two channels' choices sit side by side and neither can drift into the other's.
+ */
+export const LISTING_SEPARATOR = " — ";
+
+/**
+ * The same separator in SMS.
+ *
+ * A plain hyphen, and this is NOT a style choice. One em-dash re-encodes the whole message body
+ * from GSM-7 to UCS-2, dropping per-segment capacity from 153 characters to 67 — an encoding
+ * effect, not a length effect, and invisible by inspection (`reply-encoding.test.ts` sweeps
+ * every code-owned reply for it).
+ */
+export const SMS_LISTING_SEPARATOR = " - ";
+
 export function creditSeller(listing: CreditableListing, separator: string): string {
   const credit = sellerCredit(listing);
   return credit === undefined

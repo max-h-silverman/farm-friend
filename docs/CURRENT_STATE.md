@@ -27,8 +27,9 @@ the per-phase sabotage enumerations, and the defects found on the way are in
 **The model.** `sellers` is the identity root; `sales_locations.own_seller_id` is the
 **self-pointer** naming the one nested seller that IS the stand, NULL for a venue like Morgan
 Hill; `stand_providers` holds one row per seller-at-stand. **Every suppression and labelling rule
-follows that pointer, never a name match** — `sellerCredit`/`creditSeller` state it once for the
-public cards, the SMS menu and the settings screens. An authorization names a seller OR a stand;
+follows that pointer, never a name match** — `sellerCredit`/`creditSeller` state it once, and
+since F-115 the public cards, the SMS menu, the settings screen and the reminder rows all
+compose them (`listing-label-agreement.test.tsx` compares the surfaces, not the helper). An authorization names a seller OR a stand;
 "stand owner" stays derived. `provider-invalidation.ts` is the pause/revoke/close mechanism.
 
 **What a farmer can do.** Two sellers at one stand publish, are targeted by SMS, hold their own

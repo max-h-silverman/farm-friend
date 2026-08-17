@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest";
 import {
+  LISTING_SEPARATOR,
   ORIGIN_LIMITATION_STATEMENT,
   parseCommand,
   RECIPE_SCOPE_STATEMENT,
+  SMS_LISTING_SEPARATOR,
 } from "@farm-friend/core";
 import { estimateSmsSegments } from "@farm-friend/sms";
 import {
@@ -53,6 +55,26 @@ describe("code-owned replies stay in the cheap SMS encoding", () => {
   it("keeps the greeting to a single billed segment", () => {
     // The reason the encoding matters, stated as the outcome a customer's carrier bills for.
     expect(estimateSmsSegments(CHITCHAT_REPLY).segmentCount).toBe(1);
+  });
+
+  /*
+    F-115 Tranche C. The listing separator is a code-owned FRAGMENT rather than a whole reply,
+    and it is the one that got away: the SMS menu, `Using …` and `Update your listing for …`
+    all compose it into bodies whose cost depends on farmer data, so no constant sweep reached
+    it. Swapping it to the web's em-dash halved the capacity of every one of those messages,
+    and the only test that noticed was a cross-surface equality assertion.
+
+    Asserted on the CONSTANT rather than on a rendered body: farmer data varies, and the
+    encoding cliff belongs to the separator regardless of what surrounds it.
+  */
+  it("keeps the SMS listing separator in GSM-7", () => {
+    expect(estimateSmsSegments(`Stand${SMS_LISTING_SEPARATOR}Seller`).encoding)
+      .toBe("GSM-7");
+  });
+
+  it("shows the web separator is the one that would break it", () => {
+    // The check above cannot fail vacuously: the alternative is right here, and it is UCS-2.
+    expect(estimateSmsSegments(`Stand${LISTING_SEPARATOR}Seller`).encoding).toBe("UCS-2");
   });
 });
 

@@ -118,7 +118,8 @@ describe("F-051 farmer default stand settings (integration)", () => {
           providerId: own.providerIds[0],
           salesLocationId: own.locationIds[0],
           locationName: "North Stand",
-          sellerName: null,
+          sellerName: "Settings Farm",
+          describesOwnStand: true,
           selected: false,
           cadence: null,
         },
@@ -126,7 +127,8 @@ describe("F-051 farmer default stand settings (integration)", () => {
           providerId: own.providerIds[1],
           salesLocationId: own.locationIds[1],
           locationName: "South Stand",
-          sellerName: null,
+          sellerName: "Settings Farm",
+          describesOwnStand: true,
           selected: false,
           cadence: null,
         },
@@ -148,8 +150,9 @@ describe("F-051 farmer default stand settings (integration)", () => {
       save different things. The row is a LISTING now, so both belong — and the seller name is
       what tells them apart.
 
-      Credited by SELF-POINTER, never a name match: the stand's own listing carries
-      `sellerName: null`, and that is the whole labelling rule the SMS menu follows too.
+      Credited by SELF-POINTER, never a name match: the row carries `describesOwnStand`, the
+      pointer itself, and `creditSeller` decides from it on every surface (F-115 Tranche C).
+      The reader states the fact; nothing downstream re-derives it from a name or a null.
     */
     const own = await farmer("e".repeat(64), ["North Stand"]);
     const guests = await client()`
@@ -173,7 +176,8 @@ describe("F-051 farmer default stand settings (integration)", () => {
           providerId: own.providerIds[0],
           salesLocationId: own.locationIds[0],
           locationName: "North Stand",
-          sellerName: null,
+          sellerName: "Settings Farm",
+          describesOwnStand: true,
           selected: false,
           cadence: null,
         },
@@ -182,6 +186,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
           salesLocationId: own.locationIds[0],
           locationName: "North Stand",
           sellerName: "Fernhorn Bakery",
+          describesOwnStand: false,
           selected: false,
           cadence: null,
         },
@@ -193,7 +198,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
     // positive assertion above while labelling the farmer's own stand with her own name, which
     // is the `Provo Farms — Provo Farms` §suppression follows a pointer forbids.
     expect(
-      settings.listings.filter((listing) => listing.sellerName === null),
+      settings.listings.filter((listing) => listing.describesOwnStand),
     ).toHaveLength(1);
   });
 
@@ -240,6 +245,7 @@ describe("F-051 farmer default stand settings (integration)", () => {
           salesLocationId: host.locationIds[0],
           locationName: "Host Stand",
           sellerName: "Gracies Greens",
+          describesOwnStand: false,
           selected: false,
           cadence: null,
         },
