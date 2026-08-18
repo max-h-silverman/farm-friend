@@ -104,5 +104,16 @@ export async function POST(req: Request): Promise<Response> {
         : 409;
   // The response deliberately carries no hash. An operator needs to know the number was added;
   // echoing the lookup key back to a browser is how a key ends up in a log or a screenshot.
-  return Response.json({ status: added.status }, { status });
+  //
+  // It DOES carry the row's id and its masked last four (F-101). Neither is the lookup key, and
+  // without them the list rendered the new row from what the operator TYPED — so a number that
+  // normalized differently showed the typo's suffix until a reload, under a `pending-<phone>`
+  // key the remove control then sent to a server that had no such row. Both values are already
+  // in hand here: `lastFour` comes from the NORMALIZED number, and the writer returned the id.
+  return Response.json(
+    added.status === "added"
+      ? { status: added.status, id: added.id, lastFour }
+      : { status: added.status },
+    { status },
+  );
 }

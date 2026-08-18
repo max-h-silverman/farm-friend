@@ -1,0 +1,1 @@
+ALTER TYPE "stand_provider_approval_source" ADD VALUE 'seller';

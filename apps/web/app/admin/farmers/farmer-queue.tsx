@@ -364,7 +364,7 @@ export function FarmerQueue({
                 </a>
               )}
               <button className="admin-action-secondary" type="button" onClick={() => void copyInviteLink()}>
-                Copy link
+                Copy setup link
               </button>
             </div>
             {/*
@@ -374,7 +374,7 @@ export function FarmerQueue({
               the operator may need to read is not a detail to review.
             */}
             <label className="admin-field">
-              <span className="admin-control-label">Setup link</span>
+              <span className="admin-control-label">Setup link — expires in 7 days</span>
               <input readOnly value={invite.link} />
             </label>
             <details className="admin-disclosure">
@@ -397,7 +397,9 @@ export function FarmerQueue({
           </span>
         </div>
         {pendingRequests.length === 0 ? (
-          <p className="admin-empty-state">No requests.</p>
+          <p className="admin-empty-state">
+            Nobody is waiting to be set up.
+          </p>
         ) : (
           <ul className="admin-sellers">
             {pendingRequests.map((request) => (

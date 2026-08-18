@@ -129,8 +129,8 @@ export function AdminShell({
 
       {signOutError && (
         <p className="admin-error" role="alert">
-          Sign out did not complete. Try again; this session remains active until the server
-          confirms it was revoked.
+          Sign out did not complete. Try again — or close the browser; the sign-in ends by
+          itself after 12 hours.
         </p>
       )}
 

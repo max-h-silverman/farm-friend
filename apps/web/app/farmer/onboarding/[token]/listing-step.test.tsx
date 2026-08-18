@@ -3922,3 +3922,135 @@ describe("the confirmation links the word 'map' (F-098)", () => {
     expect(screen.queryByRole("link", { name: "map" })).toBeNull();
   });
 });
+
+describe("F-117 a seller who sells at somebody else's stand", () => {
+  /*
+    THE GAP (max, 2026-08-17). Onboarding asked *"Do you have a farm stand people can visit?"*
+    and offered two answers: yes, or "I deliver, or coordinate with people". A farmer who sells
+    at SOMEONE ELSE'S stand could say neither honestly — she either claimed a stand that is not
+    hers or picked "no stand" and vanished from the map.
+
+    **This is deliberately NOT a third `visitability` value.** That column says whether THIS
+    stand can be visited: one fact about a place. Whether she also sells somewhere else is a
+    fact about an ARRANGEMENT, and overloading one column with both would put two unrelated
+    facts in one place. The three answers a farmer wants — own stand, someone else's, or both —
+    are the crossing of two independent questions, and the second one is what these cases add.
+
+    **The host stand comes from a picker, never free text.** A typed name would be ambiguous
+    about which stand was meant and would make the host we then text a guess.
+  */
+
+  const CHOICES = [
+    { standId: "stand-kelsey", name: "Kelseys Stand" },
+    { standId: "stand-morgan", name: "Morgan Hill" },
+  ];
+
+  function renderSelling() {
+    render(
+      <ListingStep
+        credential={{ kind: "invitation", token: TOKEN }}
+        farmName="Gracies Greens"
+        hostStandChoices={CHOICES}
+      />,
+    );
+  }
+
+  it("asks whether she also sells at someone else's stand, as its OWN question", async () => {
+    const user = userEvent.setup();
+    renderSelling();
+
+    // Independent of the visit question: she may have her own stand AND sell at another, which
+    // is the crossing a third radio could not express.
+    await user.click(screen.getByLabelText(/there is a stand/i));
+    const alsoSells = await revealField(user, /sell at someone else's stand/i);
+    expect(alsoSells).toBeInTheDocument();
+    expect(screen.getByLabelText(/there is a stand/i)).toBeChecked();
+  });
+
+  it("offers the stands as a PICKER, and sends the id she picked", async () => {
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+    renderSelling();
+
+    await user.click(screen.getByLabelText(/there is a stand/i));
+    await user.type(standNameField(), "Gracies Greens");
+    await placeStand(user);
+
+    await user.click(await revealField(user, /sell at someone else's stand/i));
+    // A SELECT of real stands — never a text box, which would make the host a guess.
+    const picker = await revealField(user, /which stand/i);
+    expect(picker.tagName).toBe("SELECT");
+    expect(
+      within(picker).getAllByRole("option").map((option) => option.textContent),
+    ).toEqual(expect.arrayContaining(["Kelseys Stand", "Morgan Hill"]));
+
+    await user.selectOptions(picker, "stand-kelsey");
+    await submitListing(user);
+
+    const call = fetchMock.mock.calls.find(([url]) =>
+      LISTING_ENDPOINT_RE.test(String(url)),
+    );
+    const body = JSON.parse(String(call?.[1]?.body)) as Record<string, unknown>;
+    // The ID, not the name.
+    expect(body.hostStandId).toBe("stand-kelsey");
+    // `visitability` is untouched by this answer — it is a fact about HER place.
+    expect(body.visitability).toBe("visitable");
+  });
+
+  it("sends nothing about a host stand when she did not say she sells at one", async () => {
+    /*
+      The absence matters as much as the presence: a payload that always carried the field
+      would attach every onboarding farmer to whichever stand happened to be first in the list.
+      Asserted on a form where the picker was never touched.
+    */
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+    renderSelling();
+
+    await user.click(screen.getByLabelText(/there is a stand/i));
+    await user.type(standNameField(), "Gracies Greens");
+    await placeStand(user);
+    await submitListing(user);
+
+    const call = fetchMock.mock.calls.find(([url]) =>
+      LISTING_ENDPOINT_RE.test(String(url)),
+    );
+    const body = JSON.parse(String(call?.[1]?.body)) as Record<string, unknown>;
+    expect(body.hostStandId ?? null).toBeNull();
+  });
+
+  it("will not submit with the question answered and no stand chosen", async () => {
+    // Half an answer is the mis-pick this flow exists to avoid: she said she sells somewhere
+    // else and named nowhere, and the host we would text is nobody.
+    const user = userEvent.setup();
+    const fetchMock = stubFetch({ ok: true, body: { status: "saved" } });
+    renderSelling();
+
+    await user.click(screen.getByLabelText(/there is a stand/i));
+    await user.type(standNameField(), "Gracies Greens");
+    await placeStand(user);
+    await user.click(await revealField(user, /sell at someone else's stand/i));
+
+    await stepToEnd(user);
+    await user.click(screen.getByRole("button", { name: /submit|save changes/i }));
+
+    expect(
+      fetchMock.mock.calls.filter(([url]) => LISTING_ENDPOINT_RE.test(String(url))),
+    ).toHaveLength(0);
+    expect(await screen.findByText(/choose the stand where you sell/i)).toBeVisible();
+  });
+
+  it("asks nothing about host stands when there are none to pick", async () => {
+    // An empty island list is a question with no answers. Asking it anyway would invite a
+    // farmer to tick something they then cannot complete.
+    render(
+      <ListingStep
+        credential={{ kind: "invitation", token: TOKEN }}
+        farmName="Gracies Greens"
+        hostStandChoices={[]}
+      />,
+    );
+    expect(screen.queryByLabelText(/sell at someone else's stand/i)).toBeNull();
+  });
+});
+

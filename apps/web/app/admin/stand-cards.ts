@@ -143,6 +143,16 @@ export function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdmini
           ? "does_not_accept"
           : "not_eligible",
       openState: OPEN_STATE_LABEL[openState],
+      // The stand's own facts as VALUES, for the editor (F-101). `sections` below renders the
+      // same facts as sentences for reading; a form cannot prefill from those.
+      metadata: {
+        name: row.name,
+        publicAddress: row.publicAddress,
+        addressPublic: row.addressPublic,
+        latitude: row.publicLatitude,
+        longitude: row.publicLongitude,
+        hoursText: row.hoursText,
+      },
       approved: row.approved,
       retired: row.retired,
       retiredWithFarm: row.retiredWithFarm,

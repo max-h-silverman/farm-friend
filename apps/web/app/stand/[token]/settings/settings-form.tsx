@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { creditSeller, LISTING_SEPARATOR } from "@farm-friend/core";
+// The SUBPATH, not the barrel. `@farm-friend/core` re-exports `privacy/phone.ts`, which
+// imports `node:crypto` — unresolvable in a client bundle, and it 500s every farmer screen
+// in local dev. `seller-credit.ts` is pure and is exported for exactly this reason.
+import { creditSeller, LISTING_SEPARATOR } from "@farm-friend/core/seller-credit";
 import { useTabCommit } from "../details-panel";
 
 interface SettingsListing {
@@ -12,6 +15,15 @@ interface SettingsListing {
   sellerName: string;
   /** The SELF-POINTER: true when this seller IS the stand. `creditSeller` decides from it. */
   describesOwnStand: boolean;
+  /**
+   * Whether THIS farmer may pause and resume this listing — the seam's own arm, carried here.
+   *
+   * F-101. A seller may pause, resume and end; a host may end and may NEVER pause. The screen's
+   * duty is to offer no control that would be refused, so it renders from this rather than
+   * deciding for itself — and never from `describesOwnStand`, which answers a different
+   * question and is false for a hosted seller's OWN listing.
+   */
+  mayPause: boolean;
   selected: boolean;
   cadence: "every_2_days" | "weekly" | "every_2_weeks" | "paused" | null;
 }
@@ -44,6 +56,153 @@ interface SettingsListing {
   writers, and merging those would have put the participant save — which has its own audit
   event and its own public-text refusal — behind the same request as a cadence change.
 */
+/**
+ * ONE listing's pause / resume / Remove, on the farmer's own screen.
+ *
+ * F-101. The admin views carry the mirror of this (`SellerParticipation`); this is deliberately
+ * NOT that component parameterised. The two say different things to different people: VIGA acts
+ * on someone else's arrangement from a roster and reaches all three transitions, while a farmer
+ * acts on her own listing and may be a host who can only end. Sharing one component would mean
+ * one file holding both audiences' copy and both authority shapes.
+ *
+ * **Its own press, never "Save settings".** These acts are immediate and one of them is
+ * terminal; a Save that carried them would end a listing because an unrelated field moved.
+ *
+ * **Remove is `end` and has no inverse** (max, 2026-08-17). Coming back is a fresh invitation
+ * the seller must accept, so nothing here offers a restore.
+ */
+function ListingParticipation({
+  token,
+  listing,
+  soleListing,
+}: {
+  token: string;
+  listing: SettingsListing;
+  /**
+   * Whether this is the farmer's ONLY listing, which changes what pausing MEANS to her.
+   *
+   * The farmer-side reading of max's adapting label: on a stand where hers is the only listing,
+   * pausing is her stand being closed, because on that stand that is its true effect. Where she
+   * holds several, the control speaks about the one listing it sits under. The label tracks the
+   * situation, not the mechanism — and no stand-level closed state exists either way.
+   */
+  soleListing: boolean;
+}) {
+  const [state, setState] = useState<"active" | "paused" | "ended">("active");
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function act(transition: "pause" | "resume" | "end"): Promise<void> {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch("/api/farmer/participation", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ token, providerId: listing.providerId, transition }),
+      });
+      if (!response.ok) {
+        // Named by what it failed to do, not by which status came back.
+        setError(
+          transition === "end"
+            ? "We could not remove that listing. Nothing changed."
+            : "We could not change that listing. Nothing changed.",
+        );
+        return;
+      }
+      setState(transition === "end" ? "ended" : transition === "pause" ? "paused" : "active");
+      setConfirming(false);
+    } catch {
+      setError("We could not reach Farm Friend. Nothing changed.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const label = creditSeller(listing, LISTING_SEPARATOR);
+
+  if (state === "ended") {
+    return (
+      <div className="farmer-settings-schedule" role="group" aria-label={label}>
+        <p role="status" className="farmer-form-published">
+          {label} is removed. It is off the map now. To sell there again, ask them for a new
+          invitation.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="farmer-settings-schedule" role="group" aria-label={label}>
+      {/*
+        The name is shown only when there is more than one listing to tell apart — F-097's rule,
+        which the default-listing picker follows for the same reason: naming her only stand back
+        to her distinguishes it from nothing. The GROUP still carries the label either way, so a
+        screen reader announces which listing a Remove button belongs to.
+      */}
+      {!soleListing && <h4>{label}</h4>}
+
+      {state === "paused" && (
+        <p role="status" className="farmer-form-note">
+          {soleListing
+            ? "Your stand is closed. Nobody sees it on the map until you open it again."
+            : "This listing is paused. Nobody sees it on the map until you resume it."}
+        </p>
+      )}
+
+      {error !== null && (
+        <p className="farmer-form-error" role="alert">
+          {error}
+        </p>
+      )}
+
+      <div className="farmer-settings-listing-controls">
+        {/*
+          PAUSE only where the seam would allow it. A host reaches this listing through
+          `host_may_update_stock` — which governs stock and never participation — so she gets
+          Remove alone rather than a button that would answer `not_authorized`.
+        */}
+        {listing.mayPause && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void act(state === "paused" ? "resume" : "pause")}
+          >
+            {state === "paused"
+              ? soleListing ? "Open my stand" : "Resume this listing"
+              : soleListing ? "Close my stand for now" : "Pause this listing"}
+          </button>
+        )}
+
+        {/*
+          REMOVE, behind an inline confirmation — the existing farm-retire pattern. Terminal, so
+          the confirming copy says what is lost rather than asking "are you sure".
+        */}
+        {confirming ? (
+          <>
+            {/* Spans the row, so the warning reads as a sentence above the choice rather than
+                as a third item beside the two buttons. */}
+            <p className="farmer-form-note farmer-settings-listing-warning">
+              Removing takes {label} off the map for good. Coming back means a new invitation.
+            </p>
+            <button type="button" disabled={busy} onClick={() => void act("end")}>
+              Yes, remove it
+            </button>
+            <button type="button" disabled={busy} onClick={() => setConfirming(false)}>
+              Keep it
+            </button>
+          </>
+        ) : (
+          <button type="button" disabled={busy} onClick={() => setConfirming(true)}>
+            Remove this listing
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 export function SettingsForm({
   token,
   listings,
@@ -414,6 +573,33 @@ export function SettingsForm({
         >
           {inviteBusy ? "Inviting…" : "Invite them"}
         </button>
+      </div>
+
+      {/*
+        PAUSING AND LEAVING (F-101) — last, and deliberately below the invitation.
+
+        The panel reads top to bottom as: which listing we text you about, who else sells here,
+        who else you'd like to bring in, and finally — stepping away or leaving altogether. The
+        one destructive control on the screen sits at the end, where a farmer arrives at it
+        rather than passing it on the way to a cadence setting.
+
+        One block per listing, each with its own state: a farmer who pauses one must not see the
+        other change, and the seam invalidates only that provider's open work.
+      */}
+      <div className="farmer-settings-section">
+        <h3>Taking a break, or stopping</h3>
+        <p className="farmer-form-note">
+          Pausing hides a listing from the map and stops the texts asking about it. Your stock
+          and settings are kept, and you can come back whenever you like.
+        </p>
+        {listings.map((listing) => (
+          <ListingParticipation
+            key={listing.providerId}
+            token={token}
+            listing={listing}
+            soleListing={listings.length === 1}
+          />
+        ))}
       </div>
 
       {/*

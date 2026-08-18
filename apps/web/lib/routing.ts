@@ -148,6 +148,18 @@ export interface RouteDeps {
     providerEventId: string;
   }): Promise<{ replies: RoutedReply[]; status: string }>;
   /** Confirm only the exact active typed scheduled snapshot. No model dependency belongs here. */
+  /**
+   * The host's answer to "do you host her?" (F-117).
+   *
+   * Injected like every other seam so routing states the ORDER and the writer states the rule.
+   * `no_open_question` is the fall-through: nothing open, or the question is no longer the last
+   * message in the thread.
+   */
+  hostConfirmation(input: {
+    senderHash: string;
+    token: "YES" | "NO";
+    occurredAt: Date;
+  }): Promise<{ status: "confirmed" | "denied" | "no_open_question" }>;
   scheduledSame(input: {
     senderHash: string;
     occurredAt: Date;
@@ -581,6 +593,29 @@ async function routeCommitment(
   input: RouteInput,
   token: "YES" | "NO",
 ): Promise<RouteResult> {
+  /*
+    F-117 — THE HOST'S QUESTION FIRST.
+
+    A host answering "do you host her?" and a seller answering "publish this?" both text `YES`,
+    so the order has to be decided here rather than left to whichever query runs first.
+
+    The host question is asked first because it can only be open when it is the LAST message in
+    that thread — an inventory prompt to the same handset is exactly the traffic that closes it.
+    So an open host question means the host question is the live one, and there is no case where
+    both are genuinely open at once.
+  */
+  const host = await deps.hostConfirmation({
+    senderHash: input.senderHash,
+    token,
+    occurredAt: input.occurredAt,
+  });
+  if (host.status !== "no_open_question") {
+    return {
+      outcome: { kind: "confirmation", status: host.status },
+      replies: [],
+    };
+  }
+
   // A commitment token is meaningful ONLY against the sender's one open proposal. It is
   // never global: with nothing open there is nothing to commit, and the token must not be
   // reinterpreted as inventory text or an inquiry.

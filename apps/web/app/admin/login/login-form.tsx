@@ -45,13 +45,21 @@ export function LoginForm() {
       action="/api/auth/login"
       onSubmit={submit}
     >
-      <label htmlFor="email">Email address</label>
+      {/*
+        STATIC TEXT, not a read-only input (F-100's finding).
+
+        There is one administrator identity and the field could never be anything else, so a
+        labelled input holding a fixed value only invited a volunteer to click it and find it
+        inert. The hidden input keeps two things working that the visible one was carrying: the
+        native no-JavaScript post, and the password manager's username association.
+      */}
+      <p className="admin-login-identity">
+        Signing in as <strong>{FIXED_ADMIN_EMAIL}</strong>
+      </p>
       <input
-        id="email"
         name="email"
-        type="email"
+        type="hidden"
         autoComplete="username"
-        required
         value={FIXED_ADMIN_EMAIL}
         readOnly
       />
@@ -75,8 +83,15 @@ export function LoginForm() {
 
       {state === "refused" && (
         <p className="admin-error" role="alert">
+          {/*
+            The refusal stays GENERIC — it must never say which half was wrong. What follows is
+            for the one person who is not an attacker: the volunteer whose password is right and
+            who is still being refused, who otherwise has nowhere to go.
+          */}
           Could not sign in. Check the password and try again. Repeated attempts may be
-          temporarily blocked.
+          temporarily blocked. If the password is definitely right, email{" "}
+          {FIXED_ADMIN_EMAIL} from another account, or ask whoever set up Farm Friend to
+          reset it.
         </p>
       )}
       {state === "offline" && (

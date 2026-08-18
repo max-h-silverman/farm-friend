@@ -33,6 +33,14 @@ const stand: AdminStandCard = {
   retired: false,
   retiredWithFarm: false,
   farmBucksStatus: "not_eligible",
+  metadata: {
+    name: "Venison Valley Stand",
+    publicAddress: "1 Wrong Road",
+    addressPublic: true,
+    latitude: 47.4473,
+    longitude: -122.459,
+    hoursText: "Dawn to dusk",
+  },
   sections: [],
 };
 
@@ -152,5 +160,87 @@ describe("VIGA invites a seller to a stand (F-114 Phase C.1)", () => {
     expect(
       screen.queryByRole("group", { name: /invite a seller/i }),
     ).toBeNull();
+  });
+});
+
+describe("F-101 VIGA corrects a stand's own facts", () => {
+  /*
+    max settled (2026-08-17) that stand metadata is editable by VIGA as well as by the stand's
+    owner. The farmer's half already existed (F-073, `/stand/[token]/listing`); this is the
+    operator's, and it is a NARROWER form on purpose.
+
+    What it does NOT offer is the point: no payment methods, no "usually sells", no farmer
+    description, no item list, no visitability. Those are the farmer's published words, and
+    Golden Rule #1 keeps VIGA's hand off them. The form's fields ARE the seam's columns.
+  */
+
+  function editBox(): HTMLElement {
+    return screen.getByRole("group", { name: /stand details for Venison Valley Stand/i });
+  }
+
+  it("prefills from the stand and saves only the location's own facts", async () => {
+    const fetchMock = vi.fn(async () => Response.json({ status: "saved" }));
+    vi.stubGlobal("fetch", fetchMock);
+    render(<StandDetails stands={[stand]} />);
+    await openStand();
+
+    // Prefilled, and load-bearing: the writer sets every column it names, so a blank form
+    // would clear an address the operator never meant to touch.
+    const box = editBox();
+    expect(within(box).getByLabelText("Stand name")).toHaveValue("Venison Valley Stand");
+    expect(within(box).getByLabelText("Address")).toHaveValue("1 Wrong Road");
+    expect(within(box).getByLabelText(/hours, in the/i)).toHaveValue("Dawn to dusk");
+
+    await userEvent.clear(within(box).getByLabelText("Stand name"));
+    await userEvent.type(within(box).getByLabelText("Stand name"), "Venison Valley Farm Stand");
+    await userEvent.click(within(box).getByRole("button", { name: /save stand details/i }));
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "/api/admin/stands",
+      expect.objectContaining({
+        body: JSON.stringify({
+          standId: "stand-1",
+          action: "save_metadata",
+          name: "Venison Valley Farm Stand",
+          publicAddress: "1 Wrong Road",
+          addressPublic: true,
+          latitude: 47.4473,
+          longitude: -122.459,
+          hoursText: "Dawn to dusk",
+        }),
+      }),
+    );
+    expect(await screen.findByText(/stand details saved/i)).toBeVisible();
+  });
+
+  it("offers nothing that belongs to the farmer's own listing", () => {
+    /*
+      GOLDEN RULE #1 at the surface. Asserted as absences on the whole card, because the failure
+      this prevents is a field APPEARING — an operator who can retype what a stand usually sells
+      is rewriting the farmer's published words from the admin console.
+    */
+    render(<StandDetails stands={[stand]} />);
+    expect(screen.queryByLabelText(/payment methods/i)).toBeNull();
+    expect(screen.queryByLabelText(/usually sells/i)).toBeNull();
+    expect(screen.queryByLabelText(/description/i)).toBeNull();
+    expect(screen.queryByLabelText(/visit in person/i)).toBeNull();
+  });
+
+  it("reports a refusal by what the operator must fix, and keeps the typed values", async () => {
+    // A named refusal has a next move; "that did not save" does not. The typed values survive
+    // so the operator can correct one field rather than retype the form.
+    const fetchMock = vi.fn(async () =>
+      Response.json({ status: "incomplete_location" }, { status: 400 }),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+    render(<StandDetails stands={[stand]} />);
+    await openStand();
+
+    const box = editBox();
+    await userEvent.clear(within(box).getByLabelText("Address"));
+    await userEvent.click(within(box).getByRole("button", { name: /save stand details/i }));
+
+    expect(await screen.findByText(/needs an address and a map pin/i)).toBeVisible();
+    expect(within(editBox()).getByLabelText("Stand name")).toHaveValue("Venison Valley Stand");
   });
 });

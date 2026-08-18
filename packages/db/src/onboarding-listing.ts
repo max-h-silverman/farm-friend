@@ -1,6 +1,7 @@
 import {
   ISLAND_BOUNDS,
   nextPromptDueSlot,
+  renderHostConfirmationRequest,
   standItemPriceNeedsUnit,
   type PromptCadence,
 } from "@farm-friend/core";
@@ -191,6 +192,19 @@ export interface SaveOnboardingListingInput {
    * farmer texts JOIN — and those seed no schedule rather than inventing a recipient.
    */
   authorizationId?: string | null;
+  /**
+   * A stand she also sells at, chosen from the picker (F-117).
+   *
+   * Written in THIS transaction, beside her own stand's provider row. It needs no authorization
+   * — `stand_providers` names a SELLER, and the seller exists the moment the invitation names
+   * her farm — which is why it does not wait on the invitation the way `pendingStock` and
+   * `pendingPromptCadence` do. Those two wait because a dated confirmation needs somebody to
+   * stand behind it and a reminder needs a recipient; an arrangement needs neither.
+   *
+   * **Secondary to the listing.** A stand that vanished between loading the form and submitting
+   * it must not cost the farmer her whole onboarding — see the write below.
+   */
+  hostStandId?: string | null;
   occurredAt: Date;
 }
 
@@ -353,6 +367,46 @@ export async function saveOnboardingListing(
 
     await writePaymentMethods(tx, salesLocationId, listing.paymentMethods);
     await writeStandingItems(tx, salesLocationId, listing.items);
+
+    /*
+      F-117 — the stand she also sells at, if she named one.
+
+      **Deliberately not fatal.** The arrangement is a secondary fact about a listing that is
+      otherwise complete, and the realistic failure is a stand retired between the form loading
+      and her pressing Submit. Losing an entire onboarding form over the optional half of one
+      question is a far worse outcome than a missing arrangement she can add later from her own
+      settings screen — so a stand that no longer qualifies is skipped, not raised.
+
+      `on conflict do nothing` for the same reason it guards her native row above: a resubmitted
+      form must not fail, and the partial unique index is the arbiter.
+    */
+    if (input.hostStandId != null && input.hostStandId !== salesLocationId) {
+      const hosted = await tx`
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state,
+          invited_at, accepted_at, approval_source, approved_at
+        )
+        select ${input.hostStandId}, ${input.farmId}, 'active',
+               ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()},
+               'seller', ${input.occurredAt.toISOString()}
+        where exists (
+          select 1 from sales_locations
+          where id = ${input.hostStandId}
+            and own_seller_id is distinct from ${input.farmId}
+        )
+        on conflict (sales_location_id, seller_id) where ended_at is null do nothing
+        returning id
+      `;
+      const hostedProviderId = hosted[0]?.id as string | undefined;
+      if (hostedProviderId !== undefined) {
+        await askHostToConfirm(tx, {
+          standProviderId: hostedProviderId,
+          salesLocationId: input.hostStandId,
+          sellerId: input.farmId,
+          occurredAt: input.occurredAt,
+        });
+      }
+    }
     await seedDefaultPromptPreference(tx, {
       salesLocationId,
       farmId: input.farmId,
@@ -363,6 +417,101 @@ export async function saveOnboardingListing(
     return { status: "saved" as const, salesLocationId };
   }) as Promise<SaveOnboardingListingResult>;
 }
+
+/**
+ * Ask the stand's owner to confirm a seller who put herself there (F-117).
+ *
+ * ## Why it can only ask a host Farm Friend already knows
+ *
+ * **Farm Friend cannot text first.** A number with no consent row has every non-reply send
+ * suppressed by `authorizeDispatch`, so there is no way to reach a stand whose owner has never
+ * onboarded — a VIGA-seeded stand nobody has claimed. Those stands still accept the seller: the
+ * alternative is refusing a real arrangement over a message we could not have sent, and the
+ * public map would simply be wrong instead. The host keeps every other way to act, including
+ * Remove on their own settings screen once they do onboard.
+ *
+ * ## What is asked, and how
+ *
+ * `stock_out_alert` is the category, not `inquiry_reply`: this is an unsolicited notice to a
+ * farmer about their own stand, exactly like a customer's stock-out flag, and it must therefore
+ * require ACTIVE consent rather than riding the carrier's reply allowance. A host who has
+ * stopped hears nothing, which is correct — they have said not to text them.
+ *
+ * The body is CODE-RENDERED from a seller name (Golden Rule #6): a cross-actor message may
+ * never carry model prose. `validatePublicStrings` has already refused a name carrying contact
+ * details before it could reach a stand_providers row.
+ */
+async function askHostToConfirm(
+  tx: Tx,
+  input: {
+    standProviderId: string;
+    salesLocationId: string;
+    sellerId: string;
+    occurredAt: Date;
+  },
+): Promise<void> {
+  /*
+    The host's own phone, through the stand's own seller — the same arm
+    `resolveStandWriteAuthority` calls the seller arm, and the stand arm beside it for a venue
+    whose manager is authorized against the place rather than a seller of its own.
+
+    `limit 1` with a stable order: a stand with two authorized handsets gets ONE question, not
+    two, because `pending_host_confirmations` holds one open question per host and two rows
+    would mean the second silently replaced the first.
+  */
+  const hosts = await tx`
+    select contacts.phone_hash as host_hash
+    from sales_locations as location
+    join farmer_authorizations as auth
+      on (
+        (auth.seller_id is not null and auth.seller_id = location.own_seller_id)
+        or (auth.sales_location_id is not null and auth.sales_location_id = location.id)
+      )
+    join contacts on contacts.id = auth.contact_id
+    where location.id = ${input.salesLocationId}
+      and auth.revoked_at is null
+      and auth.phone_verified_at is not null
+    order by auth.authorized_at asc, auth.id asc
+    limit 1
+  `;
+  const hostHash = hosts[0]?.host_hash as string | undefined;
+  // Nobody to ask. She stays listed — see the header.
+  if (hostHash === undefined) return;
+
+  const sellers = await tx`select name from sellers where id = ${input.sellerId}`;
+  const sellerName = sellers[0]?.name as string | undefined;
+  if (sellerName === undefined) return;
+
+  await tx`
+    insert into outbox_work (
+      logical_key, recipient_hash, message_category, body, body_expires_at,
+      available_at, created_at
+    ) values (
+      ${`host-confirm-${input.standProviderId}`}, ${hostHash}, 'stock_out_alert',
+      ${renderHostConfirmationRequest(sellerName)},
+      ${new Date(input.occurredAt.getTime() + HOST_CONFIRMATION_BODY_TTL_MS).toISOString()},
+      ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()}
+    )
+    on conflict (logical_key) do nothing
+  `;
+
+  /*
+    The question, opened with the same `asked_at` the message carries.
+
+    ONE open question per host: a second self-selecting seller replaces the first rather than
+    leaving two rows for a bare YES to choose between. The unique index is the arbiter.
+  */
+  await tx`
+    insert into pending_host_confirmations (host_hash, stand_provider_id, asked_at)
+    values (${hostHash}, ${input.standProviderId}, ${input.occurredAt.toISOString()})
+    on conflict (host_hash) do update
+      set stand_provider_id = excluded.stand_provider_id,
+          asked_at = excluded.asked_at
+  `;
+}
+
+/** How long the host's question keeps its body before the retention purge takes it. */
+const HOST_CONFIRMATION_BODY_TTL_MS = 30 * 24 * 60 * 60 * 1000;
 
 /** The cadence an approved farmer starts on (F-081, max's choice 2026-08-07). */
 const DEFAULT_PROMPT_CADENCE = "weekly" as const;

@@ -248,7 +248,12 @@ would add a case to every reader and change no public output.
   refuses an approval on a `pending` row — approving a relationship nobody has accepted would
   publish a seller who never agreed to be there. Applied at acceptance, exactly as `pending_stock`
   and `pending_prompt_cadence` already are. A hosting invitation has **exactly one issuer**: the
-  owner's vouch becomes `approval_source = 'host'`, VIGA's becomes `'viga'` naming nobody. Both
+  owner's vouch becomes `approval_source = 'host'`, VIGA's becomes `'viga'` naming nobody. A third
+  value, `'seller'` (F-117, `0052`), belongs to no invitation at all: a farmer onboarding on her own
+  who says she sells at someone else's stand puts **herself** there, and the row records that. It is
+  the weakest source and naming it is what keeps that legible — `viga` would make her
+  indistinguishable from a seller VIGA approved, and `host` names a vouching authorization that does
+  not exist until the host answers, which is after she is live. Both
   issuers now have a surface that fills their column — the stand owner's is the farmer stand link's
   own door, which supplies the authorization that link already resolved (SURFACES.md).
 - **farmer standing links** (F-040, hardened by B-031) — a durable key letting a farmer reach *their

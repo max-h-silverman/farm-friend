@@ -3,6 +3,7 @@ import {
   restoreStand,
   retireStand,
   saveFarmBucksStatus,
+  saveStandMetadata,
   type FarmBucksStatus,
 } from "@farm-friend/db";
 import { farmerInviteUrl, renderPublicStringRefusal } from "@farm-friend/core";
@@ -38,6 +39,12 @@ export async function POST(req: Request): Promise<Response> {
     action?: unknown;
     sellerId?: unknown;
     newSellerName?: unknown;
+    name?: unknown;
+    publicAddress?: unknown;
+    addressPublic?: unknown;
+    latitude?: unknown;
+    longitude?: unknown;
+    hoursText?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -106,6 +113,52 @@ export async function POST(req: Request): Promise<Response> {
       ...rest,
       link: farmerInviteUrl(resolvePublicBaseUrl(process.env), token),
     });
+  }
+
+  /*
+    F-101 — VIGA corrects a stand's own facts.
+
+    Here for the reason the header gives: the same KIND of act, VIGA recording a decision about
+    one stand. The seam names its columns and touches nothing the farmer owns, so this route
+    validates shape and passes it through — see `saveStandMetadata`.
+
+    `name` is the only required field. The rest are nullable columns and `null` is a real answer
+    ("no address", "no hours stated"), so absence and emptiness both mean null rather than
+    "leave it alone" — a partial writer here would need a second way to say "clear this".
+  */
+  if (body.action === "save_metadata") {
+    const name = typeof body.name === "string" ? body.name : null;
+    if (name === null) return Response.json({ error: "invalid_request" }, { status: 400 });
+
+    const text = (value: unknown): string | null =>
+      typeof value === "string" && value.trim() !== "" ? value : null;
+    const coordinate = (value: unknown): number | null =>
+      typeof value === "number" && Number.isFinite(value) ? value : null;
+
+    const result = await saveStandMetadata(db, {
+      standId,
+      administratorId: caller.administratorId,
+      name,
+      publicAddress: text(body.publicAddress),
+      addressPublic: body.addressPublic !== false,
+      latitude: coordinate(body.latitude),
+      longitude: coordinate(body.longitude),
+      hoursText: text(body.hoursText),
+      occurredAt,
+    });
+    // Each refusal keeps its own status: a blank name and a stripped address are both the
+    // operator's to fix, and a 403 would send them to their sign-in instead.
+    switch (result.status) {
+      case "saved":
+        return Response.json(result, { status: 200 });
+      case "unknown_stand":
+        return Response.json(result, { status: 404 });
+      case "invalid_name":
+      case "incomplete_location":
+        return Response.json(result, { status: 400 });
+      default:
+        return Response.json(result, { status: 403 });
+    }
   }
 
   if (body.action !== undefined) {

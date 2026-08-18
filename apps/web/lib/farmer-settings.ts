@@ -3,6 +3,7 @@ import {
   listFarmerSettingsTargets,
   selectFarmerTargetForAuthorization,
   setInventoryPromptPreference,
+  setProviderParticipation,
   type Db,
 } from "@farm-friend/db";
 import { resolveStandFromToken } from "./farmer-stand";
@@ -42,6 +43,13 @@ export type FarmerSettingsResult =
          * it needs.
          */
         describesOwnStand: boolean;
+        /**
+         * Whether this phone may pause/resume this listing (F-101). Ending is always hers.
+         *
+         * Carried, never re-derived: the screen decides which control to render from it, and
+         * the seam decides the same question from the same SQL text.
+         */
+        mayPause: boolean;
         selected: boolean;
         cadence: PromptCadence | null;
       }[];
@@ -64,6 +72,7 @@ export async function loadFarmerSettings(
     locationName: target.locationName,
     sellerName: target.sellerName,
     describesOwnStand: target.describesOwnStand,
+    mayPause: target.mayPause,
     selected: target.selected,
     cadence: target.cadence,
   }));
@@ -109,6 +118,68 @@ export async function saveFarmerDefaultListing(
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+const PARTICIPATION_TRANSITIONS = ["pause", "resume", "end"] as const;
+
+/**
+ * The farmer's own pause / resume / end, from her settings screen.
+ *
+ * F-101 — the second production caller of `setProviderParticipation`, and the first one that
+ * meets the authority ASYMMETRY: a seller may pause, resume and end; a host may only end. That
+ * rule is **not re-stated here.** The seam resolves the acting arm under lock and narrows pause
+ * from it, so this handler passes the sender's hash through and reports what came back. A check
+ * in this file would be a second opinion about who is the seller, and the one likelier to drift.
+ *
+ * The token is the credential and the actor both: it resolves to ONE authorization's sender
+ * hash, so a farmer cannot act as anyone else by naming them, exactly as the admin route takes
+ * its administrator from the session rather than the body.
+ */
+export async function handleFarmerParticipationPost(
+  deps: { db: Db; clock: Clock },
+  request: Request,
+): Promise<Response> {
+  let body: { token?: unknown; providerId?: unknown; transition?: unknown };
+  try {
+    body = (await request.json()) as typeof body;
+  } catch {
+    return Response.json({ error: "invalid_request" }, { status: 400 });
+  }
+
+  const transition = PARTICIPATION_TRANSITIONS.find(
+    (candidate) => candidate === body.transition,
+  ) ?? null;
+  if (
+    typeof body.token !== "string" ||
+    typeof body.providerId !== "string" ||
+    !UUID_RE.test(body.providerId) ||
+    transition === null
+  ) {
+    return Response.json({ error: "invalid_request" }, { status: 400 });
+  }
+
+  const stand = await resolveStandFromToken(deps.db, body.token);
+  if (stand === null) return Response.json({ error: "not_authorized" }, { status: 403 });
+
+  const result = await setProviderParticipation(deps.db, {
+    providerId: body.providerId,
+    transition,
+    senderHash: stand.senderHash,
+    occurredAt: deps.clock.now(),
+  });
+
+  // The same status-per-refusal split the admin route makes, for the same reason: the screen
+  // says different things about a stale row and a relationship somebody else already ended.
+  switch (result.status) {
+    case "unknown_provider":
+      return Response.json({ error: "unknown_provider" }, { status: 404 });
+    case "provider_not_live":
+      return Response.json({ error: "provider_not_live" }, { status: 409 });
+    case "not_authorized":
+      return Response.json({ error: "not_authorized" }, { status: 403 });
+    default:
+      return Response.json(result, { status: 200 });
+  }
+}
 
 /** HTTP boundary for the one structured settings write. */
 export async function handleFarmerSettingsPost(

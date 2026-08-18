@@ -47,6 +47,7 @@ const ROWS = [OWN, HOSTED].map((listing, index) => ({
   locationName: listing.locationName,
   sellerName: listing.sellerName,
   describesOwnStand: listing.describesOwnStand,
+  mayPause: true,
   selected: index === 0,
   cadence: "weekly" as const,
 }));
@@ -74,10 +75,26 @@ describe("one listing, one label, across the surfaces that name it", () => {
 
   it("labels the settings choices exactly as creditSeller does", () => {
     render(<SettingsForm token="t" listings={ROWS} />);
-    // The hosted row is credited and the stand's own row is not — asserted as two claims,
-    // because a renderer that credited everything would satisfy only the first.
-    expect(screen.getByLabelText(creditSeller(HOSTED, " — "))).toBeDefined();
-    expect(screen.getByLabelText(STAND)).toBeDefined();
+    /*
+      The hosted row is credited and the stand's own row is not — asserted as two claims,
+      because a renderer that credited everything would satisfy only the first.
+
+      Scoped to the RADIO, because F-101 added a second labelled surface to this same screen:
+      each listing's pause/Remove block is a labelled group, and it takes its label from
+      `creditSeller` as well. That is the agreement this file exists to hold, so the query names
+      which element it means rather than the screen labelling one listing once.
+    */
+    expect(screen.getByRole("radio", { name: creditSeller(HOSTED, " — ") })).toBeDefined();
+    expect(screen.getByRole("radio", { name: STAND })).toBeDefined();
+  });
+
+  it("labels the pause/Remove blocks exactly as creditSeller does", () => {
+    // F-101's block is the fifth surface to name a listing, and the first that can END one.
+    // A block labelled by stand name alone would ask a farmer to remove "Kelseys Stand" when
+    // the button ends Gracie's listing there.
+    render(<SettingsForm token="t" listings={ROWS} />);
+    expect(screen.getByRole("group", { name: creditSeller(HOSTED, " — ") })).toBeDefined();
+    expect(screen.getByRole("group", { name: STAND })).toBeDefined();
   });
 
   it("names a hosted seller on the SMS menu too, with the GSM-7 separator", () => {

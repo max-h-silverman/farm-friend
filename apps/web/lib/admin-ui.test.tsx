@@ -149,6 +149,7 @@ describe("the stand list", () => {
             retired: false,
             retiredWithFarm: false,
             farmBucksStatus: "not_eligible",
+            metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
             sections: [
               {
                 title: "Availability",
@@ -207,6 +208,7 @@ describe("the stand list", () => {
           retired: false,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Other details", items: [["Farm Bucks", "Not reviewed"]] }],
         }]}
       />,
@@ -244,6 +246,7 @@ describe("the stand list", () => {
           retired: false,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
         }]}
       />,
@@ -273,6 +276,7 @@ describe("the stand list", () => {
           retired: false,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
         }]}
       />,
@@ -318,6 +322,7 @@ describe("the stand list", () => {
           retired: true,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "9 Farm Lane"]] }],
         }]}
       />,
@@ -353,6 +358,7 @@ describe("the stand list", () => {
           retired: false,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "3 Farm Lane"]] }],
         }]}
       />,
@@ -386,6 +392,7 @@ describe("administrator language", () => {
               retired: false,
               retiredWithFarm: false,
               farmBucksStatus: "not_eligible",
+              metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
               sections: [{ title: "Visit", items: [["Visit in person", "Yes"]] }],
             },
           ]}
@@ -400,7 +407,9 @@ describe("administrator language", () => {
     expect(screen.getByText("Shown on map")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Invite a farmer to join" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Waiting for your decision" })).toBeTruthy();
-    expect(screen.getByText("No requests.")).toBeTruthy();
+    // F-100's finding, fixed in F-101: "No requests." was terse beside its neighbours and read
+    // as a missing value rather than a settled state.
+    expect(screen.getByText(/nobody is waiting to be set up/i)).toBeTruthy();
     expect(screen.getByText("Contact")).toBeTruthy();
     // Who can update a farm is the FARM card's subject now, not this queue's. The same farm
     // appearing in both places under two different headings is what this restructure removed.
@@ -476,6 +485,7 @@ describe("the farmer stand form", () => {
       locationName: "Orchard Stand",
       sellerName: "Own Seller",
       describesOwnStand: true,
+      mayPause: true,
       selected: true,
       cadence: null,
     },

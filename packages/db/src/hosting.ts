@@ -6,6 +6,8 @@ import {
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import { invalidateProviderWork } from "./provider-invalidation";
+import { visibleFarms } from "./test-farms";
+import { PROVIDER_SELLER_ARM } from "./provider-write-authority";
 import type { Sql, Tx } from "./sql";
 
 /*
@@ -76,6 +78,230 @@ export type InviteSellerToStandResult =
   | { status: "invalid_issuer" }
   | { status: "not_authorized" }
   | { status: "already_selling_here" };
+
+/**
+ * Ask the host to confirm a seller who put herself at their stand (F-117).
+ *
+ * **One open question per host**, and the newest replaces the older: a second self-selecting
+ * seller must not leave two rows for a bare `YES` to choose between. The unique index is the
+ * arbiter rather than a read-then-write, the same discipline `pending_stock_out_reports` uses.
+ *
+ * `askedAt` is the moment the question was sent. Everything about whether it is still answerable
+ * is decided from it — see `answerHostConfirmation`.
+ */
+export async function openHostConfirmation(
+  db: Db,
+  input: { hostHash: string; standProviderId: string; askedAt: Date },
+): Promise<{ status: "asked" }> {
+  await driver(db)`
+    insert into pending_host_confirmations (host_hash, stand_provider_id, asked_at)
+    values (${input.hostHash}, ${input.standProviderId}, ${input.askedAt.toISOString()})
+    on conflict (host_hash) do update
+      set stand_provider_id = excluded.stand_provider_id,
+          asked_at = excluded.asked_at
+  `;
+  return { status: "asked" };
+}
+
+export type AnswerHostConfirmationResult =
+  | { status: "confirmed" }
+  | { status: "denied" }
+  /** Nothing open, or the question is no longer the last message in the thread. */
+  | { status: "no_open_question" };
+
+/**
+ * The host's `YES` or `NO`, answerable ONLY while the question is the last message in the thread.
+ *
+ * ## The rule, and why it is conversation state rather than a clock
+ *
+ * max settled (2026-08-17) that any other traffic in either direction closes the question — the
+ * host texting us anything, or the system sending them anything. That satisfies Golden Rule #2's
+ * requirement on a confirmation token without a TTL: it is context-bound rather than global, it
+ * commits exactly once, and it expires. A bare `YES` cannot be misread against a stale question,
+ * because a stale question is no longer open.
+ *
+ * **Both directions are checked, and the system-sent half is the one worth stating.** It is easy
+ * to ask whether the host has spoken since; it is easy to forget that a scheduled inventory
+ * prompt WE queued also closed the question. max accepted that consequence explicitly: the
+ * window can be short, and the host's settings screen carries Remove either way (F-101), so a
+ * closed question costs a web visit and never the ability to act.
+ *
+ * ## What each answer does
+ *
+ * `YES` consumes the question and changes nothing else — she is already live, which is the whole
+ * point of the flow. `NO` ends the arrangement through `setProviderParticipation`, the same seam
+ * and the same authority rule as every other ending; a host ENDING is exactly what F-116 permits,
+ * so this introduces no new authority.
+ *
+ * The row is consumed either way, and BEFORE the ending is applied, so a redelivered inbound
+ * event cannot end a second arrangement.
+ */
+export async function answerHostConfirmation(
+  db: Db,
+  input: { hostHash: string; token: "YES" | "NO"; occurredAt: Date },
+): Promise<AnswerHostConfirmationResult> {
+  const consumed = await driver(db)`
+    delete from pending_host_confirmations as pending
+    where pending.host_hash = ${input.hostHash}
+      -- STILL THE LAST MESSAGE IN THE THREAD. Nothing this host sent, and nothing we sent them,
+      -- may sit between the question and this answer.
+      and not exists (
+        select 1 from sms_messages
+        where sms_messages.sender_hash = pending.host_hash
+          and sms_messages.received_at > pending.asked_at
+      )
+      and not exists (
+        select 1 from outbox_work
+        where outbox_work.recipient_hash = pending.host_hash
+          and outbox_work.created_at > pending.asked_at
+      )
+    returning stand_provider_id
+  `;
+  const standProviderId = consumed[0]?.stand_provider_id as string | undefined;
+  if (standProviderId === undefined) return { status: "no_open_question" };
+
+  if (input.token === "YES") return { status: "confirmed" };
+
+  // Through the SEAM, never a direct write: it owns the lock ordering, the authority resolution
+  // and the invalidation of that provider's open work. A host may end, and this is that act.
+  await setProviderParticipation(db, {
+    providerId: standProviderId,
+    transition: "end",
+    senderHash: input.hostHash,
+    occurredAt: input.occurredAt,
+  });
+  return { status: "denied" };
+}
+
+export interface HostStandChoice {
+  standId: string;
+  name: string;
+}
+
+/**
+ * The stands a self-selecting seller may pick from (F-117).
+ *
+ * max settled that the host stand comes from an autocomplete of EXISTING stands, never free
+ * text: a typed name would be ambiguous about which stand was meant and would make the host we
+ * then text a guess. Picking a real stand makes the host unambiguous.
+ *
+ * **A name and an id, and nothing else.** `listPublicStands` builds the whole map — inventory,
+ * closures, availability, payment methods, per-provider facts — and running it to fill a
+ * dropdown would put all of that behind a keystroke, on a surface that needs neither.
+ *
+ * **The same visibility rule the map uses**, composed from `visibleFarms` rather than restated.
+ * This list is shown to a stranger part-way through onboarding, so a retired stand, an unlisted
+ * one or a test farm appearing here would be a disclosure through a form nobody authenticates
+ * to reach — and would let a seller attach herself to a stand the public cannot see.
+ *
+ * Test farms are never included: the deliberate-viewer escape hatches (`?hidden=true`, a listed
+ * sender hash) are about SEEING fake stands, and neither is a reason to sell at one.
+ */
+export async function listHostStandChoices(db: Db): Promise<HostStandChoice[]> {
+  const rows = await driver(db).unsafe(`
+    select location.id as stand_id, location.name as stand_name
+    from sales_locations as location
+    -- LEFT join: a VENUE has no seller of its own (Morgan Hill), and it is exactly the kind of
+    -- place a self-selecting seller sells at. An inner join would silently drop the strongest
+    -- case for this whole flow. The farm rule is asked only where there is a farm to ask about.
+    left join sellers as farm on farm.id = location.own_seller_id
+    where location.is_public
+      and location.retired_at is null
+      and (farm.id is null or ${visibleFarms("farm", false)})
+    order by lower(location.name), location.id
+  `);
+  return rows.map((row) => ({
+    standId: row.stand_id as string,
+    name: row.stand_name as string,
+  }));
+}
+
+export type SelfSelectHostStandResult =
+  | { status: "selling"; providerId: string }
+  | { status: "unknown_stand" }
+  | { status: "unknown_seller" }
+  /** The stand she picked is her own. The native arrangement already exists. */
+  | { status: "own_stand" }
+  | { status: "already_selling_here" };
+
+/**
+ * A seller onboarding on her own says she sells at somebody else's stand (F-117).
+ *
+ * **The inverse of `inviteSellerToStand`, and deliberately not a flag on it.** That path starts
+ * with a HOST offering a place and ends with the seller accepting, so it writes `pending` and
+ * mints a link. Here the seller is the one acting and is already present, so there is nobody to
+ * invite and nothing to accept later — the arrangement is complete at the moment she submits.
+ * One function with a direction flag would have two disjoint halves and a name that lied about
+ * one of them.
+ *
+ * **She is live immediately** (max, 2026-08-17). Weighing an unconfirmed listing against making
+ * her wait on a host who may never reply, max chose live: *"i really don't imagine any fraud
+ * here."* The realistic error is a mis-picked stand, and the host confirmation catches that.
+ *
+ * **No VIGA approval anywhere** — keeping the volunteer out of it is the whole point — and
+ * `approval_source = 'seller'` records exactly that. See the enum: `viga` would make her
+ * indistinguishable from a seller VIGA approved, and `host` names a vouching authorization that
+ * does not exist until the host answers.
+ *
+ * **The same `stand_providers` shape F-114 built**, so every liveness predicate, targeting arm
+ * and participation control already reaches her. A second mechanism would be a second thing to
+ * teach each of them, and the one that gets forgotten.
+ */
+export async function selfSelectHostStand(
+  db: Db,
+  input: { sellerId: string; salesLocationId: string; occurredAt: Date },
+): Promise<SelfSelectHostStandResult> {
+  return driver(db).begin(async (tx) => {
+    const sellers = await tx`
+      select id from sellers where id = ${input.sellerId} for update
+    `;
+    if (sellers.length === 0) return { status: "unknown_seller" as const };
+
+    const stands = await tx`
+      select id, own_seller_id from sales_locations
+      where id = ${input.salesLocationId}
+      for update
+    `;
+    const stand = stands[0] as Record<string, unknown> | undefined;
+    if (stand === undefined) return { status: "unknown_stand" as const };
+
+    // Her own stand is not a host stand. Picking it is a mis-pick, and the arrangement it would
+    // describe is the native one onboarding already wrote.
+    if (stand.own_seller_id === input.sellerId) return { status: "own_stand" as const };
+
+    /*
+      The partial unique index is the arbiter, exactly as it is for an invitation: `for update`
+      cannot serialize a row that does not exist yet, so a double-tapped submit is resolved by
+      the index rather than by a preceding read. An empty result means the other one won.
+
+      `where ended_at is null` names the index's own predicate — `0051` made it partial so a
+      seller who left can come back, and an `on conflict` target omitting the predicate matches
+      no index at all.
+    */
+    const providers = await tx`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${input.salesLocationId}, ${input.sellerId}, 'active',
+        ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()},
+        'seller', ${input.occurredAt.toISOString()}
+      )
+      on conflict (sales_location_id, seller_id) where ended_at is null do nothing
+      returning id
+    `;
+    const providerId = providers[0]?.id as string | undefined;
+    if (providerId === undefined) return { status: "already_selling_here" as const };
+
+    await tx`
+      insert into audit_events (action, actor_contact_hash, subject_type, subject_id, occurred_at)
+      values ('stand_provider_self_selected', null, 'stand_provider', ${providerId},
+        ${input.occurredAt.toISOString()})
+    `;
+
+    return { status: "selling" as const, providerId };
+  });
+}
 
 export interface InviteSellerToStandInput {
   salesLocationId: string;
@@ -559,23 +785,29 @@ async function participationArm(
   tx: Tx,
   input: { salesLocationId: string; sellerId: string; senderHash: string },
 ): Promise<"seller" | "host" | null> {
-  const rows = await tx`
-    select
-      (auth.seller_id is not null and auth.seller_id = ${input.sellerId}) as is_seller
-    from farmer_authorizations as auth
-    join contacts on contacts.id = auth.contact_id
-    join sales_locations as location on location.id = ${input.salesLocationId}
-    where contacts.phone_hash = ${input.senderHash}
-      and auth.revoked_at is null
-      and (
-        (auth.seller_id is not null and auth.seller_id = ${input.sellerId})
-        or (auth.seller_id is not null and auth.seller_id = location.own_seller_id)
-        or (auth.sales_location_id is not null and auth.sales_location_id = location.id)
-      )
-    order by is_seller desc
-    limit 1
-    for update of auth
-  `;
+  // The seller test is `PROVIDER_SELLER_ARM`'s, against a provider projected from the caller's
+  // ids rather than joined — this walks in from the CONTACT, so there is no `provider` row in
+  // scope to join to. Same sentence, one statement of it (F-101).
+  const rows = await tx.unsafe(
+    `
+      select (${PROVIDER_SELLER_ARM}) as is_seller
+      from farmer_authorizations as auth
+      join contacts on contacts.id = auth.contact_id
+      join sales_locations as location on location.id = $2
+      cross join (select $3::uuid as seller_id) as provider
+      where contacts.phone_hash = $1
+        and auth.revoked_at is null
+        and (
+          ${PROVIDER_SELLER_ARM}
+          or (auth.seller_id is not null and auth.seller_id = location.own_seller_id)
+          or (auth.sales_location_id is not null and auth.sales_location_id = location.id)
+        )
+      order by is_seller desc
+      limit 1
+      for update of auth
+    `,
+    [input.senderHash, input.salesLocationId, input.sellerId],
+  );
   const row = rows[0] as Record<string, unknown> | undefined;
   if (row === undefined) return null;
   return row.is_seller === true ? "seller" : "host";

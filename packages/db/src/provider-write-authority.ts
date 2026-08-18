@@ -130,10 +130,24 @@ export type ProviderWriteAuthority =
  * `paused` is deliberately INCLUDED and `pending`/ended are not: §facts and authority offers a
  * paused seller their listing back rather than refusing them.
  */
+/**
+ * The SELLER arm alone: this phone is authorized for the provider's own seller.
+ *
+ * Named separately (F-101) because it is the line participation authority turns on, not just one
+ * disjunct of who may write stock. `setProviderParticipation` refuses a pause unless this is the
+ * arm that said yes, and the settings screen must offer the pause control on exactly the rows
+ * where it holds. Three readers, one sentence — a screen and a seam that each spelled it out
+ * would eventually disagree, and the disagreement's shape is a button that returns
+ * `not_authorized`.
+ *
+ * Expects `provider` and `auth` in scope; composed SQL TEXT, so `.unsafe(…)` as above.
+ */
+export const PROVIDER_SELLER_ARM = `auth.seller_id = provider.seller_id`;
+
 export const PROVIDER_AUTHORITY_ARMS = `
   ${reachableProviders("provider")}
   and (
-    auth.seller_id = provider.seller_id
+    ${PROVIDER_SELLER_ARM}
     or (
       provider.host_may_update_stock
       and (

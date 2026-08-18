@@ -15,7 +15,24 @@ export interface AdminStandCard {
   /** Off the map only because its FARM is down. The control that reverses it is the farm's. */
   retiredWithFarm: boolean;
   farmBucksStatus: "accepts" | "does_not_accept" | "not_eligible";
+  /**
+   * The stand's own facts, as VALUES rather than as the display strings in `sections` (F-101).
+   *
+   * `sections` renders "No public address" and "hidden from customers" — sentences for reading,
+   * which a form cannot prefill from without parsing its own labels back. The editor writes
+   * these columns, so it reads them.
+   */
+  metadata: AdminStandMetadata;
   sections: AdminStandDetailSection[];
+}
+
+export interface AdminStandMetadata {
+  name: string;
+  publicAddress: string | null;
+  addressPublic: boolean;
+  latitude: number | null;
+  longitude: number | null;
+  hoursText: string | null;
 }
 
 export interface AdminStandDetailSection {
@@ -53,6 +70,186 @@ function invitationRefusal(
     default:
       return "That did not go through. Nobody was invited — try again.";
   }
+}
+
+/**
+ * What to tell an operator whose stand edit was refused (F-101).
+ *
+ * Each named refusal has its own next move; anything else says only that nothing happened,
+ * which is the honest answer when this screen does not know why.
+ */
+function metadataRefusal(payload: Record<string, unknown>): string {
+  switch (payload.status) {
+    case "incomplete_location":
+      return "A stand people can visit needs an address and a map pin. Nothing was saved.";
+    case "invalid_name":
+      return "A stand needs a name. Nothing was saved.";
+    case "unknown_stand":
+      return "That stand is no longer here. Nothing was saved.";
+    case "not_an_administrator":
+      return "Your sign-in is no longer valid. Nothing was saved — sign in again.";
+    default:
+      return "That did not save. Nothing was changed — try again.";
+  }
+}
+
+/**
+ * VIGA corrects one stand's own facts (F-101, max 2026-08-17).
+ *
+ * **Narrower than the farmer's form on purpose.** `/stand/[token]/listing` lets the stand's
+ * owner edit her whole listing — payment methods, what she usually sells, her own description,
+ * her items. None of that is here: those are the farmer's published words, and Golden Rule #1
+ * keeps VIGA's hand off them. The fields are exactly `saveStandMetadata`'s columns.
+ *
+ * **Prefilled, and that is load-bearing.** The writer sets every column it names, so a blank
+ * form would clear an address when an operator only came to fix a spelling.
+ */
+function StandMetadataEditor({
+  standId,
+  standName,
+  metadata,
+  onSaved,
+}: {
+  standId: string;
+  standName: string;
+  metadata: AdminStandMetadata;
+  onSaved: (metadata: AdminStandMetadata) => void;
+}) {
+  const [draft, setDraft] = useState(metadata);
+  const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
+
+  function field<K extends keyof AdminStandMetadata>(key: K, value: AdminStandMetadata[K]) {
+    setDraft((current) => ({ ...current, [key]: value }));
+    setNote(null);
+  }
+
+  /** A typed coordinate, or null. A half-typed "47." is not a number and is not a pin. */
+  function coordinate(value: string): number | null {
+    if (value.trim() === "") return null;
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  async function save(): Promise<void> {
+    setBusy(true);
+    setNote(null);
+    try {
+      const response = await fetch("/api/admin/stands", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          standId,
+          action: "save_metadata",
+          name: draft.name,
+          publicAddress: draft.publicAddress,
+          addressPublic: draft.addressPublic,
+          latitude: draft.latitude,
+          longitude: draft.longitude,
+          hoursText: draft.hoursText,
+        }),
+      });
+      if (!response.ok) {
+        const payload = (await response.json().catch(() => ({}))) as Record<string, unknown>;
+        // The typed values are KEPT — an operator correcting one field must not retype the form.
+        setNote({ kind: "bad", text: metadataRefusal(payload) });
+        return;
+      }
+      onSaved(draft);
+      setNote({ kind: "ok", text: "Stand details saved." });
+    } catch {
+      setNote({ kind: "bad", text: "That did not save. Nothing was changed — try again." });
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  const id = (suffix: string): string => `stand-${standId}-${suffix}`;
+
+  return (
+    <section
+      className="admin-stand-editor"
+      role="group"
+      aria-label={`Stand details for ${standName}`}
+    >
+      <h4>Stand details</h4>
+      <p className="admin-note">
+        What customers see on the map. The farmer edits these too, from her own link.
+      </p>
+
+      {note !== null && (
+        <p
+          className={note.kind === "ok" ? "admin-success" : "admin-error"}
+          role={note.kind === "ok" ? "status" : "alert"}
+        >
+          {note.text}
+        </p>
+      )}
+
+      <label htmlFor={id("name")}>Stand name</label>
+      <input
+        id={id("name")}
+        type="text"
+        value={draft.name}
+        disabled={busy}
+        onChange={(event) => field("name", event.target.value)}
+      />
+
+      <label htmlFor={id("address")}>Address</label>
+      <input
+        id={id("address")}
+        type="text"
+        value={draft.publicAddress ?? ""}
+        disabled={busy}
+        onChange={(event) => field("publicAddress", event.target.value)}
+      />
+
+      {/* The address is always STORED; this decides only whether customers see it. Some stands
+          sit at the farmer's home — findable, without printing the street address. */}
+      <label className="admin-stand-editor-check">
+        <input
+          type="checkbox"
+          checked={draft.addressPublic}
+          disabled={busy}
+          onChange={(event) => field("addressPublic", event.target.checked)}
+        />
+        <span>Show the address to customers</span>
+      </label>
+
+      <label htmlFor={id("latitude")}>Map pin latitude</label>
+      <input
+        id={id("latitude")}
+        type="text"
+        inputMode="decimal"
+        value={draft.latitude ?? ""}
+        disabled={busy}
+        onChange={(event) => field("latitude", coordinate(event.target.value))}
+      />
+
+      <label htmlFor={id("longitude")}>Map pin longitude</label>
+      <input
+        id={id("longitude")}
+        type="text"
+        inputMode="decimal"
+        value={draft.longitude ?? ""}
+        disabled={busy}
+        onChange={(event) => field("longitude", coordinate(event.target.value))}
+      />
+
+      <label htmlFor={id("hours")}>Hours, in the farmer&apos;s own words</label>
+      <input
+        id={id("hours")}
+        type="text"
+        value={draft.hoursText ?? ""}
+        disabled={busy}
+        onChange={(event) => field("hoursText", event.target.value)}
+      />
+
+      <button type="button" disabled={busy} onClick={() => void save()}>
+        {busy ? "Saving…" : "Save stand details"}
+      </button>
+    </section>
+  );
 }
 
 function farmBucksDetail(status: AdminStandCard["farmBucksStatus"]): string {
@@ -302,6 +499,27 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
                   </section>
                 );
               })}
+              {/*
+                THE STAND'S OWN FACTS (F-101). Directly under the read-only sections it
+                corrects, so an operator who spots a wrong address edits it where they read it.
+                Offered on a retired stand too, unlike the invitation below: fixing a name is
+                how a stand gets ready to go back on the map.
+              */}
+              <StandMetadataEditor
+                standId={stand.standId}
+                standName={stand.name}
+                metadata={stand.metadata}
+                onSaved={(metadata) =>
+                  setRows((current) =>
+                    current.map((row) =>
+                      row.standId === stand.standId
+                        ? { ...row, metadata, name: metadata.name }
+                        : row,
+                    ),
+                  )
+                }
+              />
+
               <section className="admin-stand-detail-section admin-farm-bucks" aria-labelledby={`stand-${stand.standId}-farm-bucks`}>
                 <div className="admin-farm-bucks-head">
                   <div>

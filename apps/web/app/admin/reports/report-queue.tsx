@@ -78,7 +78,7 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
   if (rows.length === 0) {
     return (
       <p className="admin-note">
-        No stock reports yet.
+        Nothing here. Customers can tell a farmer something looked sold out; many never need to.
       </p>
     );
   }

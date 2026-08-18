@@ -185,9 +185,20 @@ describe("administrator login screen", () => {
     );
     render(<LoginForm />);
 
-    const email = screen.getByLabelText("Email address") as HTMLInputElement;
+    /*
+      F-100's finding, fixed in F-101: the email was a LABELLED, read-only input holding a fixed
+      value — a field that looks actionable, invites a click, and answers nothing. It is static
+      text now, with a hidden input keeping the native no-JavaScript post working and the
+      password manager's username association intact.
+
+      Asserted as both halves: the address is READABLE, and there is no editable field wearing
+      its label.
+    */
+    expect(screen.getByText(FIXED_ADMIN_EMAIL)).toBeVisible();
+    expect(screen.queryByLabelText("Email address")).toBeNull();
+    const email = document.querySelector('input[name="email"]') as HTMLInputElement;
     expect(email.value).toBe(FIXED_ADMIN_EMAIL);
-    expect(email.readOnly).toBe(true);
+    expect(email.type).toBe("hidden");
     expect(email.autocomplete).toBe("username");
 
     const password = screen.getByLabelText("Password") as HTMLInputElement;
@@ -211,5 +222,24 @@ describe("administrator login screen", () => {
     const form = screen.getByRole("button", { name: "Sign in" }).closest("form");
     expect(form).toHaveAttribute("method", "post");
     expect(form).toHaveAttribute("action", "/api/auth/login");
+    // The hidden input is what keeps the native post complete. Without it the no-JS path would
+    // send a password and no email — the exact regression turning the field into text invites.
+    expect(form?.querySelector('input[name="email"]')).toHaveValue(FIXED_ADMIN_EMAIL);
+  });
+
+  it("says where to go when the password is definitely right", async () => {
+    // F-100: the refusal is deliberately generic and stays that way — it must not tell an
+    // attacker which half was wrong. What it lacked was a next move for the ONE person who is
+    // not an attacker: the volunteer whose password is correct and who is still refused.
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      Response.json({ authenticated: false }, { status: 401 }),
+    );
+    render(<LoginForm />);
+    fireEvent.change(screen.getByLabelText("Password"), { target: { value: "wrong" } });
+    fireEvent.click(screen.getByRole("button", { name: "Sign in" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/could not sign in/i);
+    expect(alert).toHaveTextContent(/board@vigavashon\.org/i);
   });
 });
