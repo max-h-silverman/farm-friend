@@ -28,7 +28,7 @@ import {
   markerTipBox,
   sellerSeasonBadge,
   sellerStandLinks,
-  sellerIsOpenNow,
+  sellerOpenState,
   standSellerLinks,
   standsForSeller,
   type SellerStandLink,
@@ -1053,7 +1053,7 @@ function SellerCard({
   if (!chosen && expandedStandId !== null) setExpandedStandId(null);
 
   const links = sellerStandLinks(seller, stands);
-  const openNow = sellerIsOpenNow(seller, stands);
+  const openState = sellerOpenState(seller, stands);
   const season = sellerSeasonBadge(seller, stands);
   // Does this card hold BOTH kinds? Only then does naming a row's relation distinguish anything
   // — see `SellerStandRow`.
@@ -1117,14 +1117,12 @@ function SellerCard({
                 now", which has two answers; the count still DECIDES it — one open stand out of
                 three is Open — but the card states the answer rather than the working.
               */}
-              <span
-                className={
-                  openNow
-                    ? "seller-open-state seller-open-state-open"
-                    : "seller-open-state seller-open-state-closed"
-                }
-              >
-                {openNow ? "Open" : "Closed"}
+              <span className={`seller-open-state seller-open-state-${openState}`}>
+                {openState === "open"
+                  ? "Open"
+                  : openState === "closed"
+                    ? "Closed"
+                    : "Hours unknown"}
               </span>
               {season === undefined ? null : (
                 <span className={`seller-season seller-season-${season}`}>

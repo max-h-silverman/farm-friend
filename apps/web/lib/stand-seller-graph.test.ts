@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   markerTipBox,
   sellerSeasonBadge,
-  sellerIsOpenNow,
+  sellerOpenState,
   sellerStandLinks,
   standSellerLinks,
   standsForSeller,
@@ -281,9 +281,29 @@ describe("placing the marker tooltip inside the island", () => {
   to account — and what stops the card inventing a seller-level season that no farmer stated.
 */
 describe("whether a seller is open right now", () => {
+  /*
+    B-083 — THREE ANSWERS, BECAUSE THE FACT HAS THREE STATES.
+
+    The card used to print a boolean, so everything that was not exactly `open` read as
+    "Closed" — and 9 of 34 live seller cards were asserting a closure no farmer had made
+    (8 stands that stated no hours, 1 by-appointment). That is Golden Rule #1 in the direction
+    that matters: publishing a claim the farmer never made, on the strength of a blank column.
+
+    The rule (max, 2026-08-18): **Closed is reserved for out of season, or outside stated
+    hours.** A stand that stated nothing is `unknown` — not open, and not closed either.
+
+    This is the same rule `applyStandFilters` already holds one list over
+    (`map-view.ts` — *"`open`, `unknown` and `by_appointment` all stay. Only a stand we can
+    positively say is shut … is removed."*). Stating it two ways in two lists is what let them
+    disagree; the two now agree because `definitelyShut` below is the same set.
+  */
   const open: GraphStand = { ...morganHill, id: "a", openState: "open" };
   const shut: GraphStand = { ...kelseys, id: "b", openState: "closed" };
   const unknown: GraphStand = { ...kelseys, id: "c", openState: "unknown" };
+  const byAppointment: GraphStand = { ...kelseys, id: "d", openState: "by_appointment" };
+  const outOfSeason: GraphStand = { ...kelseys, id: "e", openState: "out_of_season" };
+  const closedToday: GraphStand = { ...kelseys, id: "f", openState: "closed_today" };
+  const farmerClosed: GraphStand = { ...kelseys, id: "g", openState: "farmer_closed" };
 
   const atAll = (ids: string[]): GraphSeller => ({
     sellerId: "s",
@@ -299,25 +319,82 @@ describe("whether a seller is open right now", () => {
 
   it("is open when ANY stand she sells at is open", () => {
     // She is buyable wherever any one of them is trading — one open stand is a yes.
-    expect(sellerIsOpenNow(atAll(["a", "b"]), [open, shut])).toBe(true);
+    expect(sellerOpenState(atAll(["a", "b"]), [open, shut])).toBe("open");
   });
 
   it("is closed when every stand she sells at is shut", () => {
-    expect(sellerIsOpenNow(atAll(["b"]), [shut])).toBe(false);
+    expect(sellerOpenState(atAll(["b"]), [shut])).toBe("closed");
+  });
+
+  /*
+    THE FOUR STATES THAT MAY PRINT "Closed", each because a farmer stated the fact that shuts
+    it. Asserted one at a time rather than as a set: a regression that drops one from the
+    closed set would otherwise hide behind the other three.
+  */
+  it.each([
+    ["closed", shut],
+    ["out_of_season", outOfSeason],
+    ["closed_today", closedToday],
+    ["farmer_closed", farmerClosed],
+  ])("reads %s as closed, because the farmer stated what shuts it", (_label, stand) => {
+    expect(sellerOpenState(atAll([stand.id]), [stand])).toBe("closed");
   });
 
   it("does NOT call a stand whose hours nobody stated open", () => {
-    /*
-      `unknown` means the farm said nothing, not that it is trading. Answering "Open" on the
-      strength of it puts a claim on the card that no farmer made — and Closed is unremarkable
-      here, because a stand nobody has described is the ordinary starting state.
-    */
-    expect(sellerIsOpenNow(atAll(["c"]), [unknown])).toBe(false);
+    // `unknown` means the farm said nothing, not that it is trading.
+    expect(sellerOpenState(atAll(["c"]), [unknown])).not.toBe("open");
   });
 
-  it("is closed when the map is not showing any of her stands", () => {
-    // A stand absent from the pin set cannot contribute; nothing here can claim she is open.
-    expect(sellerIsOpenNow(atAll(["gone"]), [open])).toBe(false);
+  it("does NOT call a stand whose hours nobody stated CLOSED either (B-083)", () => {
+    /*
+      The bug this file exists to keep fixed. A blank hours column is not a closure, and
+      printing one puts words in the farmer's mouth on the surface customers act on.
+    */
+    expect(sellerOpenState(atAll(["c"]), [unknown])).toBe("unknown");
+  });
+
+  it("reads by-appointment as unknown rather than closed", () => {
+    /*
+      By-appointment is a real arrangement, not a shut door — she is reachable, the hours are
+      simply not a schedule. `applyStandFilters` already keeps it under "Open now" for exactly
+      this reason.
+    */
+    expect(sellerOpenState(atAll(["d"]), [byAppointment])).toBe("unknown");
+  });
+
+  it("prefers open over unknown when she sells at both", () => {
+    // One stand trading answers the customer's question; the silent one cannot retract it.
+    expect(sellerOpenState(atAll(["a", "c"]), [open, unknown])).toBe("open");
+  });
+
+  it("prefers unknown over closed when she sells at both", () => {
+    /*
+      ORDER MATTERS, and this is the case that fixes it. A seller with one shut stand and one
+      that stated nothing is not closed — we cannot say she is, because one of her stands never
+      told us. Answering "Closed" here is the same false claim in a subtler shape.
+    */
+    expect(sellerOpenState(atAll(["b", "c"]), [shut, unknown])).toBe("unknown");
+  });
+
+  it("is unknown when the map is not showing any of her stands", () => {
+    /*
+      A stand absent from the pin set cannot contribute. It is NOT evidence of a closure —
+      previously this read as Closed, which told the customer something the data never said.
+    */
+    expect(sellerOpenState(atAll(["gone"]), [open])).toBe("unknown");
+  });
+
+  it("is unknown for a seller with no stands at all", () => {
+    expect(sellerOpenState(atAll([]), [open])).toBe("unknown");
+  });
+
+  it("treats a state nobody has defined yet as unknown, never as closed", () => {
+    /*
+      The union has seven members today. A new one must not silently join the CLOSED set and
+      start asserting closures — the default has to fail toward "we do not know".
+    */
+    const future: GraphStand = { ...kelseys, id: "h", openState: "sold_out_but_open_tomorrow" };
+    expect(sellerOpenState(atAll(["h"]), [future])).toBe("unknown");
   });
 });
 

@@ -29,6 +29,8 @@
 // It reads no data of its own and calls nothing. Both inputs are payloads the two lists already
 // receive, so nothing here needs a server round trip.
 
+import { isDefinitelyShut } from "./map-view";
+
 /** A seller as a stand's payload carries them — the fields the graph needs, and no more. */
 export interface GraphStandSeller {
   providerId: string;
@@ -283,28 +285,60 @@ const MARKER_TIP_GAP = 76;
 
 
 /**
+ * What a seller's card may say about buying from her right now.
+ *
+ * THREE answers, because the underlying fact has three states — and B-083 is what the missing
+ * third one cost. `unknown` is not a hedge; it is the only honest answer for a stand that stated
+ * no hours, and printing "Closed" there asserted a closure no farmer had made on 9 of 34 live
+ * seller cards.
+ */
+export type SellerOpenState = "open" | "closed" | "unknown";
+
+/**
  * Can a customer buy from this seller right now?
  *
- * **TRUE if ANY stand she sells at is open**, because she is buyable wherever any one of them
- * is. The card states this rather than a fraction: "1 of 1 stand open" makes the reader do
- * arithmetic to reach a yes, and the question they are actually asking has two answers.
+ * **`open` if ANY stand she sells at is open**, because she is buyable wherever any one of them
+ * is. The card states that rather than a fraction: "1 of 1 stand open" makes the reader do
+ * arithmetic to reach a yes.
  *
- * **A stand that stated no hours is NOT open.** `unknown` means the farm said nothing, not that
- * it is trading, and answering "Open" on the strength of it would put a claim on the seller's
- * card that no farmer ever made. Closed is the honest answer to a silent schedule — and on this
- * map it is unremarkable, because a stand nobody has described is the ordinary starting state.
+ * **`closed` only when every stand she sells at is one a farmer positively shut** — out of
+ * season, or outside the hours they stated (max, 2026-08-18). Closed is a claim about the
+ * farmer's intent, so it is said only where the farmer said it.
  *
- * A stand the map is not currently showing simply cannot contribute: it is absent from `stands`,
- * so it is neither open nor a reason to claim she is.
+ * **`unknown` otherwise**, and that is the case the boolean this replaced could not express: a
+ * stand that stated no hours, a by-appointment arrangement, or a stand the map is not currently
+ * showing. None of those is evidence of a closure, and the card marks them unconfirmed rather
+ * than shut — the same way the stand list already marks a stand with nothing stated.
+ *
+ * The precedence is `open` > `unknown` > `closed`, which matters for a seller at several stands:
+ * one shut stand and one silent one is NOT a closure, because the silent one never told us.
  */
-export function sellerIsOpenNow(
+export function sellerOpenState(
   seller: GraphSeller,
   stands: readonly GraphStand[],
-): boolean {
+): SellerOpenState {
   const byId = new Map(stands.map((stand) => [stand.id, stand]));
-  return seller.sellingAt.some(
-    (stand) => byId.get(stand.salesLocationId)?.openState === "open",
+  /*
+    A stand absent from `stands` contributes `undefined`, which is neither open nor closed —
+    it lands in `unknown` below rather than counting as evidence of a shut door.
+  */
+  const states = seller.sellingAt.map(
+    (stand) => byId.get(stand.salesLocationId)?.openState,
   );
+
+  if (states.some((state) => state === "open")) return "open";
+  /*
+    Closed requires EVERY stand to be positively shut, and at least one stand to exist. An empty
+    list falls through to `unknown`: a seller with nowhere to sell has not been closed, she has
+    simply told us nothing.
+  */
+  if (
+    states.length > 0 &&
+    states.every((state) => isDefinitelyShut(state))
+  ) {
+    return "closed";
+  }
+  return "unknown";
 }
 
 /** The two season badges the poster's key already defines. */

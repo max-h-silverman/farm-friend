@@ -6040,6 +6040,16 @@ button.admin-action-danger,
   color: var(--ink-soft);
 }
 
+/* HOURS UNKNOWN — quieter still, and deliberately not a third colour (B-083).
+   The stand never stated hours, so this is the absence of a fact rather than a
+   state the farmer chose; giving it its own hue would make a blank column look
+   like a decision. It reads as the softest thing in the row, which is what an
+   unstated fact should look like beside two stated ones. */
+.seller-open-state-unknown {
+  color: var(--ink-soft);
+  font-weight: 600;
+}
+
 /* The poster's own season key, as a pill — the same dot and the same two colours
    the map key and the stand cards already use, so a seller's badge and her
    stand's dot are recognisably one vocabulary. */

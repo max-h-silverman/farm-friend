@@ -210,13 +210,15 @@ describe("a stand shows who sells there", () => {
     expect(within(card).getByRole("switch", { name: /Fernhorn Farm/i })).toBeInTheDocument();
   });
 
-  it("shows a solo stand as open rather than as a list of one", async () => {
+  it("shows a solo stand as a plain fact rather than as a list of one", async () => {
     renderPage();
 
     await userEvent.click(screen.getByText("Harbor Stand"));
     const card = screen.getByRole("group", { name: /Harbor Stand/i });
 
-    expect(within(card).getByRole("switch", { name: /stand is open/i })).toBeInTheDocument();
+    // The control names the ARRANGEMENT, never the stand's open-now state (B-084) — that fact
+    // belongs to the card's header, which computes it from season and hours.
+    expect(within(card).getByRole("switch", { name: /selling here/i })).toBeInTheDocument();
     expect(within(card).queryByRole("list")).not.toBeInTheDocument();
   });
 });

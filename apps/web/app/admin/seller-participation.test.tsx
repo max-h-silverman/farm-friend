@@ -76,23 +76,57 @@ describe("the singular case does not look like a list", () => {
   });
 });
 
-describe("the adapting label", () => {
-  it("reads as the stand being open when its only seller is its own", () => {
+describe("the participation label", () => {
+  /*
+    B-084 — THE CONTROL NAMES THE ARRANGEMENT, NEVER THE STAND'S OPEN-NOW STATE (max, 2026-08-18).
+
+    It used to read "Stand is open" / "Stand is closed" on a solo native seller. That is a
+    DIFFERENT FACT from the one the card's own header computes from season and hours, and the two
+    contradicted each other in production: Lavender Hill Farm showed "Not open — out of season"
+    (season ended 8/1) directly above "Stand is open" (her arrangement is active). Both were
+    true; only the labelling made them look like a conflict.
+
+    Participation is whether she is still selling here at all. Open-now is whether you can buy
+    today. The header owns the second one because it is the only thing that computes it, so this
+    control says nothing about it.
+
+    `paused` rather than "not active": a paused arrangement is REVERSIBLE and still reachable —
+    she keeps her reminders and re-opens by texting an update — where an ended one is terminal
+    and takes the row with it. A label that blurred the two would flatten a distinction the
+    operator acts on.
+  */
+  it("says she is selling here, never that the stand is open", () => {
     renderStand([host]);
 
     const toggle = screen.getByRole("switch");
-    expect(toggle).toHaveAccessibleName(/stand is open/i);
+    expect(toggle).toHaveAccessibleName(/selling here/i);
     expect(toggle).toBeChecked();
     // The seller's name is not the subject on a solo stand — the stand is.
     expect(toggle).not.toHaveAccessibleName(/Misty Hollow Farm/i);
+    // The open-now claim is gone entirely; the header computes that fact, not this control.
+    expect(toggle).not.toHaveAccessibleName(/stand is (open|closed)/i);
   });
 
-  it("reads as the stand being closed when its only seller is paused", () => {
+  it("says paused, never that the stand is closed", () => {
     renderStand([{ ...host, lifecycleState: "paused" }]);
 
     const toggle = screen.getByRole("switch");
-    expect(toggle).toHaveAccessibleName(/stand is closed/i);
+    expect(toggle).toHaveAccessibleName(/paused/i);
     expect(toggle).not.toBeChecked();
+    expect(toggle).not.toHaveAccessibleName(/stand is (open|closed)/i);
+  });
+
+  it("makes no open-or-closed claim anywhere in the control, in either state", () => {
+    /*
+      Asserts the ABSENCE of the wrong behaviour rather than the presence of the right one: a
+      future author reaching for "closed" to describe a paused arrangement reintroduces the
+      contradiction, and a label test that only checks for "Paused" would not notice.
+    */
+    for (const state of ["active", "paused"] as const) {
+      const { unmount } = renderStand([{ ...host, lifecycleState: state }]);
+      expect(screen.queryByText(/stand is (open|closed)/i)).not.toBeInTheDocument();
+      unmount();
+    }
   });
 
   it("never says the stand is closed while another seller is still live there", () => {
@@ -106,6 +140,19 @@ describe("the adapting label", () => {
     for (const toggle of toggles) {
       expect(toggle).not.toHaveAccessibleName(/stand is (open|closed)/i);
     }
+  });
+
+  it("keeps the seller's name on a shared stand, where it distinguishes", () => {
+    /*
+      The subject survives the rename. On a stand with three sellers, "Paused" alone does not say
+      WHOSE arrangement is paused — which is the whole reason the non-solo path names a subject.
+    */
+    renderStand([host, { ...guest, lifecycleState: "paused" }]);
+
+    expect(
+      screen.getByRole("switch", { name: /Misty Hollow Farm.*selling here/i }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("switch", { name: /Fernhorn Farm.*paused/i })).toBeInTheDocument();
   });
 
   it("names each seller once the stand is shared", () => {
@@ -234,19 +281,21 @@ describe("pausing asks before it acts", () => {
     expect(JSON.parse(init.body as string)).toMatchObject({ transition: "resume" });
   });
 
-  it("names the stand's own closing when one seller IS the stand", async () => {
+  it("names the stand when one seller IS the stand, and still says pause (B-084)", async () => {
     /*
-      On a solo native-seller stand the toggle already reads as the stand being open or closed,
-      because that is its true effect. The question has to say the same thing — asking "pause
-      Misty Hollow Farm?" under a control labelled "Stand is open" would name a different act
-      from the one the operator pressed.
+      The question has to name the act the operator pressed. Since B-084 the toggle says
+      "Selling here" in both cases, so the question says PAUSE in both cases — offering to
+      "close the stand" here would name a different act AND re-assert the open-now claim the
+      label deliberately dropped. What stays different is only the subject: on a solo native
+      stand the stand is named, because the seller and the stand are the same entity.
     */
     const fetcher = vi.fn();
     renderStand([host], fetcher);
 
-    await userEvent.click(screen.getByRole("switch", { name: /stand is open/i }));
+    await userEvent.click(screen.getByRole("switch", { name: /selling here/i }));
 
-    expect(screen.getByRole("group", { name: /close misty hollow stand/i })).toBeInTheDocument();
+    expect(screen.getByRole("group", { name: /pause misty hollow stand/i })).toBeInTheDocument();
+    expect(screen.queryByRole("group", { name: /close/i })).not.toBeInTheDocument();
     expect(fetcher).not.toHaveBeenCalled();
   });
 });
@@ -293,8 +342,10 @@ describe("Remove", () => {
     await userEvent.click(screen.getByRole("button", { name: /^remove$/i }));
 
     // The lists are entities; an ended relationship is not one. With the guest gone the stand
-    // is back to its solo shape — plain fact, no list.
-    expect(await screen.findByRole("switch", { name: /stand is open/i })).toBeInTheDocument();
+    // is back to its solo shape — plain fact, no list, and the label drops the now-redundant name.
+    const remaining = await screen.findByRole("switch", { name: /selling here/i });
+    expect(remaining).toBeInTheDocument();
+    expect(remaining).not.toHaveAccessibleName(/Misty Hollow Farm/i);
     expect(screen.queryByText(/Fernhorn Farm/i)).not.toBeInTheDocument();
   });
 
