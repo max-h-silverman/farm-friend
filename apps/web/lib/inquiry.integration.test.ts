@@ -18,7 +18,7 @@ import {
 } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
 import { containsRawPhone } from "@farm-friend/sms";
-import { answerInquiry } from "./inquiry";
+import { answerInquiry, standKeyOfFactId } from "./inquiry";
 import { recordStockOutReport } from "./stockout";
 
 // F-013 — customer inquiry and code-bound stock-out reporting, end to end against real
@@ -264,6 +264,197 @@ ${farmId}, ${locationId},
     expect(result.body).toContain("Beta Farm Stand");
     expect(result.body).toContain("In stock (2h ago): Eggs");
     expect(result.body).toContain("May have: Eggs");
+  });
+
+  it("expands to EVERY stand at corpus scale, not just the freshest (B-087)", async () => {
+    /*
+      B-087 — max texted "who has eggs?" on a handset and got ONE stand back, while ten stands
+      were listing eggs. Provo Farms had published `Eggs` by SMS two days earlier.
+
+      Every component checked out in isolation, which is exactly why this test is at CORPUS
+      SCALE. The existing B-069 case above uses two stands and one matched value; production has
+      ~37 stands, three egg spellings (`Eggs`, `duck eggs`, `chicken eggs`) and confirmations
+      spanning four months. DEVELOPMENT.md §gotchas already says it: measure a matcher against
+      the real corpus, because the abstract version passes.
+
+      The two facts this pins, both of which the small fixture could not see:
+
+        1. EVERY matched spelling expands to every stand carrying it — a stand is not dropped
+           for spelling `Eggs` where another wrote `eggs`.
+        2. AGE DOES NOT REMOVE A STAND from a direct question. Staleness changes the WORDING
+           (`renderStockAge`) and the ordering; it must not silently shorten the answer. A
+           customer asking who has eggs is owed every stand that says it does, marked old where
+           it is old.
+    */
+    const ages = [
+      ["a", 1],
+      ["b", 1],
+      ["c", 2],
+      ["d", 4],
+      ["e", 4],
+      ["f", 25],
+      ["g", 41],
+      ["h", 108],
+      ["i", 109],
+      ["j", 124],
+    ] as const;
+    // Alternating spellings, exactly as the real corpus holds them.
+    const spelling = (index: number): string =>
+      index % 3 === 0 ? "Eggs" : index % 3 === 1 ? "eggs" : "chicken eggs";
+
+    const locationIds: string[] = [];
+    for (const [index, [key, daysOld]] of ages.entries()) {
+      const farm = await client()`
+        insert into sellers (name) values (${`Corpus ${key} Farm`}) returning id`;
+      const farmId = farm[0]?.id as string;
+      await client()`
+        insert into seller_approvals (seller_id, administrator_id, approved_at)
+        values (${farmId}, (select id from administrators limit 1), ${T0})`;
+      // `publish` reads an authorization for this seller; each corpus farm needs its own.
+      const corpusContact = await client()`
+        insert into contacts (phone_e164, phone_hash)
+        values (${`+1206555${String(1000 + index).slice(-4)}`}, ${`c${key}`.padEnd(64, "0")})
+        returning id`;
+      await client()`
+        insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+        values (${farmId}, ${corpusContact[0]?.id as string}, ${T0}, ${T0})`;
+      const location = await client()`
+        insert into sales_locations (
+          own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude,
+          farm_bucks_accepted, farm_bucks_eligible
+        )
+        values (${farmId}, 'farm_stand', ${`Corpus ${key} Stand`}, 'America/Los_Angeles',
+                'visitable', 'produce', '1 Road', 47.45, -122.46, false, false)
+        returning id`;
+      const locationId = location[0]?.id as string;
+      locationIds.push(locationId);
+      await publish(
+        locationId,
+        farmId,
+        [spelling(index)],
+        new Date(T0.getTime() - daysOld * 86_400_000),
+      );
+      /*
+        EVERY corpus farm also lists eggs as USUALLY CARRIED, exactly as all ten production egg
+        stands do (measured 2026-08-18). This is what makes the expired stands still answerable:
+        past 28 days the confirmation stops being evidence and the stand falls back to its
+        standing description — "May have" rather than "In stock". Without this line the fixture
+        would prove the wrong thing, because a stand with no usual items genuinely does drop out.
+      */
+      await client()`
+        insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order)
+        values (
+          ${locationId},
+          (select id from stand_providers where sales_location_id = ${locationId}
+             and seller_id = (select own_seller_id from sales_locations where id = ${locationId})),
+          'eggs', true, 0)`;
+    }
+
+    const { deps } = inquiryDeps({
+      // What the REAL model returns for this catalog, replayed three times against production
+      // on 2026-08-18 and stable each time.
+      "catalog-match": JSON.stringify({ matches: ["Eggs", "eggs", "chicken eggs"] }),
+    });
+
+    const result = await answerInquiry(deps, {
+      mode: "search_stands",
+      request: { operation: "inventory" },
+      taskText: "who has eggs?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+
+    /*
+      THE COUNT IS THE ASSERTION. The header states a total, and a reply naming one stand out of
+      ten is the defect — so this reads the total rather than trusting that a name appears
+      somewhere. `selectedFactIds` is the same answer from the other side.
+    */
+    /*
+      TEN STANDS, not six. Six carry a live confirmation; the other four are past 28 days and
+      answer from their standing description instead. Age changes the WORDING and the ORDER —
+      it must never remove a stand that says it has the thing.
+    */
+    expect(result.body).toMatch(/10 matching stands/);
+    /*
+      `selectedFactIds` counts FACTS, not stands — a stand answering from both a confirmation
+      and a standing description contributes two. The header's total is the stand count
+      (B-062), and that is the number the customer reads, so it is asserted above; here we
+      assert every stand is represented at least once.
+    */
+    const standsRepresented = new Set(result.selectedFactIds.map(standKeyOfFactId));
+    expect(standsRepresented.size).toBe(10);
+  });
+
+  it("keeps a stand reachable when its ONLY egg claim is an expired confirmation (B-087)", async () => {
+    /*
+      THE HALF THE FALLBACK DOES NOT COVER, and the one the catalog fix is for.
+
+      A stand past 28 days whose item is ALSO a usual offering still answers, from its standing
+      description. But a stand whose only claim is the expired confirmation contributed no
+      catalog value at all, because `listPublicStands` drops an expired confirmation's items and
+      the catalog was built from it. The model cannot select a value it was never shown, so the
+      stand was unreachable BY NAME rather than merely ranked last.
+
+      The catalog is now built from `listings` — the same rows the answer is filtered from — so
+      the value exists and the stand can be selected. Whether the RENDERER then prints it is the
+      documented expiry rule's business; what must not happen is the value going missing before
+      anything gets to decide.
+    */
+    const farm = await client()`
+      insert into sellers (name) values ('Solo Expired Farm') returning id`;
+    const farmId = farm[0]?.id as string;
+    await client()`
+      insert into seller_approvals (seller_id, administrator_id, approved_at)
+      values (${farmId}, (select id from administrators limit 1), ${T0})`;
+    const contact = await client()`
+      insert into contacts (phone_e164, phone_hash)
+      values ('+12065559099', ${"solo".padEnd(64, "0")}) returning id`;
+    await client()`
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${farmId}, ${contact[0]?.id as string}, ${T0}, ${T0})`;
+    const location = await client()`
+      insert into sales_locations (
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude, farm_bucks_accepted, farm_bucks_eligible
+      )
+      values (${farmId}, 'farm_stand', 'Solo Expired Stand', 'America/Los_Angeles',
+              'visitable', 'produce', '9 Road', 47.45, -122.46, false, false)
+      returning id`;
+    // 120 days old, and NO usual item to fall back on.
+    await publish(
+      location[0]?.id as string,
+      farmId,
+      ["quince"],
+      new Date(T0.getTime() - 120 * 86_400_000),
+    );
+
+    const { provider, deps } = inquiryDeps({
+      "catalog-match": JSON.stringify({ matches: ["quince"] }),
+    });
+
+    await answerInquiry(deps, {
+      mode: "search_stands",
+      request: { operation: "inventory" },
+      taskText: "who has quince?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    /*
+      THE ASSERTION IS ON THE CATALOG THE MODEL WAS SHOWN, not on the reply. The reply correctly
+      says nobody has a current listing — that is the expiry rule working. What this pins is that
+      `quince` REACHED the matcher at all: with the catalog built from `listPublicStands` the
+      value was absent, and an absent value is indistinguishable from a question nobody asked.
+    */
+    const fields = provider.contextFor("catalog-match")?.fields as { values: string[] } | undefined;
+    expect(fields).toBeDefined();
+    expect(fields!.values.map((v) => v.toLowerCase())).toContain("quince");
   });
 
   it("resolves one stand in code before asking which fact the customer wants (B-069)", async () => {
