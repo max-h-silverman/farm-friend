@@ -2,7 +2,10 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { creditSeller, LISTING_SEPARATOR } from "@farm-friend/core";
+// The SUBPATH, not the barrel. `@farm-friend/core` re-exports `privacy/phone.ts`, which
+// imports `node:crypto` — unresolvable in a client bundle, and it 500s every farmer screen
+// in local dev. `seller-credit.ts` is pure and is exported for exactly this reason.
+import { creditSeller, LISTING_SEPARATOR } from "@farm-friend/core/seller-credit";
 import { useTabCommit } from "../details-panel";
 
 interface SettingsListing {
