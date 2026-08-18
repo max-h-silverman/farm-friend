@@ -355,12 +355,27 @@ function StandSellers({
   }
 
   /*
-    THE FALLBACK IS FOR A STAND WITH NO MODELLED SELLERS AT ALL — not for one whose roster
-    happened to filter to empty. The distinction is the whole point: a stand whose sellers ARE
-    modelled has already named them, on the item lines, and printing the typed strings beside
-    those would restore the double-naming this section exists to end.
+    THE FALLBACK IS FOR A STAND WITH NO MODELLED **GUEST** — not for one whose roster happened to
+    filter to empty, and not for one whose only modelled seller is itself.
+
+    The rule suppresses typed names because a stand whose sellers are modelled has already named
+    them, ON THE ITEM LINES, and printing the typed strings beside those would restore the
+    double-naming this section exists to end. That reasoning holds for a GUEST, who earns an item
+    credit. It does not hold for the stand's own seller, who is never credited — the credit IS the
+    crossing, and a stand does not cross to itself.
+
+    B-085: `0042` gave EVERY stand a self-pointer, which made "has modelled sellers" true
+    everywhere and quietly turned this into "never show typed names". Morgan Hill lost all four of
+    its names to its own native row, with nothing replacing them.
+
+    **A stand with named hosted sellers and no seller profiles for them is a SUPPORTED case**, not
+    a migration leftover. `sales_location_participants` is exactly that: display strings a stand
+    owner typed, no identity, no handset, no inventory of their own. Morgan Hill's four are
+    decorative rather than operational (max, 2026-08-18) — one `source: 'viga'` revision holds 17
+    pooled items nobody can attribute to any of them. The two shapes coexist; only a real guest
+    displaces the typed list.
   */
-  if ((stand.sellers ?? []).length > 0) return null;
+  if ((stand.sellers ?? []).some((seller) => !seller.describesOwnStand)) return null;
   if (stand.alsoSellingHere.length === 0) return null;
 
   return (

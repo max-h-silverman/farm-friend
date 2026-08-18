@@ -72,7 +72,7 @@ function soloNativeRow(view: View, rows: ParticipationRow[]): boolean {
 }
 
 /**
- * What the control says, and the fact it deliberately does NOT say (B-084).
+ * What the control says, and the fact it deliberately does NOT say (B-084, B-085).
  *
  * This is the ARRANGEMENT: whether this seller is still selling at this stand. It is not
  * whether a customer can buy there today — that is the stand card's header, computed from
@@ -84,13 +84,19 @@ function soloNativeRow(view: View, rows: ParticipationRow[]): boolean {
  * arrangement was still active. Both facts were true and the labelling made them look like a
  * conflict a volunteer would try to resolve.
  *
+ * **Every row names its seller, solo or not** (B-085). B-084 dropped the name from a solo
+ * native row because it repeats the stand's own — which is true, and was still the wrong call:
+ * these rows sit under a heading that asks **"Who sells here"**, and a row reading only
+ * "Selling here" answers a question nobody asked. The repetition is the point on a stand whose
+ * seller IS the stand; a bare state is what confused an operator in production.
+ *
  * **`Paused`, not "not active".** A paused arrangement is reversible and still reachable — she
  * keeps her reminders and re-opens by texting an update (`reachableProviders`) — where an ended
  * one is terminal and removes the row. The operator acts on that difference.
  */
-function toggleLabel(view: View, row: ParticipationRow, solo: boolean): string {
-  const state = row.lifecycleState === "active" ? "Selling here" : "Paused";
-  return solo ? state : `${subjectOf(view, row)} — ${state.toLowerCase()}`;
+function toggleLabel(view: View, row: ParticipationRow): string {
+  const state = row.lifecycleState === "active" ? "selling here" : "paused";
+  return `${subjectOf(view, row)} — ${state}`;
 }
 
 /** What a refusal means in the operator's terms, never the seam's vocabulary. */
@@ -184,7 +190,7 @@ export function SellerParticipation({
   function renderRow(row: ParticipationRow) {
     const paused = row.lifecycleState === "paused";
     const subject = subjectOf(view, row);
-    const label = toggleLabel(view, row, solo);
+    const label = toggleLabel(view, row);
     return (
       <div className="admin-participation-row" key={row.providerId}>
         <div className="admin-participation-line">
@@ -218,12 +224,10 @@ export function SellerParticipation({
             }}
           >
             <span className="admin-participation-dot" aria-hidden="true" />
-            <span className="admin-participation-subject">{solo ? label : subject}</span>
-            {!solo && (
-              <span className="admin-chip admin-chip--state" aria-hidden="true">
-                {paused ? "Paused" : "Selling"}
-              </span>
-            )}
+            <span className="admin-participation-subject">{subject}</span>
+            <span className="admin-chip admin-chip--state" aria-hidden="true">
+              {paused ? "Paused" : "Selling"}
+            </span>
           </button>
 
           {/*

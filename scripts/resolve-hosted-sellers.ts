@@ -72,6 +72,28 @@ interface Entry {
   arrangements: Arrangement[];
 }
 
+/**
+ * A stand whose self-pointer must be CLEARED, because the stand sells nothing of its own.
+ *
+ * `0042` gave every stand a self-pointer, including Morgan Hill, and said why it refused to
+ * decide otherwise: *"there is NO signal in the data separating 'a venue with no goods of its
+ * own' from 'a seller with one stand'. Any rule that tried would be the inference §migration
+ * approach forbids. Clearing the pointer is a VIGA decision made in the C.1 work queue."*
+ *
+ * This is that decision (max, 2026-08-18): Morgan Hill Community Farm Stand is a VENUE. Its
+ * "own seller" is the row `0042` described as *"invented to satisfy NOT NULL, asserting
+ * something false"* — the fabricated authority the model exists to remove.
+ *
+ * Clearing it also removes the native `stand_providers` row, which is what suppressed the
+ * stand's typed `alsoSellingHere` names: F-118 makes those a FALLBACK, shown only where a stand
+ * has no modelled sellers, so one native row hid four real names while replacing none of them.
+ */
+interface VenueClearing {
+  standName: string;
+  /** The fabricated seller the pointer names, refused if it is not exactly this. */
+  ownSellerName: string;
+}
+
 const ENTRIES: Entry[] = [
   {
     sellerName: "Gracie's Greens",
@@ -96,8 +118,60 @@ const ENTRIES: Entry[] = [
   },
 ];
 
+/**
+ * Morgan Hill's four retained names become real sellers (max, 2026-08-18).
+ *
+ * They inherit the stand's schedule with NO schedule of their own, and that is not a shortcut:
+ * `intersectAvailability` already resolves a seller who states nothing to the stand's own
+ * season and hours. Writing Morgan Hill's `open_ended` 6/1 dawn-to-dusk onto each of the four
+ * would be a second copy of one fact, free to drift the first time the stand's hours change.
+ */
+const MORGAN_HILL: Entry[] = [
+  "Bywater Flower Farm",
+  "Bay Laurel Farm",
+  "King\u2019s Arms Farm",
+  "Rozy Dawg Farm",
+].map((name) => ({
+  sellerName: name,
+  arrangements: [
+    { standName: "Morgan Hill Community Farm Stand", retainedName: name },
+  ],
+}));
+
+ENTRIES.push(...MORGAN_HILL);
+
+/*
+  EMPTY, DELIBERATELY — and this is the finding, not an omission (2026-08-18).
+
+  max's call is that Morgan Hill has no seller of its own, and the model agrees: it is a venue.
+  But its self-pointer CANNOT simply be cleared, because the row it names is not the empty
+  placeholder the name suggests. Measured against production on 2026-08-18, that seller carries:
+
+    - 1 published inventory revision and 17 `stand_items` — the stand's own goods, published
+      under it and currently shown to customers
+    - a `seller_emails` row and a `seller_approvals` row
+    - 4 `sales_location_participants` rows whose COMPOSITE KEY names it, which block the clear
+      outright
+
+  `0042` measured the same thing and declined for the same reason: *"VIGA has been using that row
+  as the venue's own record, so it is not purely fabricated and nulling the pointer here would
+  orphan real data."*
+
+  So clearing the pointer needs an answer to where those 17 items go first — most likely
+  redistributed to whichever of the four sellers actually brings them, which is a question for a
+  person with knowledge of the stand, not a rule this script can hold. Until then the four
+  sellers below are what fixes the disappeared names, and the venue pass stays empty rather than
+  half-doing it.
+*/
+const VENUES: VenueClearing[] = [];
+
 const EXPECTED_STANDS = Number(process.env.EXPECTED_STANDS ?? 38);
-const EXPECTED_SELLERS = Number(process.env.EXPECTED_SELLERS ?? 40);
+/*
+  42, not 40: the first run (Gracie's Greens, Fernhorn Bakery) already landed. The pin is the
+  state this script expects to FIND, so it moves when a run of this script changes it — and only
+  then. It is not re-pinned to whatever the database happens to hold.
+*/
+const EXPECTED_SELLERS = Number(process.env.EXPECTED_SELLERS ?? 42);
 
 async function main(): Promise<void> {
   const databaseUrl = process.env.DATABASE_URL;
@@ -194,9 +268,82 @@ async function main(): Promise<void> {
       }
     }
 
+    /*
+      THE VENUE PASS, and it runs LAST for a reason: clearing the self-pointer drops the stand's
+      native arrangement, and the four real sellers must already be in place before that happens
+      — otherwise the stand spends the gap with no sellers at all and its typed fallback names
+      showing again, which is the state this whole change exists to leave behind.
+    */
+    let clearedVenues = 0;
+    for (const venue of VENUES) {
+      const stands = await sql`
+        select l.id, l.name, l.own_seller_id, s.name as own_seller_name
+        from sales_locations l left join sellers s on s.id = l.own_seller_id
+        where l.name = ${venue.standName}`;
+      const stand = stands[0];
+      if (stand === undefined) {
+        console.error(`\n!! no stand named "${venue.standName}" — skipping`);
+        continue;
+      }
+      if (stand.own_seller_id === null) {
+        console.log(`\n"${venue.standName}" — already a venue, nothing to clear`);
+        continue;
+      }
+      /*
+        REFUSES a self-pointer naming anything other than the fabricated row. If VIGA has since
+        pointed this stand at a real seller, clearing it would delete a true fact — so the script
+        stops rather than guessing which case it is looking at.
+      */
+      if (stand.own_seller_name !== venue.ownSellerName) {
+        console.error(
+          `\n!! "${venue.standName}" points at "${stand.own_seller_name}", not ` +
+            `"${venue.ownSellerName}" — refusing to clear it`,
+        );
+        continue;
+      }
+
+      const guests = await sql`
+        select count(*)::int as n from stand_providers
+        where sales_location_id = ${stand.id} and seller_id <> ${stand.own_seller_id}
+          and ended_at is null and lifecycle_state = 'active'`;
+      const guestCount = guests[0]?.n ?? 0;
+      /*
+        A venue with no sellers is worse than a stand with a fabricated one: it publishes a place
+        selling nothing. The four above must have landed first.
+      */
+      if (guestCount === 0) {
+        console.error(
+          `\n!! "${venue.standName}" would be left with NO sellers — refusing to clear it`,
+        );
+        continue;
+      }
+
+      console.log(
+        `\n"${venue.standName}" — would CLEAR the self-pointer ` +
+          `("${stand.own_seller_name}" is the invented owner row), leaving ${guestCount} real seller(s)`,
+      );
+      clearedVenues += 1;
+
+      if (commit) {
+        /*
+          The native arrangement goes first: `sales_locations_own_seller_fk` is ON DELETE
+          restrict, and the provider row's composite key names the pointer being cleared. It is
+          ENDED rather than deleted — `stand_providers` is a relationship record, and this
+          relationship genuinely ended rather than never having existed.
+        */
+        await sql`
+          update stand_providers set ended_at = now(), updated_at = now()
+          where sales_location_id = ${stand.id} and seller_id = ${stand.own_seller_id}
+            and ended_at is null`;
+        await sql`
+          update sales_locations set own_seller_id = null, updated_at = now()
+          where id = ${stand.id}`;
+      }
+    }
+
     console.log(
       `\n${commit ? "wrote" : "would write"}: ${createdSellers} seller(s), ` +
-        `${createdProviders} arrangement(s)`,
+        `${createdProviders} arrangement(s), ${clearedVenues} venue pointer(s) cleared`,
     );
     if (!commit) console.log("re-run with --commit to apply");
   } finally {
