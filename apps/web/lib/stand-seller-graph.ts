@@ -282,33 +282,29 @@ export function markerTipBox(
 const MARKER_TIP_GAP = 76;
 
 
-/** How many of a seller's stands are open right now, out of how many she sells at. */
-export interface SellerStandsOpen {
-  open: number;
-  total: number;
-}
-
 /**
- * How many of this seller's stands are open right now.
+ * Can a customer buy from this seller right now?
  *
- * **A stand that stated no hours is NOT counted as open.** `unknown` means the farm said
- * nothing, not that it is trading — and the card's word is "open", so counting an unknown stand
- * would put a claim on the seller's card that no farmer ever made. It stays in the TOTAL,
- * because she does sell there and the total is her own count of places.
+ * **TRUE if ANY stand she sells at is open**, because she is buyable wherever any one of them
+ * is. The card states this rather than a fraction: "1 of 1 stand open" makes the reader do
+ * arithmetic to reach a yes, and the question they are actually asking has two answers.
  *
- * **A stand the map is not currently showing counts in the total too.** She still sells there;
- * a filter is simply hiding it. Dropping it would make this card disagree with her own list of
- * stands, which is the discrepancy `sellerStandLinks` refuses for the same reason.
+ * **A stand that stated no hours is NOT open.** `unknown` means the farm said nothing, not that
+ * it is trading, and answering "Open" on the strength of it would put a claim on the seller's
+ * card that no farmer ever made. Closed is the honest answer to a silent schedule — and on this
+ * map it is unremarkable, because a stand nobody has described is the ordinary starting state.
+ *
+ * A stand the map is not currently showing simply cannot contribute: it is absent from `stands`,
+ * so it is neither open nor a reason to claim she is.
  */
-export function sellerStandsOpen(
+export function sellerIsOpenNow(
   seller: GraphSeller,
   stands: readonly GraphStand[],
-): SellerStandsOpen {
+): boolean {
   const byId = new Map(stands.map((stand) => [stand.id, stand]));
-  const open = seller.sellingAt.filter(
+  return seller.sellingAt.some(
     (stand) => byId.get(stand.salesLocationId)?.openState === "open",
-  ).length;
-  return { open, total: seller.sellingAt.length };
+  );
 }
 
 /** The two season badges the poster's key already defines. */

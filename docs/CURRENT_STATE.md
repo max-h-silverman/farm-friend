@@ -75,18 +75,19 @@ stand card says how many sellers it carries and makes each item credit the link 
 and a pin tapped in seller mode opens a tooltip naming that stand's sellers rather than selecting
 the stand. Contract and rules: SURFACES.md §the public map.
 
-A **second pass on the same branch** revised the seller card to max's mockup and simplified two
-interactions: the card's summary row is now how many of her stands are open right now plus a
-season badge (both derived from her stands, never guessed); a seller at ONE stand opens that
-stand's own detail body rather than a list of one row; a pin with ONE seller crosses straight to
-her card rather than opening a tooltip of one; and the seller list's own search field is gone —
-the map's single search box feeds both lists. The mockup's category chip (Produce / Baked Goods /
+A **second pass on the same branch** revised the seller card to max's mockup and simplified four
+interactions: the card's summary row is now **Open / Closed** plus a season badge (both derived
+from her stands, never guessed); a seller at ONE stand opens that stand's own detail body rather
+than a list of one row; a pin with ONE seller crosses straight to her card rather than opening a
+tooltip of one; the seller list's own search field is gone — the map's single box feeds both
+lists; the whole card is the tap target and a second tap closes it; and a chosen seller's stands
+now wear the map's OWN selection halo rather than a second highlight style of their own. The mockup's category chip (Produce / Baked Goods /
 Flowers / Misc) is **deliberately not built**: no seller column carries it, and guessing it from
 item names would be a second food-vocabulary branch where the project has recorded exactly one
 allowed exception (`map-view.ts` §the flower vocabulary exception). max chose to leave it off
 until there is a field behind it.
 
-**Verified:** 2331 unit tests green, typecheck and lint clean. Eleven sabotages caught across the
+**Verified:** 2337 unit tests green, typecheck and lint clean. Fifteen sabotages caught across the
 two passes. The FIRST pass was driven in a real browser against the local database at ~500px: all
 four crossings work, every tooltip measured fully inside the island on all four edges with no
 content clipping, and the seller card's expanded body measured aligned with its name (47/47, was

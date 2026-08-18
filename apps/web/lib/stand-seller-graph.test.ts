@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   markerTipBox,
   sellerSeasonBadge,
-  sellerStandsOpen,
+  sellerIsOpenNow,
   sellerStandLinks,
   standSellerLinks,
   standsForSeller,
@@ -280,7 +280,7 @@ describe("placing the marker tooltip inside the island", () => {
   place has both. Deriving them here rather than in the card is what lets a test hold the answer
   to account — and what stops the card inventing a seller-level season that no farmer stated.
 */
-describe("how many of a seller's stands are open", () => {
+describe("whether a seller is open right now", () => {
   const open: GraphStand = { ...morganHill, id: "a", openState: "open" };
   const shut: GraphStand = { ...kelseys, id: "b", openState: "closed" };
   const unknown: GraphStand = { ...kelseys, id: "c", openState: "unknown" };
@@ -297,26 +297,27 @@ describe("how many of a seller's stands are open", () => {
     })),
   });
 
-  it("counts the stands that are open right now", () => {
-    expect(sellerStandsOpen(atAll(["a", "b"]), [open, shut])).toEqual({ open: 1, total: 2 });
+  it("is open when ANY stand she sells at is open", () => {
+    // She is buyable wherever any one of them is trading — one open stand is a yes.
+    expect(sellerIsOpenNow(atAll(["a", "b"]), [open, shut])).toBe(true);
   });
 
-  it("does NOT count a stand whose hours nobody stated as open", () => {
+  it("is closed when every stand she sells at is shut", () => {
+    expect(sellerIsOpenNow(atAll(["b"]), [shut])).toBe(false);
+  });
+
+  it("does NOT call a stand whose hours nobody stated open", () => {
     /*
-      `unknown` means the farm said nothing, not that it is shut — but the card's word is
-      "open", and counting an unknown stand as open puts a claim on the card that no farmer
-      made. It stays in the total, because she does sell there.
+      `unknown` means the farm said nothing, not that it is trading. Answering "Open" on the
+      strength of it puts a claim on the card that no farmer made — and Closed is unremarkable
+      here, because a stand nobody has described is the ordinary starting state.
     */
-    expect(sellerStandsOpen(atAll(["a", "c"]), [open, unknown])).toEqual({
-      open: 1,
-      total: 2,
-    });
+    expect(sellerIsOpenNow(atAll(["c"]), [unknown])).toBe(false);
   });
 
-  it("counts a stand the map is not currently showing in the total only", () => {
-    // She still sells there; the map simply is not showing it. Dropping it from the total
-    // would make the card disagree with her own list of stands.
-    expect(sellerStandsOpen(atAll(["a", "gone"]), [open])).toEqual({ open: 1, total: 2 });
+  it("is closed when the map is not showing any of her stands", () => {
+    // A stand absent from the pin set cannot contribute; nothing here can claim she is open.
+    expect(sellerIsOpenNow(atAll(["gone"]), [open])).toBe(false);
   });
 });
 

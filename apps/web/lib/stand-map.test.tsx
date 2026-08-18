@@ -1994,8 +1994,8 @@ describe("browsing by seller without leaving the map", () => {
     // A SELLER HAS NO PIN OF HER OWN, so the card carries no pin number — the one piece of
     // stand chrome that would be a lie on it.
     expect(card.querySelector(".stand-number")).toBeNull();
-    // What she carries instead is her own summary: how many of her stands are open.
-    expect(card.querySelector(".seller-stands-open")).toHaveTextContent("stand");
+    // What she carries instead is her own summary: whether she is open right now.
+    expect(card.querySelector(".seller-open-state")).toBeInTheDocument();
   });
 
   /*
@@ -2043,11 +2043,11 @@ describe("browsing by seller without leaving the map", () => {
       "false",
     );
     /*
-      WHAT THE CARD SAYS AT REST, since the 2026-08-18 revision: how many of her stands are open
-      right now. Both halves are derived from her STANDS, because a seller has no hours of her
-      own — she has places, and each place has them.
+      WHAT THE CARD SAYS AT REST, since the 2026-08-18 revision: whether she is open right now.
+      Derived from her STANDS, because a seller has no hours of her own — she has places, and
+      each place has them.
     */
-    expect(card.querySelector(".seller-stands-open")).toHaveTextContent("1 stand open");
+    expect(card.querySelector(".seller-open-state")).toHaveTextContent("Closed");
   });
 
   /*
@@ -2577,19 +2577,35 @@ describe("crossing between stands and sellers", () => {
     Name, then one row: how many of her stands are open right now, and how long she runs. Both
     are derived from her STANDS, because a seller has no hours and no season of her own.
   */
-  it("says how many of her stands are open right now", async () => {
+  /*
+    OPEN OR CLOSED, NOT A FRACTION (max, 2026-08-18).
+
+    "1 of 1 stand open" makes the reader do arithmetic to reach a yes. The question a customer
+    scanning this list is asking is "can I buy from her right now", and that has two answers.
+    The COUNT is still what decides it — one open stand out of three is Open — but the card
+    states the answer rather than the working.
+  */
+  it("says Open when any stand of hers is open right now", async () => {
     const user = userEvent.setup();
-    const { container } = renderMap();
+    const openStand: PublicStandPayload = {
+      ...busyStand,
+      // A season IS required for `openNow` to answer anything but `unknown` — without one there
+      // is no honest way to say a stand is trading, which is the rule this card inherits.
+      availability: {
+        season: { kind: "year_round" },
+        days: [0, 1, 2, 3, 4, 5, 6],
+        hours: { kind: "all_day" },
+      },
+    };
+    const { container } = render(
+      <StandMap stands={[openStand, soloStand]} sellers={[fernhorn]} />,
+    );
     await openSellers(user);
 
-    const card = [...container.querySelectorAll("li.stand")].find((node) =>
-      node.textContent?.includes("Fernhorn"),
-    )!;
-
-    expect(card.querySelector(".seller-stands-open")).toHaveTextContent("2 stands open");
+    expect(container.querySelector(".seller-open-state")).toHaveTextContent("Open");
   });
 
-  it("says one stand in the singular", async () => {
+  it("says Closed when none of her stands is open", async () => {
     const user = userEvent.setup();
     const { container } = renderMap();
     await openSellers(user);
@@ -2598,7 +2614,8 @@ describe("crossing between stands and sellers", () => {
       node.textContent?.includes("Kelseys"),
     )!;
 
-    expect(card.querySelector(".seller-stands-open")).toHaveTextContent("1 stand open");
+    // The fixture states no hours at all, so nothing can honestly be called open.
+    expect(card.querySelector(".seller-open-state")).toHaveTextContent("Closed");
   });
 
   it("carries the season badge from the stands she sells at", async () => {
@@ -2663,6 +2680,108 @@ describe("crossing between stands and sellers", () => {
     // Two stands is a real choice, so the choice is what the card shows.
     expect(card.querySelectorAll(".seller-stand-link")).toHaveLength(2);
     expect(container.querySelectorAll("[data-seller-highlighted='true']")).toHaveLength(2);
+  });
+
+  /*
+    A SECOND TAP CLOSES THE CARD (max, 2026-08-18).
+
+    The stand list has always worked this way — `select` clears a selection it is given again —
+    and the seller list must too, or the only way to put an opened card away is to open a
+    different one. Held for BOTH card shapes, because they render different bodies and it was
+    the single-stand one (which renders a whole `StandDetailBody`) that broke.
+  */
+  it("closes a single-stand seller's card when its name is tapped again", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Kelseys"),
+    )! as HTMLElement;
+    const toggle = within(card).getByRole("button", { name: /kelseys farm/i });
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    // And the island comes back — no pin left lit for a card nobody has open.
+    expect(container.querySelectorAll("[data-seller-highlighted='true']")).toHaveLength(0);
+  });
+
+  it("closes a multi-stand seller's card when its name is tapped again", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    const toggle = within(card).getByRole("button", { name: /fernhorn bakery/i });
+
+    await user.click(toggle);
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(container.querySelectorAll("[data-seller-highlighted='true']")).toHaveLength(0);
+  });
+
+  it("closes an open seller card when the card itself is tapped, not just its name", async () => {
+    /*
+      THE WHOLE CARD IS THE TARGET, exactly as it is on a stand card. The name is a small
+      target on a phone, and a card that only responds to its heading reads as broken to
+      someone who tapped the obvious thing — the card.
+    */
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+
+    // A tap on the card's own body, away from any control.
+    await user.click(card.querySelector(".seller-summary")!);
+
+    expect(within(card).getByRole("button", { name: /fernhorn bakery/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  /*
+    A CHOSEN SELLER'S PINS ARE MARKED THE WAY A CHOSEN STAND'S IS (max, 2026-08-18).
+
+    The map has one visual language for "this is the thing you picked" — the selection halo the
+    stand list already draws. The seller highlight was inventing a second one (a thin stroke on
+    the pin shape), which meant the same map said "picked" two different ways depending on which
+    list happened to be open. One mark, both lists.
+  */
+  it("draws the map's own selection halo on a chosen seller's stands", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    await user.click(screen.getByRole("button", { name: "Fernhorn Bakery" }));
+
+    // She sells at both stands, so both carry the halo — the same element a selected stand gets.
+    expect(container.querySelectorAll(".pin-selection-halo")).toHaveLength(2);
+  });
+
+  it("clears the halo when the seller is deselected", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const toggle = screen.getByRole("button", { name: "Fernhorn Bakery" });
+    await user.click(toggle);
+    await user.click(toggle);
+
+    expect(container.querySelectorAll(".pin-selection-halo")).toHaveLength(0);
   });
 
   it("still selects the stand from a pin while stands are showing", async () => {

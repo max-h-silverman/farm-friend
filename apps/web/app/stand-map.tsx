@@ -28,7 +28,7 @@ import {
   markerTipBox,
   sellerSeasonBadge,
   sellerStandLinks,
-  sellerStandsOpen,
+  sellerIsOpenNow,
   standSellerLinks,
   standsForSeller,
   type SellerStandLink,
@@ -1039,7 +1039,7 @@ function SellerCard({
   onGoToSeller: (sellerId: string) => void;
 }) {
   const links = sellerStandLinks(seller, stands);
-  const openCount = sellerStandsOpen(seller, stands);
+  const openNow = sellerIsOpenNow(seller, stands);
   const season = sellerSeasonBadge(seller, stands);
   // Does this card hold BOTH kinds? Only then does naming a row's relation distinguish anything
   // — see `SellerStandRow`.
@@ -1056,7 +1056,21 @@ function SellerCard({
       : undefined;
 
   return (
-    <li className={chosen ? "stand stand-no-pin stand-selected" : "stand stand-no-pin"}>
+    <li
+      className={chosen ? "stand stand-no-pin stand-selected" : "stand stand-no-pin"}
+      /*
+        THE WHOLE CARD IS THE TARGET, exactly as it is on a stand card. The name is a small
+        target on a phone, and a card that responds only to its heading reads as broken to
+        someone who tapped the obvious thing. Controls INSIDE the card keep their own meaning —
+        a tap on a stand row is going to that stand, not collapsing the card that offered it.
+      */
+      onClick={(event) => {
+        if (event.target instanceof Element && event.target.closest("a, button")) {
+          return;
+        }
+        onToggle();
+      }}
+    >
       <div className="stand-content">
         <div className="stand-head stand-head-no-pin">
           {/*
@@ -1083,9 +1097,20 @@ function SellerCard({
               fact or two and reads the same either way.
             */}
             <div className="seller-summary">
-              <span className="seller-stands-open">
-                {openCount.open} of {openCount.total}{" "}
-                {openCount.total === 1 ? "stand" : "stands"} open
+              {/*
+                OPEN OR CLOSED, NOT A FRACTION (max, 2026-08-18). "1 of 1 stand open" makes the
+                reader do arithmetic to reach a yes. The question is "can I buy from her right
+                now", which has two answers; the count still DECIDES it — one open stand out of
+                three is Open — but the card states the answer rather than the working.
+              */}
+              <span
+                className={
+                  openNow
+                    ? "seller-open-state seller-open-state-open"
+                    : "seller-open-state seller-open-state-closed"
+                }
+              >
+                {openNow ? "Open" : "Closed"}
               </span>
               {season === undefined ? null : (
                 <span className={`seller-season seller-season-${season}`}>
@@ -1865,7 +1890,13 @@ export function StandMap({
                     }
                   }}
                 >
-                  {isSelected ? (
+                  {/*
+                    ONE MARK FOR "YOU PICKED THIS", BOTH LISTS (max, 2026-08-18). A chosen stand
+                    and a chosen seller's stands wear the SAME halo — the seller highlight used
+                    to draw a thin stroke on the pin shape instead, so the same map said "picked"
+                    two different ways depending on which list was open.
+                  */}
+                  {isSelected || highlightedStandIds.has(stand.id) ? (
                     <circle
                       cx={x}
                       cy={y - 34}

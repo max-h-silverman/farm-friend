@@ -6152,10 +6152,21 @@ button.admin-action-danger,
   margin-top: 0.4rem;
 }
 
-.seller-stands-open {
-  color: var(--ink-soft);
+/* OPEN OR CLOSED — the card's headline answer to "can I buy from her now".
+   Closed is deliberately QUIET rather than red: a closed stand is the ordinary
+   state of an honor-system stand half the week, not a warning, and a column of
+   red badges would make the whole list read as a problem. */
+.seller-open-state {
   font-size: 0.88rem;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.seller-open-state-open {
+  color: var(--pin);
+}
+
+.seller-open-state-closed {
+  color: var(--ink-soft);
 }
 
 /* The poster's own season key, as a pill — the same dot and the same two colours
@@ -6511,12 +6522,12 @@ button.admin-action-danger,
   opacity: 0.28;
 }
 
-.pin[data-seller-highlighted="true"] .pin-shape,
-.pin[data-seller-highlighted="true"] .pin-market-shape {
-  stroke: var(--olive);
-  stroke-width: 6;
-  paint-order: stroke;
-}
+/* A chosen seller's stands wear the map's OWN selection halo, drawn in the pin
+   layer beside a selected stand's — see `.pin-selection-halo`. The thin olive
+   stroke that used to live here was a second mark for one meaning, so the same
+   map said "you picked this" two different ways depending on which list was
+   open. The attribute stays: it is what the dimming below keys off, and what
+   the tests assert. */
 
 /* ---------------------------------------------------------------------------
    Stands & Sellers (F-101, restyled 2026-08-17).
