@@ -141,27 +141,31 @@ const MORGAN_HILL: Entry[] = [
 ENTRIES.push(...MORGAN_HILL);
 
 /*
-  EMPTY, DELIBERATELY — and this is the finding, not an omission (2026-08-18).
+  EMPTY, AND NOW DELIBERATELY PERMANENT (2026-08-18).
 
-  max's call is that Morgan Hill has no seller of its own, and the model agrees: it is a venue.
-  But its self-pointer CANNOT simply be cleared, because the row it names is not the empty
-  placeholder the name suggests. Measured against production on 2026-08-18, that seller carries:
+  `0042` left Morgan Hill's self-pointer as a C.1 decision, describing the seller it names as *"a
+  row invented to satisfy NOT NULL, asserting something false"*. Measured before acting on that,
+  the row is not what the note assumed:
 
-    - 1 published inventory revision and 17 `stand_items` — the stand's own goods, published
-      under it and currently shown to customers
-    - a `seller_emails` row and a `seller_approvals` row
-    - 4 `sales_location_participants` rows whose COMPOSITE KEY names it, which block the clear
-      outright
+    - it carries VIGA's own description — *"This is a community farmstand from the neighbors on
+      Morgan Hill"* — and 17 `stand_items`, plus one current `source: 'viga'` revision
+    - its name is BYTE-IDENTICAL to the stand's, so a customer sees one entity either way
+    - the four `sales_location_participants` rows name it through a composite FK with
+      `ON DELETE RESTRICT`, so clearing the pointer means re-rooting display-only history
 
-  `0042` measured the same thing and declined for the same reason: *"VIGA has been using that row
-  as the venue's own record, so it is not purely fabricated and nulling the pointer here would
-  orphan real data."*
+  So clearing it would re-root four history rows and orphan seventeen items and a published
+  revision, to change nothing anyone can see. The truthful reading is the simpler one: Morgan Hill
+  is a community stand whose goods are POOLED and published by VIGA as one listing — a stand that
+  sells things, not a venue that sells nothing. The 17 items ("vegetables", "salad greens", "duck
+  eggs", "variety of herbs") are exactly that pooled offering, and no rule could attribute them to
+  any of the four named farms.
 
-  So clearing the pointer needs an answer to where those 17 items go first — most likely
-  redistributed to whichever of the four sellers actually brings them, which is a question for a
-  person with knowledge of the stand, not a rule this script can hold. Until then the four
-  sellers below are what fixes the disappeared names, and the venue pass stays empty rather than
-  half-doing it.
+  The four names render correctly as of B-085 precisely BECAUSE the self-pointer is the only
+  modelled seller: the typed fallback shows whenever a stand has no modelled guest. Clearing the
+  pointer would not improve that and would risk it.
+
+  If VIGA later wants the four to own their own listings, the path is onboarding them as sellers
+  with handsets — not a data edit.
 */
 const VENUES: VenueClearing[] = [];
 
