@@ -16,6 +16,10 @@
 - **Every public and SMS link is on `farmfriend.vigavashon.org`** (F-113), and `vigavashon.org` DNS
   authenticates VIGA's mail (SPF includes Google; `_dmarc` at `p=none`).
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
+- **Client components must import `@farm-friend/core/seller-credit`, never the barrel.**
+  `@farm-friend/core` re-exports `privacy/phone.ts` → `node:crypto`, which is unresolvable in a
+  client bundle and **500s every farmer web screen in `next dev`**. jsdom resolves the barrel fine,
+  so no suite catches it — only launching the app does.
 
 ## The multi-seller model (F-114 + F-115) — on `main`, NOT deployed
 
@@ -96,25 +100,23 @@ only because `0042`–`0051` are unapplied. Revisit once that queue lands.
   §gotchas own the procedure and the evidence for it.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
-  neither revision has an error-level log. **B-074, all of F-114/F-115, and F-101's admin console are on `main` and undeployed. F-101's seller half and all of F-117 are on `f-101-seller-half`, unmerged.**
+  neither revision has an error-level log. **B-074, F-114/F-115, all of F-101 and all of F-117 are on `main` and undeployed.**
 
 ## Verification
 
-- **2,210 unit tests pass; 7 corpus-only tests skip.** Integration is **1435/1441 across 106 of 107
-  files** against disposable local Postgres databases (2026-08-17). The six failures are all in
-  `apps/web/lib/farmer-stand.integration.test.ts` (`PUBLIC_BASE_URL is required`): a **pre-existing
-  test-isolation weakness**, confirmed by stashing — that file depends on another having set the
-  variable first, and passes in a full run only by luck of ordering. Not a product defect.
+- **2,210 unit tests pass; 7 corpus-only tests skip.** Integration is **1,435/1,441 across 106 of
+  107 files** against disposable local Postgres databases (2026-08-17).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
-  it six `farmer-stand` cases fail `ConfigurationError: PUBLIC_BASE_URL is required` — identical on
-  the untouched merged base, so it is an environment fact, not a regression.
+  it, six `apps/web/lib/farmer-stand.integration.test.ts` cases fail `PUBLIC_BASE_URL is required`.
+  **Verified pre-existing**: checking out `main` reproduces the identical six. An environment fact
+  and a test-isolation weakness, not a regression and not a product defect.
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19.
   The build retains tracked Next configuration/lint warnings (B-008).
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
   broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5. Last
-  run 2026-08-14. **No live run is owed** — checked rather than assumed each time: no F-114 phase,
-  F-115 tranche or F-101 commit changed a seam projection, schema, or output contract, and
-  `packages/ai` and `evals/` are untouched by all three branches.
+  run 2026-08-14. **No live run is owed** — checked rather than assumed each time: nothing in
+  F-114, F-115, F-101 or F-117 changed a seam projection or output contract, and `git diff main`
+  shows `packages/ai` and `evals/` untouched.
 - **F-114 and F-115 are sabotage-proved throughout** — every fix has a breakage that the case aimed
   at it caught, and every migration is proved against a **populated** copy of the schema that
   precedes it. The standing lessons: **assert the absence of the wrong behavior; when a breakage
@@ -129,7 +131,7 @@ only because `0042`–`0051` are unapplied. Revisit once that queue lands.
   again** across several clean full runs since. Capture the full run to a file the next time it
   does; the file name was lost to a summary grep last time.
 
-## The admin console (F-101) — on `main`, NOT deployed
+## The admin console and the seller half (F-101) — on `main`, NOT deployed
 
 **Three destinations: Stands & Sellers · SMS Users · Alerts.** The "Farms" tab is **gone, not
 renamed** (max, 2026-08-17): VIGA's job is *view and edit stands and sellers, invite new stands or
@@ -155,10 +157,44 @@ a guest is still selling there.
 **"Unclaimed" is a state chip, never an alert** (max, 2026-08-17) — most farms begin with nobody
 able to publish for them, so alerting on it made the attention line permanent furniture.
 
-**Owed:** the **seller half has not started** — the farmer settings screen (permanent unguessable
-link, re-sent on `LINK` or `SETTINGS`), editable stand metadata for VIGA *or* the stand's owner,
-and the F-100 audit's remaining copy findings. The console was verified as **served markup and CSS,
-not as pixels** — the browser extension was unavailable.
+**The seller half is done** (2026-08-17). `mayPause` rides each listing from the seam's own arm —
+`PROVIDER_SELLER_ARM`, named once and shared — so the screen offers no control the seam would
+refuse: a **host sees Remove alone**, with and without `host_may_update_stock`. Her controls live on
+the settings screen she already had; `LINK`/`SETTINGS` already texted her a permanent link to it, so
+that criterion was met before this item claimed it as owed. `saveStandMetadata` gives VIGA a
+narrower editor than the farmer's — name, address, address visibility, pin, hours text — and touches
+nothing the farmer publishes (Golden Rule #1). All six F-100 copy findings landed.
+
+**Not seen rendered:** VIGA's stand editor. The Stands view switches client-side, so a served-markup
+check cannot reach it; the browser extension was unavailable again. 8 component tests, 5 seam tests.
+
+## Self-selected hosted sellers (F-117) — on `main`, NOT deployed
+
+A farmer onboarding **on her own** can now say she sells at someone else's stand. It is **its own
+question, never a third `visitability` value**: that column says whether *this* stand can be
+visited, and selling elsewhere is a fact about an *arrangement*.
+
+**`approval_source = 'seller'`** (`0052`) is the honest third value. `viga` would make a
+self-selected seller indistinguishable from one VIGA approved — in a flow whose whole premise is
+that VIGA never sees her — and `host` names a vouching authorization that does not exist until the
+host answers, which is *after* she is live.
+
+**She is live on submit**, written in the same transaction as her own stand. It needs no
+authorization (`stand_providers` names a seller, and the invitation already names her farm), which
+is why it does **not** wait on `START` the way `pendingStock` and `pendingPromptCadence` do. The
+write is deliberately **non-fatal**: a stand retired between form-load and Submit costs her the
+arrangement, never her whole onboarding form.
+
+**The host is asked and may deny** (`pending_host_confirmations`, `0053`), answerable **only while
+the question is the last message in the thread** — anything the host texted us, or anything we sent
+them, closes it. Golden Rule #2 met by conversation state rather than a clock. A `NO` ends it
+through `setProviderParticipation`, which a host may already do. **Routing tries the host question
+before the inventory proposal**, safe because the host question can only be open when nothing has
+passed in that thread.
+
+**A stand whose owner Farm Friend cannot text still lists her**, with no question opened: we cannot
+text first, so refusing a real arrangement over a message we could never have sent would leave the
+map wrong instead. The host keeps Remove on their own settings screen.
 
 ## Standing facts a cold start needs
 

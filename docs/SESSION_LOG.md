@@ -11,7 +11,127 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-17 (latest) — F-101: the admin console becomes Stands & Sellers, and the pause/end mechanism gets its first caller
+## 2026-08-17 (latest) — F-101's seller half, all of F-117, and a 500 that only running the app could find
+
+Twelve commits on `f-101-seller-half` (`b40827a`…`b6985d9`). Unit **2,210** with the 7 corpus
+skips; integration **1,435 passing across 106 of 107 files**; typecheck and lint clean. The six
+integration failures are the **pre-existing** `PUBLIC_BASE_URL` isolation weakness in
+`apps/web/lib/farmer-stand.integration.test.ts` — proved rather than assumed by checking out `main`
+and reproducing the identical six there (1,403 passing). This branch adds 32 passing integration
+tests and no failures.
+
+### The premise correction that shaped the session
+
+max opened by flagging that a stand/seller settings screen probably already existed, and he was
+right. F-101's own notes claimed *"it does not exist today: `/farmer` holds onboarding and start
+only"* — but `/stand/[token]/settings` has existed since F-051, and `LINK`/`SETTINGS` have parsed
+deterministically and texted a permanent link since F-040. **One acceptance criterion was already
+met when the item claimed it as owed work.** The seller half was therefore a new section on an
+existing screen, not a new screen — which also matches the rule already in `onboarding-copy.ts`:
+a farmer has exactly ONE edit page.
+
+The same correction happened twice more, and both are worth remembering:
+
+- **"Editable stand metadata" was half-built.** F-073 shipped a full listing editor for the stand's
+  OWNER at `/stand/[token]/listing`. Only VIGA's half was missing. max chose to build it rather
+  than close the criterion as met.
+- **F-117 needed no migration for its arrangement.** I claimed `hostStandId` had to be held on the
+  invitation until `START`, like `pendingStock` and `pendingPromptCadence`. max asked whether a
+  hard constraint could be relaxed; the answer was that **there was no constraint** — those two
+  wait because they need an AUTHORIZATION (a dated confirmation needs somebody to stand behind it,
+  a reminder needs a recipient), and `stand_providers` needs only a `seller_id`, which exists the
+  moment the invitation names her farm. The row goes in beside her own stand's, in one transaction.
+
+### F-101's seller half
+
+- **`PROVIDER_SELLER_ARM`** names the seller test once; `PROVIDER_AUTHORITY_ARMS` composes from it
+  and `participationArm` uses it. The screen and the seam cannot come to disagree about who is the
+  seller — the disagreement's shape would be a button that returns `not_authorized`.
+- **`mayPause`** rides each listing from that arm. **Not the same question as `describesOwnStand`**:
+  a hosted seller's own listing is not her stand, and pause is still hers. That row is where the two
+  diverge and is asserted.
+- **`handleFarmerParticipationPost`** + `/api/farmer/participation` — the second production caller
+  of `setProviderParticipation` and the first meeting the authority asymmetry. The token is the
+  actor; no authority is re-stated outside the seam.
+- **`ListingParticipation`** on the settings screen: pause/resume, Remove behind an inline
+  confirmation, no restore anywhere. Deliberately NOT the admin's `SellerParticipation`
+  parameterised — different audiences, different authority shapes, and one file holding both
+  would hold both sets of copy.
+- **`saveStandMetadata`** — VIGA edits a stand's own facts. Deliberately not `saveOnboardingListing`
+  with an admin arm: that writer replaces payment methods, usual offerings, the farmer's own
+  description and her items, and Golden Rule #1 keeps VIGA's hand off her published words.
+  `incomplete_location` gives the coherent-visitability constraint words so an operator clearing an
+  address gets a next move rather than a 500.
+- All six F-100 copy findings, plus the test-phone row defect: the route now returns the real id and
+  the last four of the NORMALIZED number, so a number that normalizes differently no longer shows
+  the typo's suffix under an id the server does not have.
+
+### F-117, folded in on max's call
+
+- **`approval_source = 'seller'`** (`0052`) — a third source, settled with max. The two that existed
+  could not tell the truth about the row: `viga` would make a self-selected seller indistinguishable
+  from one VIGA approved, in a flow whose premise is that VIGA never saw her; `host` names a
+  vouching authorization that does not exist until the host answers, which is after she is live.
+- **`listHostStandChoices`** — a name and an id, carrying the map's own `visibleFarms` rather than a
+  restatement. **LEFT join to `sellers`**, so a VENUE like Morgan Hill (no seller of its own, and
+  the strongest case for this flow) is included; an inner join dropped it silently with every other
+  test green.
+- **The onboarding question is its own question**, never a third `visitability` value: that column
+  says whether THIS stand can be visited, and selling elsewhere is a fact about an arrangement.
+- **`pending_host_confirmations`** (`0053`) and the thread-bound answer. Answerable only while the
+  question is the last message in the thread — anything the host texted us, or anything we sent
+  them, closes it. Golden Rule #2 met by conversation state rather than a clock. **The system-sent
+  half is the one a weaker implementation forgets** and is sabotage-proved separately.
+
+### The defect only running the app could find
+
+Every farmer web screen — `/stand/[token]`, its settings, its listing editor — returned **500** in
+`next dev`: `UnhandledSchemeError: Reading from "node:crypto"`. Two client components imported
+`creditSeller` from the `@farm-friend/core` **barrel**, which re-exports `privacy/phone.ts`.
+`@farm-friend/core/seller-credit` is already an exported subpath and the module is pure — it exists
+for exactly this. **Pre-existing on `main`**, confirmed by checking out `main` and reproducing.
+
+No suite caught it because jsdom resolves the barrel fine. It is the §the local runtime is not the
+deployed runtime gotcha in a new costume, and the only thing that surfaced it was launching the app.
+
+### Verified by running it, not only by tests
+
+Against local Postgres with `0052`/`0053` applied (verified by effect — table present, `seller` in
+the enum) and the app on `next dev`:
+
+- F-117 end to end: picker → self-selection → live arrangement (`approval_source = seller`) → the
+  host's real GSM-7 text → `NO` ends it → a second answer finds nothing.
+- F-101 authority: seller pauses and resumes; **host refused pause, permitted end**.
+- The adapting label: a solo farmer reads *"Close my stand for now"*, a multi-listing farmer reads
+  *"Pause this listing"*.
+- The settings screen serves 200 with the section, pause and Remove; the confirmation correctly
+  absent until Remove is pressed. The login shows static *"Signing in as board@vigavashon.org"* with
+  the hidden input intact.
+
+**23 sabotages this session, each caught by a distinct test.** The one worth repeating: removing the
+`where exists` guard on the hosted-arrangement write raises a foreign-key violation that loses the
+farmer's **entire onboarding form** — which is why that write is deliberately non-fatal.
+
+### Judgment calls max may want to revisit
+
+- **A stand whose owner Farm Friend cannot text still lists the seller**, and no question is opened.
+  Farm Friend cannot text first, so refusing a real arrangement over a message we could never have
+  sent would leave the public map wrong instead. The host keeps Remove on their own settings screen.
+- **The confirmation uses `stock_out_alert`**, so it requires ACTIVE consent rather than riding the
+  carrier's reply allowance — a host who texted STOP hears nothing, which is correct.
+- **Routing tries the host question before the inventory proposal.** Safe precisely because the host
+  question can only be open when nothing has passed in that thread.
+
+### Owed
+
+**Nothing deployed, and `0042`–`0053` remain unapplied to production** — this joins the existing
+queue rather than shipping alone. **VIGA's stand editor has not been seen rendered**: the Stands
+view switches client-side, so `curl` cannot reach it, and the browser extension was unavailable
+again this session. It carries 8 component tests and 5 seam tests.
+
+---
+
+## 2026-08-17 — F-101: the admin console becomes Stands & Sellers, and the pause/end mechanism gets its first caller
 
 Merged as **`dc0b831`** (PR #131), ten commits on `f-101-admin-ui-refactor`. Unit **2,189** with the
 7 corpus skips; integration **1409/1409 across 102 files**; typecheck and lint clean — all four

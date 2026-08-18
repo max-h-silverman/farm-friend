@@ -83,7 +83,7 @@ than riding on the inbound message that asked for it.
 
 | Token | Behavior |
 |---|---|
-| `YES` / `NO` | Commit / decline the sender's **one live inventory-publication confirmation**, using the fixed variants above. **Context-bound** — a YES/NO reply with no live pending inventory proposal does **not** commit or decline. A valid confirmation consumes the current proposal **exactly once** and **expires** (GC'd). |
+| `YES` / `NO` | Commit / decline the sender's **one live confirmation**, using the fixed variants above. Two questions can wear these words, and routing tries them in a fixed order. **First, a host's "do you host her?"** (F-117): answerable only while it is the **last message in the thread** — anything the host texted us, or anything we sent them, closes it, which is context-binding by conversation state rather than a clock. It commits **exactly once** and a `NO` ends the arrangement through `setProviderParticipation`. **Then the sender's inventory-publication confirmation**, unchanged. The order is safe precisely because a host question can only be open when nothing has passed in that thread — an inventory prompt to the same handset is exactly the traffic that closes it, so the two can never genuinely be open at once. **Context-bound throughout** — a YES/NO with neither open commits and declines nothing. |
 
 **A PAUSED listing is offered re-opening rather than refused** (F-114 C.4). A confirmation reply or
 a fresh update on a paused listing neither publishes silently nor is rejected: the prompt states

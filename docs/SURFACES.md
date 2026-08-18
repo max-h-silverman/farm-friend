@@ -164,10 +164,19 @@ bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
   F-114 Phase C.1 — `invite_seller`, which mints a one-use link inviting a seller to sell at that
   stand and answers with the complete onboarding URL, **shown once**. Its button lives inside each
   stand's card, and is absent for a stand that is off the map.
-  `POST /api/admin/participation` (F-101) is the **only production caller** of
-  `setProviderParticipation`: pause, resume or end one seller's participation at one stand. It is
-  deliberately thin — it never writes `stand_providers` itself, so the seam keeps the lock ordering,
-  the authority arms and the invalidation of that provider's open confirmations.
+  `POST /api/admin/participation` (F-101) pauses, resumes or ends one seller's participation at one
+  stand for VIGA. It is deliberately thin — it never writes `stand_providers` itself, so the seam
+  keeps the lock ordering, the authority arms and the invalidation of that provider's open
+  confirmations. `POST /api/admin/stands` also carries `save_metadata` (F-101): VIGA edits a stand's
+  name, address, address visibility, map pin and hours text through `saveStandMetadata`, which names
+  its columns and touches **nothing the farmer publishes** — payment methods, usual offerings, her
+  description and her items stay hers (Golden Rule #1).
+
+  `POST /api/farmer/participation` (F-101) is the farmer-facing twin, and the first caller to meet
+  the authority **asymmetry**: a seller may pause, resume and end; a **host may end and may never
+  pause**, with or without `host_may_update_stock`. The token is the actor, and the rule is the
+  seam's — the route re-states none of it. The settings screen renders pause only where the seam
+  would allow it, so a host is never offered a control that would answer `not_authorized`.
   On every admin route the acting administrator comes from the session, never the body. A seller
   name is public text and is refused with the same code-owned copy the farmer's door uses.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
