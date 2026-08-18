@@ -285,6 +285,78 @@ describe("F-117 the host's confirmation (integration)", () => {
     expect(secondRow[0]?.ended_at).not.toBeNull();
   });
 
+  it("never lets one host's answer touch another host's arrangement", async () => {
+    /*
+      The criterion's last clause: a closed or absent question must never apply to a DIFFERENT
+      arrangement. Two hosts, two sellers, two questions — and the answer is scoped by hash, so
+      the second host's `NO` can only reach the row that was asked of them.
+
+      Asserted with BOTH questions open at once, because a reader that took "the oldest open
+      question" or "any open question" would pass a single-host test and end the wrong listing
+      here.
+    */
+    const otherHostSellers = await client()`
+      insert into sellers (name) values ('Fernhorn Farm') returning id
+    `;
+    const otherHostHash = `h${randomUUID().replaceAll("-", "")}`;
+    const otherContacts = await client()`
+      insert into contacts (phone_e164, phone_hash, created_at)
+      values ('+12065550133', ${otherHostHash}, ${T0}) returning id
+    `;
+    await client()`
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${otherHostSellers[0]?.id as string}, ${otherContacts[0]?.id as string}, ${T0}, ${T0})
+    `;
+    const otherStands = await client()`
+      insert into sales_locations (
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        public_address, public_latitude, public_longitude
+      ) values (
+        ${otherHostSellers[0]?.id as string}, 'farm_stand', 'Fernhorn Stand',
+        'America/Los_Angeles', 'visitable', 'produce', true, false, false,
+        '2 Fernhorn Road', 47.4480, -122.4595
+      ) returning id
+    `;
+    const otherProviders = await client()`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${otherStands[0]?.id as string}, ${guestSellerId}, 'active',
+        ${T0}, ${T0}, 'seller', ${T0}
+      ) returning id
+    `;
+
+    await openHostConfirmation(handle(), {
+      hostHash,
+      standProviderId: providerId,
+      askedAt: T0,
+    });
+    await openHostConfirmation(handle(), {
+      hostHash: otherHostHash,
+      standProviderId: otherProviders[0]?.id as string,
+      askedAt: T0,
+    });
+
+    const answer = await answerHostConfirmation(handle(), {
+      hostHash: otherHostHash,
+      token: "NO",
+      occurredAt: T1,
+    });
+    expect(answer.status).toBe("denied");
+
+    // THEIR arrangement ended; the first host's did not, and their question is still open.
+    const otherRow = await client()`
+      select ended_at from stand_providers where id = ${otherProviders[0]?.id as string}
+    `;
+    expect(otherRow[0]?.ended_at).not.toBeNull();
+    expect(await ended()).toBe(false);
+    expect(await client()`
+      select id from pending_host_confirmations where host_hash = ${hostHash}
+    `).toHaveLength(1);
+  });
+
   it("answers nothing for a host with no open question at all", async () => {
     const answer = await answerHostConfirmation(handle(), {
       hostHash,
