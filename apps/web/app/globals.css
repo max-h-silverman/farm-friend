@@ -4664,6 +4664,15 @@ button.admin-action-danger,
   margin: 0.9rem 0 0 2.1rem;
 }
 
+/* NO INDENT ON A CARD WITH NO PIN NUMBER. The 2.1rem above aligns a stand's expanded body
+   under its NAME, clearing the pin number in the gutter beside it. A seller card has no pin
+   number — `.stand-head-no-pin` already reclaimed that column for her name — so the same
+   indent pushed her whole detail 34px right of the name it belongs to, measured in a browser
+   at 500px: heading at 47, body at 81. */
+.stand-no-pin .stand-details {
+  margin-left: 0;
+}
+
 /*
   THE EXPANDED CARD (max, 2026-08-06). Sections are separated by SPACE and a hairline, never by
   nesting a bordered box inside the card — a panel within a panel spends a border and two
@@ -5866,135 +5875,6 @@ button.admin-action-danger,
   That is the same two-voices rule F-042 established for the stand card, applied by giving this
   page only the quiet voice. What is out RIGHT NOW is the stand card's question.
 */
-.seller-directory {
-  max-width: 60rem;
-  margin: 0 auto;
-  padding: 1.5rem 1rem 3rem;
-}
-
-.seller-directory-header h1 {
-  margin: 0 0 0.4rem;
-  color: var(--olive);
-  font-size: 1.5rem;
-  line-height: 1.2;
-}
-
-.seller-directory-lede {
-  margin: 0 0 0.6rem;
-  color: var(--ink-soft);
-  font-size: 0.95rem;
-  line-height: 1.5;
-  max-width: 42rem;
-}
-
-.seller-directory-back {
-  display: inline-block;
-  margin-bottom: 1.25rem;
-  color: var(--olive);
-  font-size: 0.9rem;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.seller-directory-back:hover,
-.seller-directory-back:focus-visible {
-  text-decoration: underline;
-}
-
-.seller-search {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.6rem;
-  margin-bottom: 1.25rem;
-}
-
-.seller-search-label {
-  font-size: 0.9rem;
-  font-weight: 650;
-  color: var(--olive);
-}
-
-/* `flex: 1 1 14rem` rather than a fixed width: at phone width the input takes the row and the
-   count wraps beneath it, instead of the two fighting over one line. */
-.seller-search-input {
-  flex: 1 1 14rem;
-  min-width: 0;
-  padding: 0.55rem 0.8rem;
-  border: 1px solid #cfe0d5;
-  border-radius: 0.6rem;
-  background: #fff;
-  color: var(--ink);
-  font-size: 0.95rem;
-}
-
-.seller-search-count {
-  color: var(--ink-soft);
-  font-size: 0.8rem;
-  font-weight: 650;
-  font-variant-numeric: tabular-nums;
-  white-space: nowrap;
-}
-
-.seller-directory-empty {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
-
-.seller-cards {
-  list-style: none;
-  margin: 0;
-  padding: 0;
-  display: grid;
-  /* auto-fit with a min of 17rem: one column on a phone, two or three on a laptop, with no
-     media query deciding where the break is. */
-  grid-template-columns: repeat(auto-fit, minmax(17rem, 1fr));
-  gap: 0.9rem;
-}
-
-.seller-card {
-  padding: 0.95rem 1.05rem;
-  background: #fff;
-  border: 1px solid #cfe0d5;
-  border-radius: 0.75rem;
-}
-
-.seller-card-name {
-  margin: 0 0 0.3rem;
-  color: var(--ink);
-  font-size: 1.05rem;
-  line-height: 1.25;
-}
-
-.seller-card-description {
-  margin: 0 0 0.4rem;
-  color: var(--ink-soft);
-  font-size: 0.88rem;
-  line-height: 1.5;
-}
-
-/* Where they sell — the line a hosted-only seller's whole discovery story hangs on. Given the
-   olive the headings use, because it is the answer this page exists to give. */
-.seller-card-where {
-  margin: 0 0 0.35rem;
-  color: var(--olive);
-  font-size: 0.9rem;
-  font-weight: 600;
-  line-height: 1.45;
-}
-
-/* A plain grey sentence, exactly like `.items-usual` on the stand card: a standing claim gets
-   the quiet voice, and no shape a date could sit in. */
-.seller-card-items {
-  margin: 0;
-  color: var(--ink-soft);
-  font-size: 0.9rem;
-  line-height: 1.5;
-}
-
-/* The map's door to this page. */
 /* STANDS OR SELLERS. Two ways of looking at one island, so the control is a pair
    of segments on the list rather than a link off the page. It sits where the
    "Find a stand" heading used to and is the label for the list below it.
@@ -6092,10 +5972,6 @@ button.admin-action-danger,
   gap: 0.75rem;
 }
 
-.seller-browse-search .field-input {
-  width: 100%;
-}
-
 /* A seller renders in the STAND card's shape — `ul.stands > li.stand` — so those
    rules do the work and none are restated here. What is left is only what a
    seller card holds that a stand card does not.
@@ -6117,45 +5993,437 @@ button.admin-action-danger,
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-/* The seller's summary chips, in the row the stand card uses for its open state
-   and recency. Quieter than a stand's, because none of these is time-sensitive. */
-.seller-kind,
-.seller-stand-count {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.1rem 0.5rem;
-  color: var(--olive);
-  background: rgb(255 255 255 / 60%);
-  border: 1px solid color-mix(in srgb, var(--sage-deep) 55%, transparent);
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
 .seller-detail-body {
   display: grid;
   gap: 0.35rem;
   padding-top: 0.15rem;
 }
 
-.seller-browse-description,
-.seller-browse-items,
-.seller-browse-where {
+.seller-browse-description {
   margin: 0;
   color: var(--ink-soft, #55605c);
   font-size: 0.85rem;
 }
 
-/* On the collapsed card, so it stays a supporting line under the name rather than
-   competing with it. */
-.seller-browse-items {
-  margin-top: 0.25rem;
+/* ---- The seller card's summary row (max, 2026-08-18 mockup) -------------
+
+   TWO FACTS, ONE ROW, sitting where the stand card puts its open state and its
+   recency — how many of her stands are open right now, and how long she runs.
+   Both derived from her stands; see `SellerCard`.
+
+   The count is PLAIN TEXT and the season is a BADGE, and the difference is the
+   point: the count is a number that changes through the day and wants to be read,
+   while the season is a standing fact that wants to be recognised at a glance
+   down a column. Two badges side by side would make the reader compare them. */
+.seller-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  align-items: center;
+  margin-top: 0.4rem;
+}
+
+/* OPEN OR CLOSED — the card's headline answer to "can I buy from her now".
+   Closed is deliberately QUIET rather than red: a closed stand is the ordinary
+   state of an honor-system stand half the week, not a warning, and a column of
+   red badges would make the whole list read as a problem. */
+.seller-open-state {
+  font-size: 0.88rem;
+  font-weight: 700;
+}
+
+.seller-open-state-open {
+  color: var(--pin);
+}
+
+.seller-open-state-closed {
+  color: var(--ink-soft);
+}
+
+/* The poster's own season key, as a pill — the same dot and the same two colours
+   the map key and the stand cards already use, so a seller's badge and her
+   stand's dot are recognisably one vocabulary. */
+.seller-season {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.seller-season .poster-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+}
+
+.seller-season-year-round {
+  color: var(--pin);
+  background: color-mix(in srgb, var(--pin) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pin) 40%, transparent);
+}
+
+.seller-season-year-round .poster-dot {
+  background: var(--pin);
+}
+
+.seller-season-late-november {
+  color: #6b3f8f;
+  background: rgb(107 63 143 / 8%);
+  border: 1px solid rgb(107 63 143 / 35%);
+}
+
+.seller-season-late-november .poster-dot {
+  background: #6b3f8f;
+}
+
+/* ---- F-118: the crossing between stands and sellers --------------------
+
+   THE PIN NUMBER IS THE TOKEN THAT TIES THE THREE SURFACES TOGETHER — the pin
+   itself, the stand card that carries it, and now a seller card naming where
+   she sells. It has to LOOK the same in all three or it stops being a token,
+   so `.stand-number-ref` is deliberately the stand card's number in a badge:
+   same weight, same ink, one size down because it is a reference to another
+   card rather than this card's own identity.
+
+   It is a separate class and not `.stand-number` for the reason the component
+   states: "does this card have a pin number" must stay answerable, and a seller
+   card's answer is no. */
+.stand-number-ref {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.35rem;
+  color: var(--olive);
+  background: color-mix(in srgb, var(--pin) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pin) 45%, transparent);
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A stand that is not on the map has no number to show. It keeps the slot so the
+   rows stay in one column — an absent number that collapsed its column would
+   make the list look like two different lists. */
+.stand-number-absent {
+  color: var(--ink-soft);
+  background: none;
+  border-style: dashed;
+  border-color: var(--line);
+}
+
+/* THE OPENED CARD'S PAYLOAD: her stands, each one expandable in place.
+
+   LIGHTER THAN THE STAND CARD'S PANELS (max, 2026-08-18). It used to wear the
+   full `.detail-visit` treatment — its own fill, border, radius and shadow — so
+   an opened seller card was a bordered box inside a bordered box, with the rows
+   inside making a third. The stand detail that now opens INSIDE these rows
+   brings its own panels, which would have made a fourth.
+
+   So the container recedes to a heading and a hairline: the section is still
+   announced and still separated, and the weight is spent on the rows a reader
+   is actually choosing between. Same reasoning `.stand-detail-body` records —
+   rhythm over chrome. */
+.seller-stands {
+  margin: 0;
+  padding: 0.25rem 0 0;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Quieter than a stand card's section headings, which sit on their own panels
+   and have to hold one. This one labels a list directly below it. */
+.seller-stands .detail-section-heading {
+  margin-bottom: 0.5rem;
+  font-size: 0.78rem;
+  opacity: 0.75;
+}
+
+.seller-stand-links,
+.stand-seller-links {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* A ROW IS ONE OBJECT: the pin number sits INSIDE it beside the name, not in a
+   column outside it (max, 2026-08-18). Outside, the number read as a label next
+   to a separate button; inside an expander it is part of the thing being
+   opened. */
+.seller-stand-link + .seller-stand-link {
+  border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
+}
+
+/* The whole row is the target — this is the primary act of the card, read
+   one-handed outdoors, and a name-sized tap target is what makes a map unusable
+   on a phone.
+
+   NO BOX OF ITS OWN. The row used to be a bordered, filled pill inside a
+   bordered panel; now the panel has receded and the rows are separated by
+   hairlines, which is enough to say "these are the choices" without spending a
+   border per choice. */
+.seller-stand-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.1rem 0.6rem;
+  align-items: start;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.55rem 0.15rem;
+  text-align: left;
+  background: none;
+  border: 0;
+  font: inherit;
+  color: inherit;
+}
+
+.seller-stand-toggle {
+  cursor: pointer;
+}
+
+.seller-stand-toggle:hover .seller-stand-name {
+  color: var(--olive);
+}
+
+.seller-stand-toggle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--olive) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+.seller-stand-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+
+.seller-stand-name {
+  color: var(--brick);
+  font-size: 0.95rem;
+  font-weight: 700;
+  /* The poster's link red — the same signal `.directions` uses for "this opens
+     something". UNDERLINED only on the rows that actually open: an off-map row
+     carries the same name and nothing happens when it is pressed. */
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* Not a link: there is nowhere to go. Ink rather than the link red, so the
+   difference is legible without relying on the underline alone. */
+.seller-stand-link-off-map .seller-stand-name {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+/* THE STAND'S OWN BODY, opened inside the row. Indented under the name rather
+   than the number, so the detail reads as belonging to the stand above it, and
+   its own panels carry the visual weight from here down. */
+.seller-stand-detail {
+  padding: 0.1rem 0 0.75rem 2.1rem;
+}
+
+.seller-stand-link-open .seller-stand-name {
+  color: var(--olive);
+}
+
+.seller-stand-relation,
+.stand-seller-relation {
+  color: var(--olive);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.seller-stand-items {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
   line-height: 1.35;
 }
 
-.seller-browse-where {
+/* A LONG NAME WRAPS RATHER THAN WIDENING ITS ROW. Farm names on this island run to
+   "Plum Forest Farm at Morgan Hill", and this list sits in a column that is the
+   whole width of a 360px phone. Without `min-width: 0` a grid child refuses to
+   shrink below its content and pushes the row — and then the page — sideways,
+   which is the one layout failure this map cannot have. */
+.seller-stand-head,
+.seller-stand-copy,
+.stand-seller-go,
+.seller-stand-name,
+.stand-seller-name,
+.seller-stand-items {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.seller-stand-off-map {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+/* THE MIRROR, ON THE STAND CARD: how many sellers are here, in the summary row
+   beside the address. Quieter than the seller card's chips because a stand card
+   already carries an open state and a recency competing for the same glance. */
+.stand-seller-count {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 0.1rem 0.5rem;
   color: var(--olive);
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pin) 40%, transparent);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* The roster of sellers no item credited — see `StandSellers`. It sits in the
+   detail stack with the rest of the panels. */
+.stand-sellers {
+  margin: 0;
+  padding: 1.15rem;
+  background: #fffefa;
+  border: 1px solid #d8d4c9;
+  border-radius: 1.1rem;
+  box-shadow: 0 1px 1px rgb(35 45 38 / 3%);
+}
+
+.stand-seller-go {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
+  align-items: baseline;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  background: rgb(255 255 255 / 55%);
+  border: 1px solid color-mix(in srgb, var(--sage-deep) 50%, transparent);
+  border-radius: 0.6rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stand-seller-go:hover {
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--olive) 55%, transparent);
+}
+
+.stand-seller-go:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--olive) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.stand-seller-name {
+  color: var(--brick);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* THE ITEM CREDIT IS THE CROSSING, so it has to look like one — but it sits
+   INSIDE a dense item list, where a boxed button per line would drown the items
+   the list exists to show. So it is the link and nothing else: the poster red,
+   underlined, at the weight the credit already had. */
+.item-seller-go {
+  padding: 0;
+  color: var(--brick);
+  background: none;
+  border: 0;
+  font: inherit;
   font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.item-seller-go:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--olive) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+/* ---- F-118: the marker tooltip ----------------------------------------
+
+   IT LIVES INSIDE THE SVG, in a `foreignObject` placed by the same projection
+   that placed the pin — see the component. That has one consequence this
+   stylesheet has to respect: the box is sized in VIEWBOX units and cannot grow,
+   so the type inside is sized in those units too. The numbers below are the
+   island's coordinate space, not CSS pixels, which is why they look large. */
+.marker-tip {
+  height: 100%;
+  padding: 14px 18px;
+  overflow: hidden;
+  color: var(--ink);
+  background: rgb(251 250 247 / 97%);
+  border: 2px solid var(--olive);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgb(31 41 36 / 22%);
+  font-family: inherit;
+}
+
+.marker-tip-stand {
+  margin: 0 0 6px;
+  color: var(--olive);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.marker-tip-sellers {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marker-tip-sellers li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  align-items: baseline;
+}
+
+.marker-tip-seller {
+  padding: 4px 0;
+  color: var(--brick);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 21px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.marker-tip-seller:focus-visible {
+  outline: 3px solid var(--olive);
+  outline-offset: 2px;
+}
+
+.marker-tip-owner {
+  color: var(--ink-soft);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.marker-tip-empty {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 19px;
 }
 
 /* Dimmed, never hidden: the other stands are still real places, and removing them
@@ -6164,12 +6432,12 @@ button.admin-action-danger,
   opacity: 0.28;
 }
 
-.pin[data-seller-highlighted="true"] .pin-shape,
-.pin[data-seller-highlighted="true"] .pin-market-shape {
-  stroke: var(--olive);
-  stroke-width: 6;
-  paint-order: stroke;
-}
+/* A chosen seller's stands wear the map's OWN selection halo, drawn in the pin
+   layer beside a selected stand's — see `.pin-selection-halo`. The thin olive
+   stroke that used to live here was a second mark for one meaning, so the same
+   map said "you picked this" two different ways depending on which list was
+   open. The attribute stays: it is what the dimming below keys off, and what
+   the tests assert. */
 
 /* ---------------------------------------------------------------------------
    Stands & Sellers (F-101, restyled 2026-08-17).

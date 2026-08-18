@@ -76,7 +76,7 @@ function transitivePackageImports(entry: string): {
  * actually walked it rather than resolving nothing and passing vacuously. The anchor differs
  * per entry because they read different things: the map and its API read `public-listing.ts`,
  * and the seller list (F-114 C.5) reads `seller-list.ts` — it carries no inventory at all, so
- * anchoring it to the map's reader would fail for a correct page.
+ * anchoring it to the map's reader alone would not prove the seller read was walked.
  */
 const PUBLIC_READ_ENTRIES: readonly { entry: string; reaches: string }[] = [
   {
@@ -84,10 +84,14 @@ const PUBLIC_READ_ENTRIES: readonly { entry: string; reaches: string }[] = [
     reaches: "apps/web/lib/public-listing.ts",
   },
   { entry: "apps/web/app/(map)/page.tsx", reaches: "apps/web/lib/public-listing.ts" },
-  {
-    entry: "apps/web/app/(map)/sellers/page.tsx",
-    reaches: "apps/web/lib/seller-list.ts",
-  },
+  /*
+    THE SELLER LIST IS THE MAP'S OWN PAGE NOW. It had its own entry at `(map)/sellers/page.tsx`
+    until that page was pruned (2026-08-18) — nothing linked to it and the map's own View sellers
+    list had superseded it. The coverage does not go with it: the map page reads
+    `listPublicSellers` and renders `seller-list.ts` itself, so the seller read is still anchored
+    here, on a second entry for the same file.
+  */
+  { entry: "apps/web/app/(map)/page.tsx", reaches: "apps/web/lib/seller-list.ts" },
 ];
 
 describe("the public read surface is model-free (F-019, preserved by F-017)", () => {

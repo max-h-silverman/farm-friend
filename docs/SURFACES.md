@@ -29,23 +29,57 @@ owner-confirmed closure overrides the standing schedule, while a future closure 
 Optional browser geolocation sorts by approximate straight-line distance in the browser;
 destination-only Google Maps links delegate routing.
 
-`/sellers` is the second public list view (F-114 C.5): a browse list of every seller currently
-selling anywhere on the island, grouped by SELLER with their stands nested — the mirror of the
-stand card, which groups by item with sellers nested. It exists because a **hosted-only seller**
-owns no `sales_locations` row and therefore has no pin and no card; this page is their only
-discovery path. Its search matches a seller's own name and goods and deliberately NOT the stands
-they sell at, and it carries no confirmed inventory or freshness at all — what is out right now is
-the stand card's question, stated there with its own per-seller recency. Covered by the same
-model-free tripwire.
-
-**Since 2026-08-18 the map carries that list itself**, as a **View stands / View sellers** toggle
-in its filter header where a "Browse by seller" link used to sit — so the customer switches what
-the list is about without leaving the map or losing their filters. A chosen seller highlights the
-pins of the stands she sells at, which for a hosted-only seller are somebody else's. Seller cards
-there render in the STAND card's own shape, with the same dateless rule. `/sellers` remains a
-working URL and the same `listPublicSellers` read feeds both; the map page performs it under the
+**The seller list lives on the map itself**, as a **View stands / View sellers** toggle in its
+filter header. It exists because a **hosted-only seller** owns no `sales_locations` row and
+therefore has no pin and no card of her own; this list is her only discovery path. Its search
+matches a seller's own name and goods and deliberately NOT the stands she sells at, and it carries
+no confirmed inventory or freshness at all — what is out right now is the stand card's question,
+stated there with its own per-seller recency. The map page performs `listPublicSellers` under the
 same `?hidden=true` scope rule as its stands, so the two lists can never disagree about who is
-visible.
+visible, and it is covered by the same model-free tripwire.
+
+`/sellers` was a separate page carrying this list until 2026-08-18. It is **pruned**: nothing
+linked to it once the toggle existed, and it had drifted into rendering a weaker seller card than
+the map's own.
+
+**The two lists are one two-way view (F-118).** Stands and sellers are many-to-many, and that
+relationship is stated once — `apps/web/lib/stand-seller-graph.ts` — and rendered in both
+directions rather than three times in three shapes. **The crossing runs one way only**: a stand
+card's seller name goes to the seller list, while a seller card's stand rows expand where they
+are, because the two are not symmetric — a seller has no pin and no sheet, and the map is a map
+of stands either way.
+
+- A **seller card** says, at rest, whether she is **Open** or **Closed** right now and how long
+  she runs. Both are DERIVED from the stands she sells at — a seller has no hours and no season
+  of her own — and neither is ever guessed. Open means ANY stand she sells at is open, since she
+  is buyable wherever one of them is; a stand that stated no hours is never counted open, because
+  answering Open on a silent schedule states a claim no farmer made. The season badge is absent
+  rather than invented when no stand of hers stated one the poster's two words describe. Opened,
+  a seller at **one** stand shows that stand's own detail body, because a list of one row asks
+  the customer to pick the only option; a seller at **several** shows the list, each row carrying
+  that stand's pin number and **expanding that stand's own detail in place** — a reader looking
+  at a seller stays looking at her, rather than being sent to View stands and losing the surface
+  they were reading. One stand's detail at a time, cleared when the card closes. A stand the map
+  is not currently showing keeps its row, named and marked, but does not expand: there is no
+  stand in the visible set to render, and a dead expander is worse than saying so. The
+  whole card is the tap target and a second tap closes it, exactly as on a stand card. A chosen
+  seller's stands wear the map's **own selection halo**, the same mark a chosen stand gets, so
+  the map says "you picked this" one way rather than two.
+- A **stand card** says how many sellers it carries before it is opened, and each seller is
+  named ONCE and that name is the crossing: the item credit is the link, because it is already
+  where the reader's eye is. The roster below names only sellers no item credited — someone at
+  the stand who has published nothing. `alsoSellingHere` (`sales_location_participants`, retired
+  as display-only history, no identity and so nothing to cross to) appears only for a stand with
+  no modelled sellers at all.
+- A **pin tapped while sellers are showing** answers "who sells here" instead of selecting the
+  stand — the pin answers the question the list is asking. With SEVERAL sellers that is a tooltip
+  naming them, each a tap into the list; with ONE it goes straight to her card, because a menu of
+  one asks the customer to confirm what their tap already said. `markerTipBox` keeps the tooltip
+  inside the island, clamping horizontally and flipping below a pin near the north shore: the
+  figure clips, and Vashon is narrow enough that most pins sit near an edge.
+- **One search box serves both lists.** The map's own term feeds `applyStandFilters` for stands
+  and `filterSellers` for sellers, each keeping its own rule about what is in its haystack. Two
+  fields in one header left the customer working out which one the list below was listening to.
 
 `POST /api/public/stock-out` is the one public model-backed handler, behind the throttle.
 

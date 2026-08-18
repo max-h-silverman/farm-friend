@@ -55,38 +55,3 @@ export function filterSellers(
     return haystack.some((entry) => entry.toLowerCase().includes(needle));
   });
 }
-
-/**
- * Where this seller is selling, as one sentence.
- *
- * **"Their own stand" and "selling at" are different claims, and the list must not blur them.**
- * "Selling at Venison Valley Stand" reads as a guest arrangement, which is wrong for someone's
- * own farm stand — and the whole reason this list exists is to make the hosted-only case
- * legible, which it cannot do if every seller is described the same way.
- *
- * `null` for a seller selling nowhere. The reader never returns one, and this is what stops a
- * renderer printing a bare "Selling at" with nothing after it if one ever arrives.
- */
-export function sellerSellingSummary(seller: SellerListEntry): string | null {
-  if (seller.sellingAt.length === 0) return null;
-
-  const own = seller.sellingAt.filter((stand) => stand.describesOwnStand);
-  const guest = seller.sellingAt.filter((stand) => !stand.describesOwnStand);
-
-  if (own.length === 0) return `Selling at ${joinNames(guest)}`;
-  const ownSentence = `Their own stand: ${joinNames(own)}`;
-  if (guest.length === 0) return ownSentence;
-  return `${ownSentence}. Also selling at ${joinNames(guest)}`;
-}
-
-/**
- * "A", "A and B", "A, B and C".
- *
- * No serial comma, matching the farmer-facing copy elsewhere in the app. Stated once here
- * rather than at each call site so the two halves of a mixed sentence read identically.
- */
-function joinNames(stands: readonly SellerListStand[]): string {
-  const names = stands.map((stand) => stand.locationName);
-  if (names.length <= 1) return names.join("");
-  return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
