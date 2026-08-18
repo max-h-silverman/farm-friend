@@ -169,7 +169,8 @@ describe("Remove", () => {
     const fetcher = vi.fn();
     renderStand([host, guest], fetcher);
 
-    await userEvent.click(screen.getByRole("button", { name: /remove Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("button", { name: /more for Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /remove Fernhorn Farm/i }));
 
     expect(fetcher).not.toHaveBeenCalled();
     // The copy has to say it cannot be undone, because it cannot.
@@ -182,7 +183,8 @@ describe("Remove", () => {
     );
     renderStand([host, guest], fetcher);
 
-    await userEvent.click(screen.getByRole("button", { name: /remove Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("button", { name: /more for Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /remove Fernhorn Farm/i }));
     await userEvent.click(screen.getByRole("button", { name: /^remove$/i }));
 
     const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
@@ -199,7 +201,8 @@ describe("Remove", () => {
     );
     renderStand([host, guest], fetcher);
 
-    await userEvent.click(screen.getByRole("button", { name: /remove Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("button", { name: /more for Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("menuitem", { name: /remove Fernhorn Farm/i }));
     await userEvent.click(screen.getByRole("button", { name: /^remove$/i }));
 
     // The lists are entities; an ended relationship is not one. With the guest gone the stand
@@ -247,5 +250,24 @@ describe("the seller view", () => {
     );
 
     expect(screen.queryByText(/stand is (open|closed)/i)).not.toBeInTheDocument();
+  });
+});
+
+/*
+  A ROW'S MENU NAMES THE ARRANGEMENT, NOT THE PLACE.
+
+  On a stand whose only seller owns it, the subject and the stand share a name — so a menu
+  labelled "More for Bank Road Gardens" was indistinguishable from the stand's own menu sitting
+  a few pixels away, and a screen reader offered two identical buttons that did different
+  things. The row's menu says what it acts on: this seller's selling here.
+*/
+describe("the row's menu is distinguishable from the stand's", () => {
+  it("names the arrangement rather than repeating the stand's name", () => {
+    render(<SellerParticipation view="stand" rows={[host]} fetcher={vi.fn()} />);
+
+    expect(screen.queryByRole("button", { name: /^more for Misty Hollow Farm$/i })).toBeNull();
+    expect(
+      screen.getByRole("button", { name: /Misty Hollow Farm.*sell|sell.*Misty Hollow Farm/i }),
+    ).toBeInTheDocument();
   });
 });

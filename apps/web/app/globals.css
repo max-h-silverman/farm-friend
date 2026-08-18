@@ -1065,102 +1065,6 @@ body {
   gap: 0.7rem;
 }
 
-.admin-stands {
-  list-style: none;
-  margin: 1.4rem 0 0;
-  padding: 0;
-  display: grid;
-  gap: 0.7rem;
-}
-
-.admin-stand {
-  overflow: hidden;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 12px;
-}
-
-.admin-stand-summary {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  width: 100%;
-  min-height: 74px;
-  gap: 0.45rem 0.9rem;
-  padding: 0.9rem 1rem;
-  color: var(--ink);
-  background: transparent;
-  border: 0;
-  font: inherit;
-  list-style: none;
-  text-align: left;
-  cursor: pointer;
-}
-
-.admin-stand-summary::-webkit-details-marker {
-  display: none;
-}
-
-.admin-stand-summary:hover {
-  background: var(--admin-cream);
-}
-
-.admin-stand-name {
-  min-width: 0;
-}
-
-.admin-stand-name strong,
-.admin-stand-name span {
-  display: block;
-}
-
-.admin-stand-name strong {
-  font-size: 1.05rem;
-}
-
-.admin-stand-name span {
-  margin-top: 0.1rem;
-  color: var(--ink-faint);
-  font-size: 0.9rem;
-}
-
-.admin-stand-states {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.35rem;
-}
-
-.admin-stand-states span {
-  padding: 0.2rem 0.45rem;
-  color: var(--ink-soft);
-  background: var(--admin-cream);
-  border: 1px solid var(--admin-leaf);
-  border-radius: 999px;
-  font-size: 0.8rem;
-  font-weight: 600;
-}
-
-/* The one chip that means "this needs you", so it is the one that does not blend into the
-   row of neutral state pills. Amber rather than red: it is work waiting, not a fault. */
-.admin-stand-states span.admin-state-attention {
-  color: #7a4a00;
-  background: #fdf1d6;
-  border-color: var(--admin-yellow);
-}
-
-/* Off the map reads as withdrawn rather than as another state, so it drops the fill. */
-.admin-stand-states span.admin-stand-retired {
-  color: var(--ink-soft);
-  background: transparent;
-  border-style: dashed;
-}
-
-/* The farm card's own summary carries more weight than a stand's: it is the row an operator
-   scans a long list by. */
-.admin-farm-card > details > summary .admin-stand-name strong {
-  font-size: 1.05rem;
-}
-
 /* ---------------------------------------------------------------------------
    The farm directory row.
 
@@ -1249,17 +1153,6 @@ body {
   transform: rotate(90deg);
 }
 
-.admin-row-glyph {
-  display: grid;
-  place-items: center;
-  width: 2.25rem;
-  height: 2.25rem;
-  color: var(--ink-soft);
-  background: var(--admin-cream);
-  border: 1px solid var(--admin-leaf);
-  border-radius: 9px;
-}
-
 .admin-row-identity {
   display: flex;
   flex-direction: column;
@@ -1287,202 +1180,6 @@ body {
   flex-wrap: wrap;
   justify-content: flex-end;
   gap: 0.35rem;
-}
-
-/* One pill mechanism with modifiers, rather than a family of near-duplicates.
-   Every variant keeps its own TEXT, so the state never depends on colour alone. */
-.admin-pill {
-  padding: 0.2rem 0.5rem;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 600;
-  white-space: nowrap;
-}
-
-.admin-pill--attention {
-  color: #7a4a00;
-  background: #fdf1d6;
-  border-color: var(--admin-yellow);
-}
-
-.admin-pill--ok {
-  color: var(--green);
-  background: var(--green-soft);
-  border-color: color-mix(in srgb, var(--green) 30%, transparent);
-}
-
-.admin-pill--muted {
-  color: var(--ink-soft);
-  background: transparent;
-  border-style: dashed;
-}
-
-/* The expanded body, indented under the row's identity column so a nested stand
-   reads as belonging to the farm above it rather than as a sibling row. */
-.admin-farm-card > details > .admin-stand-detail-groups {
-  display: flex;
-  flex-direction: column;
-  gap: 2rem;
-  margin: 0 1rem 1.5rem 4.35rem;
-  padding: 1.4rem 0 0;
-  background: transparent;
-  border-top: 1px solid var(--line);
-}
-
-/* Sections are separated by SPACE, never by a bordered box inside the card — a
-   panel within a panel spends a border and two paddings to say "these lines are
-   related", which the gap already says. The hairline is gone too: at this gap the
-   space alone groups, and four rules down one card read as a form to fill in. */
-.admin-farm-card .admin-stand-detail-section {
-  padding: 0;
-  background: transparent;
-  border: none;
-}
-
-/* A real heading, not a micro-label. The old 0.78rem uppercase grey sat at the
-   same weight as the body it governed, so nothing in the open card led. */
-.admin-farm-card .admin-stand-detail-section h3 {
-  margin: 0 0 0.75rem;
-  color: var(--ink);
-  font-size: 1rem;
-  font-weight: 650;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-/* --- The stands group: the one thing on this card that is the product ---------
-   A stand is what a customer actually sees on the map, so it gets the card's only
-   filled container. Everything else on the card is VIGA's own bookkeeping about
-   the farm and sits on plain paper. */
-.admin-farm-card .admin-stand-detail-section--stands {
-  padding: 1.1rem 1.15rem 1.15rem;
-  background: var(--green-soft);
-  border: 1px solid color-mix(in srgb, var(--green) 22%, transparent);
-  border-radius: 12px;
-}
-
-.admin-farm-card .admin-stand-detail-section--stands > h3 {
-  color: var(--green);
-}
-
-/* A stand nested in a farm card IS a card — it is the subject, and it has its own
-   controls behind its own disclosure. White on the green ground so it reads as a
-   thing you can open, which bare bold text between two hairlines never did. */
-.admin-farm-card .admin-stands {
-  gap: 0.5rem;
-  margin: 0;
-}
-
-.admin-farm-card .admin-stand {
-  background: var(--card);
-  border: 1px solid color-mix(in srgb, var(--green) 18%, var(--line));
-  border-radius: 10px;
-}
-
-.admin-farm-card .admin-stand > details > .admin-stand-summary {
-  min-height: 56px;
-  padding: 0.7rem 0.85rem;
-}
-
-.admin-farm-card .admin-stand .admin-stand-name strong {
-  font-size: 1rem;
-}
-
-/* The stand's own disclosure caret. Without it the row gives no sign it opens —
-   the single most common "I could not find the stand" report. */
-.admin-farm-card .admin-stand .admin-stand-name strong::before {
-  content: "";
-  display: inline-block;
-  width: 0;
-  height: 0;
-  margin-right: 0.5rem;
-  vertical-align: 0.08em;
-  border-top: 0.28rem solid transparent;
-  border-bottom: 0.28rem solid transparent;
-  border-left: 0.4rem solid var(--green);
-  transition: transform 120ms ease;
-}
-
-.admin-farm-card .admin-stand > details[open] .admin-stand-name strong::before {
-  transform: rotate(90deg);
-}
-
-/* --- The destructive group ---------------------------------------------------
-   Set apart rather than shouting: it is the last thing on the card, on its own
-   tinted ground, so a volunteer scanning for "edit the name" never lands here by
-   accident and one who wants it can find it without reading every heading. */
-.admin-farm-card .admin-stand-detail-section.admin-stand-retirement {
-  margin-top: 0.5rem;
-  padding: 1.1rem 1.15rem 1.15rem;
-  background: color-mix(in srgb, var(--amber-line) 12%, var(--paper));
-  border: 1px solid color-mix(in srgb, var(--amber-line) 45%, transparent);
-  border-radius: 12px;
-}
-
-.admin-farm-card .admin-stand-detail-section.admin-stand-retirement > h3 {
-  color: var(--amber);
-}
-
-/* Facts read as a summary line, not as a form. The label is the quiet part. */
-.admin-farm-card .admin-stand-detail-section > dl {
-  display: grid;
-  gap: 0.7rem;
-  margin: 0 0 1.1rem;
-}
-
-.admin-farm-card .admin-stand-detail-section > dl > div {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr);
-  gap: 0.1rem;
-  padding: 0;
-  border: none;
-  font-size: 0.95rem;
-}
-
-/* Sentence case, not uppercase: three uppercase labels stacked under a heading read
-   as louder than the heading itself, which inverts the hierarchy. The label is the
-   quiet part — the VALUE is what the operator came to read. */
-.admin-farm-card .admin-stand-detail-section > dl > dt,
-.admin-farm-card .admin-stand-detail-section > dl > div > dt {
-  color: var(--ink-faint);
-  font-size: 0.82rem;
-  font-weight: 500;
-  letter-spacing: 0;
-  text-transform: none;
-}
-
-.admin-farm-card .admin-stand-detail-section > dl > div > dd {
-  font-size: 1rem;
-}
-
-/* Buttons size to their label inside a farm card. Stretching each to fill the row
-   made a routine edit and a take-down the same 1000px slab. */
-.admin-farm-card .admin-button-row button {
-  flex: 0 0 auto;
-}
-
-/* Explanatory copy is the quiet layer under its heading, and it needs room to
-   breathe before the control it explains. */
-.admin-farm-card .admin-stand-detail-section > .admin-note {
-  max-width: 62ch;
-  margin: 0 0 0.9rem;
-  color: var(--ink-soft);
-  font-size: 0.95rem;
-  line-height: 1.5;
-}
-
-.admin-farm-card .admin-stand-detail-section > .admin-note + .admin-note {
-  margin-top: -0.5rem;
-}
-
-/* A stand's own state chips sit on white inside the green group, so the grey
-   outline that read as "disabled" is replaced by a legible tint. */
-.admin-farm-card .admin-stand .admin-stand-states span {
-  color: var(--ink-soft);
-  background: var(--paper);
-  border-color: var(--line);
-  font-weight: 600;
 }
 
 .admin-attention-summary {
@@ -4024,23 +3721,6 @@ form.farmer-picker-next {
 .admin-stand-detail-item--primary { padding: 0.45rem 0.9rem !important; background: none; }
 .admin-stand-detail-item--primary dd { font-size: 0.95rem; font-weight: 600; }
 
-.admin-farm-bucks { display: grid; align-content: start; }
-.admin-farm-bucks-head { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 0.2rem 0.9rem 0.6rem; }
-.admin-farm-bucks-head h3 { padding: 0.6rem 0 0.15rem; }
-.admin-farm-bucks-head p, .admin-farm-bucks-note { margin: 0; color: var(--ink-soft); font-size: 0.84rem; }
-.admin-farm-bucks-controls { display: grid; gap: 0.55rem; padding: 0 0.9rem 0.65rem; }
-.admin-farm-bucks-note { padding: 0 0.9rem 0.9rem; }
-.admin-inline-confirm {
-  display: grid;
-  width: min(100%, 22rem);
-  gap: 0.55rem;
-  padding: 0.75rem;
-  background: var(--amber-soft);
-  border: 1px solid var(--amber-line);
-  border-radius: 10px;
-}
-.admin-inline-confirm p { margin: 0; color: var(--ink); font-size: 0.86rem; line-height: 1.4; }
-
 /* Admin is an operator tool: compact rows, square controls and rules instead of panels. */
 .admin-header h1,
 .admin-signed-out h1 {
@@ -6467,14 +6147,17 @@ button.admin-action-danger,
 }
 
 /* ---------------------------------------------------------------------------
-   Stands & Sellers (F-101).
+   Stands & Sellers (F-101, restyled 2026-08-17).
 
-   The two views share one destination, so they share one visual language — and
-   that language is the farm directory's, reused rather than restated: rows are
-   `.admin-row` inside `.admin-farms`, states are `.admin-pill`, and every
-   button is one of the three `.admin-action-*` kinds. What is genuinely new is
-   only what did not exist before: the view switch, the participation toggle,
-   and the detail body those two sit in.
+   ONE CARD VOCABULARY for the whole console, and it is the mockups': a rounded
+   card whose HEAD is tinted and whose BODY is the card face. Head carries
+   identity, state chips, and a single Actions menu; body carries titled groups
+   of boxed rows. Every verb lives in a menu, so nothing but facts and one door
+   is on screen until the operator asks for more.
+
+   What this replaced: an open card that stacked five to seven buttons in a
+   wrapping row, then three always-open forms beneath them. Everything below
+   exists to keep a card readable at rest.
    --------------------------------------------------------------------------- */
 
 /* The view switch. Two labels for one set of things, so it reads as a segmented
@@ -6525,75 +6208,331 @@ button.admin-action-danger,
   font: inherit;
 }
 
-/* The opened card's body. Indented to the identity column above it, so the
-   detail reads as belonging to the row rather than as a new section. */
-.admin-entity-detail {
+/* ---- The card ---------------------------------------------------------- */
+
+/* Cards are separate objects with air between them, not rows welded into one
+   slab: each one is a farm or a stand, and the gap is what says so. */
+.admin-stands-and-sellers .admin-farms:has(.admin-farm-card) {
   display: grid;
-  gap: 1rem;
-  padding: 0.4rem 1rem 1.2rem 4.35rem;
-  background: var(--paper);
-  border-top: 1px solid var(--line);
+  gap: 0.85rem;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.admin-stands-and-sellers .admin-farm-card {
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  /* `overflow: hidden` would clip the Actions menu against the card edge, so the
+     head clips its own corners instead (below). */
+  overflow: visible;
+  box-shadow: 0 1px 2px rgb(28 35 33 / 5%);
+}
+
+/* THE HEAD. Tinted, so an open card reads as one object with a titled lid rather
+   than as two stacked panels. The row keeps its grid so every name in a long list
+   sits on the same x. */
+.admin-stands-and-sellers .admin-row {
+  grid-template-columns: 2.25rem minmax(0, auto) minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  padding: 0.85rem 1rem;
+  background: var(--admin-cream);
+  border-radius: calc(var(--radius) - 1px);
+}
+
+.admin-stands-and-sellers .admin-farm-card > details[open] > .admin-row {
+  border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
+  border-bottom: 1px solid var(--admin-leaf);
+}
+
+.admin-stands-and-sellers .admin-row:hover {
+  background: color-mix(in srgb, var(--admin-cream) 70%, var(--card));
+}
+
+/* The caret gets a box of its own, so the one control in the head that opens the
+   card looks like a control — the bare triangle read as decoration. */
+.admin-row-caret-box {
+  display: grid;
+  place-items: center;
+  width: 2.25rem;
+  height: 2.25rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 9px;
+}
+
+.admin-stands-and-sellers .admin-row-identity strong {
+  font-size: 1.05rem;
+}
+
+.admin-row-actions {
+  display: flex;
+  align-items: center;
+  /* The menu must escape the head it sits in; a stacking context here keeps it
+     above the cards below without a z-index on the whole card. */
+  position: relative;
+  z-index: 1;
+}
+
+/* THE BODY. The card face, and generous with space — its groups are separated by
+   air, never by a panel inside a panel. */
+.admin-stands-and-sellers .admin-entity-detail {
+  display: grid;
+  gap: 1.5rem;
+  padding: 1.25rem 1.15rem 1.35rem;
+  background: var(--card);
+  border-top: none;
+  border-radius: 0 0 calc(var(--radius) - 1px) calc(var(--radius) - 1px);
 }
 
 @media (max-width: 640px) {
-  .admin-entity-detail {
+  .admin-stands-and-sellers .admin-entity-detail {
     padding-left: 1rem;
   }
 }
 
-/* One arrangement: who (or where), and what may be done about it. A list only
-   when there is more than one — the singular case is a plain fact, which is a
-   rule the component enforces and this only has to not fight. */
-.admin-participation {
+/* ---- Groups inside a card ---------------------------------------------- */
+
+.admin-group {
   display: grid;
-  gap: 0.5rem;
+  gap: 0.6rem;
+}
+
+.admin-group-title {
   margin: 0;
-  padding: 0;
-  list-style: none;
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 700;
 }
 
-.admin-participation-row {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.55rem;
+/* One box per group, holding its rows. The box is what the mockups use to say
+   "these belong together"; inside it, rows are divided by a hairline rather than
+   by more boxes. */
+.admin-group-body {
+  display: grid;
+  padding: 0.35rem 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
 }
 
-/* The toggle carries its own state in TEXT as well as in colour, so "paused"
-   never depends on a colour the operator has to have learned. */
-.admin-participation-toggle {
+/* ---- Chips ------------------------------------------------------------- */
+
+/* One chip mechanism with tones. Every tone keeps its TEXT and its icon is
+   decorative, so no state is ever carried by colour alone. */
+.admin-chip {
   display: inline-flex;
   align-items: center;
-  gap: 0.5rem;
-  min-height: 44px;
-  padding: 0 0.9rem;
-  color: var(--ink);
-  background: var(--green-soft);
-  border: 1px solid color-mix(in srgb, var(--green) 45%, var(--line));
+  gap: 0.35rem;
+  padding: 0.3rem 0.65rem;
+  border: 1px solid var(--line);
   border-radius: 999px;
+  font-size: 0.82rem;
+  font-weight: 650;
+  white-space: nowrap;
+}
+
+.admin-chip-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+}
+
+.admin-chip--neutral {
+  color: var(--ink-soft);
+  background: var(--card);
+}
+
+.admin-chip--ok {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: color-mix(in srgb, var(--green) 30%, transparent);
+}
+
+.admin-chip--attention {
+  color: var(--amber);
+  background: var(--amber-soft);
+  border-color: var(--amber-line);
+}
+
+/* The state word on a participation row. Smaller and quieter than a head chip:
+   it labels the row it sits in rather than the whole card. */
+.admin-chip--state {
+  color: var(--green);
+  background: var(--green-soft);
+  border-color: color-mix(in srgb, var(--green) 25%, transparent);
+  font-size: 0.78rem;
+}
+
+/* ---- The menu ---------------------------------------------------------- */
+
+.admin-menu {
+  position: relative;
+  display: inline-flex;
+}
+
+.admin-menu-trigger {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  min-height: 40px;
+  padding: 0 0.85rem;
+  color: var(--ink);
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 10px;
   font: inherit;
   font-weight: 650;
   cursor: pointer;
 }
 
-.admin-participation-toggle::before {
-  content: "";
-  width: 0.62rem;
-  height: 0.62rem;
-  background: var(--green);
-  border-radius: 50%;
+.admin-menu-trigger:hover {
+  border-color: var(--sage-deep);
 }
 
-/* Paused is withdrawn, not faulty: it loses its fill the same way a retired
-   stand's chip does, rather than turning red. */
-.admin-participation-toggle[aria-checked="false"] {
+.admin-menu-trigger:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline-offset: 2px;
+}
+
+.admin-menu-trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+/* The kebab. 40px square so it stays a real tap target on a phone even though
+   it shows three dots. */
+.admin-menu-trigger--compact {
+  justify-content: center;
+  width: 40px;
+  min-height: 40px;
+  padding: 0;
   color: var(--ink-soft);
-  background: transparent;
-  border-style: dashed;
 }
 
-.admin-participation-toggle[aria-checked="false"]::before {
-  background: var(--ink-faint);
+.admin-menu-list {
+  position: absolute;
+  top: calc(100% + 0.4rem);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  min-width: 14rem;
+  padding: 0.35rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  box-shadow: 0 10px 28px rgb(28 35 33 / 14%);
+}
+
+.admin-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 0.7rem;
+  width: 100%;
+  min-height: 44px;
+  padding: 0 0.7rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.95rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-menu-item:hover {
+  background: var(--admin-cream);
+}
+
+.admin-menu-item:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline-offset: -3px;
+}
+
+.admin-menu-item-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--ink-soft);
+}
+
+/* The destructive item is last, red, and behind a rule — so it is never mistaken
+   for one more choice in the list. */
+.admin-menu-item--danger {
+  margin-top: 0.35rem;
+  padding-top: 0.35rem;
+  color: var(--brick);
+  border-top: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.admin-menu-item--danger .admin-menu-item-icon {
+  color: var(--brick);
+}
+
+.admin-menu-item--danger:hover {
+  background: var(--brick-soft);
+}
+
+/* ---- Participation rows ------------------------------------------------ */
+
+/* One arrangement: who (or where), its state, and its own way in. A list only
+   when there is more than one — the singular case is a plain fact, which is a
+   rule the component enforces and this only has to not fight. */
+.admin-participation {
+  display: grid;
+  gap: 0;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-participation > li + li,
+.admin-participation-row + .admin-participation-row {
+  border-top: 1px solid var(--line);
+}
+
+.admin-participation-row {
+  display: grid;
+  gap: 0.5rem;
+  padding: 0.35rem 0;
+}
+
+.admin-participation-line {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+/* The whole line is the toggle, so the tap target is the row rather than a pill
+   inside it. It carries no fill of its own: a filled control on every row turned
+   the group into a wall of green. */
+.admin-participation-toggle {
+  display: flex;
+  flex: 1 1 auto;
+  align-items: center;
+  gap: 0.7rem;
+  min-width: 0;
+  min-height: 48px;
+  padding: 0 0.4rem;
+  color: var(--ink);
+  background: transparent;
+  border: 0;
+  border-radius: 10px;
+  font: inherit;
+  font-size: 1rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.admin-participation-toggle:hover {
+  background: var(--green-soft);
+}
+
+.admin-participation-toggle:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline-offset: -2px;
 }
 
 .admin-participation-toggle:disabled {
@@ -6601,36 +6540,105 @@ button.admin-action-danger,
   cursor: default;
 }
 
-.admin-participation-toggle:focus-visible {
-  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
-  outline-offset: 2px;
+.admin-participation-subject {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-weight: 600;
 }
 
-/* The confirmation sits in the row it belongs to, never above the list: a
-   question about the third seller shown above the first is a question the
-   operator answers for the wrong one. */
-.admin-participation-confirm,
-.admin-seller-confirm {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 0.55rem;
-  padding: 0.6rem 0.8rem;
+/* The dot is the scan cue; the word beside it is the meaning. */
+.admin-participation-dot {
+  flex: 0 0 auto;
+  width: 0.68rem;
+  height: 0.68rem;
+  background: var(--green);
+  border-radius: 50%;
+}
+
+/* Paused is withdrawn, not faulty: the dot empties and the chip greys, rather
+   than either turning red. */
+.admin-participation-toggle[aria-checked="false"] .admin-participation-dot {
+  background: var(--card);
+  border: 2px solid var(--ink-faint);
+}
+
+.admin-participation-toggle[aria-checked="false"] .admin-participation-subject {
+  color: var(--ink-soft);
+}
+
+.admin-participation-toggle[aria-checked="false"] .admin-chip--state {
+  color: var(--ink-soft);
+  background: transparent;
+  border-color: var(--line);
+  border-style: dashed;
+}
+
+/* A solo native-seller stand states its whole meaning in one line ("Stand is
+   open"), so that line is the row's headline rather than a subject with a chip. */
+.admin-participation-toggle:not(:has(.admin-chip--state)) .admin-participation-subject {
+  font-size: 1.05rem;
+  font-weight: 700;
+}
+
+/* ---- Confirmations, banners, results ----------------------------------- */
+
+/* One confirmation surface for every destructive verb on the console. It sits in
+   the row or the card it belongs to, never above a list: a question about the
+   third seller shown above the first is a question the operator answers for the
+   wrong one. */
+.admin-confirm {
+  display: grid;
+  gap: 0.7rem;
+  padding: 0.85rem 0.9rem;
   background: var(--amber-soft);
   border: 1px solid var(--amber-line);
-  border-radius: 10px;
-  font-size: 0.9rem;
+  border-radius: 12px;
+  font-size: 0.92rem;
+}
+
+.admin-confirm p {
+  margin: 0;
+  line-height: 1.45;
+}
+
+.admin-confirm-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+}
+
+/* An advisory: a standing fact about the record that the operator should read
+   before acting, and that is not work waiting. Blue keeps it out of the amber
+   the attention chip owns and the green a result owns. */
+.admin-banner {
+  display: block;
+  margin: 0;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  font-size: 0.92rem;
+  line-height: 1.5;
+}
+
+.admin-banner--info {
+  color: #274b6d;
+  background: #eef4fb;
+  border-color: #c3d8ec;
 }
 
 .admin-seller-controls {
   display: grid;
-  gap: 0.8rem;
+  gap: 0.9rem;
 }
 
 .admin-seller-edit {
   display: grid;
   gap: 0.4rem;
   max-width: 34rem;
+  padding: 0.9rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
 }
 
 .admin-seller-edit label {
@@ -6654,17 +6662,46 @@ button.admin-action-danger,
   resize: vertical;
 }
 
-.admin-access-roster h4 {
-  margin: 0 0 0.4rem;
-  font-size: 0.95rem;
+/* ---- Who can update ---------------------------------------------------- */
+
+.admin-access-roster {
+  display: grid;
 }
 
 .admin-access-row {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
+  justify-content: space-between;
   gap: 0.6rem;
-  margin: 0 0 0.4rem;
+  min-height: 48px;
+  margin: 0;
+}
+
+.admin-access-row + .admin-access-row {
+  border-top: 1px solid var(--line);
+}
+
+.admin-access-mask,
+.admin-empty {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  min-height: 48px;
+  margin: 0;
+  color: var(--ink-soft);
+}
+
+.admin-access-mask {
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.admin-access-icon,
+.admin-empty-icon {
+  display: inline-flex;
+  flex: 0 0 auto;
+  color: var(--ink-faint);
 }
 
 /* A credential shown once. It reads as something to act on before leaving,
@@ -6686,20 +6723,109 @@ button.admin-action-danger,
   font-size: 0.85rem;
 }
 
-/* No glyph column on these rows (max, 2026-08-17): a per-row icon repeated down
-   a list is chrome the eye learns to skip, and the caret already says the row
-   opens. The identity column takes the space back so names still share one x. */
-.admin-stands-and-sellers .admin-row {
-  grid-template-columns: 1.25rem minmax(0, auto) minmax(0, 1fr) auto;
+/* ---- A stand inside a card --------------------------------------------- */
+
+.admin-stands-and-sellers .admin-stands {
+  display: grid;
+  gap: 0.85rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
 }
 
-/* Pure white cards (max, 2026-08-17). The farm directory's container paints
-   `--paper` behind its rows; on this screen the card face is the card, so the
-   list and the opened body both take `--card` and the cream is left to the
-   hover state alone. */
-.admin-stands-and-sellers .admin-farms:has(.admin-farm-card),
-.admin-stands-and-sellers .admin-entity-detail {
+.admin-stands-and-sellers .admin-stand {
+  display: grid;
+  gap: 0.9rem;
+  padding: 0.9rem;
   background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.admin-stand-head {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.75rem;
+}
+
+/* No identity of its own — the card head above already named this stand — so the block's menu
+   sits alone at the right edge rather than after a name that is not there. */
+.admin-stand-head--bare {
+  justify-content: flex-end;
+  margin-bottom: -0.4rem;
+}
+
+/* The one glyph in the console that names a THING rather than an action. It is
+   what lets a stand be recognised inside a seller's card without reading. */
+.admin-stand-glyph {
+  display: grid;
+  flex: 0 0 auto;
+  place-items: center;
+  width: 2.6rem;
+  height: 2.6rem;
+  color: var(--green);
+  background: var(--green-soft);
+  border-radius: 50%;
+}
+
+.admin-stand-identity {
+  display: grid;
+  flex: 1 1 auto;
+  gap: 0.45rem;
+  min-width: 0;
+}
+
+.admin-stand-identity strong {
+  font-size: 1.05rem;
+  overflow-wrap: anywhere;
+}
+
+.admin-stands-and-sellers .admin-stand-states {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem;
+}
+
+.admin-stand-body {
+  display: grid;
+  gap: 0.9rem;
+}
+
+/* The stand's facts, and the one surface a verb opened. Sections are separated by
+   space; a panel within a panel would spend a border and two paddings to say what
+   the gap already says. */
+.admin-stands-and-sellers .admin-stand-detail-section {
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  overflow: visible;
+}
+
+.admin-stands-and-sellers .admin-stand-detail-section h3 {
+  margin: 0 0 0.5rem;
+  padding: 0;
+  color: var(--ink-soft);
+  background: transparent;
+  border: none;
+  font-size: 0.86rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+.admin-stands-and-sellers .admin-stand-detail-section dl > div {
+  grid-template-columns: minmax(8rem, 0.5fr) minmax(0, 1fr);
+  padding: 0.45rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-stands-and-sellers .admin-stand-editor {
+  gap: 0.45rem;
+  padding: 0.95rem;
+  background: var(--paper);
+  border: 1px solid var(--line);
+  border-radius: 12px;
 }
 
 /* The view switch and the row count share a line: the count labels the list
@@ -6719,10 +6845,7 @@ button.admin-action-danger,
 /* Stretch to the switch's height and centre inside that, rather than guessing at
    it: `align-items: stretch` on the row makes this box exactly as tall as its
    tallest sibling, whatever the pill's padding and border add up to, and the
-   inner centring then lands on the true middle. A computed min-height was off by
-   the border, and `min-height` is only a floor anyway — it cannot align text to a
-   sibling. `.admin-view-tabs` keeps its own `align-items: center` so the switch
-   itself is unaffected by the stretch. */
+   inner centring then lands on the true middle. */
 .admin-view-count {
   display: inline-flex;
   align-items: center;

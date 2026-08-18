@@ -274,9 +274,9 @@ describe("a seller shows where she sells", () => {
     expect(row).toHaveTextContent(/unclaimed/i);
 
     // And it is a plain state chip, never the amber "this needs you" one.
-    const chip = within(row as HTMLElement).getByText(/unclaimed/i);
-    expect(chip.className).toContain("admin-pill");
-    expect(chip.className).not.toContain("admin-pill--attention");
+    const chip = within(row as HTMLElement).getByText(/unclaimed/i).closest(".admin-chip");
+    expect(chip).not.toBeNull();
+    expect((chip as HTMLElement).className).not.toContain("admin-chip--attention");
 
     // Nothing above the rows says anything about it — no count, no alert.
     expect(screen.queryByRole("status")).toBeNull();
@@ -298,6 +298,16 @@ async function openSeller(name: string): Promise<HTMLElement> {
   return screen.getByRole("group", { name: new RegExp(name, "i") });
 }
 
+/**
+ * Reach one of the card's verbs the way an operator does: open the Actions menu, choose the
+ * item. Every verb moved behind that one door, so a test that still pressed a bare button
+ * would be asserting a surface the console no longer has.
+ */
+async function choose(card: HTMLElement, item: RegExp): Promise<void> {
+  await userEvent.click(within(card).getByRole("button", { name: /^actions$/i }));
+  await userEvent.click(within(card).getByRole("menuitem", { name: item }));
+}
+
 function ok(payload: unknown = {}) {
   return vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
 }
@@ -308,7 +318,7 @@ describe("approving a seller", () => {
     render(<StandsAndSellers stands={stands} sellers={unapproved} fetcher={fetcher} />);
 
     const card = await openSeller("Sprout Farm");
-    await userEvent.click(within(card).getByRole("button", { name: /^approve$/i }));
+    await choose(card, /^approve$/i);
 
     const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/admin/sellers");
@@ -324,7 +334,7 @@ describe("approving a seller", () => {
     render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
 
     const card = await openSeller("Misty Hollow Farm");
-    await userEvent.click(within(card).getByRole("button", { name: /remove approval/i }));
+    await choose(card, /remove approval/i);
 
     const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toMatchObject({ action: "revoke" });
@@ -337,7 +347,7 @@ describe("taking a seller off the map", () => {
     render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
 
     const card = await openSeller("Misty Hollow Farm");
-    await userEvent.click(within(card).getByRole("button", { name: /take off the map/i }));
+    await choose(card, /take off the map/i);
 
     expect(fetcher).not.toHaveBeenCalled();
     expect(within(card).getByText(/customers no longer see/i)).toBeInTheDocument();
@@ -348,7 +358,7 @@ describe("taking a seller off the map", () => {
     render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
 
     const card = await openSeller("Misty Hollow Farm");
-    await userEvent.click(within(card).getByRole("button", { name: /take off the map/i }));
+    await choose(card, /take off the map/i);
     await userEvent.click(within(card).getByRole("button", { name: /^remove$/i }));
 
     const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
@@ -360,7 +370,7 @@ describe("taking a seller off the map", () => {
     render(<StandsAndSellers stands={stands} sellers={retiredSeller} fetcher={fetcher} />);
 
     const card = await openSeller("Gone Farm");
-    await userEvent.click(within(card).getByRole("button", { name: /put back on the map/i }));
+    await choose(card, /put back on the map/i);
 
     const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toMatchObject({ action: "restore" });
@@ -373,7 +383,7 @@ describe("the setup link", () => {
     render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
 
     const card = await openSeller("Fernhorn Farm");
-    await userEvent.click(within(card).getByRole("button", { name: /setup link/i }));
+    await choose(card, /setup link/i);
 
     const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(url).toBe("/api/admin/farmers");
@@ -398,7 +408,8 @@ describe("the setup link is offered only where it solves something", () => {
     // Misty Hollow has a live authorization. The button would invite the operator to solve a
     // problem this farm does not have.
     const card = await openSeller("Misty Hollow Farm");
-    expect(within(card).queryByRole("button", { name: /setup link/i })).not.toBeInTheDocument();
+    await userEvent.click(within(card).getByRole("button", { name: /^actions$/i }));
+    expect(within(card).queryByRole("menuitem", { name: /setup link/i })).not.toBeInTheDocument();
   });
 
   it("says an earlier link cannot be looked up, so nobody waits for one", async () => {
@@ -417,7 +428,7 @@ describe("test farms", () => {
     render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
 
     const card = await openSeller("Misty Hollow Farm");
-    await userEvent.click(within(card).getByRole("button", { name: /mark as a test farm/i }));
+    await choose(card, /mark as a test farm/i);
 
     const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toMatchObject({ action: "mark_test" });
@@ -430,7 +441,7 @@ describe("editing a seller's details", () => {
     render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
 
     const card = await openSeller("Misty Hollow Farm");
-    await userEvent.click(within(card).getByRole("button", { name: /edit details/i }));
+    await choose(card, /edit details/i);
 
     const name = within(card).getByLabelText(/farm name/i);
     await userEvent.clear(name);
@@ -442,5 +453,134 @@ describe("editing a seller's details", () => {
       action: "save_details",
       name: "Misty Hollow Farmstead",
     });
+  });
+});
+
+/*
+  THE CARD'S SHAPE (max, 2026-08-17).
+
+  A card at rest is an identity, its states, and one way in. Everything an operator can do
+  *about* the record hangs off the header's Actions menu, and everything they can do about one
+  of its parts hangs off that part's own menu. The failure this replaces is the wrapping row of
+  five to seven buttons under every open card, where "Approve" and "Take off the map" carried
+  the same visual weight as the name of the farm.
+
+  Asserted here rather than in the menu's own suite, because what matters is not that a menu
+  works — it is that *these* actions are behind *this* card's menu, and that a state chip never
+  becomes a control.
+*/
+describe("the card's actions live in one menu", () => {
+  it("shows no seller controls until the Actions menu is opened", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+
+    expect(within(card).queryByRole("button", { name: /edit details/i })).toBeNull();
+    expect(within(card).queryByRole("button", { name: /take off the map/i })).toBeNull();
+    expect(within(card).getByRole("button", { name: /^actions$/i })).toBeInTheDocument();
+  });
+
+  it("offers the whole seller vocabulary behind that one menu", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
+
+    const card = await openSeller("Fernhorn Farm");
+    await userEvent.click(within(card).getByRole("button", { name: /^actions$/i }));
+
+    for (const label of [
+      /edit details/i,
+      /^approve$|remove approval/i,
+      /setup link/i,
+      /test farm/i,
+      /take off the map/i,
+    ]) {
+      expect(within(card).getByRole("menuitem", { name: label })).toBeInTheDocument();
+    }
+  });
+
+  it("keeps a state chip a fact, never a button", async () => {
+    render(<StandsAndSellers stands={stands} sellers={unapproved} fetcher={vi.fn()} />);
+    await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
+
+    // The chip says what is true of the record. The operator acts through the menu, so a chip
+    // that could be pressed would be a second, undiscoverable way to do the same thing.
+    const card = screen.getByRole("group", { name: /sprout farm/i });
+    const chip = within(card).getByText(/waiting for approval/i);
+    expect(chip.closest("button")).toBeNull();
+  });
+});
+
+describe("a stand row inside a seller card", () => {
+  it("lists each stand with its own menu rather than a nested form", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
+
+    const card = await openSeller("Fernhorn Farm");
+    const stands_ = within(card).getByRole("group", { name: /stands/i });
+
+    // Two arrangements, two rows, each naming the stand and carrying its own way in.
+    expect(
+      within(stands_).getByRole("button", { name: /selling at Misty Hollow Stand/i }),
+    ).toBeInTheDocument();
+    expect(
+      within(stands_).getByRole("button", { name: /selling at Harbor Stand/i }),
+    ).toBeInTheDocument();
+  });
+
+  it("puts Remove behind the row's own menu, still asking before it acts", async () => {
+    const fetcher = vi.fn();
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Fernhorn Farm");
+    await userEvent.click(
+      within(card).getByRole("button", { name: /selling at Harbor Stand/i }),
+    );
+    await userEvent.click(within(card).getByRole("menuitem", { name: /remove/i }));
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(within(card).getByText(/cannot be undone/i)).toBeInTheDocument();
+  });
+});
+
+/*
+  ONE IDENTITY PER CARD (max, 2026-08-17).
+
+  On the Stands view the card header IS the stand — its name, its chips, its way in. The stand's
+  own detail block used to restate all three inside the body, which left two controls with the
+  same accessible name on one card and a screen reader with no way to tell them apart. The body
+  carries the stand's facts and its verbs; the head carries who it is.
+*/
+describe("a stand card names the stand once", () => {
+  it("gives the card exactly one way into the stand's verbs", async () => {
+    const withDetails: StandCard[] = [
+      {
+        ...(stands[1] as StandCard),
+        details: {
+          standId: "stand-2",
+          name: "Harbor Stand",
+          farmName: "Fernhorn Farm",
+          status: "Visible to customers",
+          openState: "Open now",
+          approved: true,
+          retired: false,
+          retiredWithFarm: false,
+          farmBucksStatus: "not_eligible",
+          metadata: {
+            name: "Harbor Stand",
+            publicAddress: "9 Harbor Rd",
+            addressPublic: true,
+            latitude: 47.4,
+            longitude: -122.4,
+            hoursText: "Dawn to dusk",
+          },
+          sections: [{ title: "Where", items: [["Address", "9 Harbor Rd"]] }],
+        },
+      },
+    ];
+    render(<StandsAndSellers stands={withDetails} sellers={sellers} fetcher={vi.fn()} />);
+    await userEvent.click(screen.getByText("Harbor Stand"));
+
+    const card = screen.getByRole("group", { name: /harbor stand/i });
+    expect(within(card).getAllByRole("button", { name: /more for harbor stand/i })).toHaveLength(1);
+    // And the name is written once: the head says who this is, the body says what is true of it.
+    expect(within(card).getAllByText("Harbor Stand")).toHaveLength(1);
   });
 });

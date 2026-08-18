@@ -49,8 +49,24 @@ function inviteBox(): HTMLElement {
   return screen.getByRole("group", { name: /invite a seller to Venison Valley Stand/i });
 }
 
+/**
+ * Reach one of the stand's verbs the way an operator does: its own menu, then the item. The
+ * card no longer carries a second disclosure — the card that opened it already answered
+ * "which stand", so opening the same stand twice was chrome.
+ */
+async function choose(item: RegExp): Promise<void> {
+  await userEvent.click(screen.getByRole("button", { name: /more for Venison Valley Stand/i }));
+  await userEvent.click(screen.getByRole("menuitem", { name: item }));
+}
+
+/** The details editor, which the F-101 cases work inside. */
 async function openStand(): Promise<void> {
-  await userEvent.click(screen.getByText("Venison Valley Stand"));
+  await choose(/edit details/i);
+}
+
+/** The invitation panel, which the F-114 cases work inside. */
+async function openInvite(): Promise<void> {
+  await choose(/invite a seller/i);
 }
 
 afterEach(() => {
@@ -82,7 +98,7 @@ describe("VIGA invites a seller to a stand (F-114 Phase C.1)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<StandDetails stands={[stand]} />);
-    await openStand();
+    await openInvite();
 
     const box = inviteBox();
     await userEvent.type(
@@ -114,7 +130,7 @@ describe("VIGA invites a seller to a stand (F-114 Phase C.1)", () => {
     // max, 2026-08-15: nothing is public until the seller finishes. An operator who thought the
     // invitation listed someone would answer a farmer's "why can't I see them" wrongly.
     render(<StandDetails stands={[stand]} />);
-    await openStand();
+    await openInvite();
     expect(
       within(inviteBox()).getByText(
         /nobody is listed until they finish|not.*public until/i,
@@ -132,7 +148,7 @@ describe("VIGA invites a seller to a stand (F-114 Phase C.1)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<StandDetails stands={[stand]} />);
-    await openStand();
+    await openInvite();
     const box = inviteBox();
     await userEvent.type(within(box).getByLabelText(/seller's name/i), "Fernhorn Bakery");
     await userEvent.click(within(box).getByRole("button", { name: /invite/i }));
@@ -146,7 +162,7 @@ describe("VIGA invites a seller to a stand (F-114 Phase C.1)", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     render(<StandDetails stands={[stand]} />);
-    await openStand();
+    await openInvite();
     const box = inviteBox();
     await userEvent.click(within(box).getByRole("button", { name: /invite/i }));
     expect(fetchMock).not.toHaveBeenCalled();
@@ -156,10 +172,10 @@ describe("VIGA invites a seller to a stand (F-114 Phase C.1)", () => {
     // A retired stand serves no customers, so a seller invited to it would onboard into
     // nothing. The control is absent rather than disabled: there is nothing to reverse here.
     render(<StandDetails stands={[{ ...stand, retired: true }]} />);
-    await openStand();
-    expect(
-      screen.queryByRole("group", { name: /invite a seller/i }),
-    ).toBeNull();
+    await userEvent.click(
+      screen.getByRole("button", { name: /more for Venison Valley Stand/i }),
+    );
+    expect(screen.queryByRole("menuitem", { name: /invite a seller/i })).toBeNull();
   });
 });
 
@@ -242,5 +258,53 @@ describe("F-101 VIGA corrects a stand's own facts", () => {
 
     expect(await screen.findByText(/needs an address and a map pin/i)).toBeVisible();
     expect(within(editBox()).getByLabelText("Stand name")).toHaveValue("Venison Valley Stand");
+  });
+});
+
+/*
+  THE STAND CARD'S SHAPE (max, 2026-08-17).
+
+  A stand card opened from Stands & Sellers used to open a SECOND disclosure to reach the same
+  stand, then present three always-open forms — the details editor, Farm Bucks, an invitation —
+  stacked under the read-only facts. An operator arriving to check whether a stand was on the
+  map read a page of form.
+
+  Now: the facts, and one menu holding the verbs. Each verb opens the surface it needs, and
+  nothing else is on screen while it is.
+*/
+describe("the stand card's verbs live behind one menu", () => {
+  it("shows no form until a verb is chosen", () => {
+    render(<StandDetails stands={[stand]} />);
+
+    expect(screen.queryByLabelText("Stand name")).toBeNull();
+    expect(screen.queryByLabelText(/seller's name/i)).toBeNull();
+    expect(screen.getByRole("button", { name: /more for Venison Valley Stand/i })).toBeInTheDocument();
+  });
+
+  it("opens the details editor from the menu", async () => {
+    render(<StandDetails stands={[stand]} />);
+    await openStand();
+
+    expect(screen.getByLabelText("Stand name")).toHaveValue("Venison Valley Stand");
+  });
+
+  it("shows one surface at a time, so a verb replaces the last one", async () => {
+    render(<StandDetails stands={[stand]} />);
+    await openStand();
+    expect(screen.getByLabelText("Stand name")).toBeInTheDocument();
+
+    await choose(/invite a seller/i);
+
+    // The editor is gone rather than pushed down the page: two open forms is the state that
+    // made the old card read as a page of form.
+    expect(screen.queryByLabelText("Stand name")).toBeNull();
+    expect(screen.getByLabelText(/seller's name/i)).toBeInTheDocument();
+  });
+
+  it("keeps the read-only facts visible whatever verb is open", async () => {
+    render(<StandDetails stands={[{ ...stand, sections: [{ title: "Where", items: [["Address", "1 Wrong Road"]] }] }]} />);
+    await openStand();
+
+    expect(screen.getByText("1 Wrong Road")).toBeInTheDocument();
   });
 });

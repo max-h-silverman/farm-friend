@@ -2,6 +2,11 @@
 
 import { useState } from "react";
 import { copyText } from "../../lib/copy-text";
+import { ActionMenu } from "./action-menu";
+import { CheckIcon, ClockIcon, LinkIcon, PencilIcon, PeopleIcon, StandIcon, UnpinIcon } from "./icons";
+
+/** Which of a stand's three surfaces is open, or none. One at a time, by construction. */
+type StandPanel = "details" | "farm-bucks" | "invite" | "retire" | null;
 
 export interface AdminStandCard {
   standId: string;
@@ -264,16 +269,32 @@ function farmBucksDetail(status: AdminStandCard["farmBucksStatus"]): string {
 }
 
 /**
- * The stands belonging to one farm, rendered inside that farm's card.
+ * One stand's facts, and the verbs that change them.
  *
- * Stands stopped being a top-level list of their own: an operator looking for a stand was
- * looking for a farm, and the flat index made them hold the farm→stand relationship in their
- * head. This is the same card body the old index rendered, minus the farm name on every row —
- * redundant once the enclosing card names the farm.
+ * **The facts are always on screen; the verbs are behind one menu** (max, 2026-08-17). An
+ * operator arrives to read something — is this on the map, when is it open, does it take Farm
+ * Bucks — and the card answers that first. The three surfaces that change a stand (the details
+ * editor, the Farm Bucks decision, an invitation) each open on request, one at a time, so a
+ * card at rest is never a page of form.
  *
- * Native disclosure keeps every card usable before JavaScript loads.
+ * The second disclosure is gone with it: the card in Stands & Sellers already answered "which
+ * stand", so opening the same stand again inside it was chrome the operator had to click past.
  */
-export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
+export function StandDetails({
+  stands,
+  headed = true,
+}: {
+  stands: AdminStandCard[];
+  /**
+   * Whether this block writes the stand's own identity line.
+   *
+   * **False when the enclosing card already named the stand** — on the Stands view the card
+   * head IS the stand, so a second head restated its name and its chips and left two controls
+   * on one card carrying the identical accessible name. The verbs stay: they are the stand's,
+   * and the card's own Actions menu holds the *seller's*.
+   */
+  headed?: boolean;
+}) {
   const [rows, setRows] = useState(stands);
   const [saving, setSaving] = useState<string | null>(null);
   /**
@@ -281,8 +302,11 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
    * reported the thirtieth stand's outcome above the first stand's card.
    */
   const [note, setNote] = useState<Record<string, { kind: "ok" | "bad"; text: string }>>({});
-  /** The stand whose retirement is waiting on a confirmation, if any. */
-  const [confirmingRetire, setConfirmingRetire] = useState<string | null>(null);
+  /**
+   * Which surface one stand has open, if any. **One at a time**, so choosing a verb replaces
+   * the last one rather than stacking beneath it — the state that made this card unreadable.
+   */
+  const [openPanel, setOpenPanel] = useState<Record<string, StandPanel>>({});
   /** The seller name being typed, per stand. Cleared once its invitation is minted. */
   const [sellerName, setSellerName] = useState<Record<string, string>>({});
   /**
@@ -291,6 +315,14 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
    * screen without the link has to reissue.
    */
   const [freshLink, setFreshLink] = useState<Record<string, string>>({});
+
+  function panelOf(standId: string): StandPanel {
+    return openPanel[standId] ?? null;
+  }
+
+  function showPanel(standId: string, panel: StandPanel) {
+    setOpenPanel((current) => ({ ...current, [standId]: panel }));
+  }
 
   function say(standId: string, kind: "ok" | "bad", text: string) {
     setNote((current) => ({ ...current, [standId]: { kind, text } }));
@@ -364,9 +396,9 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
           : "That stand was not put back on the map. Try again.",
       );
     } finally {
-      // Closed whichever way it went. On failure the row is unchanged and the plain button is
-      // back, so a retry is a deliberate act rather than a second click on a stuck dialog.
-      setConfirmingRetire(null);
+      // Closed whichever way it went. On failure the row is unchanged and the plain menu item
+      // is back, so a retry is a deliberate act rather than a second click on a stuck dialog.
+      showPanel(standId, null);
       setSaving(null);
     }
   }
@@ -434,38 +466,129 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
   if (rows.length === 0) return <p className="admin-note">No stands yet.</p>;
 
   return (
-    <>
-      <ul className="admin-stands">
-      {rows.map((stand) => (
-        <li key={stand.standId} className="admin-stand">
-          <details>
-            <summary className="admin-stand-summary">
-              <span className="admin-stand-name">
+    <div className="admin-stands">
+      {rows.map((stand) => {
+        const panel = panelOf(stand.standId);
+        const busy = saving === stand.standId;
+        return (
+          <div key={stand.standId} className="admin-stand">
+            {/*
+              THE STAND'S HEAD: who it is, what is true of it, and one way in. The glyph is the
+              one place in the console an icon names a THING rather than an action, which is
+              what lets a stand row inside a seller's card be recognised at a glance.
+            */}
+            <div className={headed ? "admin-stand-head" : "admin-stand-head admin-stand-head--bare"}>
+              {headed && (
+                <>
+              <span className="admin-stand-glyph" aria-hidden="true">
+                <StandIcon />
+              </span>
+              <span className="admin-stand-identity">
                 <strong>{stand.name}</strong>
-              </span>
-              <span className="admin-stand-states" aria-label={`State for ${stand.name}`}>
-                {/*
-                  A retired stand's `status` and `openState` describe a listing nobody is being
-                  shown, so leading with them would be misleading. "Off the map" replaces them
-                  rather than joining them.
+                <span className="admin-stand-states">
+                  {/*
+                    A retired stand's `status` and `openState` describe a listing nobody is
+                    being shown, so leading with them would be misleading. "Off the map"
+                    replaces them rather than joining them.
 
-                  A stand that is down only because its FARM is down says so, because the
-                  operator's next move differs: this stand has no retirement of its own to
-                  undo, and the control that brings it back is on the farm.
-                */}
-                {stand.retiredWithFarm ? (
-                  <span className="admin-stand-retired">Off the map with the farm</span>
-                ) : stand.retired ? (
-                  <span className="admin-stand-retired">Off the map</span>
-                ) : (
-                  <>
-                    <span>{stand.status}</span>
-                    <span>{stand.openState}</span>
-                  </>
-                )}
+                    A stand that is down only because its FARM is down says so, because the
+                    operator's next move differs: this stand has no retirement of its own to
+                    undo, and the control that brings it back is on the farm.
+                  */}
+                  {stand.retiredWithFarm ? (
+                    <span className="admin-chip admin-chip--neutral">
+                      <span>Off the map with the farm</span>
+                    </span>
+                  ) : stand.retired ? (
+                    <span className="admin-chip admin-chip--neutral">
+                      <span>Off the map</span>
+                    </span>
+                  ) : (
+                    <>
+                      <span className="admin-chip admin-chip--ok">
+                        <span className="admin-chip-icon" aria-hidden="true">
+                          <PeopleIcon />
+                        </span>
+                        <span>{stand.status}</span>
+                      </span>
+                      <span
+                        className={
+                          stand.openState === "Open now"
+                            ? "admin-chip admin-chip--ok"
+                            : "admin-chip admin-chip--neutral"
+                        }
+                      >
+                        <span className="admin-chip-icon" aria-hidden="true">
+                          <ClockIcon />
+                        </span>
+                        <span>{stand.openState}</span>
+                      </span>
+                    </>
+                  )}
+                </span>
               </span>
-            </summary>
-            <div className="admin-stand-detail-groups">
+                </>
+              )}
+
+              <ActionMenu
+                compact
+                label={`More for ${stand.name}`}
+                disabled={busy}
+                items={[
+                  {
+                    key: "edit",
+                    label: "Edit details",
+                    icon: <PencilIcon />,
+                    onSelect: () => showPanel(stand.standId, "details"),
+                  },
+                  {
+                    key: "farm-bucks",
+                    label: "Farm Bucks decision",
+                    icon: <CheckIcon />,
+                    onSelect: () => showPanel(stand.standId, "farm-bucks"),
+                  },
+                  /*
+                    ABSENT for a stand that is off the map, rather than disabled: a seller
+                    invited to a stand no customer can see would onboard into nothing, and
+                    there is no state here to reverse — the operator's move is to put the
+                    stand back first.
+                  */
+                  stand.retired || stand.retiredWithFarm
+                    ? null
+                    : {
+                        key: "invite",
+                        label: "Invite a seller",
+                        icon: <LinkIcon />,
+                        onSelect: () => showPanel(stand.standId, "invite"),
+                      },
+                  /*
+                    No entry at all for a stand held down by its farm. "Put back on the map"
+                    would post a restore for a stand that was never retired, the server would
+                    answer `not_retired`, and the stand would stay exactly where it is.
+                  */
+                  stand.retiredWithFarm
+                    ? null
+                    : stand.retired
+                      ? {
+                          key: "restore",
+                          label: "Put back on the map",
+                          icon: <UnpinIcon />,
+                          onSelect: () => void setRetired(stand.standId, false),
+                        }
+                      : {
+                          // Asks before acting. Retirement is reversible, but it removes a farm
+                          // from the island's only guide, so a misplaced click must not be enough.
+                          key: "retire",
+                          label: "Take off the map",
+                          icon: <UnpinIcon />,
+                          danger: true,
+                          onSelect: () => showPanel(stand.standId, "retire"),
+                        },
+                ]}
+              />
+            </div>
+
+            <div className="admin-stand-body">
               {note[stand.standId] !== undefined && (
                 <p
                   className={note[stand.standId]?.kind === "ok" ? "admin-success" : "admin-error"}
@@ -474,6 +597,8 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
                   {note[stand.standId]?.text}
                 </p>
               )}
+
+              {/* WHAT IS TRUE. Always on screen, whatever verb is open above it. */}
               {stand.sections.map((section, index) => {
                 const headingId = `stand-${stand.standId}-section-${index}`;
                 const items = section.items.map((item) =>
@@ -499,38 +624,65 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
                   </section>
                 );
               })}
-              {/*
-                THE STAND'S OWN FACTS (F-101). Directly under the read-only sections it
-                corrects, so an operator who spots a wrong address edits it where they read it.
-                Offered on a retired stand too, unlike the invitation below: fixing a name is
-                how a stand gets ready to go back on the map.
-              */}
-              <StandMetadataEditor
-                standId={stand.standId}
-                standName={stand.name}
-                metadata={stand.metadata}
-                onSaved={(metadata) =>
-                  setRows((current) =>
-                    current.map((row) =>
-                      row.standId === stand.standId
-                        ? { ...row, metadata, name: metadata.name }
-                        : row,
-                    ),
-                  )
-                }
-              />
 
-              <section className="admin-stand-detail-section admin-farm-bucks" aria-labelledby={`stand-${stand.standId}-farm-bucks`}>
-                <div className="admin-farm-bucks-head">
-                  <div>
-                    <h3 id={`stand-${stand.standId}-farm-bucks`}>Farm Bucks</h3>
+              {panel === "retire" && (
+                <div
+                  className="admin-confirm"
+                  role="group"
+                  aria-label={`Take ${stand.name} off the map`}
+                >
+                  <p>Take {stand.name} off the map? Customers will stop seeing it. Nothing it already published is deleted, and you can put it back.</p>
+                  <div className="admin-confirm-actions">
+                    <button
+                      className="admin-action-danger"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void setRetired(stand.standId, true)}
+                    >
+                      {busy ? "Saving…" : "Yes, take it off the map"}
+                    </button>
+                    <button
+                      className="admin-action-secondary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => showPanel(stand.standId, null)}
+                    >
+                      Cancel
+                    </button>
                   </div>
                 </div>
-                <div className="admin-farm-bucks-controls">
+              )}
+
+              {/* THE STAND'S OWN FACTS (F-101), opened on request from the menu. */}
+              {panel === "details" && (
+                <StandMetadataEditor
+                  standId={stand.standId}
+                  standName={stand.name}
+                  metadata={stand.metadata}
+                  onSaved={(metadata) =>
+                    setRows((current) =>
+                      current.map((row) =>
+                        row.standId === stand.standId
+                          ? { ...row, metadata, name: metadata.name }
+                          : row,
+                      ),
+                    )
+                  }
+                />
+              )}
+
+              {panel === "farm-bucks" && (
+                <section
+                  className="admin-stand-editor"
+                  role="group"
+                  aria-label={`Farm Bucks for ${stand.name}`}
+                >
+                  <h4>Farm Bucks</h4>
+                  <p className="admin-note">Record this only after VIGA confirms the stand’s Farm Bucks policy.</p>
                   <label className="admin-field">
                     <select
                       aria-label="Farm Bucks decision"
-                      disabled={saving === stand.standId}
+                      disabled={busy}
                       value={stand.farmBucksStatus}
                       onChange={(event) => void saveFarmBucks(
                         stand.standId,
@@ -542,24 +694,16 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
                       <option value="does_not_accept">Does not accept Farm Bucks</option>
                     </select>
                   </label>
-                </div>
-                <p className="admin-farm-bucks-note">Record this only after VIGA confirms the stand’s Farm Bucks policy.</p>
-              </section>
+                </section>
+              )}
 
-              {/*
-                INVITE A SELLER (F-114 Phase C.1).
-
-                Absent for a stand that is off the map, rather than disabled: a seller invited to
-                a stand no customer can see would onboard into nothing, and there is no state
-                here to reverse — the operator's move is to put the stand back first.
-              */}
-              {!stand.retired && !stand.retiredWithFarm && (
+              {panel === "invite" && (
                 <section
-                  className="admin-stand-detail-section"
+                  className="admin-stand-editor"
                   role="group"
                   aria-label={`Invite a seller to ${stand.name}`}
                 >
-                  <h3>Invite a seller</h3>
+                  <h4>Invite a seller</h4>
                   <p className="admin-note" id={`stand-${stand.standId}-invite-help`}>
                     Someone whose own goods sell at {stand.name}, with their own inventory and
                     their own phone. We give you a link to send them — Farm Friend never texts
@@ -571,7 +715,7 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
                       type="text"
                       aria-describedby={`stand-${stand.standId}-invite-help`}
                       value={sellerName[stand.standId] ?? ""}
-                      disabled={saving === stand.standId}
+                      disabled={busy}
                       onChange={(event) =>
                         setSellerName((current) => ({
                           ...current,
@@ -583,10 +727,10 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
                   <button
                     className="admin-action-secondary"
                     type="button"
-                    disabled={saving === stand.standId}
+                    disabled={busy}
                     onClick={() => void invite(stand.standId, stand.name)}
                   >
-                    {saving === stand.standId ? "Inviting…" : "Invite and copy link"}
+                    {busy ? "Inviting…" : "Invite and copy link"}
                   </button>
                   {/*
                     Shown because the token exists exactly once. A clipboard write can fail with
@@ -612,83 +756,10 @@ export function StandDetails({ stands }: { stands: AdminStandCard[] }) {
                   )}
                 </section>
               )}
-
-              <section
-                className="admin-stand-detail-section admin-stand-retirement"
-                aria-labelledby={`stand-${stand.standId}-retirement`}
-              >
-                {/*
-                  Named for what an operator ARRIVES looking for. "Take off the map" describes
-                  the effect accurately but is not the word anyone searches with, so operators
-                  concluded a stand could not be removed at all. The heading says "remove"; the
-                  copy and the button still say what actually happens, because this is
-                  reversible and calling it "delete" would overstate it.
-                */}
-                <h3 id={`stand-${stand.standId}-retirement`}>Remove this stand</h3>
-                <p className="admin-note">
-                  {stand.retiredWithFarm
-                    ? "This stand is off the map because the whole farm was removed. Put the farm back to bring it back."
-                    : stand.retired
-                      ? "Customers cannot see this stand, and the farmer cannot publish updates to it. Everything it published before is kept."
-                      : "Removes this stand from the map and from text answers, and stops the farmer publishing updates to it. Nothing it already published is deleted, and you can put it back."}
-                </p>
-                {/*
-                  No control at all for a stand held down by its farm. "Put back on the map"
-                  would post a restore for a stand that was never retired, the server would
-                  answer `not_retired`, and the stand would stay exactly where it is — a button
-                  that visibly does nothing.
-                */}
-                {stand.retiredWithFarm ? null : stand.retired ? (
-                  <button
-                    className="admin-action-secondary"
-                    type="button"
-                    disabled={saving === stand.standId}
-                    onClick={() => void setRetired(stand.standId, false)}
-                  >
-                    {saving === stand.standId ? "Saving…" : "Put back on the map"}
-                  </button>
-                ) : confirmingRetire === stand.standId ? (
-                  <div
-                    className="admin-inline-confirm"
-                    role="group"
-                    aria-label={`Take ${stand.name} off the map`}
-                  >
-                    <p>Take {stand.name} off the map? Customers will stop seeing it.</p>
-                    <button
-                      className="admin-action-danger"
-                      type="button"
-                      disabled={saving === stand.standId}
-                      onClick={() => void setRetired(stand.standId, true)}
-                    >
-                      {saving === stand.standId ? "Saving…" : "Yes, take it off the map"}
-                    </button>
-                    <button
-                      className="admin-action-secondary"
-                      type="button"
-                      disabled={saving === stand.standId}
-                      onClick={() => setConfirmingRetire(null)}
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                ) : (
-                  // Asks before acting. Retirement is reversible, but it removes a farm from
-                  // the island's only guide, so a misplaced click must not be enough.
-                  <button
-                    className="admin-action-danger"
-                    type="button"
-                    disabled={saving === stand.standId}
-                    onClick={() => setConfirmingRetire(stand.standId)}
-                  >
-                    Take off the map
-                  </button>
-                )}
-              </section>
             </div>
-          </details>
-        </li>
-      ))}
-      </ul>
-    </>
+          </div>
+        );
+      })}
+    </div>
   );
 }
