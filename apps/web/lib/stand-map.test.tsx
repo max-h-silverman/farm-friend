@@ -22,6 +22,117 @@ describe("public participant names", () => {
     });
   });
 
+  it("keeps the typed names when the only modelled seller is the stand's own (B-085)", async () => {
+    /*
+      MORGAN HILL. The fallback suppressed the typed names whenever ANY modelled seller existed,
+      and `0042` gave every stand a self-pointer — so one native row hid four real names and
+      replaced NONE of them, because a self-pointer never appears as an item credit.
+
+      The rule's own justification is the test: it suppresses typed names because *"a stand whose
+      sellers ARE modelled has already named them, on the item lines"*. That is true of a GUEST,
+      who gets a credit. It is false of the stand's own seller, who names nobody. So the fallback
+      counts guests.
+
+      Morgan Hill's four are decorative rather than operational (max, 2026-08-18): no handset, no
+      seller rows, and one `source: 'viga'` revision holding 17 pooled items nobody can attribute.
+      Promoting them would have created four identities nobody owns — this is the honest fix.
+    */
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "venue-stand",
+      farmName: "Morgan Hill",
+      locationName: "Morgan Hill Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "1 Community Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      updated: "updated 1 hour ago",
+      confirmedElapsed: "1 hour ago",
+      cardRecency: "Last updated 1 hour ago",
+      stale: false,
+      availability: {},
+      alsoSellingHere: ["Bywater Flower Farm", "Rozy Dawg Farm"],
+      // The ONE modelled seller is the stand itself — `describesOwnStand`, never a credit.
+      sellers: [
+        {
+          providerId: "p-own",
+          sellerId: "s-own",
+          sellerName: "Morgan Hill",
+          describesOwnStand: true,
+          openState: "unknown" as const,
+          confirmedItems: [],
+          usualItems: [],
+        },
+      ],
+      links: [],
+      paymentMethods: [],
+      items: [{ itemName: "Kale" }],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Morgan Hill Stand" }));
+    const card = container.querySelector("ul.stands > li.stand")!;
+
+    expect(within(card as HTMLElement).getByText("Also selling here")).toBeTruthy();
+    expect(within(card as HTMLElement).getByText("Bywater Flower Farm")).toBeTruthy();
+    expect(within(card as HTMLElement).getByText("Rozy Dawg Farm")).toBeTruthy();
+  });
+
+  it("still suppresses the typed names once a GUEST seller is modelled", async () => {
+    /*
+      The other half, asserted so the fix cannot become "always show both". A guest IS named on
+      the item lines, and printing the typed strings beside her restores the double-naming the
+      section exists to end.
+    */
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "guest-stand",
+      farmName: "Host Farm",
+      locationName: "Guest Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "2 Guest Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      updated: "updated 1 hour ago",
+      confirmedElapsed: "1 hour ago",
+      cardRecency: "Last updated 1 hour ago",
+      stale: false,
+      availability: {},
+      alsoSellingHere: ["Typed Name"],
+      sellers: [
+        {
+          providerId: "p-own",
+          sellerId: "s-own",
+          sellerName: "Host Farm",
+          describesOwnStand: true,
+          openState: "unknown" as const,
+          confirmedItems: [],
+          usualItems: [],
+        },
+        {
+          providerId: "p-guest",
+          sellerId: "s-guest",
+          sellerName: "Guest Growers",
+          describesOwnStand: false,
+          openState: "unknown" as const,
+          confirmedItems: [],
+          usualItems: [],
+        },
+      ],
+      links: [],
+      paymentMethods: [],
+      items: [{ itemName: "Kale" }],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Guest Stand" }));
+    const card = container.querySelector("ul.stands > li.stand")!;
+
+    expect(within(card as HTMLElement).queryByText("Typed Name")).toBeNull();
+  });
+
   it("shows active names as plain text on both the card and mobile detail sheet", async () => {
     const user = userEvent.setup();
     const stand: PublicStandPayload = {

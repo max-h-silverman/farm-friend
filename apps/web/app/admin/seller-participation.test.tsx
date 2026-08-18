@@ -95,23 +95,37 @@ describe("the participation label", () => {
     and takes the row with it. A label that blurred the two would flatten a distinction the
     operator acts on.
   */
-  it("says she is selling here, never that the stand is open", () => {
+  it("names the seller and says she is selling, never that the stand is open", () => {
+    /*
+      B-085 — THE ROW ANSWERS THE HEADING. "Who sells here" followed by a bare "Selling here"
+      names nobody: B-084 dropped the seller's name from a solo native row on the grounds that
+      it repeated the stand's, and under that heading the row stopped answering the question it
+      sits beneath. Every row names its seller, solo or not.
+    */
     renderStand([host]);
 
     const toggle = screen.getByRole("switch");
-    expect(toggle).toHaveAccessibleName(/selling here/i);
+    expect(toggle).toHaveAccessibleName(/Misty Hollow Farm/i);
+    expect(toggle).toHaveAccessibleName(/selling/i);
     expect(toggle).toBeChecked();
-    // The seller's name is not the subject on a solo stand — the stand is.
-    expect(toggle).not.toHaveAccessibleName(/Misty Hollow Farm/i);
-    // The open-now claim is gone entirely; the header computes that fact, not this control.
+    // The open-now claim stays gone; the header computes that fact, not this control.
     expect(toggle).not.toHaveAccessibleName(/stand is (open|closed)/i);
   });
 
-  it("says paused, never that the stand is closed", () => {
+  it("names the seller on a solo row in the rendered text, not only the label", () => {
+    // The visible row, not just the accessible name — the screenshot bug was what a sighted
+    // operator read.
+    const { container } = renderStand([host]);
+    const subject = container.querySelector(".admin-participation-subject");
+    expect(subject).toHaveTextContent("Misty Hollow Farm");
+  });
+
+  it("says paused and still names her, never that the stand is closed", () => {
     renderStand([{ ...host, lifecycleState: "paused" }]);
 
     const toggle = screen.getByRole("switch");
     expect(toggle).toHaveAccessibleName(/paused/i);
+    expect(toggle).toHaveAccessibleName(/Misty Hollow Farm/i);
     expect(toggle).not.toBeChecked();
     expect(toggle).not.toHaveAccessibleName(/stand is (open|closed)/i);
   });
@@ -342,10 +356,10 @@ describe("Remove", () => {
     await userEvent.click(screen.getByRole("button", { name: /^remove$/i }));
 
     // The lists are entities; an ended relationship is not one. With the guest gone the stand
-    // is back to its solo shape — plain fact, no list, and the label drops the now-redundant name.
+    // is back to its solo shape — plain fact, no list. The remaining row still NAMES its seller
+    // (B-085): it sits under "Who sells here" and has to answer that.
     const remaining = await screen.findByRole("switch", { name: /selling here/i });
-    expect(remaining).toBeInTheDocument();
-    expect(remaining).not.toHaveAccessibleName(/Misty Hollow Farm/i);
+    expect(remaining).toHaveAccessibleName(/Misty Hollow Farm/i);
     expect(screen.queryByText(/Fernhorn Farm/i)).not.toBeInTheDocument();
   });
 
