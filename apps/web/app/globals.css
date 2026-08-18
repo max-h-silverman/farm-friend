@@ -6246,17 +6246,34 @@ button.admin-action-danger,
   border-color: var(--line);
 }
 
-/* THE OPENED CARD'S PAYLOAD: her stands, each a destination. Styled as its own
-   panel in the detail stack — the same treatment `.detail-visit` and the rest
-   get — because that is exactly what it is: the seller card's answer to "how do
-   I get to you", in the slot the stand card gives to its address. */
+/* THE OPENED CARD'S PAYLOAD: her stands, each one expandable in place.
+
+   LIGHTER THAN THE STAND CARD'S PANELS (max, 2026-08-18). It used to wear the
+   full `.detail-visit` treatment — its own fill, border, radius and shadow — so
+   an opened seller card was a bordered box inside a bordered box, with the rows
+   inside making a third. The stand detail that now opens INSIDE these rows
+   brings its own panels, which would have made a fourth.
+
+   So the container recedes to a heading and a hairline: the section is still
+   announced and still separated, and the weight is spent on the rows a reader
+   is actually choosing between. Same reasoning `.stand-detail-body` records —
+   rhythm over chrome. */
 .seller-stands {
   margin: 0;
-  padding: 1.15rem;
-  background: #fffefa;
-  border: 1px solid #d8d4c9;
-  border-radius: 1.1rem;
-  box-shadow: 0 1px 1px rgb(35 45 38 / 3%);
+  padding: 0.25rem 0 0;
+  background: none;
+  border: 0;
+  border-top: 1px solid var(--line);
+  border-radius: 0;
+  box-shadow: none;
+}
+
+/* Quieter than a stand card's section headings, which sit on their own panels
+   and have to hold one. This one labels a list directly below it. */
+.seller-stands .detail-section-heading {
+  margin-bottom: 0.5rem;
+  font-size: 0.78rem;
+  opacity: 0.75;
 }
 
 .seller-stand-links,
@@ -6268,54 +6285,64 @@ button.admin-action-danger,
   list-style: none;
 }
 
-/* Number in its own column, body in the other, aligned to the first line so a
-   long stand name wraps under itself rather than under the badge. */
-.seller-stand-link {
-  display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
-  gap: 0.55rem;
-  align-items: start;
+/* A ROW IS ONE OBJECT: the pin number sits INSIDE it beside the name, not in a
+   column outside it (max, 2026-08-18). Outside, the number read as a label next
+   to a separate button; inside an expander it is part of the thing being
+   opened. */
+.seller-stand-link + .seller-stand-link {
+  border-top: 1px solid color-mix(in srgb, var(--line) 65%, transparent);
 }
 
-/* The row is a BUTTON, and it has to read as one without shouting. A whole-row
-   target rather than a link on the name: this is the primary act of the card,
-   read one-handed outdoors, and a name-sized tap target is the thing that makes
-   a map unusable on a phone. */
-.seller-stand-body {
+/* The whole row is the target — this is the primary act of the card, read
+   one-handed outdoors, and a name-sized tap target is what makes a map unusable
+   on a phone.
+
+   NO BOX OF ITS OWN. The row used to be a bordered, filled pill inside a
+   bordered panel; now the panel has receded and the rows are separated by
+   hairlines, which is enough to say "these are the choices" without spending a
+   border per choice. */
+.seller-stand-head {
   display: grid;
-  gap: 0.15rem;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.1rem 0.6rem;
+  align-items: start;
   width: 100%;
   min-height: 2.75rem;
-  padding: 0.4rem 0.6rem;
+  padding: 0.55rem 0.15rem;
   text-align: left;
-  background: rgb(255 255 255 / 55%);
-  border: 1px solid color-mix(in srgb, var(--sage-deep) 50%, transparent);
-  border-radius: 0.6rem;
+  background: none;
+  border: 0;
   font: inherit;
   color: inherit;
 }
 
-.seller-stand-go {
+.seller-stand-toggle {
   cursor: pointer;
 }
 
-.seller-stand-go:hover {
-  background: var(--card);
-  border-color: color-mix(in srgb, var(--olive) 55%, transparent);
+.seller-stand-toggle:hover .seller-stand-name {
+  color: var(--olive);
 }
 
-.seller-stand-go:focus-visible {
+.seller-stand-toggle:focus-visible {
   outline: 3px solid color-mix(in srgb, var(--olive) 55%, transparent);
   outline-offset: 2px;
+  border-radius: 0.5rem;
+}
+
+.seller-stand-copy {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
 }
 
 .seller-stand-name {
   color: var(--brick);
   font-size: 0.95rem;
   font-weight: 700;
-  /* The poster's link red, underlined — the same signal `.directions` uses for
-     "this takes you somewhere". A row that only changed on hover would look
-     tappable to a mouse and dead to a thumb. */
+  /* The poster's link red — the same signal `.directions` uses for "this opens
+     something". UNDERLINED only on the rows that actually open: an off-map row
+     carries the same name and nothing happens when it is pressed. */
   text-decoration: underline;
   text-underline-offset: 0.15em;
 }
@@ -6325,6 +6352,17 @@ button.admin-action-danger,
 .seller-stand-link-off-map .seller-stand-name {
   color: var(--ink);
   text-decoration: none;
+}
+
+/* THE STAND'S OWN BODY, opened inside the row. Indented under the name rather
+   than the number, so the detail reads as belonging to the stand above it, and
+   its own panels carry the visual weight from here down. */
+.seller-stand-detail {
+  padding: 0.1rem 0 0.75rem 2.1rem;
+}
+
+.seller-stand-link-open .seller-stand-name {
+  color: var(--olive);
 }
 
 .seller-stand-relation,
@@ -6345,7 +6383,8 @@ button.admin-action-danger,
    whole width of a 360px phone. Without `min-width: 0` a grid child refuses to
    shrink below its content and pushes the row — and then the page — sideways,
    which is the one layout failure this map cannot have. */
-.seller-stand-body,
+.seller-stand-head,
+.seller-stand-copy,
 .stand-seller-go,
 .seller-stand-name,
 .stand-seller-name,

@@ -2277,7 +2277,16 @@ describe("crossing between stands and sellers", () => {
     expect(rows[1]!.querySelector(".seller-stand-items")).not.toHaveTextContent("Baguettes");
   });
 
-  it("takes a tap on one of her stands to that stand's card", async () => {
+  /*
+    A STAND OPENS IN PLACE, ON THE SELLER'S CARD (max, 2026-08-18).
+
+    Tapping one of her stands used to switch the list to View stands and open the card there.
+    That answers the question but throws the reader's place away: they were reading about a
+    seller, and the surface they were reading vanished. The stand's detail belongs where the
+    question was asked, so it expands INSIDE her card — the same expand-in-place the two lists
+    already use everywhere else.
+  */
+  it("expands a stand's detail inside the seller's card, without leaving the list", async () => {
     const user = userEvent.setup();
     const { container } = renderMap();
     await openSellers(user);
@@ -2286,19 +2295,88 @@ describe("crossing between stands and sellers", () => {
       node.textContent?.includes("Fernhorn"),
     )! as HTMLElement;
     await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
-    await user.click(
-      within(card).getByRole("button", { name: /go to morgan hill stand/i }),
-    );
+    await user.click(within(card).getByRole("button", { name: /morgan hill stand/i }));
 
-    // The list is the stand list again, and the stand she sells at is the OPEN card on it —
-    // the whole point of the tap is to land on the thing, not near it.
-    expect(screen.getByRole("tab", { name: "View stands" })).toHaveAttribute(
+    // Still the seller list, still her card — with the stand's own body now inside it.
+    expect(screen.getByRole("tab", { name: "View sellers" })).toHaveAttribute(
       "aria-selected",
       "true",
     );
-    expect(
-      screen.getByRole("button", { name: "Morgan Hill Stand" }),
-    ).toHaveAttribute("aria-expanded", "true");
+    expect(card.querySelector(".stand-detail-body")).toBeInTheDocument();
+    expect(within(card).getByText("1 Morgan Hill Rd")).toBeInTheDocument();
+  });
+
+  it("closes an expanded stand when its own row is tapped again", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+    const row = within(card).getByRole("button", { name: /morgan hill stand/i });
+
+    await user.click(row);
+    expect(card.querySelector(".stand-detail-body")).toBeInTheDocument();
+
+    await user.click(row);
+
+    // Back to the list of her stands — the second tap puts it away, as everywhere else here.
+    expect(card.querySelector(".stand-detail-body")).toBeNull();
+    expect(card.querySelectorAll(".seller-stand-link")).toHaveLength(2);
+  });
+
+  it("shows one stand's detail at a time on a seller's card", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+    await user.click(within(card).getByRole("button", { name: /morgan hill stand/i }));
+    await user.click(within(card).getByRole("button", { name: /kelseys stand/i }));
+
+    // Two open bodies would make one card answer "where is she" twice at once.
+    expect(card.querySelectorAll(".stand-detail-body")).toHaveLength(1);
+    expect(within(card).getByText("2 Kelsey Rd")).toBeInTheDocument();
+  });
+
+  it("forgets an expanded stand when the seller card is closed", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    const toggle = within(card).getByRole("button", { name: /fernhorn bakery/i });
+    await user.click(toggle);
+    await user.click(within(card).getByRole("button", { name: /morgan hill stand/i }));
+
+    await user.click(toggle);
+    await user.click(toggle);
+
+    // Reopening shows her stands, not the one somebody expanded before closing the card.
+    expect(card.querySelector(".stand-detail-body")).toBeNull();
+  });
+
+  it("marks the seller's own pin while one of her stands is expanded", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+    await user.click(within(card).getByRole("button", { name: /morgan hill stand/i }));
+
+    // Both her stands stay lit — the reader is still browsing HER, and narrowing the map to the
+    // one stand they opened would hide the other place they can buy from her.
+    expect(container.querySelectorAll("[data-seller-highlighted='true']")).toHaveLength(2);
   });
 
   /*

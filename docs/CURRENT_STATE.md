@@ -87,8 +87,13 @@ item names would be a second food-vocabulary branch where the project has record
 allowed exception (`map-view.ts` §the flower vocabulary exception). max chose to leave it off
 until there is a field behind it.
 
-**Verified:** 2337 unit tests green, typecheck and lint clean. Fifteen sabotages caught across the
-two passes. The FIRST pass was driven in a real browser against the local database at ~500px: all
+A **fourth pass** lightened the seller card's "Where to find them" panel to a heading and a
+hairline — it was a bordered box inside a bordered box, and the stand detail that now opens inside
+it brings its own panels — and made each stand row **expand its stand in place** rather than
+switching the list to View stands. `goToStand` had one caller and now has none, so it is gone.
+
+**Verified:** 2341 unit tests green, typecheck and lint clean. Eighteen sabotages caught across the
+passes. The FIRST pass was driven in a real browser against the local database at ~500px: all
 four crossings work, every tooltip measured fully inside the island on all four edges with no
 content clipping, and the seller card's expanded body measured aligned with its name (47/47, was
 47/81). **Not verified:** the second pass has not been seen in a browser at any width — max took

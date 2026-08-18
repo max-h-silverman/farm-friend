@@ -1028,16 +1028,30 @@ function SellerCard({
   stands,
   chosen,
   onToggle,
-  onGoToStand,
   onGoToSeller,
 }: {
   seller: SellerListEntry;
   stands: readonly (FilteredStand & MapViewStand)[];
   chosen: boolean;
   onToggle: () => void;
-  onGoToStand: (standId: string) => void;
   onGoToSeller: (sellerId: string) => void;
 }) {
+  /*
+    WHICH OF HER STANDS IS OPEN ON THIS CARD, if any.
+
+    Card-local state, and that is deliberate: it is a detail of how ONE card is being read, not
+    a fact about the map. Lifting it beside `selectedSellerId` would make the parent hold a
+    second selection that means something different — and would leave a stand expanded on a card
+    nobody has open.
+
+    It is CLEARED when the card closes, explicitly rather than by unmounting: a collapsed card
+    stays mounted in the list, so its state survives being closed unless something drops it.
+    Without that, reopening a seller showed whichever stand somebody last looked at instead of
+    her stands.
+  */
+  const [expandedStandId, setExpandedStandId] = useState<string | null>(null);
+  if (!chosen && expandedStandId !== null) setExpandedStandId(null);
+
   const links = sellerStandLinks(seller, stands);
   const openNow = sellerIsOpenNow(seller, stands);
   const season = sellerSeasonBadge(seller, stands);
@@ -1143,8 +1157,17 @@ function SellerCard({
                     <SellerStandRow
                       key={link.standId}
                       link={link}
+                      stand={stands.find((entry) => entry.id === link.standId)}
+                      expanded={link.standId === expandedStandId}
                       showRelation={mixedRelations}
-                      onGoToStand={onGoToStand}
+                      // Pressing the open row again puts it away, as every other row on these
+                      // two lists does.
+                      onToggle={() =>
+                        setExpandedStandId((current) =>
+                          current === link.standId ? null : link.standId,
+                        )
+                      }
+                      onGoToSeller={onGoToSeller}
                     />
                   ))}
                 </ul>
@@ -1157,12 +1180,36 @@ function SellerCard({
   );
 }
 
+/**
+ * One stand a seller sells at, as a row that EXPANDS IN PLACE.
+ *
+ * **The stand's detail opens here rather than on the stand list** (max, 2026-08-18). Sending the
+ * reader to View stands answered the question and threw their place away: they were reading
+ * about a seller, and the surface they were reading vanished under them. So the row is an
+ * expander, exactly like every other row on these two lists, and the stand's own body — hours,
+ * stock, directions — opens beneath it.
+ *
+ * **The pin number moved INSIDE the row** for the same reason. Outside, it was a label beside a
+ * link; inside an expander it is part of the thing being opened, which is what lets the row read
+ * as one object rather than a number and a separate button next to it.
+ *
+ * **A stand the map is not showing is named but not offered.** It stays on the card, because
+ * dropping it would quietly shorten "sells at 2 stands" to one — but it does not expand, because
+ * there is no stand in the visible set to render. Saying "not on the map right now" is the honest
+ * version of a door that cannot open; a dead expander is not.
+ */
 function SellerStandRow({
   link,
+  stand,
+  expanded,
   showRelation,
-  onGoToStand,
+  onToggle,
+  onGoToSeller,
 }: {
   link: SellerStandLink;
+  /** The stand itself, when the map is showing it — the source of the expanded body. */
+  stand?: FilteredStand & MapViewStand;
+  expanded: boolean;
   /**
    * Whether to name this row's relation — TRUE ONLY ON A MIXED CARD.
    *
@@ -1171,28 +1218,37 @@ function SellerStandRow({
    * said it once, and repeating it per row adds a line to every row to say nothing new.
    */
   showRelation: boolean;
-  onGoToStand: (standId: string) => void;
+  onToggle: () => void;
+  onGoToSeller: (sellerId: string) => void;
 }) {
-  const body = (
+  const heading = (
     <>
-      <span className="seller-stand-name">{link.locationName}</span>
-      {showRelation && link.relation === "own" ? (
-        <span className="seller-stand-relation">Their own stand</span>
-      ) : null}
-      {link.usualItems.length > 0 ? (
-        <span className="seller-stand-items">{link.usualItems.join(", ")}</span>
-      ) : null}
+      {/*
+        The stand's OWN pin number, the same one on its pin and its card — the token that ties
+        the three surfaces together, so a customer reading her card can find the pin without
+        reading a name twice. Decorative because the row names the stand beside it; a screen
+        reader gains nothing from a bare digit.
+      */}
+      <span className="stand-number-ref" aria-hidden="true">
+        {link.standNumber ?? "–"}
+      </span>
+      <span className="seller-stand-copy">
+        <span className="seller-stand-name">{link.locationName}</span>
+        {showRelation && link.relation === "own" ? (
+          <span className="seller-stand-relation">Their own stand</span>
+        ) : null}
+        {link.usualItems.length > 0 ? (
+          <span className="seller-stand-items">{link.usualItems.join(", ")}</span>
+        ) : null}
+      </span>
     </>
   );
 
-  if (!link.onMap) {
+  if (stand === undefined) {
     return (
       <li className="seller-stand-link seller-stand-link-off-map">
-        <span className="stand-number-ref stand-number-absent" aria-hidden="true">
-          –
-        </span>
-        <span className="seller-stand-body">
-          {body}
+        <span className="seller-stand-head">
+          {heading}
           <span className="seller-stand-off-map">Not on the map right now</span>
         </span>
       </li>
@@ -1200,30 +1256,20 @@ function SellerStandRow({
   }
 
   return (
-    <li className="seller-stand-link">
-      {/*
-        The stand's OWN pin number, the same one on its pin and its card. It is the token that
-        ties the three surfaces together, so a customer reading her card can find the pin
-        without reading a name twice. Decorative here because the button beside it names the
-        stand — a screen reader gains nothing from a bare digit.
-      */}
-      <span className="stand-number-ref" aria-hidden="true">
-        {link.standNumber}
-      </span>
-      {/*
-        LABELLED EXPLICITLY, because the button's own text is a name followed by a relation and
-        an item list — read aloud that concatenates into a sentence nobody wrote. The label says
-        what the button DOES, which is the only thing a screen-reader user needs from it before
-        deciding to press it.
-      */}
+    <li className={expanded ? "seller-stand-link seller-stand-link-open" : "seller-stand-link"}>
       <button
         type="button"
-        className="seller-stand-body seller-stand-go"
-        aria-label={`Go to ${link.locationName}`}
-        onClick={() => onGoToStand(link.standId)}
+        className="seller-stand-head seller-stand-toggle"
+        aria-expanded={expanded}
+        onClick={onToggle}
       >
-        {body}
+        {heading}
       </button>
+      {expanded ? (
+        <div className="seller-stand-detail">
+          <StandDetailBody stand={stand} onGoToSeller={onGoToSeller} />
+        </div>
+      ) : null}
     </li>
   );
 }
@@ -1537,25 +1583,13 @@ export function StandMap({
   }
 
   /*
-    F-118 — CROSSING FROM ONE LIST TO THE OTHER.
+    F-118 — CROSSING FROM THE STAND LIST TO THE SELLER LIST.
 
-    Two functions rather than one parameterised jump, because they are not the same act: going
-    to a stand puts the customer on the map's own subject and everything the stand list does
-    applies, while going to a seller lands on a list that has no pins and no sheet. What they
-    share is the rule that makes the crossing worth having at all — you land ON the thing, open,
-    not near it — and that is what each states.
+    ONE crossing, in one direction. There used to be a matching `goToStand` for the seller card's
+    stand rows, but those rows now expand the stand IN PLACE (max, 2026-08-18) — a reader looking
+    at a seller stays looking at her — so nothing calls it and it is gone rather than kept
+    against a future caller.
   */
-
-  /** Show the stand list with `standId` selected and expanded. */
-  function goToStand(standId: string): void {
-    setListTab("stands");
-    setSelectedSellerId(null);
-    setMarkerTipStandId(null);
-    // From the LIST: the customer's eyes are on the card they tapped, so the map slides to meet
-    // the stand rather than the page scrolling away from them.
-    setSelectedId(standId);
-    setSelectedFrom("list");
-  }
 
   /**
    * What a marker tap means, WHICH DEPENDS ON THE LIST BESIDE IT.
@@ -2098,7 +2132,6 @@ export function StandMap({
                           ? setSelectedSellerId(null)
                           : goToSeller(seller.sellerId)
                       }
-                      onGoToStand={goToStand}
                       onGoToSeller={goToSeller}
                     />
                   ))}

@@ -49,7 +49,10 @@ visible.
 
 **The two lists are one two-way view (F-118).** Stands and sellers are many-to-many, and that
 relationship is stated once — `apps/web/lib/stand-seller-graph.ts` — and rendered in both
-directions rather than three times in three shapes:
+directions rather than three times in three shapes. **The crossing runs one way only**: a stand
+card's seller name goes to the seller list, while a seller card's stand rows expand where they
+are, because the two are not symmetric — a seller has no pin and no sheet, and the map is a map
+of stands either way.
 
 - A **seller card** says, at rest, whether she is **Open** or **Closed** right now and how long
   she runs. Both are DERIVED from the stands she sells at — a seller has no hours and no season
@@ -59,8 +62,11 @@ directions rather than three times in three shapes:
   rather than invented when no stand of hers stated one the poster's two words describe. Opened,
   a seller at **one** stand shows that stand's own detail body, because a list of one row asks
   the customer to pick the only option; a seller at **several** shows the list, each row carrying
-  that stand's pin number and what she brings there — and a stand the map is not currently
-  showing keeps its row, named and marked, so her stand count is never quietly shortened. The
+  that stand's pin number and **expanding that stand's own detail in place** — a reader looking
+  at a seller stays looking at her, rather than being sent to View stands and losing the surface
+  they were reading. One stand's detail at a time, cleared when the card closes. A stand the map
+  is not currently showing keeps its row, named and marked, but does not expand: there is no
+  stand in the visible set to render, and a dead expander is worse than saying so. The
   whole card is the tap target and a second tap closes it, exactly as on a stand card. A chosen
   seller's stands wear the map's **own selection halo**, the same mark a chosen stand gets, so
   the map says "you picked this" one way rather than two.
