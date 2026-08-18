@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterSellers, sellerSellingSummary, type SellerListEntry } from "./seller-list";
+import { filterSellers, type SellerListEntry } from "./seller-list";
 
 /*
   F-114 Phase C.5 — THE SELLER LIST'S VIEW MODEL.
@@ -94,93 +94,5 @@ describe("filterSellers", () => {
       ],
     });
     expect(filterSellers([twoStands], "cinnamon").map((s) => s.sellerId)).toEqual(["s-1"]);
-  });
-});
-
-describe("sellerSellingSummary", () => {
-  it("names the one stand a seller sells at", () => {
-    expect(sellerSellingSummary(seller())).toBe("Selling at Venison Valley Stand");
-  });
-
-  it("names every stand, in the order given", () => {
-    const twoStands = seller({
-      sellingAt: [
-        {
-          salesLocationId: "l-1",
-          locationName: "Aardvark Stand",
-          describesOwnStand: false,
-          usualItems: [],
-        },
-        {
-          salesLocationId: "l-2",
-          locationName: "Venison Valley Stand",
-          describesOwnStand: false,
-          usualItems: [],
-        },
-      ],
-    });
-    expect(sellerSellingSummary(twoStands)).toBe(
-      "Selling at Aardvark Stand and Venison Valley Stand",
-    );
-  });
-
-  it("joins three or more with commas and a final and", () => {
-    const threeStands = seller({
-      sellingAt: ["A", "B", "C"].map((name, index) => ({
-        salesLocationId: `l-${index}`,
-        locationName: name,
-        describesOwnStand: false,
-        usualItems: [],
-      })),
-    });
-    expect(sellerSellingSummary(threeStands)).toBe("Selling at A, B and C");
-  });
-
-  it("says a seller runs their own stand rather than merely selling at it", () => {
-    // The distinction a hosted-only seller's page exists to make legible. "Selling at" reads
-    // as a guest arrangement, which is wrong for someone's own farm stand.
-    const owner = seller({
-      sellerName: "Venison Valley",
-      ownsAStand: true,
-      sellingAt: [
-        {
-          salesLocationId: "l-1",
-          locationName: "Venison Valley Stand",
-          describesOwnStand: true,
-          usualItems: [],
-        },
-      ],
-    });
-    expect(sellerSellingSummary(owner)).toBe("Their own stand: Venison Valley Stand");
-  });
-
-  it("distinguishes a seller's own stand from the others they guest at", () => {
-    const both = seller({
-      sellerName: "Venison Valley",
-      ownsAStand: true,
-      sellingAt: [
-        {
-          salesLocationId: "l-1",
-          locationName: "Venison Valley Stand",
-          describesOwnStand: true,
-          usualItems: [],
-        },
-        {
-          salesLocationId: "l-2",
-          locationName: "Morgan Hill Community Stand",
-          describesOwnStand: false,
-          usualItems: [],
-        },
-      ],
-    });
-    expect(sellerSellingSummary(both)).toBe(
-      "Their own stand: Venison Valley Stand. Also selling at Morgan Hill Community Stand",
-    );
-  });
-
-  it("says nothing rather than an empty sentence for a seller selling nowhere", () => {
-    // The reader never returns such a seller, but a null here is what stops a renderer
-    // printing a bare "Selling at" with nothing after it if one ever arrives.
-    expect(sellerSellingSummary(seller({ sellingAt: [] }))).toBeNull();
   });
 });

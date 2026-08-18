@@ -11,7 +11,131 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-18 (latest) — a UI pass over the admin cards and the public map, and a feature that had never once rendered
+## 2026-08-18 (latest) — the map's two lists become one two-way view of stands and sellers
+
+Branch `f-118-map-seller-architecture`, four commits (`3ec3196`, `b86a8a6`, `4296195`, `f07b626`).
+Unit **2,341 across 166 files** with the 7 corpus skips; typecheck and lint clean. No evals owed —
+`packages/ai` and `evals/` untouched, checked rather than assumed. Integration not re-run: nothing
+here touches a writer or a query, and the whole change is client-side over payloads both lists
+already receive.
+
+A design session (`/ui-design`), driven turn by turn by max looking at the running app.
+
+### The architecture: one relationship, stated once
+
+Stands and sellers are many-to-many, and before this the relationship was rendered **three times
+in three shapes** — a sentence on the seller card, a name list on the stand card, and a `Set` of
+ids built inline for the pin highlight. That is three places for one fact to drift, and the fact
+is not decorative: it is what a customer follows to get from "who bakes the sourdough" to "which
+pin do I drive to".
+
+`apps/web/lib/stand-seller-graph.ts` now states it once and both lists read it. **No read change
+was needed** — `PublicStandPayload.sellers[]` already carries `sellerId` and
+`SellerListEntry.sellingAt[]` already carries `salesLocationId`, so the join is client-side over
+data both lists already receive. What the module owns is what could be *wrong*: a link pointing at
+a stand the map is not showing, a pin number invented rather than looked up, a seller's own stand
+described as somebody else's.
+
+### The redundancy that only showed up once both directions rendered
+
+Adding a "who sells here" roster to the stand card made a latent problem visible: every seller was
+named **twice** — once as an item credit ("Sourdough — Fernhorn Bakery") and once in the roster
+below. The fix was not to pick one section but to notice that **the item credit is already where
+the reader's eye is**, so it becomes the link. The roster now names only sellers *no item
+credited* — someone at the stand who has published nothing, whom no credit can reach.
+
+`alsoSellingHere` fell out of this as a third naming: it is `sales_location_participants`, which
+DATA_RECORDS retires as display-only history — typed strings with no identity, so nothing to cross
+to. It is now the fallback for a stand with **no modelled sellers at all**, which is the only case
+it still answers anything.
+
+### Two defects the source could not show, found by measuring the running page
+
+Both are the failure mode CLAUDE.md names: *when what renders contradicts source that reads
+correctly, stop reading source and measure.*
+
+1. **The marker tooltip was clipping off the shore.** It is drawn in a `foreignObject` inside the
+   SVG, and `.island` is `overflow: hidden`. Centring a 400-unit box on its pin ran off the edge —
+   measured in a browser, a west-shore tooltip lost its whole left half, seller names included.
+   Vashon is long and narrow, so that was **most pins, not an unlucky few**. `markerTipBox` clamps
+   horizontally and flips below a pin near the north shore; every tooltip re-measured fully inside
+   the island on all four edges.
+2. **Every seller card's expanded body was indented past its own name.** `.stand-details` carries
+   a 2.1rem left margin that aligns a *stand's* body under its name, clearing the pin number in
+   the gutter. A seller card has no pin number — `.stand-head-no-pin` already reclaimed that
+   column — so the same rule pushed her whole detail 34px right. Measured at 500px: heading at 47,
+   body at 81. Now both 47, with the stand card's own indent verified untouched.
+
+### Three revisions from max, all the same shape
+
+Each was the seller list having grown *its own way* of saying something the stand list already
+says one way:
+
+- **"1 of 1 stand open"** made the reader do arithmetic to reach a yes. The question is "can I buy
+  from her right now", which has two answers. The count still decides it — one open stand out of
+  three is Open — but the card states the answer, not the working. A stand that stated **no hours
+  is never counted open**: answering Open on a silent schedule states a claim no farmer made.
+- **A chosen seller's stands wore a thin olive stroke** while a chosen stand wore the selection
+  halo, so the same map said "you picked this" two different ways depending on which list was
+  open. One mark now, both lists.
+- **The seller card responded only to its heading**, where a stand card has always taken a tap
+  anywhere on it — which on a phone reads as broken to anyone who tapped the obvious thing.
+
+Also: the seller list's separate search box is gone. The two lists genuinely search different
+corpora, but that is a fact about the *corpus* and not about the *question* — the customer asks
+"what am I looking for" once, and two fields in one header leave them working out which one the
+list below is listening to. The map's term now feeds both, each list keeping its own haystack rule.
+
+### The last revision: stop taking the reader somewhere else
+
+Tapping one of a seller's stands originally switched the list to View stands and opened the card
+there. It answered the question and **threw the reader's place away** — they were reading about a
+seller, and the surface they were reading vanished. The stand's detail now expands *inside* her
+card. That retired `goToStand` entirely, and the asymmetry that remains is real and worth naming:
+a stand card's seller name crosses to the seller list, while a seller card's stand rows stay put,
+because a seller has no pin and no sheet and the map is a map of stands either way.
+
+### The category chip max deferred, and why it is a real decision
+
+The mockup carried a Produce / Baked Goods / Flowers / Misc chip. No seller column holds it, and
+guessing it from item names would be a **second food-vocabulary branch** — `map-view.ts` records
+exactly one allowed exception (`FLOWER_VOCABULARY`, deliberately bounded to display) and states
+that *a second is the signal it should have been data*. Asked rather than guessed; max chose to
+leave the chip off until there is a field behind it. If it is wanted, the honest home is a
+category the seller picks at onboarding.
+
+### Verification
+
+Sabotage-verified throughout — **nineteen** deliberate breaks across the four passes, each caught
+by the test that claimed to cover it (the off-map link, provider-vs-seller dedupe, pooled items,
+both tooltip clamps, the halo, the card tap, the open rule, second-tap-closes, reset-on-close,
+one-at-a-time, and more). The first pass was driven in a real browser against the local database
+at ~500px: all four crossings work end to end on real data.
+
+**Not verified in a browser:** passes two through four. max took that check himself and confirmed
+it. No width below 500px was reachable — Chrome would not resize smaller. The item-credit crossing
+has no local seed data (no guest seller has published items), so it rests on unit tests alone.
+
+### `/sellers` pruned
+
+Flagged rather than taken during the passes — deleting a documented public URL is a product call —
+and max took it at the wrap. Nothing linked to the page once the toggle existed, and it had
+drifted into rendering a weaker seller card than the map's own. `sellerSellingSummary` and
+`joinNames` went with it as its only consumers; `filterSellers` stays, because the map uses it.
+
+**The model-free tripwire caught the deletion**, which is the good outcome: it lists public entry
+points and treats a missing file as a hard failure rather than a silent skip, so removing a page
+without telling it turns the suite red. Its seller-read coverage moved to a **second entry for the
+map's own page**, which now reads `listPublicSellers` itself — and that edit was sabotage-verified
+(a model import into `seller-list.ts` still turns it red), because a tripwire you have just edited
+is exactly the kind that quietly stops biting.
+
+Final: **2,335 unit tests across 166 files** (down 6 with the retired summary tests), typecheck and
+lint clean.
+
+---
+
+## 2026-08-18 — a UI pass over the admin cards and the public map, and a feature that had never once rendered
 
 Branch `admin-card-design`, squash-merged as **`b14155f`** (PR #133). Unit **2,285 across 165
 files** with the 7 corpus skips — re-run green on the merged base; typecheck,

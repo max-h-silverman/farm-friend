@@ -29,23 +29,18 @@ owner-confirmed closure overrides the standing schedule, while a future closure 
 Optional browser geolocation sorts by approximate straight-line distance in the browser;
 destination-only Google Maps links delegate routing.
 
-`/sellers` is the second public list view (F-114 C.5): a browse list of every seller currently
-selling anywhere on the island, grouped by SELLER with their stands nested — the mirror of the
-stand card, which groups by item with sellers nested. It exists because a **hosted-only seller**
-owns no `sales_locations` row and therefore has no pin and no card; this page is their only
-discovery path. Its search matches a seller's own name and goods and deliberately NOT the stands
-they sell at, and it carries no confirmed inventory or freshness at all — what is out right now is
-the stand card's question, stated there with its own per-seller recency. Covered by the same
-model-free tripwire.
-
-**Since 2026-08-18 the map carries that list itself**, as a **View stands / View sellers** toggle
-in its filter header where a "Browse by seller" link used to sit — so the customer switches what
-the list is about without leaving the map or losing their filters. A chosen seller highlights the
-pins of the stands she sells at, which for a hosted-only seller are somebody else's. Seller cards
-there render in the STAND card's own shape, with the same dateless rule. `/sellers` remains a
-working URL and the same `listPublicSellers` read feeds both; the map page performs it under the
+**The seller list lives on the map itself**, as a **View stands / View sellers** toggle in its
+filter header. It exists because a **hosted-only seller** owns no `sales_locations` row and
+therefore has no pin and no card of her own; this list is her only discovery path. Its search
+matches a seller's own name and goods and deliberately NOT the stands she sells at, and it carries
+no confirmed inventory or freshness at all — what is out right now is the stand card's question,
+stated there with its own per-seller recency. The map page performs `listPublicSellers` under the
 same `?hidden=true` scope rule as its stands, so the two lists can never disagree about who is
-visible.
+visible, and it is covered by the same model-free tripwire.
+
+`/sellers` was a separate page carrying this list until 2026-08-18. It is **pruned**: nothing
+linked to it once the toggle existed, and it had drifted into rendering a weaker seller card than
+the map's own.
 
 **The two lists are one two-way view (F-118).** Stands and sellers are many-to-many, and that
 relationship is stated once — `apps/web/lib/stand-seller-graph.ts` — and rendered in both

@@ -60,47 +60,34 @@ anything that is not a flower means it should become data.**
 **Deliberately unchanged:** VIGA's `issue_link` stays stand-shaped and REFUSES on ambiguity;
 `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table and `GENERIC_WORDS` keep their names.
 
-**A 2026-08-18 UI pass sits on top of all three** (branch `admin-card-design`). The admin stand
-card reads as a profile — a lead block for what is on the shelf and when it was confirmed, then
-titled fact groups. The public map's list gained a **View stands / View sellers** toggle replacing
-the link to `/sellers`; a chosen seller highlights the stands she sells at, and seller cards render
-in the stand card's own shape. **`GEOCODING_API_KEY` now lives only in Secret Manager** —
-`dev-setup.sh` fetches it per run and never writes it to `.env.local`.
+**A UI pass sits on top of all three**, in two branches. `admin-card-design` (merged, `b14155f`):
+the admin stand card reads as a profile, and `GEOCODING_API_KEY` now lives only in Secret Manager
+— `dev-setup.sh` fetches it per run and never writes it to `.env.local`.
 
-**F-118 makes the map's two lists one two-way view** (branch `f-118-map-seller-architecture`,
-uncommitted at time of writing). The stand/seller relationship is stated once in
-`apps/web/lib/stand-seller-graph.ts` and rendered from both sides: a seller card names her stands
-as tappable rows carrying their own pin numbers (and as a pin-number strip when collapsed), a
-stand card says how many sellers it carries and makes each item credit the link to that seller,
-and a pin tapped in seller mode opens a tooltip naming that stand's sellers rather than selecting
-the stand. Contract and rules: SURFACES.md §the public map.
+**`f-118-map-seller-architecture` makes the map's two lists one two-way view.** The stand/seller
+relationship is stated once in `apps/web/lib/stand-seller-graph.ts` and read from both sides; no
+read changed, because both payloads already carry the ids. Contract and rules: SURFACES.md §the
+public map. In short:
 
-A **second pass on the same branch** revised the seller card to max's mockup and simplified four
-interactions: the card's summary row is now **Open / Closed** plus a season badge (both derived
-from her stands, never guessed); a seller at ONE stand opens that stand's own detail body rather
-than a list of one row; a pin with ONE seller crosses straight to her card rather than opening a
-tooltip of one; the seller list's own search field is gone — the map's single box feeds both
-lists; the whole card is the tap target and a second tap closes it; and a chosen seller's stands
-now wear the map's OWN selection halo rather than a second highlight style of their own. The mockup's category chip (Produce / Baked Goods /
-Flowers / Misc) is **deliberately not built**: no seller column carries it, and guessing it from
-item names would be a second food-vocabulary branch where the project has recorded exactly one
-allowed exception (`map-view.ts` §the flower vocabulary exception). max chose to leave it off
-until there is a field behind it.
+- A **seller card** says Open/Closed and a season badge, both derived from her stands and never
+  guessed. Its stand rows **expand that stand's detail in place** rather than switching lists.
+- A **stand card** says how many sellers it carries, and names each seller ONCE — the item credit
+  is the crossing. `alsoSellingHere` is now the fallback for a stand with no modelled sellers.
+- A **pin in seller mode** answers "who sells here": a tooltip for several, straight to her card
+  for one. One search box feeds both lists; one selection halo marks both.
+- The mockup's **category chip is deliberately not built** — no seller column carries it, and
+  guessing it from item names would be a second food-vocabulary branch where the project allows
+  exactly one (`map-view.ts` §the flower vocabulary exception). Needs a field the seller picks.
 
-A **fourth pass** lightened the seller card's "Where to find them" panel to a heading and a
-hairline — it was a bordered box inside a bordered box, and the stand detail that now opens inside
-it brings its own panels — and made each stand row **expand its stand in place** rather than
-switching the list to View stands. `goToStand` had one caller and now has none, so it is gone.
+**`/sellers` is pruned** (max, 2026-08-18). Nothing linked to it and the map's own View sellers
+list superseded it; `sellerSellingSummary` and `joinNames` went with it as its only consumers. The
+model-free tripwire keeps its seller-read coverage on a second entry for the map's own page.
 
-**Verified:** 2341 unit tests green, typecheck and lint clean. Eighteen sabotages caught across the
-passes. The FIRST pass was driven in a real browser against the local database at ~500px: all
-four crossings work, every tooltip measured fully inside the island on all four edges with no
-content clipping, and the seller card's expanded body measured aligned with its name (47/47, was
-47/81). **Not verified:** the second pass has not been seen in a browser at any width — max took
-that check himself — and no width below 500px was reachable in the first pass either. The
-item-credit crossing has no local seed data, so it is covered by unit tests only. `/sellers` still
-exists and still works, but nothing links to it and it now renders a weaker seller card than the
-map does.
+**Verified:** 2,335 unit tests across 166 files (7 corpus skips), typecheck and lint clean;
+nineteen sabotages caught. No evals owed — `packages/ai` and `evals/` untouched. Integration not
+re-run: no writer or query touched. Browser-measured on the first pass at ~500px; max checked the
+later passes himself. **Open:** the item-credit crossing has no local seed data, so it rests on
+unit tests alone, and no width below 500px was reachable.
 
 ## Deployment and migrations
 
