@@ -144,7 +144,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
   if (rows.length === 0) {
     return (
       <p className="admin-note">
-        No FLAG messages need review.
+        Nothing needs review. Messages appear here when a customer asks us to look at one.
       </p>
     );
   }
@@ -170,7 +170,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
             <div className="admin-flag-main">
               <h2>{row.senderMask}</h2>
               <p className="admin-note">
-                FLAG message · received {formatWhen(row.createdAt)}
+                Flagged for review · received {formatWhen(row.createdAt)}
               </p>
               {row.status !== "open" && (
                 <p className="admin-approved">
@@ -213,7 +213,10 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
                         </li>
                       ))}
                       {(threads[row.flagId] ?? []).length === 0 && (
-                        <li className="admin-note">No retained messages in this thread.</li>
+                        <li className="admin-note">
+                          The messages were deleted on their retention schedule. Decide this
+                          flag from the record above — the wording is gone for good.
+                        </li>
                       )}
                     </ol>
                   )}

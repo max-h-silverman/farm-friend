@@ -101,12 +101,27 @@ export function TestFarms({
         );
         return;
       }
-      // The response deliberately carries no hash and no number, so the new row is rendered
-      // from what the operator typed. It is refreshed from the database on the next load.
-      setPhoneRows((current) => [
-        { id: `pending-${phone}`, lastFour: phone.replace(/\D/g, "").slice(-4) },
-        ...current,
-      ]);
+      /*
+        Rendered from the SERVER's row, never from what the operator typed (F-101).
+
+        The response carries the real id and the last four of the NORMALIZED number — still no
+        hash and no full number. Rendering the typing instead showed the wrong suffix for any
+        number that normalized differently, and keyed the row `pending-<phone>`, which the
+        remove control then sent as an id the server did not have.
+
+        A response missing either value is treated as a failure rather than filled in from the
+        input: a row the server did not describe is exactly what this defect was.
+      */
+      const body = (await response.json().catch(() => ({}))) as {
+        id?: unknown;
+        lastFour?: unknown;
+      };
+      if (typeof body.id !== "string" || typeof body.lastFour !== "string") {
+        setError(FAILED);
+        return;
+      }
+      const added = { id: body.id, lastFour: body.lastFour };
+      setPhoneRows((current) => [added, ...current]);
       setPhoneInput("");
     } catch {
       setError(FAILED);
