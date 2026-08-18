@@ -26,7 +26,9 @@ import {
 } from "../lib/seller-list";
 import {
   markerTipBox,
+  sellerSeasonBadge,
   sellerStandLinks,
+  sellerStandsOpen,
   standSellerLinks,
   standsForSeller,
   type SellerStandLink,
@@ -300,13 +302,7 @@ function StandSellers({
   credited: ReadonlySet<string>;
   onGoToSeller: (sellerId: string) => void;
 }) {
-  const links = standSellerLinks({
-    // The graph asks for a numbered stand because a SELLER's links carry pin numbers. This
-    // direction needs none — it is going the other way, to a list with no pins — so the number
-    // is a placeholder the function never reads rather than a second numbering invented here.
-    ...stand,
-    standNumber: 0,
-  })
+  const links = standSellerLinks(stand)
     /*
       ONLY THE SELLERS NO ITEM ALREADY CREDITED.
 
@@ -999,22 +995,33 @@ function StandDetailBody({
 
   It is the STAND card's shape — the same `li.stand`, the same heading button, the same
   expand-on-tap — because two card vocabularies on one surface make a customer re-learn the list
-  every time they switch tabs. What differs is what a seller HAS, and the difference is the
-  design rather than an omission:
+  every time they switch tabs. What differs is what a seller HAS:
 
     a stand answers  "what is out here, is it open, how do I get there"
     a seller answers "what does she make, and where do I catch her"
 
-  So where the stand card puts its pin number, its hours and its dated stock, this puts her
-  STANDS — and they are the card's payload, not a footnote. A seller's stands are the answer to
-  her card's question, so each is a row carrying the stand's own pin number, what she brings to
-  that particular stand, and a way to get there. The sentence they replaced named the answer and
-  then left the customer to go find it.
+  ## At rest: the name, then one row of two derived facts (max, 2026-08-18)
 
-  NOTHING HERE IS DATED, and that is the honest difference. These are standing claims about what
-  she carries; what is out RIGHT NOW is the stand card's question, and it is the one surface
-  that states it with its own per-seller recency. A date here would be a second place for the
-  same claim to go stale.
+  **How many of her stands are open right now**, and **how long she runs**. Neither is a fact the
+  seller record carries — a seller has no hours and no season of her own, she has PLACES, and
+  each place has both. Both are derived in `stand-seller-graph.ts` where a test can hold them to
+  account, and neither is ever guessed: a stand that stated no hours is not counted open, and a
+  seller whose stands stated no qualifying season gets no badge at all.
+
+  ## Opened: it depends on how many stands she has
+
+  **One stand** → the STAND's own detail body, the same one the stand list renders. Her answer to
+  "where do I find her" has exactly one entry, and a list of one row is a step that asks the
+  customer to pick the only option.
+
+  **Several** → the list of stands, each carrying that stand's pin number and what she brings
+  there. Now the choice is real, so the choice is what the card shows; tapping one goes to it.
+
+  Either way, choosing her lights her stands on the map.
+
+  NOTHING HERE IS DATED. These are standing claims about what she carries; what is out RIGHT NOW
+  is the stand card's question, and it is the one surface that states it with its own per-seller
+  recency.
 */
 function SellerCard({
   seller,
@@ -1022,24 +1029,31 @@ function SellerCard({
   chosen,
   onToggle,
   onGoToStand,
+  onGoToSeller,
 }: {
   seller: SellerListEntry;
-  stands: readonly (MapViewStand & { standNumber: number })[];
+  stands: readonly (FilteredStand & MapViewStand)[];
   chosen: boolean;
   onToggle: () => void;
   onGoToStand: (standId: string) => void;
+  onGoToSeller: (sellerId: string) => void;
 }) {
   const links = sellerStandLinks(seller, stands);
-  // Deduplicated across her stands: this line answers "what does she make", not "what is at
-  // each stand". The per-stand breakdown is on the stand rows below, where it belongs.
-  const items = [
-    ...new Set(links.flatMap((link) => link.usualItems)),
-  ];
-  const ownCount = links.filter((link) => link.relation === "own").length;
-  const onMapLinks = links.filter((link) => link.onMap);
+  const openCount = sellerStandsOpen(seller, stands);
+  const season = sellerSeasonBadge(seller, stands);
   // Does this card hold BOTH kinds? Only then does naming a row's relation distinguish anything
   // — see `SellerStandRow`.
+  const ownCount = links.filter((link) => link.relation === "own").length;
   const mixedRelations = ownCount > 0 && ownCount < links.length;
+  /*
+    A SELLER AT ONE STAND OPENS THAT STAND. The single link is only useful if the map is showing
+    the stand — `soleStand` is the stand itself, so the card can render its real body rather
+    than a row pointing at it.
+  */
+  const soleStand =
+    links.length === 1
+      ? stands.find((stand) => stand.id === links[0]!.standId)
+      : undefined;
 
   return (
     <li className={chosen ? "stand stand-no-pin stand-selected" : "stand stand-no-pin"}>
@@ -1064,79 +1078,40 @@ function SellerCard({
             </h2>
 
             {/*
-              WHERE SHE SELLS, ON THE COLLAPSED CARD — AS PIN NUMBERS.
-
-              The stand card puts its farm name under its own heading; this is the seller's
-              equivalent fact, and the pin number is the compact form of it. Numbers rather than
-              names because the names are already the expanded card's rows, and printing both
-              says the same thing twice on one card — and because a number is the token that
-              ties this card to a pin without the customer reading a name off two surfaces.
-
-              A stand not currently on the map has no number to print, so it is counted in the
-              chip below and named in the body. It is never silently dropped.
+              THE SUMMARY ROW. Two facts, both about her stands, both derived — see the note
+              above. The season badge is absent rather than guessed, so a card can carry one
+              fact or two and reads the same either way.
             */}
-            {onMapLinks.length > 0 ? (
-              <p className="seller-stand-pins">
-                <span className="sr-only">Sells at stand</span>
-                {/*
-                  ITS OWN CLASS, not the stand card's `.stand-number`. These look alike on
-                  purpose — same token, so a customer reads them as pin numbers — but they are a
-                  different fact: `.stand-number` is THIS card's own number, and this is a
-                  reference to somebody else's. Borrowing the class would make "does this card
-                  have a pin number" unanswerable, which is exactly the lie a seller card must
-                  not tell.
-                */}
-                {onMapLinks.map((link) => (
-                  <span className="stand-number-ref" key={link.standId}>
-                    {link.standNumber}
-                  </span>
-                ))}
-              </p>
-            ) : null}
-
-            {/*
-              THE SUMMARY LINE, where the stand card puts its own. A stand says whether it is
-              open and when it was confirmed; a seller has no hours and no dated stock, so hers
-              says the two things she does have — whether she runs a stand or is somebody's
-              guest, and how many places carry her.
-            */}
-            <div className="stand-summary-meta">
-              <span className="seller-kind">
-                {ownCount > 0 ? "Own stand" : "Guest seller"}
+            <div className="seller-summary">
+              <span className="seller-stands-open">
+                {openCount.open} of {openCount.total}{" "}
+                {openCount.total === 1 ? "stand" : "stands"} open
               </span>
-              {links.length > 1 ? (
-                <span className="seller-stand-count">{links.length} stands</span>
-              ) : null}
+              {season === undefined ? null : (
+                <span className={`seller-season seller-season-${season}`}>
+                  <span className="poster-dot" aria-hidden="true" />
+                  {season === "year-round" ? "Year-round" : "Thru Nov"}
+                </span>
+              )}
             </div>
-
-            {/*
-              What she usually brings, ON THE COLLAPSED CARD ONLY.
-
-              The stand card answers "what is here" without being opened, and a seller card that
-              answered nothing until tapped was the weaker half of a pair meant to read alike.
-              So this is her whole range, pooled across her stands and deduplicated — the answer
-              to "what does she make".
-
-              IT DISAPPEARS WHEN THE CARD OPENS, because the rows below then answer the same
-              question better: they say what she brings to EACH stand, which is what a customer
-              deciding where to drive actually needs. Keeping both would print one seller's
-              sourdough twice on the same card — worst for a seller at a single stand, where the
-              pooled line and the one row are word for word identical.
-            */}
-            {!chosen && items.length > 0 ? (
-              <p className="seller-browse-items">Usually sells: {items.join(", ")}</p>
-            ) : null}
           </div>
         </div>
         <div className="stand-details">
-          {chosen ? (
+          {!chosen ? null : soleStand !== undefined ? (
+            /*
+              ONE STAND — the stand's OWN body, identical to the stand list's. `showDestination`
+              is on here, unlike the stand list's inline card: there the address already sits in
+              the collapsed summary above, and here nothing has said where to go yet.
+            */
+            <StandDetailBody stand={soleStand} onGoToSeller={onGoToSeller} />
+          ) : (
             <div className="seller-detail-body">
               {seller.description === undefined ? null : (
                 <p className="seller-browse-description">{seller.description}</p>
               )}
               <section className="seller-stands" aria-label="Where to find this seller">
                 <DetailSectionHeading icon="directions">
-                  {links.length === 1 ? "Where to find them" : "Where to find them"}
+                  Where to find them
                 </DetailSectionHeading>
                 <ul className="seller-stand-links">
                   {links.map((link) => (
@@ -1150,21 +1125,13 @@ function SellerCard({
                 </ul>
               </section>
             </div>
-          ) : null}
+          )}
         </div>
       </div>
     </li>
   );
 }
 
-/**
- * One stand a seller sells at, as a destination.
- *
- * **A stand the map is not showing is named but not offered.** It stays on the card, because
- * dropping it would quietly shorten "sells at 2 stands" to one — but it carries no number and
- * no button, because there is no pin to send anyone to. Saying "not on the map right now" is
- * the honest version of a door that cannot open; a dead button is not.
- */
 function SellerStandRow({
   link,
   showRelation,
@@ -1269,7 +1236,6 @@ export function StandMap({
   */
   const [listTab, setListTab] = useState<"stands" | "sellers">("stands");
   const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
-  const [sellerQuery, setSellerQuery] = useState("");
   /*
     F-118 — THE PIN'S ANSWER WHILE SELLERS ARE SHOWING.
 
@@ -1298,9 +1264,21 @@ export function StandMap({
     return standsForSeller(sellers?.find((entry) => entry.sellerId === selectedSellerId));
   }, [showingSellers, selectedSellerId, sellers]);
 
+  /*
+    ONE SEARCH BOX, TWO CORPORA (max, 2026-08-18).
+
+    The seller list used to carry its own field, on the reasoning that a stand is found by what
+    is out and where it is while a seller is found by her name and her goods. That is true of the
+    CORPUS and false of the question: the customer is asking "what am I looking for" once, and
+    two boxes in one header leave them working out which one the list below is listening to.
+
+    So the map's own `sells` term feeds both, and the LIST decides what the word means —
+    `applyStandFilters` for stands, `filterSellers` for sellers, each keeping its own rule about
+    what is in its haystack.
+  */
   const shownSellers = useMemo(
-    () => (sellers === undefined ? [] : filterSellers(sellers, sellerQuery)),
-    [sellers, sellerQuery],
+    () => (sellers === undefined ? [] : filterSellers(sellers, filters.sells ?? "")),
+    [sellers, filters.sells],
   );
 
   const cardRefs = useRef(new Map<string, HTMLLIElement>());
@@ -1568,6 +1546,24 @@ export function StandMap({
       select(standId, "map");
       return;
     }
+
+    /*
+      THE TOOLTIP IS A DISAMBIGUATION, so a stand with ONE seller does not get one (max,
+      2026-08-18). A menu of one asks the customer to confirm what their tap already said. It
+      goes straight to her card — which is exactly what the tooltip's single row would have
+      done, one tap sooner.
+
+      Read from the same `sellers` list the pins come from, so a stand whose only seller the
+      list is not showing falls through to the tooltip and says so, rather than crossing to a
+      card that is not there.
+    */
+    const stand = visible.find((entry) => entry.id === standId);
+    const sole = stand === undefined ? [] : standSellerLinks(stand);
+    if (sole.length === 1) {
+      goToSeller(sole[0]!.sellerId);
+      return;
+    }
+
     // Tapping the open pin again closes its tooltip, so the map comes back without hunting for
     // another control — the same gesture that collapses a chosen seller's card.
     setMarkerTipStandId((current) => (current === standId ? null : standId));
@@ -2027,24 +2023,12 @@ export function StandMap({
           </div>
 
           {/*
-            THE SELLER LIST, in the same column the stand cards use (max, 2026-08-18). Its own
-            search, because the two lists search different corpora: a stand is found by what is
-            out and where it is, a seller by her name and what she carries.
+            THE SELLER LIST, in the same column the stand cards use (max, 2026-08-18). It reads
+            the map's OWN search term — see `shownSellers` — so the header carries one box and
+            one question rather than two fields the customer has to tell apart.
           */}
           {showingSellers ? (
             <div className="seller-browse">
-              <label className="seller-browse-search">
-                <span className="sr-only">Find a seller</span>
-                <input
-                  type="search"
-                  className="field-input"
-                  aria-label="Find a seller"
-                  placeholder="e.g. “bread”, “Fernhorn”, “eggs”…"
-                  value={sellerQuery}
-                  onChange={(event) => setSellerQuery(event.target.value)}
-                />
-              </label>
-
               {shownSellers.length === 0 ? (
                 /*
                   A search that matched nothing says so. It must never fall back to the whole
@@ -2052,8 +2036,8 @@ export function StandMap({
                   "everyone" — the seller directory's own rule, kept here.
                 */
                 <p className="empty">
-                  No seller matches “{sellerQuery.trim()}”. Try a different word, or switch to
-                  View stands.
+                  No seller matches “{(filters.sells ?? "").trim()}”. Try a different word, or
+                  switch to View stands.
                 </p>
               ) : (
                 /*
@@ -2071,7 +2055,10 @@ export function StandMap({
                     <SellerCard
                       key={seller.sellerId}
                       seller={seller}
-                      stands={numbered}
+                      // The VISIBLE stands, not every numbered one: the card counts how many of
+                      // her stands are open and offers them as destinations, and a filtered-out
+                      // stand is one the customer cannot get to from this list right now.
+                      stands={visible}
                       chosen={seller.sellerId === selectedSellerId}
                       // Pressing the chosen seller again clears the highlight, so the island
                       // comes back without hunting for another control.
@@ -2081,6 +2068,7 @@ export function StandMap({
                           : goToSeller(seller.sellerId)
                       }
                       onGoToStand={goToStand}
+                      onGoToSeller={goToSeller}
                     />
                   ))}
                 </ul>

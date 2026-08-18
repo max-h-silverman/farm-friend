@@ -1,6 +1,8 @@
 import { describe, expect, it } from "vitest";
 import {
   markerTipBox,
+  sellerSeasonBadge,
+  sellerStandsOpen,
   sellerStandLinks,
   standSellerLinks,
   standsForSeller,
@@ -267,5 +269,110 @@ describe("placing the marker tooltip inside the island", () => {
     const box = markerTipBox({ x: 500, y: 800 }, { width: 1400, height: 100 }, VIEWBOX);
 
     expect(box.x).toBe(0);
+  });
+});
+
+/*
+  F-118 revision — WHAT THE SELLER CARD SAYS AT REST.
+
+  The card's two facts are both derived from the STANDS she sells at, and neither is a fact the
+  seller record carries: a seller has no hours and no season of her own, she has places, and each
+  place has both. Deriving them here rather than in the card is what lets a test hold the answer
+  to account — and what stops the card inventing a seller-level season that no farmer stated.
+*/
+describe("how many of a seller's stands are open", () => {
+  const open: GraphStand = { ...morganHill, id: "a", openState: "open" };
+  const shut: GraphStand = { ...kelseys, id: "b", openState: "closed" };
+  const unknown: GraphStand = { ...kelseys, id: "c", openState: "unknown" };
+
+  const atAll = (ids: string[]): GraphSeller => ({
+    sellerId: "s",
+    sellerName: "S",
+    ownsAStand: false,
+    sellingAt: ids.map((id) => ({
+      salesLocationId: id,
+      locationName: id,
+      describesOwnStand: false,
+      usualItems: [],
+    })),
+  });
+
+  it("counts the stands that are open right now", () => {
+    expect(sellerStandsOpen(atAll(["a", "b"]), [open, shut])).toEqual({ open: 1, total: 2 });
+  });
+
+  it("does NOT count a stand whose hours nobody stated as open", () => {
+    /*
+      `unknown` means the farm said nothing, not that it is shut — but the card's word is
+      "open", and counting an unknown stand as open puts a claim on the card that no farmer
+      made. It stays in the total, because she does sell there.
+    */
+    expect(sellerStandsOpen(atAll(["a", "c"]), [open, unknown])).toEqual({
+      open: 1,
+      total: 2,
+    });
+  });
+
+  it("counts a stand the map is not currently showing in the total only", () => {
+    // She still sells there; the map simply is not showing it. Dropping it from the total
+    // would make the card disagree with her own list of stands.
+    expect(sellerStandsOpen(atAll(["a", "gone"]), [open])).toEqual({ open: 1, total: 2 });
+  });
+});
+
+describe("the seller's season badge", () => {
+  const yearRound: GraphStand = {
+    ...morganHill,
+    id: "a",
+    availability: { season: { kind: "year_round" } },
+  };
+  const untilNovember: GraphStand = {
+    ...kelseys,
+    id: "b",
+    availability: { season: { kind: "date_range", endMonth: 11, endDay: 24 } },
+  };
+  const summerOnly: GraphStand = {
+    ...kelseys,
+    id: "c",
+    availability: { season: { kind: "date_range", endMonth: 8, endDay: 31 } },
+  };
+
+  const at = (ids: string[]): GraphSeller => ({
+    sellerId: "s",
+    sellerName: "S",
+    ownsAStand: false,
+    sellingAt: ids.map((id) => ({
+      salesLocationId: id,
+      locationName: id,
+      describesOwnStand: false,
+      usualItems: [],
+    })),
+  });
+
+  it("says year-round when any stand she sells at is year-round", () => {
+    expect(sellerSeasonBadge(at(["a", "c"]), [yearRound, summerOnly])).toBe("year-round");
+  });
+
+  it("says thru late November for a stand that runs that late", () => {
+    expect(sellerSeasonBadge(at(["b"]), [untilNovember])).toBe("late-november");
+  });
+
+  /*
+    THE LONGEST SEASON WINS, because the badge answers "how long can I buy from her" and she is
+    buyable wherever any of her stands is open. A badge taken from the first stand in the list
+    would make the same seller read differently depending on stand ordering.
+  */
+  it("takes the LONGEST season across her stands, not the first", () => {
+    expect(sellerSeasonBadge(at(["c", "a"]), [summerOnly, yearRound])).toBe("year-round");
+    expect(sellerSeasonBadge(at(["c", "b"]), [summerOnly, untilNovember])).toBe(
+      "late-november",
+    );
+  });
+
+  it("says nothing when no stand of hers stated a season that qualifies", () => {
+    // Absent, never a guess. A stand with a summer range has said something true that neither
+    // badge describes, and inventing a third badge here would be the card stating a season no
+    // farmer chose.
+    expect(sellerSeasonBadge(at(["c"]), [summerOnly])).toBeUndefined();
   });
 });

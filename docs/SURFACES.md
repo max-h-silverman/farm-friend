@@ -51,9 +51,13 @@ visible.
 relationship is stated once — `apps/web/lib/stand-seller-graph.ts` — and rendered in both
 directions rather than three times in three shapes:
 
-- A **seller card** names her stands as ROWS carrying those stands' own pin numbers, each with
-  what she brings to *that* stand and a tap that goes to it. Collapsed, the same fact is the
-  strip of pin numbers under her name. A stand the map is not currently showing keeps its row,
+- A **seller card** says, at rest, how many of her stands are open right now and how long she
+  runs. Both are DERIVED from the stands she sells at — a seller has no hours and no season of
+  her own — and neither is ever guessed: a stand that stated no hours is not counted open, and a
+  seller none of whose stands stated a qualifying season carries no badge. Opened, a seller at
+  **one** stand shows that stand's own detail body, because a list of one row asks the customer
+  to pick the only option; a seller at **several** shows the list, each row carrying that stand's
+  pin number and what she brings there. A stand the map is not currently showing keeps its row,
   named and marked "not on the map right now", so her stand count is never quietly shortened.
 - A **stand card** says how many sellers it carries before it is opened, and each seller is
   named ONCE and that name is the crossing: the item credit is the link, because it is already
@@ -61,11 +65,15 @@ directions rather than three times in three shapes:
   the stand who has published nothing. `alsoSellingHere` (`sales_location_participants`, retired
   as display-only history, no identity and so nothing to cross to) appears only for a stand with
   no modelled sellers at all.
-- A **pin tapped while sellers are showing** opens a tooltip naming that stand's sellers instead
-  of selecting the stand — the pin answers the question the list is asking. Each name selects and
-  expands that seller, which lights her stands. `markerTipBox` keeps the tooltip inside the
-  island, clamping horizontally and flipping below a pin near the north shore: the figure clips,
-  and Vashon is narrow enough that most pins sit near an edge.
+- A **pin tapped while sellers are showing** answers "who sells here" instead of selecting the
+  stand — the pin answers the question the list is asking. With SEVERAL sellers that is a tooltip
+  naming them, each a tap into the list; with ONE it goes straight to her card, because a menu of
+  one asks the customer to confirm what their tap already said. `markerTipBox` keeps the tooltip
+  inside the island, clamping horizontally and flipping below a pin near the north shore: the
+  figure clips, and Vashon is narrow enough that most pins sit near an edge.
+- **One search box serves both lists.** The map's own term feeds `applyStandFilters` for stands
+  and `filterSellers` for sellers, each keeping its own rule about what is in its haystack. Two
+  fields in one header left the customer working out which one the list below was listening to.
 
 `POST /api/public/stock-out` is the one public model-backed handler, behind the throttle.
 

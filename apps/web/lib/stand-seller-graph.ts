@@ -41,10 +41,51 @@ export interface GraphStandSeller {
 /** A stand as the numbered map view carries it. */
 export interface GraphStand {
   id: string;
-  standNumber: number;
+  /**
+   * The stand's pin number, when the caller has one.
+   *
+   * OPTIONAL, because the three readers below need different parts of a stand and only
+   * `sellerStandLinks` needs this. A caller counting open stands or reading a season should not
+   * have to number its input first, and a required field here forced exactly that — or worse, a
+   * placeholder number invented at the call site, which is a second numbering waiting to
+   * disagree with the pins.
+   */
+  standNumber?: number;
   locationName: string;
   /** Absent for a stand nobody has been invited to — a different fact from an empty list. */
   sellers?: readonly GraphStandSeller[];
+  /**
+   * Whether this stand is open right now, as the map already resolved it.
+   *
+   * Optional because the graph's other answers do not need it — a stand set built for the pin
+   * numbers alone is a complete input for `sellerStandLinks`. A stand that did not state it is
+   * counted as not-open, never as open; see `sellerStandsOpen`.
+   */
+  openState?: string;
+  /**
+   * What this stand stated about its season, in the shape the public payload nests it —
+   * `availability.season`, absent when the stand stated nothing.
+   *
+   * Read from `availability` rather than hoisted to a `season` field of its own so a caller can
+   * pass a stand payload straight in. A second spelling of the same fact here would be one more
+   * place for the card's badge and the stand's own dot to drift apart.
+   */
+  availability?: { season?: GraphSeason };
+}
+
+/**
+ * A stand's stated season, as narrowly as the badge needs to read it.
+ *
+ * NOT a restatement of the payload's own season union — `map-view.ts` owns that, and a second
+ * copy here would be a type that could drift out of agreement with the data it describes.
+ * This is the SHAPE this module reads: a `kind`, and the end date a `date_range` carries. Any
+ * season the payload adds arrives here as a `kind` neither badge matches, which returns no
+ * badge — the correct answer for a season these two words do not describe.
+ */
+export interface GraphSeason {
+  kind: string;
+  endMonth?: number;
+  endDay?: number;
 }
 
 /** One stand a seller sells at, as the seller list carries it. */
@@ -121,7 +162,7 @@ export function sellerStandLinks(
       locationName: stand.locationName,
       relation: relationOf(stand.describesOwnStand),
       usualItems: stand.usualItems.map((item) => item.itemName),
-      ...(onMap === undefined ? {} : { standNumber: onMap.standNumber }),
+      ...(onMap?.standNumber === undefined ? {} : { standNumber: onMap.standNumber }),
       onMap: onMap !== undefined,
     };
   });
@@ -239,3 +280,77 @@ export function markerTipBox(
  * the box's lower edge through the top of the marker it was explaining.
  */
 const MARKER_TIP_GAP = 76;
+
+
+/** How many of a seller's stands are open right now, out of how many she sells at. */
+export interface SellerStandsOpen {
+  open: number;
+  total: number;
+}
+
+/**
+ * How many of this seller's stands are open right now.
+ *
+ * **A stand that stated no hours is NOT counted as open.** `unknown` means the farm said
+ * nothing, not that it is trading — and the card's word is "open", so counting an unknown stand
+ * would put a claim on the seller's card that no farmer ever made. It stays in the TOTAL,
+ * because she does sell there and the total is her own count of places.
+ *
+ * **A stand the map is not currently showing counts in the total too.** She still sells there;
+ * a filter is simply hiding it. Dropping it would make this card disagree with her own list of
+ * stands, which is the discrepancy `sellerStandLinks` refuses for the same reason.
+ */
+export function sellerStandsOpen(
+  seller: GraphSeller,
+  stands: readonly GraphStand[],
+): SellerStandsOpen {
+  const byId = new Map(stands.map((stand) => [stand.id, stand]));
+  const open = seller.sellingAt.filter(
+    (stand) => byId.get(stand.salesLocationId)?.openState === "open",
+  ).length;
+  return { open, total: seller.sellingAt.length };
+}
+
+/** The two season badges the poster's key already defines. */
+export type SellerSeasonBadge = "year-round" | "late-november";
+
+/**
+ * The season badge for a seller, from the stands she sells at.
+ *
+ * A seller has no season of her own — she has PLACES, and each place has one. So the badge is
+ * derived, and **the longest season wins**: the badge answers "how long can I buy from her",
+ * and she is buyable wherever any of her stands is open. Taking the first stand's season would
+ * make the same seller read differently depending on how her stands happened to be ordered.
+ *
+ * **Absent rather than guessed.** A stand with a summer range has stated something true that
+ * neither badge describes; inventing a third badge here would put a season on the card that no
+ * farmer chose. The two values are exactly the poster's own key, which is where they came from.
+ */
+export function sellerSeasonBadge(
+  seller: GraphSeller,
+  stands: readonly GraphStand[],
+): SellerSeasonBadge | undefined {
+  const byId = new Map(stands.map((stand) => [stand.id, stand]));
+  const seasons = seller.sellingAt
+    .map((stand) => byId.get(stand.salesLocationId)?.availability?.season)
+    .filter((season): season is GraphSeason => season !== undefined);
+
+  if (seasons.some((season) => season.kind === "year_round")) return "year-round";
+  // The SAME test `posterIndicators` applies to a stand — a range ending in the last third of
+  // November. Stated once here so a seller's badge and her stand's dot can never disagree.
+  if (
+    seasons.some(
+      (season) =>
+        season.kind === "date_range" &&
+        season.endMonth === 11 &&
+        // `>= 20` on an absent day would be `undefined >= 20`, which is false — correct, but by
+        // accident. Stated explicitly so a season that names a month and no day cannot ever
+        // reach the comparison at all.
+        season.endDay !== undefined &&
+        season.endDay >= 20,
+    )
+  ) {
+    return "late-november";
+  }
+  return undefined;
+}

@@ -6101,10 +6101,6 @@ button.admin-action-danger,
   gap: 0.75rem;
 }
 
-.seller-browse-search .field-input {
-  width: 100%;
-}
-
 /* A seller renders in the STAND card's shape — `ul.stands > li.stand` — so those
    rules do the work and none are restated here. What is left is only what a
    seller card holds that a stand card does not.
@@ -6126,45 +6122,79 @@ button.admin-action-danger,
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
-/* The seller's summary chips, in the row the stand card uses for its open state
-   and recency. Quieter than a stand's, because none of these is time-sensitive. */
-.seller-kind,
-.seller-stand-count {
-  display: inline-flex;
-  align-items: center;
-  padding: 0.1rem 0.5rem;
-  color: var(--olive);
-  background: rgb(255 255 255 / 60%);
-  border: 1px solid color-mix(in srgb, var(--sage-deep) 55%, transparent);
-  border-radius: 999px;
-  font-size: 0.78rem;
-  font-weight: 700;
-}
-
 .seller-detail-body {
   display: grid;
   gap: 0.35rem;
   padding-top: 0.15rem;
 }
 
-.seller-browse-description,
-.seller-browse-items,
-.seller-browse-where {
+.seller-browse-description {
   margin: 0;
   color: var(--ink-soft, #55605c);
   font-size: 0.85rem;
 }
 
-/* On the collapsed card, so it stays a supporting line under the name rather than
-   competing with it. */
-.seller-browse-items {
-  margin-top: 0.25rem;
-  line-height: 1.35;
+/* ---- The seller card's summary row (max, 2026-08-18 mockup) -------------
+
+   TWO FACTS, ONE ROW, sitting where the stand card puts its open state and its
+   recency — how many of her stands are open right now, and how long she runs.
+   Both derived from her stands; see `SellerCard`.
+
+   The count is PLAIN TEXT and the season is a BADGE, and the difference is the
+   point: the count is a number that changes through the day and wants to be read,
+   while the season is a standing fact that wants to be recognised at a glance
+   down a column. Two badges side by side would make the reader compare them. */
+.seller-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.75rem;
+  align-items: center;
+  margin-top: 0.4rem;
 }
 
-.seller-browse-where {
-  color: var(--olive);
+.seller-stands-open {
+  color: var(--ink-soft);
+  font-size: 0.88rem;
   font-weight: 600;
+}
+
+/* The poster's own season key, as a pill — the same dot and the same two colours
+   the map key and the stand cards already use, so a seller's badge and her
+   stand's dot are recognisably one vocabulary. */
+.seller-season {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  margin-left: auto;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.seller-season .poster-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+}
+
+.seller-season-year-round {
+  color: var(--pin);
+  background: color-mix(in srgb, var(--pin) 10%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pin) 40%, transparent);
+}
+
+.seller-season-year-round .poster-dot {
+  background: var(--pin);
+}
+
+.seller-season-late-november {
+  color: #6b3f8f;
+  background: rgb(107 63 143 / 8%);
+  border: 1px solid rgb(107 63 143 / 35%);
+}
+
+.seller-season-late-november .poster-dot {
+  background: #6b3f8f;
 }
 
 /* ---- F-118: the crossing between stands and sellers --------------------
@@ -6203,17 +6233,6 @@ button.admin-action-danger,
   background: none;
   border-style: dashed;
   border-color: var(--line);
-}
-
-/* WHERE SHE SELLS, ON THE COLLAPSED CARD: a strip of pin numbers, sitting where
-   the stand card puts its farm name. Numbers alone because the names are the
-   opened card's rows — and because this row's job is to be scannable down a
-   column of cards, which a set of names is not. */
-.seller-stand-pins {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin: 0.35rem 0 0;
 }
 
 /* THE OPENED CARD'S PAYLOAD: her stands, each a destination. Styled as its own

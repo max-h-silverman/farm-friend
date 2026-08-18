@@ -75,14 +75,26 @@ stand card says how many sellers it carries and makes each item credit the link 
 and a pin tapped in seller mode opens a tooltip naming that stand's sellers rather than selecting
 the stand. Contract and rules: SURFACES.md §the public map.
 
-**Verified:** 2318 unit tests green, typecheck and lint clean, six sabotages caught (the relation
-label, the count threshold, the pooled-line collapse, the tab switch, and both tooltip clamps).
-Driven in a real browser against the local database at ~500px: all four crossings work, every
-tooltip measured fully inside the island on all four edges with no content clipping, and the
-seller card's expanded body measured aligned with its name (47/47, was 47/81). **Not verified:**
-any width below 500px — Chrome would not resize smaller — and the item-credit crossing has no
-local seed data, so it is covered by unit tests only. `/sellers` still exists and still works, but
-nothing links to it and it now renders a weaker seller card than the map does.
+A **second pass on the same branch** revised the seller card to max's mockup and simplified two
+interactions: the card's summary row is now how many of her stands are open right now plus a
+season badge (both derived from her stands, never guessed); a seller at ONE stand opens that
+stand's own detail body rather than a list of one row; a pin with ONE seller crosses straight to
+her card rather than opening a tooltip of one; and the seller list's own search field is gone —
+the map's single search box feeds both lists. The mockup's category chip (Produce / Baked Goods /
+Flowers / Misc) is **deliberately not built**: no seller column carries it, and guessing it from
+item names would be a second food-vocabulary branch where the project has recorded exactly one
+allowed exception (`map-view.ts` §the flower vocabulary exception). max chose to leave it off
+until there is a field behind it.
+
+**Verified:** 2331 unit tests green, typecheck and lint clean. Eleven sabotages caught across the
+two passes. The FIRST pass was driven in a real browser against the local database at ~500px: all
+four crossings work, every tooltip measured fully inside the island on all four edges with no
+content clipping, and the seller card's expanded body measured aligned with its name (47/47, was
+47/81). **Not verified:** the second pass has not been seen in a browser at any width — max took
+that check himself — and no width below 500px was reachable in the first pass either. The
+item-credit crossing has no local seed data, so it is covered by unit tests only. `/sellers` still
+exists and still works, but nothing links to it and it now renders a weaker seller card than the
+map does.
 
 ## Deployment and migrations
 
