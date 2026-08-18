@@ -149,6 +149,7 @@ describe("the stand list", () => {
             retired: false,
             retiredWithFarm: false,
             farmBucksStatus: "not_eligible",
+            metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
             sections: [
               {
                 title: "Availability",
@@ -207,6 +208,7 @@ describe("the stand list", () => {
           retired: false,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Other details", items: [["Farm Bucks", "Not reviewed"]] }],
         }]}
       />,
@@ -244,6 +246,7 @@ describe("the stand list", () => {
           retired: false,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
         }]}
       />,
@@ -273,6 +276,7 @@ describe("the stand list", () => {
           retired: false,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
         }]}
       />,
@@ -318,6 +322,7 @@ describe("the stand list", () => {
           retired: true,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "9 Farm Lane"]] }],
         }]}
       />,
@@ -353,6 +358,7 @@ describe("the stand list", () => {
           retired: false,
           retiredWithFarm: false,
           farmBucksStatus: "not_eligible",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "3 Farm Lane"]] }],
         }]}
       />,
@@ -386,6 +392,7 @@ describe("administrator language", () => {
               retired: false,
               retiredWithFarm: false,
               farmBucksStatus: "not_eligible",
+              metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
               sections: [{ title: "Visit", items: [["Visit in person", "Yes"]] }],
             },
           ]}

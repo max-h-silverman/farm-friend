@@ -56,6 +56,121 @@ export async function saveFarmBucksStatus(
   });
 }
 
+export type SaveStandMetadataResult =
+  | { status: "saved" }
+  | { status: "unknown_stand" }
+  | { status: "invalid_name" }
+  /**
+   * A visitable stand cannot lose its address or its pin.
+   *
+   * `sales_locations_coherent_visitability` enforces it, and this status is how an operator
+   * hears about it: a constraint violation escaping as a 500 tells them only that something
+   * broke. Named separately from `invalid_name` because the fix is different — restore the
+   * field, or change the stand's visitability on the farmer's own form.
+   */
+  | { status: "incomplete_location" }
+  | { status: "not_an_administrator" };
+
+/**
+ * VIGA corrects one stand's own location facts (F-101).
+ *
+ * **Deliberately NOT `saveOnboardingListing` with an administrator arm.** That writer replaces
+ * the whole listing — payment methods, what the stand usually sells, the farmer's description,
+ * her items. An operator fixing a misspelt stand name must not rewrite the farmer's published
+ * words on the way past, which is Golden Rule #1: the farmer owns published state.
+ *
+ * So this names its columns, and what it leaves out it leaves out on purpose. `is_public` is
+ * retire/restore's; `farm_bucks_*` is `saveFarmBucksStatus`'s; `visitability`, `offering_type`
+ * and the twelve structured availability columns are the farmer's own form's. A second writer
+ * over any of them would be two ways to do one thing.
+ *
+ * The structured season and hours columns stay out for a second reason as well: `coherentSeason`
+ * refuses a half-stated season, so they can only be written as one complete statement. Free-text
+ * `hours_text` — the farmer's own words about when she is open — carries no such constraint and
+ * is the field an operator actually reaches for.
+ *
+ * Authority is re-read inside the transaction, like every writer in this module: a principal
+ * proves the caller was an administrator when the request began, and only the row proves they
+ * still are.
+ */
+export async function saveStandMetadata(
+  db: Db,
+  input: {
+    standId: string;
+    administratorId: string;
+    name: string;
+    publicAddress: string | null;
+    addressPublic: boolean;
+    latitude: number | null;
+    longitude: number | null;
+    hoursText: string | null;
+    occurredAt: Date;
+  },
+): Promise<SaveStandMetadataResult> {
+  // A nameless stand is unreachable on the map and unnameable in a reply. The column would take
+  // an empty string, so the refusal lives here — before the administrator lookup, because it is
+  // a fact about the request rather than about who sent it.
+  const name = input.name.trim();
+  if (name === "") return { status: "invalid_name" };
+
+  const address = input.publicAddress?.trim() ?? null;
+  const hoursText = input.hoursText?.trim() ?? null;
+
+  return driver(db).begin(async (tx) => {
+    const administrator = await tx`
+      select id from administrators
+      where id = ${input.administratorId} and revoked_at is null
+      for update
+    `;
+    if (administrator.length === 0) return { status: "not_an_administrator" as const };
+
+    const stand = await tx`
+      select id, visitability from sales_locations where id = ${input.standId} for update
+    `;
+    if (stand.length === 0) return { status: "unknown_stand" as const };
+
+    /*
+      The database's own rule, asked BEFORE the write so the operator gets a named answer.
+
+      Read from the ROW rather than taken from the request: visitability is the farmer's fact
+      and this writer does not touch it, so the stand itself is what says whether an address and
+      a pin are required. Duplicating the constraint is deliberate and narrow — the constraint
+      remains the enforcement, and this exists only so the refusal has words.
+    */
+    const visitable = (stand[0] as Record<string, unknown>).visitability === "visitable";
+    const cleanAddress = address === "" ? null : address;
+    if (
+      visitable &&
+      (cleanAddress === null || input.latitude === null || input.longitude === null)
+    ) {
+      return { status: "incomplete_location" as const };
+    }
+
+    await tx`
+      update sales_locations
+      set name = ${name},
+          public_address = ${cleanAddress},
+          address_public = ${input.addressPublic},
+          public_latitude = ${input.latitude},
+          public_longitude = ${input.longitude},
+          hours_text = ${hoursText === "" ? null : hoursText},
+          updated_at = ${input.occurredAt.toISOString()}
+      where id = ${input.standId}
+    `;
+
+    // Commits with the edit or not at all. VIGA editing a farmer's public-facing facts is
+    // exactly the act the trail exists to record.
+    await tx`
+      insert into audit_events (action, actor_administrator_id, subject_type, subject_id,
+        occurred_at)
+      values ('stand_metadata_edited', ${input.administratorId}, 'stand', ${input.standId},
+        ${input.occurredAt.toISOString()})
+    `;
+
+    return { status: "saved" as const };
+  });
+}
+
 export interface CreateAdminSessionInput {
   /** The HASH of the session token. The raw token never reaches this layer. */
   tokenHash: string;
