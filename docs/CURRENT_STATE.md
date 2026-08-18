@@ -87,7 +87,10 @@ in the stand card's own shape. **`GEOCODING_API_KEY` now lives only in Secret Ma
   §gotchas own the procedure and the evidence for it.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
-  neither revision has an error-level log. **B-074, F-114/F-115, all of F-101 and all of F-117 are on `main` and undeployed.**
+  neither revision has an error-level log. **B-074, F-114/F-115, all of F-101, all of F-117 and
+  the 2026-08-18 UI pass (`b14155f`, PR #133) are on `main` and undeployed.** max's call on
+  2026-08-18: leave it undeployed for now — the migration queue is scheduled separately, and
+  none of the UI work has been seen rendered.
 
 ## Verification
 

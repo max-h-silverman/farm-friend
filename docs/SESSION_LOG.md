@@ -13,7 +13,8 @@ mid-session defeats its own purpose.
 
 ## 2026-08-18 (latest) — a UI pass over the admin cards and the public map, and a feature that had never once rendered
 
-Branch `admin-card-design`. Unit **2,285 across 165 files** with the 7 corpus skips; typecheck,
+Branch `admin-card-design`, squash-merged as **`b14155f`** (PR #133). Unit **2,285 across 165
+files** with the 7 corpus skips — re-run green on the merged base; typecheck,
 lint and scripted evals clean (critical 11/11, advisory 4/4, adversarial 19/19). Integration was
 not re-run — nothing this session touched a writer or a query. No live eval owed: `packages/ai`
 and `evals/` are untouched, checked rather than assumed.
