@@ -664,6 +664,36 @@ export interface FilterMoment {
  * then rendering it as though it were confirmed open is the same dishonesty as hiding it,
  * reached by a different route.
  */
+/**
+ * The states in which a stand is CLOSED because a farmer stated the fact that shuts it.
+ *
+ * Stated as the set of things that ARE closed, never as "not open". B-083 is what the other
+ * polarity cost: `openState` has seven members, so a `=== "open"` test made every state the
+ * author had not considered — and every state a later author adds — read as a closure nobody
+ * declared. Nine of thirty-four live seller cards said "Closed" about a stand no farmer had shut.
+ *
+ * ONE definition, two readers: this filter, and `sellerOpenState` in `stand-seller-graph.ts`.
+ * They were written separately and disagreed for exactly as long as that was possible. A stand
+ * that survives the "Open now" filter and a seller card reading "Closed" cannot both be right
+ * about the same stand.
+ */
+const DEFINITELY_SHUT: ReadonlySet<string> = new Set([
+  "farmer_closed",
+  "closed",
+  "closed_today",
+  "out_of_season",
+]);
+
+/**
+ * Did a farmer positively shut this stand?
+ *
+ * `false` for `unknown` and `by_appointment`: neither is a closure, and treating a blank hours
+ * column as one publishes a claim the farmer never made.
+ */
+export function isDefinitelyShut(state: string | undefined): boolean {
+  return state !== undefined && DEFINITELY_SHUT.has(state);
+}
+
 export interface OpenStateFields {
   openState: OpenState;
 }
@@ -786,12 +816,7 @@ export function applyStandFilters<Stand extends PublicStandPayload>(
       if (filters.openNow === true) {
         // `open`, `unknown` and `by_appointment` all stay. Only a stand we can positively say
         // is shut — because the farmer stated the fact that shuts it — is removed.
-        const definitelyShut =
-          stand.openState === "farmer_closed" ||
-          stand.openState === "closed" ||
-          stand.openState === "closed_today" ||
-          stand.openState === "out_of_season";
-        if (definitelyShut) return false;
+        if (isDefinitelyShut(stand.openState)) return false;
       }
 
       if (filters.confirmedRecently === true) {

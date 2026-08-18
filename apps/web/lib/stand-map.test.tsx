@@ -2046,8 +2046,11 @@ describe("browsing by seller without leaving the map", () => {
       WHAT THE CARD SAYS AT REST, since the 2026-08-18 revision: whether she is open right now.
       Derived from her STANDS, because a seller has no hours of her own — she has places, and
       each place has them.
+
+      This fixture's stands state no hours, so the honest answer is that we do not know —
+      NOT "Closed", which is reserved for out of season or outside stated hours (B-083).
     */
-    expect(card.querySelector(".seller-open-state")).toHaveTextContent("Closed");
+    expect(card.querySelector(".seller-open-state")).toHaveTextContent("Hours unknown");
   });
 
   /*
@@ -2683,7 +2686,7 @@ describe("crossing between stands and sellers", () => {
     expect(container.querySelector(".seller-open-state")).toHaveTextContent("Open");
   });
 
-  it("says Closed when none of her stands is open", async () => {
+  it("says Hours unknown — not Closed — when her stands stated no hours (B-083)", async () => {
     const user = userEvent.setup();
     const { container } = renderMap();
     await openSellers(user);
@@ -2692,8 +2695,15 @@ describe("crossing between stands and sellers", () => {
       node.textContent?.includes("Kelseys"),
     )!;
 
-    // The fixture states no hours at all, so nothing can honestly be called open.
-    expect(card.querySelector(".seller-open-state")).toHaveTextContent("Closed");
+    /*
+      The fixture states no hours at all. That is NOT a closure: Closed is reserved for a stand
+      out of season or outside the hours a farmer stated (max, 2026-08-18). This test previously
+      asserted "Closed" and was itself the bug's record — 9 of 34 live seller cards were
+      claiming a closure no farmer had made.
+    */
+    const badge = card.querySelector(".seller-open-state");
+    expect(badge).toHaveTextContent("Hours unknown");
+    expect(badge).not.toHaveTextContent("Closed");
   });
 
   it("carries the season badge from the stands she sells at", async () => {
