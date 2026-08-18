@@ -111,9 +111,10 @@ unit tests alone, and no width below 500px was reachable.
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
   neither revision has an error-level log. **B-074, F-114/F-115, all of F-101, all of F-117 and
   the two 2026-08-18 UI passes (`b14155f` PR #133, `beeb386` PR #134) are on `main` and
-  undeployed.** max's call on 2026-08-18: leave it undeployed for now — the migration queue is
-  scheduled separately. **F-118 adds no deploy obligation of its own**: it is client-side over
-  payloads both lists already receive, with no migration, no writer and no seam.
+  undeployed.** F-118 adds no deploy obligation of its own — it is client-side over payloads both
+  lists already receive, with no migration, no writer and no seam. **max's call at the 2026-08-18
+  wrap: the queue is the NEXT session's work.** It only grows riskier with each tranche stacked on
+  top, and `0042`/`0051` are hard gates the merged code already depends on.
 
 ## Verification
 
