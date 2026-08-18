@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { CONTACT_CARD_PATH } from "@farm-friend/core/vcard";
 import {
@@ -21,6 +20,11 @@ import {
   type StandFilters,
 } from "../lib/map-view";
 import { standCardSections, type StandCardSection } from "../lib/stand-card";
+import {
+  filterSellers,
+  sellerSellingSummary,
+  type SellerListEntry,
+} from "../lib/seller-list";
 import { IslandArtwork } from "./island-artwork";
 import { mapFollowOffset } from "../lib/map-follow";
 import { useTransientOrigin } from "./use-transient-origin";
@@ -807,7 +811,21 @@ function StandDetailBody({
   );
 }
 
-export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
+export function StandMap({
+  stands,
+  sellers,
+}: {
+  stands: PublicStandPayload[];
+  /*
+    The island's sellers, for the list's second tab (max, 2026-08-18).
+
+    OPTIONAL, and that is load-bearing: this component is embedded in VIGA's Squarespace page
+    and rendered by a route that must keep working if the seller read is ever unavailable. With
+    no sellers there is no tab at all — the map degrades to exactly what it was, rather than
+    offering a tab onto an empty list.
+  */
+  sellers?: readonly SellerListEntry[];
+}) {
   const { state, request, clear } = useTransientOrigin();
   const origin = state.status === "ready" ? state.origin : null;
   const [filters, setFilters] = useState<StandFilters>({});
@@ -817,6 +835,37 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
   // the map to the card, a pin tap moves the card to the reader. Kept beside the selection
   // rather than in a ref so the follow effect re-runs when it changes.
   const [selectedFrom, setSelectedFrom] = useState<"map" | "list">("list");
+  /*
+    WHICH LIST the customer is looking at, and — on the seller tab — whose stands are lit.
+
+    Stands is the default because the map is a map of stands; the seller list is the second
+    view onto the same island, not a peer destination. `sellerTab` exists only when there are
+    sellers to show, so the whole feature is absent rather than empty.
+  */
+  const [listTab, setListTab] = useState<"stands" | "sellers">("stands");
+  const [selectedSellerId, setSelectedSellerId] = useState<string | null>(null);
+  const [sellerQuery, setSellerQuery] = useState("");
+  const sellerTab = sellers !== undefined && sellers.length > 0;
+  // Sellers are only ever shown on their own tab, so a tab that does not exist cannot be open.
+  const showingSellers = sellerTab && listTab === "sellers";
+  /*
+    The stands the chosen seller sells at, as ids.
+
+    A SET rather than a search per pin: the pin layer runs this for every stand on every render,
+    and `sellingAt` is the seller's own list of where she is. Empty whenever no seller is chosen,
+    which is what makes "no highlight" the resting state rather than a special case.
+  */
+  const highlightedStandIds = useMemo(() => {
+    if (!showingSellers || selectedSellerId === null) return new Set<string>();
+    const seller = sellers?.find((entry) => entry.sellerId === selectedSellerId);
+    return new Set(seller?.sellingAt.map((stand) => stand.salesLocationId) ?? []);
+  }, [showingSellers, selectedSellerId, sellers]);
+
+  const shownSellers = useMemo(
+    () => (sellers === undefined ? [] : filterSellers(sellers, sellerQuery)),
+    [sellers, sellerQuery],
+  );
+
   const cardRefs = useRef(new Map<string, HTMLLIElement>());
   const mapRef = useRef<HTMLElement | null>(null);
   const mapColumnRef = useRef<HTMLDivElement | null>(null);
@@ -1049,23 +1098,53 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
       F-043 — the filters. All client-side over data already served: no request, no
       model call, instant on a phone outdoors.
       */}
-      <section className="filters" aria-labelledby="stand-finder-title">
+      {/*
+        The section keeps its accessible name even though the heading that used to carry it is
+        gone: an unnamed region is one a screen reader cannot announce. `aria-label` states it
+        directly rather than pointing at a visible element that no longer exists.
+      */}
+      <section className="filters" aria-label="Find a stand">
         <header className="filter-header">
-          <h2 id="stand-finder-title">Find a stand</h2>
           {/*
-            THE DOOR TO THE SELLER LIST (F-114 C.5).
+            THE VIEW TOGGLE, WHERE THE HEADING WAS (max, 2026-08-18).
 
-            The map is a map of STANDS, and a seller who sells only at other people's stands
-            has no pin on it. This link is how that seller is reachable at all from the
-            island's main view — without it the seller list exists and nobody arrives there.
+            "Find a stand" was a heading with tabs beside it, saying the same thing twice — the
+            heading named the list and the tab named it again. The toggle IS the label now, and
+            its words say what you are looking at rather than what to do.
+
+            The map is a map of STANDS, and a seller who sells only at other people's stands has
+            no pin on it — that is why a seller view has to exist at all. It used to be a whole
+            separate page, so answering "who sells bread?" meant leaving the map and losing
+            every filter on the way back. Two ways of looking at one island, so: one list.
+
+            The stands half shows even with no sellers to switch to, because it is the label. The
+            sellers half is absent then, rather than a tab onto an empty list.
           */}
-          <Link className="seller-list-link" href="/sellers">
-            Browse by seller
-          </Link>
+          <div className="list-tabs" role="tablist" aria-label="Stands or sellers">
+            {(["stands", ...(sellerTab ? (["sellers"] as const) : [])] as const).map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                className="list-tab"
+                aria-selected={listTab === tab}
+                onClick={() => {
+                  setListTab(tab);
+                  // The chosen seller belongs to the seller tab. Leaving it lit while the
+                  // stand list is up would mark pins for somebody nobody is looking at.
+                  setSelectedSellerId(null);
+                }}
+              >
+                {tab === "stands" ? "View stands" : "View sellers"}
+              </button>
+            ))}
+          </div>
           <p className="filter-results" aria-live="polite">
-            {visible.length === view.stands.length
-              ? `${visible.length} ${visible.length === 1 ? "stand" : "stands"} shown`
-              : `${visible.length} of ${view.stands.length} stands shown`}
+            {showingSellers
+              ? `${shownSellers.length} ${shownSellers.length === 1 ? "seller" : "sellers"} shown`
+              : visible.length === view.stands.length
+                ? `${visible.length} ${visible.length === 1 ? "stand" : "stands"} shown`
+                : `${visible.length} of ${view.stands.length} stands shown`}
           </p>
         </header>
 
@@ -1241,9 +1320,19 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
                     `pin-${markerKind}`,
                     `pin-${stand.openState}`,
                     isSelected ? "pin-selected" : "",
+                    // Dimmed rather than hidden while a seller is chosen: the other stands are
+                    // still real places, and removing them would redraw the island under a
+                    // customer who is only asking where one baker sells.
+                    highlightedStandIds.size > 0 && !highlightedStandIds.has(stand.id)
+                      ? "pin-seller-dimmed"
+                      : "",
                   ]
                     .filter(Boolean)
                     .join(" ")}
+                  data-stand-id={stand.id}
+                  {...(highlightedStandIds.has(stand.id)
+                    ? { "data-seller-highlighted": "true" }
+                    : {})}
                   role="button"
                   tabIndex={0}
                   aria-label={`${stand.standNumber}. ${stand.locationName}, ${stand.farmName}`}
@@ -1362,10 +1451,176 @@ export function StandMap({ stands }: { stands: PublicStandPayload[] }) {
           </div>
 
           {/*
+            THE SELLER LIST, in the same column the stand cards use (max, 2026-08-18). Its own
+            search, because the two lists search different corpora: a stand is found by what is
+            out and where it is, a seller by her name and what she carries.
+          */}
+          {showingSellers ? (
+            <div className="seller-browse">
+              <label className="seller-browse-search">
+                <span className="sr-only">Find a seller</span>
+                <input
+                  type="search"
+                  className="field-input"
+                  aria-label="Find a seller"
+                  placeholder="e.g. “bread”, “Fernhorn”, “eggs”…"
+                  value={sellerQuery}
+                  onChange={(event) => setSellerQuery(event.target.value)}
+                />
+              </label>
+
+              {shownSellers.length === 0 ? (
+                /*
+                  A search that matched nothing says so. It must never fall back to the whole
+                  list, which would look like working search and answer every question with
+                  "everyone" — the seller directory's own rule, kept here.
+                */
+                <p className="empty">
+                  No seller matches “{sellerQuery.trim()}”. Try a different word, or switch to
+                  View stands.
+                </p>
+              ) : (
+                /*
+                  THE STAND CARD'S OWN LIST, carrying sellers (max, 2026-08-18).
+
+                  Same `ul.stands`, same `li.stand`, same heading button and expand-on-tap. Two
+                  card vocabularies on one surface would make a customer re-learn the list every
+                  time they switched tabs, and would give every future card change two homes.
+                  What differs is the METADATA, because that is the only thing that actually
+                  differs: a seller has no pin, no hours and no confirmed stock — she has a
+                  place she sells and a list of what she usually brings.
+                */
+                <ul className="stands">
+                  {shownSellers.map((seller) => {
+                    const chosen = seller.sellerId === selectedSellerId;
+                    const summary = sellerSellingSummary(seller);
+                    // Deduplicated across stands, and DATELESS: these are standing claims about
+                    // what she usually carries. What is out right now is the stand card's
+                    // question, and it is the only surface that dates it honestly.
+                    const items = [
+                      ...new Set(
+                        seller.sellingAt.flatMap((stand) =>
+                          stand.usualItems.map((item) => item.itemName),
+                        ),
+                      ),
+                    ];
+                    // Where she sells, as the line under her name — the place the stand card
+                    // puts its farm name. It is the seller's equivalent fact: a stand answers
+                    // "whose is this", a seller answers "where do I find her".
+                    const ownStands = seller.sellingAt.filter((stand) => stand.describesOwnStand);
+                    const guestStands = seller.sellingAt.filter(
+                      (stand) => !stand.describesOwnStand,
+                    );
+                    return (
+                      <li
+                        key={seller.sellerId}
+                        className={
+                          chosen
+                            ? "stand stand-no-pin stand-selected"
+                            : "stand stand-no-pin"
+                        }
+                      >
+                        <div className="stand-content">
+                          <div className="stand-head stand-head-no-pin">
+                            {/*
+                              NO PIN NUMBER, and the head says so structurally. `.stand-head` is
+                              a grid whose first column is the pin number and `.stand` reserves
+                              its own first column for the poster dots — a seller has neither, so
+                              without the modifier her name was laid out in a 1.65rem gutter and
+                              wrapped one word per line.
+                            */}
+                            <div className="stand-heading-copy">
+                              <h2>
+                                <button
+                                  type="button"
+                                  className="stand-summary-toggle"
+                                  aria-expanded={chosen}
+                                  onClick={() =>
+                                    // Pressing the chosen seller again clears the highlight, so
+                                    // the island comes back without hunting for another control.
+                                    setSelectedSellerId(chosen ? null : seller.sellerId)
+                                  }
+                                >
+                                  {seller.sellerName}
+                                </button>
+                              </h2>
+                              {summary === null ? null : <p className="farm">{summary}</p>}
+
+                              {/*
+                                THE SUMMARY LINE, where the stand card puts its own. A stand says
+                                whether it is open and when it was confirmed; a seller has no
+                                hours and no dated stock, so hers says the two things she does
+                                have — whether she runs a stand or is somebody's guest, and how
+                                many places carry her.
+                              */}
+                              <div className="stand-summary-meta">
+                                <span className="seller-kind">
+                                  {ownStands.length > 0 ? "Own stand" : "Guest seller"}
+                                </span>
+                                {seller.sellingAt.length > 1 && (
+                                  <span className="seller-stand-count">
+                                    {seller.sellingAt.length} stands
+                                  </span>
+                                )}
+                              </div>
+
+                              {/*
+                                What she usually brings, ON THE COLLAPSED CARD. The stand card
+                                answers "what is here" without being opened, and a seller card
+                                that answered nothing until tapped was the weaker half of a pair
+                                that is meant to read alike.
+
+                                DATELESS, and that is the honest difference: these are standing
+                                claims about what she carries. What is out right now belongs to
+                                the stand card, the one surface that can date it.
+                              */}
+                              {items.length > 0 && (
+                                <p className="seller-browse-items">
+                                  Usually sells: {items.join(", ")}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                          <div className="stand-details">
+                            {chosen ? (
+                              <div className="seller-detail-body">
+                                {seller.description === undefined ? null : (
+                                  <p className="seller-browse-description">
+                                    {seller.description}
+                                  </p>
+                                )}
+                                {/*
+                                  Opened, the card names the stands themselves rather than the
+                                  sentence — the customer is now deciding where to drive, and the
+                                  guest stands are the ones her goods travel to.
+                                */}
+                                {guestStands.length > 0 && (
+                                  <p className="seller-browse-where">
+                                    Find them at:{" "}
+                                    {guestStands.map((stand) => stand.locationName).join(", ")}
+                                  </p>
+                                )}
+                                {ownStands.length > 0 && (
+                                  <p className="seller-browse-where">
+                                    Their own stand:{" "}
+                                    {ownStands.map((stand) => stand.locationName).join(", ")}
+                                  </p>
+                                )}
+                              </div>
+                            ) : null}
+                          </div>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ul>
+              )}
+            </div>
+          ) : /*
             F-043 — an empty filter result SAYS SO rather than rendering blank, and says which
             control emptied it. A blank column reads as a broken page.
-          */}
-          {visible.length === 0 ? (
+          */
+          visible.length === 0 ? (
             <p className="empty">
               {view.stands.length === 0
                 ? "No stand has a current listing right now. Farmers update these themselves, so check back — and stands may still have produce out."

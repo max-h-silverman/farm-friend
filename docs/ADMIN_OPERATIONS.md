@@ -68,10 +68,12 @@ selling at three stands is still one row. Open a row to see and change its arran
 
 **Pausing and removing a seller from a stand.** Inside a stand (or inside a seller) each
 arrangement has a switch and a **Remove** button. The switch pauses and resumes: a paused seller's
-goods leave the map and the text answers while the arrangement stays in place. **Remove ends it and
-cannot be undone** — it asks first, and bringing that seller back means inviting them again. On a
-stand whose only seller is the farm that owns it, the switch reads **Stand is open / Stand is
-closed**, because that is what pausing does there.
+goods leave the map and the text answers while the arrangement stays in place. **Pausing asks you
+to confirm**, because the whole row is the switch and pausing takes a real seller's goods off the
+island's only guide; resuming does not ask, because it puts them back. **Remove ends it and cannot
+be undone** — it asks too, and bringing that seller back means inviting them again. On a stand
+whose only seller is the farm that owns it, the switch reads **Stand is open / Stand is closed**,
+and the question asks about closing the stand, because that is what pausing does there.
 
 **"Unclaimed" is not a problem to fix.** It means no phone can publish for that farm yet, which is
 normal for a farm VIGA entered from the map. Send a setup link when you have someone to send it to.

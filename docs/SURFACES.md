@@ -35,8 +35,17 @@ stand card, which groups by item with sellers nested. It exists because a **host
 owns no `sales_locations` row and therefore has no pin and no card; this page is their only
 discovery path. Its search matches a seller's own name and goods and deliberately NOT the stands
 they sell at, and it carries no confirmed inventory or freshness at all — what is out right now is
-the stand card's question, stated there with its own per-seller recency. Reached from the map's
-filter header ("Browse by seller"), and covered by the same model-free tripwire.
+the stand card's question, stated there with its own per-seller recency. Covered by the same
+model-free tripwire.
+
+**Since 2026-08-18 the map carries that list itself**, as a **View stands / View sellers** toggle
+in its filter header where a "Browse by seller" link used to sit — so the customer switches what
+the list is about without leaving the map or losing their filters. A chosen seller highlights the
+pins of the stands she sells at, which for a hosted-only seller are somebody else's. Seller cards
+there render in the STAND card's own shape, with the same dateless rule. `/sellers` remains a
+working URL and the same `listPublicSellers` read feeds both; the map page performs it under the
+same `?hidden=true` scope rule as its stands, so the two lists can never disagree about who is
+visible.
 
 `POST /api/public/stock-out` is the one public model-backed handler, behind the throttle.
 

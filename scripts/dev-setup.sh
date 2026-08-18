@@ -127,6 +127,28 @@ echo "==> Generating a throwaway admin verifier"
 ADMIN_PASSWORD_HASH="$(npx tsx scripts/dev-admin-hash.ts "${DEV_PASSWORD}")"
 export ADMIN_PASSWORD_HASH
 
+# THE GEOCODING KEY IS READ FROM SECRET MANAGER, NEVER WRITTEN TO ${ENV_FILE}.
+#
+# It is the one real, billed credential local dev touches, and unlike everything else in that
+# file it is not a throwaway. Writing it to disk puts a live key in a file that only .gitignore
+# keeps out of the repository; fetching it per run keeps GCP the single place it lives.
+#
+# Optional by design: without it the form degrades exactly as a deployment with no key does —
+# the lookup returns `not_configured` and tells the farmer to contact VIGA. That is a supported
+# state, so a developer with no gcloud login still gets a working console.
+if command -v gcloud >/dev/null 2>&1; then
+  echo "==> Fetching the geocoding key from Secret Manager"
+  # `|| true` so a missing login, a revoked grant, or no network leaves the key empty rather
+  # than aborting a setup whose other twelve steps have nothing to do with geocoding.
+  GEOCODING_API_KEY="$(gcloud secrets versions access latest \
+    --secret=farm-friend-geocoding-api-key \
+    --project farm-friend-vashon 2>/dev/null || true)"
+  export GEOCODING_API_KEY
+  if [ -z "${GEOCODING_API_KEY}" ]; then
+    echo "    No key available — address lookup will report itself unavailable."
+  fi
+fi
+
 cat <<EOF
 
 Local admin console is ready.
@@ -141,9 +163,15 @@ Next expands \$NAME inside .env values and would silently truncate it.
 Start the server with:
 
   ADMIN_PASSWORD_HASH="\$(npx tsx scripts/dev-admin-hash.ts ${DEV_PASSWORD})" \\
+  GEOCODING_API_KEY="\$(gcloud secrets versions access latest \\
+    --secret=farm-friend-geocoding-api-key --project farm-friend-vashon)" \\
     npm run dev --workspace @farm-friend/web
 
 or re-run this script with --run.
+
+The geocoding key is NOT in ${ENV_FILE} — it is a live billed credential and GCP
+Secret Manager is the only place it lives. Omit it and address lookup reports
+itself unavailable, which is a supported state.
 
 There are no farms yet: the real seeder needs VIGA's CSV exports (RUNBOOK §Seeding).
 Add a farm from the console itself, or insert fixtures by hand.

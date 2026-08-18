@@ -11,7 +11,101 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-17 (latest) — F-101's seller half, all of F-117, and a 500 that only running the app could find
+## 2026-08-18 (latest) — a UI pass over the admin cards and the public map, and a feature that had never once rendered
+
+Branch `admin-card-design`. Unit **2,285 across 165 files** with the 7 corpus skips; typecheck,
+lint and scripted evals clean (critical 11/11, advisory 4/4, adversarial 19/19). Integration was
+not re-run — nothing this session touched a writer or a query. No live eval owed: `packages/ai`
+and `evals/` are untouched, checked rather than assumed.
+
+A design session, driven turn by turn by max looking at the running app. Worth recording because
+three of the defects were **invisible to a green suite**, each in a different way.
+
+### F-117's question had never once rendered
+
+max noticed the onboarding form showed nothing about hosted selling. Every part of F-117 had
+shipped and was tested — the picker, the API's `hostStandId`, the writer's provider row, and
+`listHostStandChoices` — but **the onboarding page never called the query and never passed
+`hostStandChoices`.** The prop defaults to `[]`, the component asks only when the list is
+non-empty, so no seller could ever answer. Nothing failed anywhere.
+
+The component suite supplied the prop itself. **That is precisely why 2,250 green tests proved
+nothing about it**: a behavioural test cannot assert the absence of a *call*. The guard is
+therefore a source tripwire, `apps/web/lib/onboarding-host-wiring.test.ts`, which strips imports
+and comments first (a bare name search is satisfied by the import line) and **proves the search
+can match before trusting an empty result**.
+
+Only the invitation door asks the question: `grandfathered` and `stand_link` post to endpoints
+that do not parse `hostStandId`, so asking there would discard the answer silently.
+
+### The CSS lesson, learned twice in one session
+
+max reported the filter bar had no more breathing room after I had reported it done. I had edited
+the base `.filters` rule and verified it was *served* — but **two later media-query blocks
+override it**, and one of them is what a desktop reader actually gets. My verification was real
+and useless: I confirmed the declaration shipped without checking what won the cascade.
+
+The same class of bug then produced the broken seller cards: `.stand` reserves grid column 1 for
+the poster dots and `.stand-head` reserves its own for the pin number, so a seller card reusing
+that markup laid her name out in a 1.65rem gutter, wrapping one word per line. Reusing a card's
+markup is not reusing its layout.
+
+**The standing form:** when what renders contradicts source that reads correctly, grep *every*
+rule that touches the property and compare by position in the served file — not the one rule you
+edited. Both fixes were verified that way, by byte offset in the compiled stylesheet.
+
+### What changed
+
+- **The admin stand card reads as a profile.** A lead block carries what is on the shelf and when
+  it was confirmed — never a bare timestamp, because an undated inventory is a claim about the
+  present an unattended stand cannot make. The rest are titled fact groups, two across. Dropped
+  `emphasis: "primary"`, which said the same thing `prominent` did from the other end, and deleted
+  ~250 lines of dead CSS: four stacked overrides of `.admin-stand-detail-*` with no consumer.
+- **"Other details" is gone.** A drawer named for what it is not collects whatever nobody filed —
+  Farm Bucks, which this card carries a verb for, was sitting in it. Now `VIGA's record`.
+  "Other sellers here" dropped entirely: the card's own "Who sells here" group answers it, *with*
+  the controls, so a read-only copy would disagree the moment someone paused.
+- **An open Actions menu now outranks the cards below it.** Each card's actions cell was its own
+  stacking context, so the menu's `z-index` competed only *inside* that cell; against sibling cards
+  the contest was between cells, all tied at 1, and ties go to DOM order. Fixed by marking the open
+  menu and raising both rungs. The Actions trigger also renders only on an OPEN card now.
+- **The stand editor can be left without saving.** Save had no class at all (a browser-default
+  button); it is now the console's primary, with Cancel beside it. Extended to the other two
+  panels, which had the same dead end — Farm Bucks gets **Done**, not Cancel, because its select
+  writes on change and offering to cancel would promise to undo a write that already happened.
+- **VIGA's pause asks before it acts.** The whole row is the toggle, which makes it easily
+  mistapped, and pausing takes a real seller's goods off the island's only guide. **Resume is not
+  gated** — it puts something back, and a confirmation on a harmless act is chrome an operator
+  learns to click past, which is how the one that matters stops being read. Where the toggle reads
+  as the stand being open/closed, the question says "close this stand" rather than naming a
+  different act from the one pressed.
+- **F-117's form asks one question, four answers** (max): just my own stand · only at someone
+  else's · both · a farm with no stand people can visit. The two columns underneath stay two
+  columns; they were also two *questions*, and a farmer does not hold them separately. 72 existing
+  tests answered the old question and were retargeted to the new labels.
+- **The map's "Browse by seller" link became a View stands / View sellers toggle** on the list
+  itself, so answering "who sells bread?" no longer leaves the map and loses the filters. A chosen
+  seller **highlights the stands she sells at** — for a hosted-only seller those are somebody
+  else's pins, the case pins could never express. Seller cards render in the stand card's own
+  shape, carrying the same kinds of fact in the same slots but dateless: what is out *right now*
+  belongs to the stand card, the one surface that can date it honestly.
+- **`GEOCODING_API_KEY` lives only in Secret Manager.** The local `.env.local` key was IP-restricted
+  and this machine was not on its allowlist, so Google answered `REQUEST_DENIED` — which
+  `address-lookup.ts` correctly maps to `not_configured`. Measured both keys against the real API
+  rather than inferred: production's works. `dev-setup.sh` now fetches it per run and never writes
+  it to disk, the same way it already handled `ADMIN_PASSWORD_HASH`.
+
+### Owed
+
+**Nothing in this session has been seen rendered.** The browser extension was unavailable
+throughout, so every visual change was verified as served markup and compiled CSS — including the
+two that were *wrong* until max looked. The admin console and the map's new toggle and seller
+cards are owed a look at any width. Contrast was measured, not eyeballed: the toggle is 4.82:1
+both ways, clearing AA.
+
+---
+
+## 2026-08-17 — F-101's seller half, all of F-117, and a 500 that only running the app could find
 
 Twelve commits on `f-101-seller-half` (`b40827a`…`b6985d9`). Unit **2,210** with the 7 corpus
 skips; integration **1,435 passing across 106 of 107 files**; typecheck and lint clean. The six

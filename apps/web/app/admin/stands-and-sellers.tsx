@@ -1,7 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { SellerControls } from "./seller-controls";
+import { ActionMenu, type ActionMenuItem } from "./action-menu";
+import { ClockIcon, PeopleIcon } from "./icons";
+import { useSellerControls } from "./seller-controls";
 import { StandDetails, type AdminStandCard } from "./stand-list";
 import { SellerParticipation, type ParticipationRow } from "./seller-participation";
 
@@ -85,18 +87,40 @@ function sellerAttention(seller: SellerCard): string | null {
 }
 
 /**
- * Nobody can publish for this farm yet (max, 2026-08-17).
+ * What is TRUE of this stand right now, as chips.
  *
- * A STATE of the record, deliberately not an alert. Most farms begin life this way — VIGA
- * enters them from the map long before a farmer takes one over — so flagging it made the
- * attention line permanent furniture, and an operator who learns to skip that line skips the
- * real alert sitting next to it.
+ * **Read from the stand's own card, never re-derived here.** `openState` is `stand-cards.ts`'s
+ * projection of closure — code owns that answer (Golden Rule #3), and a second reading of the
+ * hours in the browser would be a second answer for the map and the console to disagree about.
+ * So the chip either shows the sentence that projection produced, or shows nothing.
  *
- * It still shows, as a neutral chip, because "has this one been claimed?" is a question the
- * operator genuinely asks. What changed is that it no longer shouts.
+ * A retired stand's visibility and open state describe a listing nobody is being shown, so
+ * "Off the map" replaces them rather than joining them.
  */
-function unclaimed(seller: SellerCard): boolean {
-  return !seller.retired && seller.access.every((row) => row.revokedAt !== null);
+function standStates(stand: StandCard): CardState[] {
+  if (stand.retired) return [{ key: "retired", label: "Off the map" }];
+
+  const openState = stand.details?.openState;
+  return [
+    {
+      key: "visible",
+      label: stand.approved ? "Visible to customers" : "Not yet on the map",
+      tone: stand.approved ? "ok" : "neutral",
+      icon: <PeopleIcon />,
+    },
+    ...(openState === undefined
+      ? []
+      : [
+          {
+            key: "open",
+            label: openState,
+            // Green for open, plain for every other honest answer — "Not open today" and
+            // "Open status not stated" are facts, not faults, so neither turns amber.
+            tone: openState === "Open now" ? ("ok" as const) : ("neutral" as const),
+            icon: <ClockIcon />,
+          },
+        ]),
+  ];
 }
 
 /**
@@ -150,14 +174,23 @@ function AccessRoster({
   }
 
   return (
-    <section className="admin-access-roster">
-      <h4>Who can update this listing</h4>
+    <div className="admin-access-roster">
       {live.length === 0 ? (
-        <p className="admin-note">Unclaimed — no handset can publish for this farm yet.</p>
+        <p className="admin-empty">
+          <span className="admin-empty-icon" aria-hidden="true">
+            <PeopleIcon />
+          </span>
+          <span>Unclaimed — no handset can publish for this farm yet.</span>
+        </p>
       ) : (
         live.map((row) => (
           <p key={row.authorizationId} className="admin-access-row">
-            <span>{row.senderMask}</span>
+            <span className="admin-access-mask">
+              <span className="admin-access-icon" aria-hidden="true">
+                <PeopleIcon />
+              </span>
+              <span>{row.senderMask}</span>
+            </span>
             <button
               type="button"
               className="admin-action-danger"
@@ -175,16 +208,64 @@ function AccessRoster({
           {note}
         </p>
       )}
-    </section>
+    </div>
   );
 }
 
+/**
+ * A chip: one neutral fact about a record, in a tone that names its kind.
+ *
+ * One mechanism with tones rather than a family of near-duplicates, and **every tone keeps its
+ * text** — an operator never has to have learned that green means visible. The icon is
+ * decorative for the same reason.
+ */
+function Chip({
+  tone = "neutral",
+  icon,
+  children,
+}: {
+  tone?: "neutral" | "ok" | "attention";
+  icon?: React.ReactNode;
+  children: React.ReactNode;
+}) {
+  return (
+    <span className={`admin-chip admin-chip--${tone}`}>
+      {icon !== undefined && (
+        <span className="admin-chip-icon" aria-hidden="true">
+          {icon}
+        </span>
+      )}
+      <span>{children}</span>
+    </span>
+  );
+}
+
+export interface CardState {
+  key: string;
+  label: string;
+  tone?: "neutral" | "ok" | "attention";
+  icon?: React.ReactNode;
+}
+
+/**
+ * The card: a header bar you can read at a glance, and a body you open to work in.
+ *
+ * **The header is identity, state, and one way in** (max, 2026-08-17). Name and subtitle on
+ * the left, chips for what is true of the record, and a single Actions menu on the right.
+ * Everything an operator can *do* about the record hangs off that menu, which is what replaced
+ * the wrapping row of five to seven buttons the open card used to carry — where "Approve" and
+ * "Take off the map" competed for attention with the farm's own name.
+ *
+ * The header is tinted and the body is the card face, so an open card reads as one object with
+ * a titled lid rather than as two stacked panels.
+ */
 function Card({
   id,
   title,
   subtitle,
   attention,
   states,
+  actions,
   open,
   onToggle,
   children,
@@ -194,20 +275,24 @@ function Card({
   subtitle: string;
   attention: string | null;
   /** Neutral facts about the record. Never work waiting — that is `attention`. */
-  states: string[];
+  states: CardState[];
+  /** Everything an operator can do about this record. Omitted entirely when there is nothing. */
+  actions?: Array<ActionMenuItem | null>;
   open: boolean;
   onToggle: () => void;
   children: React.ReactNode;
 }) {
   return (
+    /*
+      The GROUP is the whole card, header included (max, 2026-08-17). The header carries the
+      states and the one way in, so a card whose group began at the body would name a region
+      that excludes half of what the card is — and a screen reader moving by region would land
+      past the Actions menu it was looking for.
+    */
     <li className="admin-farm-card">
-      <details open={open}>
-        {/*
-          The farm directory's own scan row, minus its glyph (max, 2026-08-17): caret,
-          identity, meta, states. Reused rather than restyled — a second row vocabulary would
-          mean two visual languages for one console, and the fixed leading columns are what
-          keep every name on the same x down a long list.
-        */}
+      {/* `role` on the <li> itself would cost it its `listitem` role, and the list is what
+          says "one row per entity". The group is a wrapper inside it instead. */}
+      <details open={open} role="group" aria-label={title}>
         <summary
           className="admin-row"
           onClick={(event) => {
@@ -215,30 +300,119 @@ function Card({
             onToggle();
           }}
         >
-          <span className="admin-row-caret" aria-hidden="true" />
+          <span className="admin-row-caret-box" aria-hidden="true">
+            <span className="admin-row-caret" />
+          </span>
           <span className="admin-row-identity">
             <strong>{title}</strong>
             <span className="admin-row-sub">{subtitle}</span>
           </span>
-          <span className="admin-row-meta" />
           <span className="admin-row-states">
             {states.map((state) => (
-              <span key={state} className="admin-pill">
-                {state}
-              </span>
+              <Chip key={state.key} tone={state.tone} icon={state.icon}>
+                {state.label}
+              </Chip>
             ))}
-            {attention !== null && (
-              <span className="admin-pill admin-pill--attention">{attention}</span>
-            )}
+            {attention !== null && <Chip tone="attention">{attention}</Chip>}
           </span>
+          {actions !== undefined && open && (
+            /*
+              Only on an OPEN card (max, 2026-08-17). A closed row is a thing to read — a name,
+              a subtitle, its states — and a menu on each of thirty of them put a control beside
+              every name that could not act on anything the operator was looking at. Opening the
+              card is how an operator says "this one", so the verbs arrive with the body.
+
+              Still inside the summary, so the one way in sits with the identity it belongs to,
+              and the press is stopped here: without that, opening the menu would also toggle
+              the card and collapse the body the operator is about to act on.
+            */
+            <span
+              className="admin-row-actions"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <ActionMenu label="Actions" items={actions} />
+            </span>
+          )}
         </summary>
         {open && (
-          <div className="admin-entity-detail" id={`entity-${id}`} role="group" aria-label={title}>
+          <div className="admin-entity-detail" id={`entity-${id}`}>
             {children}
           </div>
         )}
       </details>
     </li>
+  );
+}
+
+/** A titled group inside an open card. Space and a heading group it; a box holds its rows. */
+function Group({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="admin-group" role="group" aria-label={title}>
+      <h3 className="admin-group-title">{title}</h3>
+      <div className="admin-group-body">{children}</div>
+    </section>
+  );
+}
+
+/**
+ * One seller card, header menu and all.
+ *
+ * Its own component because `useSellerControls` is a hook and cannot be called inside the
+ * list's `map`. That hook owns the seller's verbs AND everything they open — the editor, the
+ * confirmation, the minted link, the outcome note — so the card hands the verbs to its header
+ * and renders the rest above the groups they act on.
+ */
+function SellerEntityCard({
+  seller,
+  open,
+  onToggle,
+  fetcher,
+}: {
+  seller: SellerCard;
+  open: boolean;
+  onToggle: () => void;
+  fetcher: typeof fetch;
+}) {
+  const canUpdate = seller.access.some((entry) => entry.revokedAt === null);
+  const { row, menuItems, panel } = useSellerControls({ seller, canUpdate, fetcher });
+
+  /*
+    What is TRUE of this seller, in the order it matters: whether customers can see her at all,
+    then whether anyone can publish for her. A retired farm's other states describe a listing
+    nobody is being shown, so "Off the map" replaces them rather than joining them.
+  */
+  const states: CardState[] = row.retired
+    ? [{ key: "retired", label: "Off the map" }]
+    : [
+        ...(row.isTestFarm ? [{ key: "test", label: "Test farm" }] : []),
+        ...(canUpdate
+          ? []
+          : [{ key: "unclaimed", label: "Unclaimed" }]),
+      ];
+
+  return (
+    <Card
+      id={seller.farmId}
+      title={row.name}
+      subtitle={
+        seller.providers.length === 1
+          ? (seller.providers[0] as ParticipationRow).standName
+          : `${seller.providers.length} stands`
+      }
+      attention={sellerAttention({ ...seller, approved: row.approved, retired: row.retired })}
+      states={states}
+      actions={menuItems}
+      open={open}
+      onToggle={onToggle}
+    >
+      {panel}
+      <Group title="Stands">
+        <SellerParticipation view="seller" rows={seller.providers} fetcher={fetcher} />
+      </Group>
+      <Group title="Who can update">
+        <AccessRoster seller={seller} fetcher={fetcher} />
+      </Group>
+    </Card>
   );
 }
 
@@ -354,40 +528,30 @@ export function StandsAndSellers({
               title={stand.name}
               subtitle={stand.farmName}
               attention={standAttention(stand)}
-              states={[]}
+              states={standStates(stand)}
               open={open === stand.standId}
               onToggle={() => setOpen(open === stand.standId ? null : stand.standId)}
             >
-              {stand.details !== undefined && <StandDetails stands={[stand.details]} />}
-              <SellerParticipation view="stand" rows={stand.providers} fetcher={fetcher} />
+              <Group title="Who sells here">
+                <SellerParticipation view="stand" rows={stand.providers} fetcher={fetcher} />
+              </Group>
+              {/* The card head already named this stand, so the block does not name it again. */}
+              {stand.details !== undefined && (
+                <StandDetails stands={[stand.details]} headed={false} />
+              )}
             </Card>
           ))}
         </ul>
       ) : (
         <ul className="admin-farms">
           {visibleSellers.map((seller) => (
-            <Card
+            <SellerEntityCard
               key={seller.farmId}
-              id={seller.farmId}
-              title={seller.name}
-              subtitle={
-                seller.providers.length === 1
-                  ? (seller.providers[0] as ParticipationRow).standName
-                  : `${seller.providers.length} stands`
-              }
-              attention={sellerAttention(seller)}
-              states={unclaimed(seller) ? ["Unclaimed"] : []}
+              seller={seller}
               open={open === seller.farmId}
               onToggle={() => setOpen(open === seller.farmId ? null : seller.farmId)}
-            >
-              <SellerControls
-                seller={seller}
-                canUpdate={seller.access.some((row) => row.revokedAt === null)}
-                fetcher={fetcher}
-              />
-              <SellerParticipation view="seller" rows={seller.providers} fetcher={fetcher} />
-              <AccessRoster seller={seller} fetcher={fetcher} />
-            </Card>
+              fetcher={fetcher}
+            />
           ))}
         </ul>
       )}

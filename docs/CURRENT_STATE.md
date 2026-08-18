@@ -21,64 +21,51 @@
   client bundle and **500s every farmer web screen in `next dev`**. jsdom resolves the barrel fine,
   so no suite catches it — only launching the app does.
 
-## The multi-seller model (F-114 + F-115) — on `main`, NOT deployed
+## Unreleased on `main` — three merged tranches, none deployed
 
-Both are merged. The governing contract is §the stand-and-sellers correction in
-`docs/plans/farmer-behavior-architecture-plan.md`; the reasoning, per-phase sabotage enumerations
-and defects found on the way are in [SESSION_LOG.md](SESSION_LOG.md), not here.
+**F-114 + F-115 — the multi-seller model.** `sellers` is the identity root;
+`sales_locations.own_seller_id` is the **self-pointer** naming the one nested seller that IS the
+stand, NULL for a venue. `stand_providers` holds one row per seller-at-stand, and **every
+suppression and labelling rule follows that pointer, never a name match** (`creditSeller` states it
+once). `setProviderParticipation` is the sole writer for pause/resume/end. Two liveness predicates,
+never one: `publicProviders` (active) and `reachableProviders` (active or paused) — **pausing hides
+a seller's public facts and keeps her reachable**. Every public and SMS surface dates goods PER
+SELLER. A seller's open-now state is the INTERSECTION with the stand's.
 
-**The model.** `sellers` is the identity root; `sales_locations.own_seller_id` is the
-**self-pointer** naming the one nested seller that IS the stand, NULL for a venue like Morgan
-Hill; `stand_providers` holds one row per seller-at-stand. **Every suppression and labelling rule
-follows that pointer, never a name match** — `creditSeller` states it once and all five label
-sites compose it. An authorization names a seller OR a stand; "stand owner" stays derived.
-`setProviderParticipation` is the writer for pause/resume/end; `provider-invalidation.ts` is the
-consequence it triggers for all three.
+**F-101 — the admin console.** Three destinations: **Stands & Sellers · SMS Users · Alerts**; the
+"Farms" tab is gone, not renamed, and `/admin` redirects to `/admin/stands`. **The lists are
+entities, not states** — one row per stand or seller, a participation always a detail inside a row.
+`POST /api/admin/participation` is the thin caller for the seam. **Remove is `end`, terminal, no
+restore.** The adapting label reads as the stand being open/closed only where one arrangement is
+its own seller's, computed from the whole set so it can never say "closed" while a guest sells.
 
-**What a farmer can do.** Two sellers at one stand publish, are targeted by SMS, hold their own
-standing link and carry their own reminder cadence — independently. Hosting is invitation →
-acceptance with no VIGA step; both doors take a name, never a seller id. A paused listing is
-offered re-opening rather than refused, and an ENDED one may be invited back (`0051`). Two seams
-answer "may this phone write this": `resolveProviderWriteAuthority` (whose STOCK) and
-`resolveStandWriteAuthority` (facts about the PLACE).
-
-**Two liveness rules, not one** — `provider-liveness.ts`: `publicProviders` (active only) and
-`reachableProviders` (active or paused). **Pausing HIDES a seller's current public facts and keeps
-her reachable** (max, 2026-08-17). All ten sites that hand-wrote one predicate now compose one of
-the two, so a new site must choose.
-
-**What a customer sees.** Every public and SMS surface dates each seller's goods PER SELLER. The
-map reads `readStandProviderFacts`; SMS retrieval runs its own two queries, measured against that
-seam by `per-seller-freshness-differential.integration.test.ts` rather than assumed to agree —
-they agree on who is public, on every seller's date and on item attribution, with ONE deliberate
-difference: a seller who confirmed an EMPTY stand is a dated fact on the card and absent from SMS.
-The stand card is item-first, sellers nested with their own price and freshness. `/sellers` is the
-only discovery path for a hosted-only seller, who has no pin. A seller's open-now state is the
-INTERSECTION with the stand's. A stand shutdown publishes nothing itemized. Stock-out reports
-route by CONTRADICTION, not recency. A **venue** (NULL self-pointer) appears on all three surfaces
-— an INNER join dropped it from every one until F-115.
-
-**Live consequences shipped deliberately:** the 18 stands publishing no confirmed inventory stop
-receiving stock-out alerts entirely (max, 2026-08-16); a closed stand's card loses its item list;
-a paused listing leaves the map, `/sellers`, the stand card and both SMS retrieval queries
-(max, 2026-08-17).
+**F-117 — self-selected hosted sellers.** A farmer onboarding on her own says where she sells:
+**one question, four answers** — just my own stand · only at someone else's · both · a farm with no
+stand people can visit. Two columns underneath (`visitability` describes *her* place; the
+arrangement names *someone else's*), derived from the one answer. `approval_source = 'seller'`
+(`0052`) is the honest third value. She is **live on submit**, non-fatally; the host is asked and
+may deny (`pending_host_confirmations`, `0053`), answerable only while the question is the last
+message in the thread. A host we cannot text still lists her.
 
 **One recorded exception to "no produce taxonomy in a behavioral branch":** `map-view.ts`'s
 `FLOWER_VOCABULARY` picks a pin glyph and answers the "Flowers only" filter. Kept because it is
-DISPLAY — it gates no publication, authority, ranking or answer text — and the honest data home
-(`sales_locations.offering_type`) is a farmer-set onboarding field. `map-view.test.ts` measures
-the known failure (a flower farm adding honey loses its glyph) and guards against growth. **A term
-for anything that is not a flower means it should become data.**
+DISPLAY only; `map-view.test.ts` measures the known failure and guards against growth. **A term for
+anything that is not a flower means it should become data.**
 
 **`paused` means two unrelated things and stays that way for now.**
-`stand_providers.lifecycle_state = 'paused'` is a suspended selling relationship (goods leave the
-public); `inventory_prompt_preferences.cadence = 'paused'` is reminders off (nothing changes for a
-customer). Renaming the cadence value to `off` is one migration with no behaviour change, deferred
-only because `0042`–`0051` are unapplied. Revisit once that queue lands.
+`stand_providers.lifecycle_state = 'paused'` is a suspended selling relationship;
+`inventory_prompt_preferences.cadence = 'paused'` is reminders off. Renaming the cadence value to
+`off` is one migration with no behaviour change, deferred until `0042`–`0053` land.
 
 **Deliberately unchanged:** VIGA's `issue_link` stays stand-shaped and REFUSES on ambiguity;
 `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table and `GENERIC_WORDS` keep their names.
-(The operator-facing "Farms" tab is **gone** as of F-101 — see the admin console section.)
+
+**A 2026-08-18 UI pass sits on top of all three** (branch `admin-card-design`). The admin stand
+card reads as a profile — a lead block for what is on the shelf and when it was confirmed, then
+titled fact groups. The public map's list gained a **View stands / View sellers** toggle replacing
+the link to `/sellers`; a chosen seller highlights the stands she sells at, and seller cards render
+in the stand card's own shape. **`GEOCODING_API_KEY` now lives only in Secret Manager** —
+`dev-setup.sh` fetches it per run and never writes it to `.env.local`.
 
 ## Deployment and migrations
 
@@ -104,8 +91,9 @@ only because `0042`–`0051` are unapplied. Revisit once that queue lands.
 
 ## Verification
 
-- **2,210 unit tests pass; 7 corpus-only tests skip.** Integration is **1,435/1,441 across 106 of
-  107 files** against disposable local Postgres databases (2026-08-17).
+- **2,285 unit tests pass across 165 files; 7 corpus-only tests skip** (2026-08-18). Integration is
+  **1,435/1,441 across 106 of 107 files** against disposable local Postgres databases (2026-08-17,
+  not re-run this session — nothing touched a writer or a query).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it, six `apps/web/lib/farmer-stand.integration.test.ts` cases fail `PUBLIC_BASE_URL is required`.
   **Verified pre-existing**: checking out `main` reproduces the identical six. An environment fact
@@ -115,14 +103,13 @@ only because `0042`–`0051` are unapplied. Revisit once that queue lands.
 - Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
   broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5. Last
   run 2026-08-14. **No live run is owed** — checked rather than assumed each time: nothing in
-  F-114, F-115, F-101 or F-117 changed a seam projection or output contract, and `git diff main`
-  shows `packages/ai` and `evals/` untouched.
-- **F-114 and F-115 are sabotage-proved throughout** — every fix has a breakage that the case aimed
-  at it caught, and every migration is proved against a **populated** copy of the schema that
-  precedes it. The standing lessons: **assert the absence of the wrong behavior; when a breakage
-  changes no test result, ask which other guard answered first; and confirm the sabotage actually
-  applied before concluding a guard is redundant.** Per-phase enumerations in
-  [SESSION_LOG.md](SESSION_LOG.md); standing forms in DEVELOPMENT.md §gotchas.
+  F-114, F-115, F-101, F-117 or the 2026-08-18 UI pass changed a seam projection or output
+  contract, and `git diff main` shows `packages/ai` and `evals/` untouched.
+- **Every tranche here is sabotage-proved** — each guard has a breakage aimed at it that the suite
+  caught. The standing lessons: **assert the absence of the wrong behavior; when a breakage changes
+  no test result, ask which other guard answered first; and confirm the sabotage actually applied
+  before concluding a guard is redundant.** Enumerations in [SESSION_LOG.md](SESSION_LOG.md);
+  standing forms in DEVELOPMENT.md §gotchas.
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only.
   Seventeen `*_not_blank` CHECKs share it. The suite asserts that measured truth in two cases
   rather than the constraint's name; **B-076** files the sweep, and the admitting case is marked
@@ -130,71 +117,6 @@ only because `0042`–`0051` are unapplied. Revisit once that queue lands.
 - **One integration file failed intermittently under full-suite parallel load** (B-078). **Not seen
   again** across several clean full runs since. Capture the full run to a file the next time it
   does; the file name was lost to a summary grep last time.
-
-## The admin console and the seller half (F-101) — on `main`, NOT deployed
-
-**Three destinations: Stands & Sellers · SMS Users · Alerts.** The "Farms" tab is **gone, not
-renamed** (max, 2026-08-17): VIGA's job is *view and edit stands and sellers, invite new stands or
-sellers*, so approval, retirement, test-farm marking and setup links are things done inside a
-seller's card rather than screens of their own. `/admin/sellers` no longer exists; `/admin`
-redirects to `/admin/stands`.
-
-**Stands & Sellers is one destination holding two views**, and **the lists are entities, not
-states** — one row per stand, one per seller, with a participation always a detail inside a row.
-The singular case renders as a plain fact, never a one-item list, on both views.
-
-**`setProviderParticipation` finally has a caller**: `POST /api/admin/participation`, thin by
-design — it resolves the administrator from the session and hands the transition to the seam,
-which keeps the lock ordering, the authority arms and the invalidation. The toggle is
-pause/resume; **Remove is `end`, terminal, behind a confirmation, with no restore** — returning is
-a fresh invitation.
-
-**The adapting label**: on a stand whose only arrangement is its own seller's, the toggle reads as
-the stand being open or closed, because there that is its true effect. **No stand-level closed
-state exists**, and the framing is computed from the whole set so it can never say "closed" while
-a guest is still selling there.
-
-**"Unclaimed" is a state chip, never an alert** (max, 2026-08-17) — most farms begin with nobody
-able to publish for them, so alerting on it made the attention line permanent furniture.
-
-**The seller half is done** (2026-08-17). `mayPause` rides each listing from the seam's own arm —
-`PROVIDER_SELLER_ARM`, named once and shared — so the screen offers no control the seam would
-refuse: a **host sees Remove alone**, with and without `host_may_update_stock`. Her controls live on
-the settings screen she already had; `LINK`/`SETTINGS` already texted her a permanent link to it, so
-that criterion was met before this item claimed it as owed. `saveStandMetadata` gives VIGA a
-narrower editor than the farmer's — name, address, address visibility, pin, hours text — and touches
-nothing the farmer publishes (Golden Rule #1). All six F-100 copy findings landed.
-
-**Not seen rendered:** VIGA's stand editor. The Stands view switches client-side, so a served-markup
-check cannot reach it; the browser extension was unavailable again. 8 component tests, 5 seam tests.
-
-## Self-selected hosted sellers (F-117) — on `main`, NOT deployed
-
-A farmer onboarding **on her own** can now say she sells at someone else's stand. It is **its own
-question, never a third `visitability` value**: that column says whether *this* stand can be
-visited, and selling elsewhere is a fact about an *arrangement*.
-
-**`approval_source = 'seller'`** (`0052`) is the honest third value. `viga` would make a
-self-selected seller indistinguishable from one VIGA approved — in a flow whose whole premise is
-that VIGA never sees her — and `host` names a vouching authorization that does not exist until the
-host answers, which is *after* she is live.
-
-**She is live on submit**, written in the same transaction as her own stand. It needs no
-authorization (`stand_providers` names a seller, and the invitation already names her farm), which
-is why it does **not** wait on `START` the way `pendingStock` and `pendingPromptCadence` do. The
-write is deliberately **non-fatal**: a stand retired between form-load and Submit costs her the
-arrangement, never her whole onboarding form.
-
-**The host is asked and may deny** (`pending_host_confirmations`, `0053`), answerable **only while
-the question is the last message in the thread** — anything the host texted us, or anything we sent
-them, closes it. Golden Rule #2 met by conversation state rather than a clock. A `NO` ends it
-through `setProviderParticipation`, which a host may already do. **Routing tries the host question
-before the inventory proposal**, safe because the host question can only be open when nothing has
-passed in that thread.
-
-**A stand whose owner Farm Friend cannot text still lists her**, with no question opened: we cannot
-text first, so refusing a real arrangement over a message we could never have sent would leave the
-map wrong instead. The host keeps Remove on their own settings screen.
 
 ## Standing facts a cold start needs
 
@@ -219,11 +141,11 @@ map wrong instead. The host keeps Remove on their own settings screen.
 
 - **`0042` through `0051`, in order, must be applied to production before the code that requires
   them.** All ten are Max's call.
-- **Pause/end is reachable by VIGA, not yet by a farmer.** F-101 shipped the admin half — the
-  toggle and Remove on both Stands & Sellers views, through `POST /api/admin/participation`. The
-  **seller's own settings screen does not exist yet** (`/farmer` holds onboarding and start only),
-  so a farmer still cannot pause or end her own listing. That half, its entry link and the
-  `LINK`/`SETTINGS` keywords remain in F-101.
+- **Pause/end is reachable by both VIGA and the farmer.** The admin half is the toggle and Remove
+  on Stands & Sellers; the seller half is on the settings screen `LINK`/`SETTINGS` already texts
+  her, with `mayPause` riding each listing from the seam's own arm so no control is offered that
+  the seam would refuse. **VIGA's pause now asks first** (2026-08-18); resume is not gated, because
+  it puts something back.
 - **VIGA's stock-out queue is the only destination for reports at the 18 stands publishing no
   confirmed inventory** — decided and accepted (max, 2026-08-16), not an open question. Those stands
   are texted today and will not be once C.3 deploys; it resolves as they start confirming inventory.
@@ -233,10 +155,12 @@ map wrong instead. The host keeps Remove on their own settings screen.
   Every texted link now carries `farmfriend.vigavashon.org` and none has been read on a handset.
 - **Everything F-114 added owes a handset pass**, all verified in integration and by encoding
   (GSM-7 throughout) but never read on a real phone:
-  - **Customer surfaces (C.5):** the item-first stand card, the seller list at `/sellers` with its
-    search box, and the map's new "Browse by seller" link. Both new pages were read in a browser
-    and MEASURED — no horizontal overflow at 360px/390px, credited lines wrap, and no C.5 rule
-    sits in a `prefers-color-scheme` block, so the light-only palette holds under a dark OS.
+  - **Customer surfaces (C.5):** the item-first stand card and the seller list. The map's "Browse
+    by seller" LINK is gone as of 2026-08-18 — sellers are now a **View stands / View sellers**
+    toggle on the map's own list, rendering in the stand card's shape. `/sellers` still exists and
+    still works. The C.5 pages were read in a browser and MEASURED (no horizontal overflow at
+    360px/390px, credited lines wrap, no rule in a `prefers-color-scheme` block); **the new toggle
+    and the in-map seller cards have NOT been seen at any width.**
   - **Farmer SMS copy (C.3/C.4):** the target menu (*"Which listing do you mean?"*, naming the
     seller beside the stand where they differ), `Using …` / `Update your listing for …`, and the
     paused listing's `Publishing this update will re-open your listing. Reply YES to confirm, NO
@@ -252,6 +176,10 @@ map wrong instead. The host keeps Remove on their own settings screen.
   carry stale verdicts. Worth asking the farmer who reported it on 2026-08-14 to look again. Whether
   carrier filtering ever affected SMS links is unknown — never measured, so that half is a reasoned
   fix, not an observed one.
+- **The production geocoding key is unrestricted (B-081).** Measured 2026-08-18: it geocodes from a
+  laptop. It is billed per call, so a leaked copy is directly spendable. Restricting it by **API**
+  is the safe half; an IP restriction needs Cloud Run's egress answered first, and a wrong one
+  takes down the only path to creating a visitable stand.
 - **B-066 owes one console check:** remove a test farm, confirm map/SMS disappearance, then restore.
 - **F-111 Phase 2 handset pass is 2/13.** Remaining cases cover STOP/START, HELP, named-stand inquiry
   and report, farmer own/other-stand reports, both VIGA Bucks shapes, map, a partial stand name,

@@ -171,22 +171,23 @@ describe("the stand list", () => {
       />,
     );
 
+    // The identity, its states, and the FACTS are all on screen at rest (max, 2026-08-17).
+    // An operator arrives to read something, so the card answers before it asks anything.
     expect(screen.getByText("North Stand")).toBeTruthy();
     expect(screen.getByText("Public")).toBeTruthy();
     expect(screen.getByText("Open now")).toBeTruthy();
-    const details = screen.getByText("North Stand").closest("details");
-    expect(details).toBeTruthy();
-    expect(details).not.toHaveAttribute("open");
-
-    expect(screen.queryByText("Show details")).toBeNull();
-    expect(screen.queryByText("Hide details")).toBeNull();
-    await user.click(screen.getByText("North Stand"));
-
-    expect(details).toHaveAttribute("open");
     expect(screen.getByRole("heading", { name: "Availability" })).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Visit" })).toBeTruthy();
     expect(screen.getByText("123 Farm Lane")).toBeTruthy();
     expect(screen.getByText("Eggs, flowers")).toBeTruthy();
+
+    // No form is, until a verb asks for one.
+    expect(screen.queryByRole("combobox", { name: "Farm Bucks decision" })).toBeNull();
+    expect(screen.queryByLabelText("Stand name")).toBeNull();
+
+    await user.click(screen.getByRole("button", { name: /more for North Stand/i }));
+    await user.click(screen.getByRole("menuitem", { name: /farm bucks/i }));
+
     expect(screen.getByRole("combobox", { name: "Farm Bucks decision" })).toHaveValue(
       "not_eligible",
     );
@@ -214,7 +215,8 @@ describe("the stand list", () => {
       />,
     );
 
-    await user.click(screen.getByText("North Stand"));
+    await user.click(screen.getByRole("button", { name: /more for North Stand/i }));
+    await user.click(screen.getByRole("menuitem", { name: /farm bucks/i }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Farm Bucks decision" }), "accepts");
 
     expect(fetcher).toHaveBeenCalledWith(
@@ -230,10 +232,12 @@ describe("the stand list", () => {
 
   // An operator looking to DELETE a farm could not find this. The control does exactly what
   // deleting should do — the stand leaves the map and all farmer surfaces, nothing published
-  // is destroyed, and it can be put back — but it is named "Take off the map", sits last
-  // inside a collapsed panel, and never says the word. So the capability existed and read as
-  // missing. The section states what it is in the vocabulary an operator arrives with.
-  it("names removing a stand in the words an operator looks for", () => {
+  // is destroyed, and it can be put back — so the capability existed and read as missing.
+  //
+  // The verb now lives in the stand's menu, and the CONFIRMATION is where the vocabulary has
+  // to land: it is the screen an operator reads before committing, and it must say what the
+  // effect is in the words they arrived with rather than only "take off the map".
+  it("names removing a stand in the words an operator looks for", async () => {
     render(
       <StandDetails
         stands={[{
@@ -252,11 +256,14 @@ describe("the stand list", () => {
       />,
     );
 
-    // Anchored to the SECTION HEADING, which is what someone scanning for "delete" reads —
-    // the body copy already contained "Removes this stand", and asserting on that passed
-    // while the heading still said only "Take off the map".
+    const user = userEvent.setup();
+    await user.click(screen.getByRole("button", { name: /more for North Stand/i }));
+    await user.click(screen.getByRole("menuitem", { name: /take off the map/i }));
+
+    // Anchored to what the confirmation SAYS THE EFFECT IS, not to nearby vocabulary: the
+    // operator is about to commit, and this is the sentence that has to be true and findable.
     expect(
-      screen.getByRole("heading", { name: /remove|delete/i }),
+      screen.getByText(/customers will stop seeing it/i),
     ).toBeTruthy();
   });
 
@@ -282,8 +289,8 @@ describe("the stand list", () => {
       />,
     );
 
-    await user.click(screen.getByText("North Stand"));
-    await user.click(screen.getByRole("button", { name: "Take off the map" }));
+    await user.click(screen.getByRole("button", { name: /more for North Stand/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Take off the map" }));
 
     // The first click asks rather than acts. Retirement is reversible, but it removes a farm
     // from the island's only guide — a misplaced click should not be enough to do it.
@@ -301,7 +308,8 @@ describe("the stand list", () => {
     );
     // The row reports the new state without a reload, and offers the way back.
     expect(screen.getByText("Off the map")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Put back on the map" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /more for North Stand/i }));
+    expect(screen.getByRole("menuitem", { name: "Put back on the map" })).toBeTruthy();
   });
 
   it("puts a retired stand back with one click, no confirmation (F-071)", async () => {
@@ -329,8 +337,8 @@ describe("the stand list", () => {
     );
 
     expect(screen.getByText("Off the map")).toBeTruthy();
-    await user.click(screen.getByText("South Stand"));
-    await user.click(screen.getByRole("button", { name: "Put back on the map" }));
+    await user.click(screen.getByRole("button", { name: /more for South Stand/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Put back on the map" }));
 
     expect(fetcher).toHaveBeenCalledWith(
       "/api/admin/stands",
@@ -339,7 +347,8 @@ describe("the stand list", () => {
         body: JSON.stringify({ standId: "stand-restore", action: "restore" }),
       }),
     );
-    expect(screen.getByRole("button", { name: "Take off the map" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /more for South Stand/i }));
+    expect(screen.getByRole("menuitem", { name: "Take off the map" })).toBeTruthy();
   });
 
   it("says so when a retirement does not go through, rather than showing it as done", async () => {
@@ -364,15 +373,16 @@ describe("the stand list", () => {
       />,
     );
 
-    await user.click(screen.getByText("West Stand"));
-    await user.click(screen.getByRole("button", { name: "Take off the map" }));
+    await user.click(screen.getByRole("button", { name: /more for West Stand/i }));
+    await user.click(screen.getByRole("menuitem", { name: "Take off the map" }));
     await user.click(screen.getByRole("button", { name: "Yes, take it off the map" }));
 
     // An operator who believes a stand is off the map when it is still being served is worse
     // off than one who sees an error.
     expect(screen.getByRole("alert")).toBeTruthy();
     expect(screen.queryByText("Off the map")).toBeNull();
-    expect(screen.getByRole("button", { name: "Take off the map" })).toBeTruthy();
+    await user.click(screen.getByRole("button", { name: /more for West Stand/i }));
+    expect(screen.getByRole("menuitem", { name: "Take off the map" })).toBeTruthy();
   });
 });
 

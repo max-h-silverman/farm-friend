@@ -1,9 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { ActionMenu } from "./action-menu";
+import { TrashIcon } from "./icons";
 
 /**
- * The pause/resume toggle and Remove, shared by the Stands view and the Sellers view.
+ * The pause/resume control and Remove, shared by the Stands view and the Sellers view.
  *
  * **One component, two views.** The same arrangement appears under the stand it happens at and
  * under the seller doing the selling, and a volunteer acts wherever they are looking. Two
@@ -15,6 +17,12 @@ import { useState } from "react";
  * row is a seller; participation is a detail inside the row it belongs to, never a row of its
  * own. That is why an ended arrangement simply leaves: it is not an entity, so there is no row
  * for it to become.
+ *
+ * **State is the row; Remove is behind the row's menu.** Selling/paused is the one thing an
+ * operator flips often, so it stays a single press on the row itself. Ending an arrangement is
+ * terminal, so it lives behind the same menu mechanism every other destructive verb uses and
+ * still asks before it acts — a red button sitting permanently beside a toggle is a misclick
+ * waiting on a real seller's listing.
  *
  * Every mutation posts to `/api/admin/participation`, which re-resolves the administrator
  * server-side and hands the transition to `setProviderParticipation`. This component's state
@@ -98,7 +106,16 @@ export function SellerParticipation({
 }) {
   const [live, setLive] = useState(rows);
   const [busy, setBusy] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
+  /*
+    WHICH QUESTION is open on which row, or none.
+
+    Two acts on this row ask first, and they ask different things — pausing takes a seller's
+    goods off the map, ending the arrangement is terminal. One flag could not tell them apart,
+    so it carries the verb it belongs to.
+  */
+  const [confirming, setConfirming] = useState<
+    { providerId: string; kind: "pause" | "end" } | null
+  >(null);
   /**
    * Keyed by arrangement and rendered inside the row it belongs to. A message about the third
    * seller shown above the first is a message the operator does not see.
@@ -155,53 +172,135 @@ export function SellerParticipation({
   function renderRow(row: ParticipationRow) {
     const paused = row.lifecycleState === "paused";
     const subject = subjectOf(view, row);
+    const label = toggleLabel(view, row, framing);
     return (
       <div className="admin-participation-row" key={row.providerId}>
-        <button
-          type="button"
-          role="switch"
-          aria-checked={!paused}
-          aria-label={toggleLabel(view, row, framing)}
-          className="admin-participation-toggle"
-          disabled={busy === row.providerId}
-          onClick={() => void send(row, paused ? "resume" : "pause")}
-        >
-          {toggleLabel(view, row, framing)}
-        </button>
-
-        {confirming === row.providerId ? (
-          <span className="admin-participation-confirm" role="group">
-            {/* Terminal, and the copy says so: there is no restore, only a fresh invitation. */}
-            <span>
-              {subject} stops selling here. This cannot be undone — coming back needs a new
-              invitation.
-            </span>
-            <button
-              type="button"
-              className="admin-action-danger"
-              disabled={busy === row.providerId}
-              onClick={() => void send(row, "end")}
-            >
-              Remove
-            </button>
-            <button
-              type="button"
-              className="admin-action-secondary"
-              onClick={() => setConfirming(null)}
-            >
-              Keep
-            </button>
-          </span>
-        ) : (
+        <div className="admin-participation-line">
+          {/*
+            The whole line is the toggle. A dot the operator can read at a glance, the subject,
+            and the state as a word — so a long list is scannable by colour and still says what
+            it means without it.
+          */}
           <button
             type="button"
-            className="admin-participation-remove admin-action-danger"
-            aria-label={`Remove ${subject}`}
+            role="switch"
+            aria-checked={!paused}
+            aria-label={label}
+            className="admin-participation-toggle"
             disabled={busy === row.providerId}
-            onClick={() => setConfirming(row.providerId)}
+            onClick={() => {
+              /*
+                RESUME GOES STRAIGHT THROUGH; PAUSE ASKS (max, 2026-08-18).
+
+                The whole line is the toggle, which makes it a large and easily mistapped
+                target, and pausing takes a real seller's goods off the island's only guide.
+                Resume puts something BACK — its mistake is undone by the same control — and a
+                confirmation on a harmless act is chrome an operator learns to click past,
+                which is exactly how the one that matters stops being read.
+              */
+              if (paused) {
+                void send(row, "resume");
+                return;
+              }
+              setConfirming({ providerId: row.providerId, kind: "pause" });
+            }}
           >
-            Remove
+            <span className="admin-participation-dot" aria-hidden="true" />
+            <span className="admin-participation-subject">{framing ? label : subject}</span>
+            {!framing && (
+              <span className="admin-chip admin-chip--state" aria-hidden="true">
+                {paused ? "Paused" : "Selling"}
+              </span>
+            )}
           </button>
+
+          {/*
+            NAMES THE ARRANGEMENT, not the place. On a stand whose only seller owns it the two
+            share a name, so "More for Bank Road Gardens" collided with the stand's own menu
+            beside it — two identical buttons doing different things.
+          */}
+          <ActionMenu
+            compact
+            label={
+              view === "stand"
+                ? `More for ${subject} selling here`
+                : `More for selling at ${subject}`
+            }
+            disabled={busy === row.providerId}
+            items={[
+              {
+                key: "end",
+                label: `Remove ${subject}`,
+                icon: <TrashIcon />,
+                danger: true,
+                onSelect: () => setConfirming({ providerId: row.providerId, kind: "end" }),
+              },
+            ]}
+          />
+        </div>
+
+        {confirming?.providerId === row.providerId && confirming.kind === "pause" && (
+          /*
+            The question NAMES THE ACT THE OPERATOR PRESSED. On a solo native-seller stand the
+            toggle reads as the stand being open or closed, so the question says "close this
+            stand" — asking about the seller under a control labelled "Stand is open" would
+            name a different act from the one that was tapped.
+          */
+          <div
+            className="admin-confirm"
+            role="group"
+            aria-label={framing ? `Close ${row.standName}` : `Pause ${subject}`}
+          >
+            <p>
+              {framing
+                ? `Close ${row.standName}? Customers stop seeing what it has until you open it again.`
+                : `Pause ${subject}? Their goods stop showing on the map until you resume them.`}
+            </p>
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="admin-action-danger"
+                disabled={busy === row.providerId}
+                onClick={() => void send(row, "pause")}
+              >
+                {framing ? "Close the stand" : "Pause"}
+              </button>
+              <button
+                type="button"
+                className="admin-action-secondary"
+                onClick={() => setConfirming(null)}
+              >
+                {framing ? "Keep it open" : "Keep selling"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {confirming?.providerId === row.providerId && confirming.kind === "end" && (
+          <div className="admin-confirm" role="group" aria-label={`Remove ${subject}`}>
+            {/* Terminal, and the copy says so: there is no restore, only a fresh invitation. */}
+            <p>
+              {subject} stops selling here. This cannot be undone — coming back needs a new
+              invitation.
+            </p>
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="admin-action-danger"
+                disabled={busy === row.providerId}
+                onClick={() => void send(row, "end")}
+              >
+                Remove
+              </button>
+              <button
+                type="button"
+                className="admin-action-secondary"
+                onClick={() => setConfirming(null)}
+              >
+                Keep
+              </button>
+            </div>
+          </div>
         )}
 
         {note[row.providerId] !== undefined && (

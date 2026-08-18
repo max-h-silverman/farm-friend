@@ -2,22 +2,30 @@
 
 import { useState } from "react";
 import { copyText } from "../../lib/copy-text";
+import type { ActionMenuItem } from "./action-menu";
+import { CheckIcon, FlaskIcon, LinkIcon, PencilIcon, UnpinIcon } from "./icons";
 
 /**
  * Everything VIGA does *about* a seller, on the seller's own card.
  *
- * These six controls used to live on a Farms screen. F-101 removed that screen: VIGA's job is
- * to view and edit stands and sellers (max, 2026-08-17), so approving a farm, taking it off the
+ * These controls used to live on a Farms screen. F-101 removed that screen: VIGA's job is to
+ * view and edit stands and sellers (max, 2026-08-17), so approving a farm, taking it off the
  * map, correcting its name, marking it a test farm and minting its setup link are all things an
  * operator does *while looking at the seller* — not destinations of their own.
+ *
+ * **The verbs are a menu, the results are the card.** The card header owns the one way in; this
+ * hook supplies the items and owns everything that happens after one is chosen — the editor,
+ * the confirmation, the minted link, the outcome note. Splitting it that way is what keeps a
+ * card at rest to a name and its states, and it is why `menuItems` and `panel` come from one
+ * hook rather than from two components that would each hold half the state.
  *
  * **The card that owns the seller owns every result about the seller.** A link minted here
  * appears here; a decision recorded here reports here. Nothing an operator starts on this card
  * finishes somewhere else on the page — that was the failure that made the old screens feel
  * like "did that work? where did it go?".
  *
- * Every mutation posts to a guarded route that re-checks authority server-side. This
- * component's state is convenience, never authorization.
+ * Every mutation posts to a guarded route that re-checks authority server-side. This hook's
+ * state is convenience, never authorization.
  */
 
 export interface SellerControlsRow {
@@ -29,13 +37,7 @@ export interface SellerControlsRow {
   isTestFarm: boolean;
 }
 
-/**
- * A setup link hands the listing to a farmer who does not have it yet. Offering one to a farm
- * that already has a live authorization invites the operator to solve a problem that farm does
- * not have — so the control is ABSENT rather than disabled, and the copy explains the absence.
- */
-
-export function SellerControls({
+export function useSellerControls({
   seller,
   canUpdate,
   fetcher = fetch,
@@ -44,16 +46,16 @@ export function SellerControls({
   /** Somebody can already publish for this seller. */
   canUpdate: boolean;
   fetcher?: typeof fetch;
-}) {
+}): { row: SellerControlsRow; menuItems: Array<ActionMenuItem | null>; panel: React.ReactNode } {
   const [row, setRow] = useState(seller);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
   const [confirmingRetire, setConfirmingRetire] = useState(false);
   const [editing, setEditing] = useState<{ name: string; description: string } | null>(null);
   /**
-   * A freshly minted setup link, held only in this component's state and only until the
-   * operator navigates away. It is never re-readable from the server, which is correct for a
-   * standing credential — so it renders on the seller's own card, with the copy saying so.
+   * A freshly minted setup link, held only in this hook's state and only until the operator
+   * navigates away. It is never re-readable from the server, which is correct for a standing
+   * credential — so it renders on the seller's own card, with the copy saying so.
    */
   const [freshLink, setFreshLink] = useState<string | null>(null);
 
@@ -161,7 +163,7 @@ export function SellerControls({
     }
     const link = payload.link;
     setFreshLink(link);
-    // Copying is the point of the button, so it happens without a second press. The link is
+    // Copying is the point of the item, so it happens without a second press. The link is
     // still shown below, because a clipboard write can silently fail.
     if (await copyText(link)) {
       setNote({ kind: "ok", text: "New setup link copied. It is shown below — we only show it once." });
@@ -173,94 +175,92 @@ export function SellerControls({
     });
   }
 
-  return (
-    <section className="admin-seller-controls">
-      {editing === null ? (
-        <div className="admin-button-row">
-          <button
-            type="button"
-            disabled={busy}
-            className="admin-action-secondary"
-            onClick={() => setEditing({ name: row.name, description: row.description ?? "" })}
-          >
-            Edit details
-          </button>
+  /*
+    The verbs, in the order an operator reaches for them: correct it, decide about it, hand it
+    over, mark it — then, last and alone, take it off the map.
 
-          <button
-            type="button"
-            className={row.approved ? "admin-action-secondary" : "admin-action-primary"}
-            disabled={busy}
-            onClick={() => void setApproved(!row.approved)}
-          >
-            {row.approved ? "Remove approval" : "Approve"}
-          </button>
+    **A setup link is absent, not disabled, for a farm that already has one.** Offering it would
+    invite the operator to solve a problem that farm does not have; `null` is how the menu says
+    "not offered here".
+  */
+  const menuItems: Array<ActionMenuItem | null> = [
+    {
+      key: "edit",
+      label: "Edit details",
+      icon: <PencilIcon />,
+      onSelect: () => {
+        setConfirmingRetire(false);
+        setEditing({ name: row.name, description: row.description ?? "" });
+      },
+    },
+    {
+      key: "approve",
+      label: row.approved ? "Remove approval" : "Approve",
+      icon: <CheckIcon />,
+      onSelect: () => void setApproved(!row.approved),
+    },
+    canUpdate
+      ? null
+      : {
+          key: "setup-link",
+          label: "Send new setup link",
+          icon: <LinkIcon />,
+          onSelect: () => void createSetupLink(),
+        },
+    {
+      key: "test-farm",
+      label: row.isTestFarm ? "No longer a test farm" : "Mark as a test farm",
+      icon: <FlaskIcon />,
+      onSelect: () => void setTestFarm(!row.isTestFarm),
+    },
+    row.retired
+      ? // One click back, no confirmation: restoring is reversible and refusing to make it
+        // easy only strands the operator (F-071).
+        {
+          key: "restore",
+          label: "Put back on the map",
+          icon: <UnpinIcon />,
+          onSelect: () => void setRetired(false),
+        }
+      : {
+          key: "retire",
+          label: "Take off the map",
+          icon: <UnpinIcon />,
+          danger: true,
+          onSelect: () => {
+            setEditing(null);
+            setConfirmingRetire(true);
+          },
+        },
+  ];
 
-          {canUpdate ? null : (
-            <button
-              type="button"
-              className="admin-action-primary"
-              disabled={busy}
-              aria-label={`New setup link for ${row.name}`}
-              onClick={() => void createSetupLink()}
-            >
-              New setup link
-            </button>
-          )}
-
-          <button
-            type="button"
-            className="admin-action-secondary"
-            disabled={busy}
-            onClick={() => void setTestFarm(!row.isTestFarm)}
-          >
-            {row.isTestFarm ? "No longer a test farm" : "Mark as a test farm"}
-          </button>
-
-          {row.retired ? (
-            // One click back, no confirmation: restoring is reversible and refusing to make it
-            // easy only strands the operator (F-071).
-            <button
-              type="button"
-              className="admin-action-secondary"
-              disabled={busy}
-              onClick={() => void setRetired(false)}
-            >
-              Put back on the map
-            </button>
-          ) : confirmingRetire ? (
-            <span className="admin-seller-confirm" role="group">
-              <span>
-                Customers no longer see this farm or its stands. Everything it published is kept.
-              </span>
-              <button
-                type="button"
-                className="admin-action-danger"
-                disabled={busy}
-                onClick={() => void setRetired(true)}
-              >
-                Remove
-              </button>
-              <button
-                type="button"
-                className="admin-action-secondary"
-                onClick={() => setConfirmingRetire(false)}
-              >
-                Keep
-              </button>
-            </span>
-          ) : (
+  const panel = (
+    <div className="admin-seller-controls">
+      {confirmingRetire && (
+        <div className="admin-confirm" role="group" aria-label={`Take ${row.name} off the map`}>
+          <p>Customers no longer see this farm or its stands. Everything it published is kept.</p>
+          <div className="admin-confirm-actions">
             <button
               type="button"
               className="admin-action-danger"
               disabled={busy}
-              onClick={() => setConfirmingRetire(true)}
+              onClick={() => void setRetired(true)}
             >
-              Take off the map
+              Remove
             </button>
-          )}
+            <button
+              type="button"
+              className="admin-action-secondary"
+              onClick={() => setConfirmingRetire(false)}
+            >
+              Keep
+            </button>
+          </div>
         </div>
-      ) : (
-        <div className="admin-seller-edit admin-button-row">
+      )}
+
+      {editing !== null && (
+        <div className="admin-seller-edit">
           <label htmlFor={`name-${row.farmId}`}>Farm name</label>
           <input
             id={`name-${row.farmId}`}
@@ -281,17 +281,23 @@ export function SellerControls({
               )
             }
           />
-          <button
-            type="button"
-            className="admin-action-primary"
-            disabled={busy}
-            onClick={() => void saveDetails()}
-          >
-            Save
-          </button>
-          <button type="button" className="admin-action-secondary" onClick={() => setEditing(null)}>
-            Cancel
-          </button>
+          <div className="admin-confirm-actions">
+            <button
+              type="button"
+              className="admin-action-primary"
+              disabled={busy}
+              onClick={() => void saveDetails()}
+            >
+              Save
+            </button>
+            <button
+              type="button"
+              className="admin-action-secondary"
+              onClick={() => setEditing(null)}
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -303,7 +309,7 @@ export function SellerControls({
       )}
 
       {!canUpdate && freshLink === null && (
-        <p className="admin-note">
+        <p className="admin-banner admin-banner--info">
           Nobody can update this listing yet. A new setup link expires in 7 days — earlier links
           cannot be looked up, so send the one you mint here.
         </p>
@@ -311,12 +317,14 @@ export function SellerControls({
 
       {note !== null && (
         <p
-          className={note.kind === "ok" ? "admin-ok" : "admin-error"}
+          className={note.kind === "ok" ? "admin-success" : "admin-error"}
           role={note.kind === "ok" ? "status" : "alert"}
         >
           {note.text}
         </p>
       )}
-    </section>
+    </div>
   );
+
+  return { row, menuItems, panel };
 }
