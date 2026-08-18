@@ -21,7 +21,7 @@
   client bundle and **500s every farmer web screen in `next dev`**. jsdom resolves the barrel fine,
   so no suite catches it — only launching the app does.
 
-## Unreleased on `main` — three merged tranches, none deployed
+## Unreleased on `main` — four merged tranches, none deployed
 
 **F-114 + F-115 — the multi-seller model.** `sellers` is the identity root;
 `sales_locations.own_seller_id` is the **self-pointer** naming the one nested seller that IS the
@@ -110,13 +110,15 @@ unit tests alone, and no width below 500px was reachable.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
   neither revision has an error-level log. **B-074, F-114/F-115, all of F-101, all of F-117 and
-  the 2026-08-18 UI pass (`b14155f`, PR #133) are on `main` and undeployed.** max's call on
-  2026-08-18: leave it undeployed for now — the migration queue is scheduled separately, and
-  none of the UI work has been seen rendered.
+  the two 2026-08-18 UI passes (`b14155f` PR #133, `beeb386` PR #134) are on `main` and
+  undeployed.** max's call on 2026-08-18: leave it undeployed for now — the migration queue is
+  scheduled separately. **F-118 adds no deploy obligation of its own**: it is client-side over
+  payloads both lists already receive, with no migration, no writer and no seam.
 
 ## Verification
 
-- **2,285 unit tests pass across 165 files; 7 corpus-only tests skip** (2026-08-18). Integration is
+- **2,335 unit tests pass across 166 files; 7 corpus-only tests skip** (2026-08-18, on merged
+  `main` at `beeb386`). Integration is
   **1,435/1,441 across 106 of 107 files** against disposable local Postgres databases (2026-08-17,
   not re-run this session — nothing touched a writer or a query).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without

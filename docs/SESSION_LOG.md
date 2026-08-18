@@ -13,7 +13,9 @@ mid-session defeats its own purpose.
 
 ## 2026-08-18 (latest) — the map's two lists become one two-way view of stands and sellers
 
-Branch `f-118-map-seller-architecture`, four commits (`3ec3196`, `b86a8a6`, `4296195`, `f07b626`).
+Branch `f-118-map-seller-architecture`, squash-merged as **`beeb386`** (PR #134). **Not deployed** —
+it joins the three tranches already waiting on max's 2026-08-18 leave-it-undeployed call, and adds
+no deploy obligation of its own: client-side only, no migration, no writer, no seam.
 Unit **2,341 across 166 files** with the 7 corpus skips; typecheck and lint clean. No evals owed —
 `packages/ai` and `evals/` untouched, checked rather than assumed. Integration not re-run: nothing
 here touches a writer or a query, and the whole change is client-side over payloads both lists
