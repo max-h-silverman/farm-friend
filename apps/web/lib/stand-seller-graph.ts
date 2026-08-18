@@ -283,6 +283,39 @@ export function markerTipBox(
  */
 const MARKER_TIP_GAP = 76;
 
+/**
+ * How many island units a tooltip must span to render at a given size in REAL pixels (B-088).
+ *
+ * ## The bug this exists to end
+ *
+ * The tooltip is a `foreignObject` inside the island SVG, so every length inside it — including
+ * its font sizes — is in viewBox units, scaled by however the drawing is fitted to the screen.
+ * The island is 1000 units wide, so a 22-unit heading is 22 real pixels only when the map happens
+ * to render 1000px wide. Measured against the real page:
+ *
+ *     map 1200px wide -> "Runs this stand" renders at 20px
+ *     map  700px wide ->                              12px
+ *     map  390px wide ->                             6.6px
+ *
+ * The text got SMALLER exactly as the screen did, which is backwards — and raising the CSS
+ * numbers cannot fix it, because that inflates the desktop case by the same factor it rescues
+ * the phone.
+ *
+ * ## The fix
+ *
+ * Scale the tooltip's own geometry by the inverse of the map's rendered scale, so its contents
+ * land at a fixed real size at every viewport. `scale` is the measured ratio of rendered pixels
+ * to viewBox units; a scale of 0.39 (a 390px phone) makes the box 1/0.39 as many units wide, and
+ * the text inside it comes out the size the CSS asks for.
+ *
+ * Clamped at 1: on a map rendered WIDER than its viewBox the tooltip would otherwise shrink below
+ * its designed size, and the design is already the floor.
+ */
+export function markerTipUnitScale(scale: number): number {
+  if (!Number.isFinite(scale) || scale <= 0) return 1;
+  return Math.max(1, 1 / scale);
+}
+
 
 /**
  * What a seller's card may say about buying from her right now.

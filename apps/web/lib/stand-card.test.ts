@@ -127,6 +127,83 @@ describe("standCardSections", () => {
         "Last updated 1 day ago",
       ]);
     });
+
+    /*
+      B-088 — RECENCY ON AN ITEM LINE ONLY WHEN IT DISTINGUISHES (max, 2026-08-18).
+
+      The per-seller axis is real: sellers publish independently, so an item two of them carry
+      can honestly need two dates. But when every seller supporting an item states the SAME
+      recency, the line repeats the section heading verbatim on every row.
+
+      Measured against production: 33 of 37 public stands have exactly one seller, so on almost
+      every card in the corpus this printed the heading's own phrase once per item. Only Plum
+      Forest has sellers publishing on different days.
+
+      The heading keeps carrying the stand's recency; the item line adds one only where the
+      sellers actually disagree.
+    */
+    it("omits the recency when every seller on the item states the same one", () => {
+      const sections = standCardSections(
+        withSellers([
+          seller({
+            sellerName: "Morgan Hill Farm",
+            describesOwnStand: true,
+            confirmedItems: [{ itemName: "eggs" }],
+            cardRecency: "Last updated 2 hours ago",
+          }),
+        ]),
+      );
+
+      const providers = sections[0]!.items[0]!.providers;
+      expect(providers).toHaveLength(1);
+      expect(providers[0]?.recency).toBeUndefined();
+    });
+
+    it("omits it for two sellers who happen to agree, and keeps it when they differ", () => {
+      /*
+        The distinguishing test, not a seller count: two sellers who published at the same time
+        say nothing extra by saying it twice. A rule keyed on `providers.length > 1` would print
+        a duplicate phrase for Pacific Crest, Tian Tian and Venison Valley, all of which have two
+        sellers on ONE publish day.
+      */
+      const agreeing = standCardSections(
+        withSellers([
+          seller({
+            sellerName: "Morgan Hill Farm",
+            describesOwnStand: true,
+            confirmedItems: [{ itemName: "eggs" }],
+            cardRecency: "Last updated 2 hours ago",
+          }),
+          seller({
+            sellerName: "Tian Tian",
+            confirmedItems: [{ itemName: "eggs" }],
+            cardRecency: "Last updated 2 hours ago",
+          }),
+        ]),
+      );
+      expect(
+        agreeing[0]!.items[0]!.providers.map((p) => p.recency),
+      ).toEqual([undefined, undefined]);
+
+      const differing = standCardSections(
+        withSellers([
+          seller({
+            sellerName: "Morgan Hill Farm",
+            describesOwnStand: true,
+            confirmedItems: [{ itemName: "eggs" }],
+            cardRecency: "Last updated 2 hours ago",
+          }),
+          seller({
+            sellerName: "Tian Tian",
+            confirmedItems: [{ itemName: "eggs" }],
+            cardRecency: "Last updated 1 day ago",
+          }),
+        ]),
+      );
+      expect(
+        differing[0]!.items[0]!.providers.map((p) => p.recency),
+      ).toEqual(["Last updated 2 hours ago", "Last updated 1 day ago"]);
+    });
   });
 
   describe("who gets credited", () => {
