@@ -21,7 +21,7 @@
   client bundle and **500s every farmer web screen in `next dev`**. jsdom resolves the barrel fine,
   so no suite catches it — only launching the app does.
 
-## Unreleased on `main` — four merged tranches, none deployed
+## Deployed 2026-08-18 — the four-tranche queue is released
 
 **F-114 + F-115 — the multi-seller model.** `sellers` is the identity root;
 `sales_locations.own_seller_id` is the **self-pointer** naming the one nested seller that IS the
@@ -55,7 +55,8 @@ anything that is not a flower means it should become data.**
 **`paused` means two unrelated things and stays that way for now.**
 `stand_providers.lifecycle_state = 'paused'` is a suspended selling relationship;
 `inventory_prompt_preferences.cadence = 'paused'` is reminders off. Renaming the cadence value to
-`off` is one migration with no behaviour change, deferred until `0042`–`0053` land.
+`off` is one migration with no behaviour change. **`0042`–`0053` have now landed, so the condition
+that deferred it is cleared** — it is unblocked work, not a blocked one.
 
 **Deliberately unchanged:** VIGA's `issue_link` stays stand-shaped and REFUSES on ambiguity;
 `farm_bucks_*`, `farm_approval_id`, every `farmer_*` table and `GENERIC_WORDS` keep their names.
@@ -91,37 +92,46 @@ unit tests alone, and no width below 500px was reachable.
 
 ## Deployment and migrations
 
-- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0053` are all
-  unapplied to production** and must land in that order. `0052` adds
-  `stand_provider_approval_source = 'seller'` (F-117) and `0053` adds `pending_host_confirmations`;
-  both are proved against a populated schema, and `0052`'s new enum value is proved WRITABLE in a
-  statement after the migration — Postgres refuses a new enum value inside the transaction that
-  added it, so a clean apply proves nothing on its own. **`0042` must be applied before the merged
-  code runs** — every writer now supplies `provider_id`, and against the un-migrated schema they
-  fail immediately. `0043`–`0050` add no such requirement on their own but must not land ahead of it.
-  **`0051` is a second such gate**: it makes the `stand_providers` uniqueness partial, and
-  `inviteSellerToStand` now names that predicate in its `ON CONFLICT`, so against the un-migrated
-  index EVERY invitation raises *"no unique or exclusion constraint matching the ON CONFLICT
-  specification"*.
+- Neon `neondb` has **54 applied migrations (`0000`–`0053`)**. `0042`–`0053` were applied
+  2026-08-18 on the DIRECT Neon URL, ahead of the code that requires them, and verified BY EFFECT
+  rather than by exit status: ledger 42 → 54; `stand_providers` backfilled to **38 rows**, one per
+  stand; every stand carries a self-pointer; all seven `provider_id` columns fully attributed
+  (`farmer_links` 17, `farmer_target_menu_options` 0, `inventory_prompt_preferences` 15,
+  `inventory_publication_proposals` 19, `inventory_revisions` 34,
+  `scheduled_inventory_prompt_subjects` 9, `stand_items` 250) with **zero** unbackfilled rows.
+  `0051`'s partial index carries the exact `WHERE (ended_at IS NULL)` predicate `hosting.ts`'s
+  `ON CONFLICT` names. **`0052`'s new enum value was proved WRITABLE in a statement after the
+  migration** — production reads `viga,host,seller` — because a clean apply proves nothing on its
+  own. The corpus is intact: 38 stands / 40 sellers / 250 items / 34 revisions.
+- **`inventory_publication_proposals.provider_id` is nullable in production, and that is correct.**
+  `0042` sets it NOT NULL and **`0046` deliberately relaxes it** so a venue's closure-only proposal
+  can name no provider, replacing the blanket constraint with the `inventory_proposals_provider_arm`
+  CHECK. Probed live 2026-08-18: the arm **refuses** `has_inventory` with no provider, by name.
+  A preflight assertion that reads the bare nullability without `0046` will report a false failure.
 - **`0045`–`0049` and `0051` are constraint-only and were NOT generated** (`0050` adds one nullable
   column); `drizzle-kit` does not emit them. A hand-written migration's snapshot is repaired as a **measured
   DELTA of its predecessor, never by introspection** — RUNBOOK §Migrations and DEVELOPMENT.md
   §gotchas own the procedure and the evidence for it.
-- Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
-  `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
-  neither revision has an error-level log. **B-074, F-114/F-115, all of F-101, all of F-117 and
-  the two 2026-08-18 UI passes (`b14155f` PR #133, `beeb386` PR #134) are on `main` and
-  undeployed.** F-118 adds no deploy obligation of its own — it is client-side over payloads both
-  lists already receive, with no migration, no writer and no seam. **max's call at the 2026-08-18
-  wrap: the queue is the NEXT session's work.** It only grows riskier with each tranche stacked on
-  top, and `0042`/`0051` are hard gates the merged code already depends on.
+- Cloud Run web **`farm-friend-web-00083-zvf`** and worker **`farm-friend-worker-00078-x7f`** serve
+  digest `sha256:78ce947c6a2f928c392d590aa2296e1a7d4f594390f36c4fa5d0356f53283c73`, built from
+  `25665e8`. Deployed 2026-08-18. The plan was `0 to add, 2 to change, 0 to destroy` — the image on
+  both services and nothing else; `plan-assertions.py` 61/61, `deploy_assertions.py` and
+  `served_card_assertions.py` both pass. **B-074, F-114/F-115, F-101, F-117 and the two 2026-08-18
+  UI passes (`b14155f`, `beeb386`) are now live.** Neither revision has an error-level log; the
+  worker's recovery pass runs every minute returning 200. The served map carries the multi-seller
+  payload (`providerId`, `describesOwnStand`, `sellingAt`, `alsoSellingHere`) and both F-118 toggle
+  labels; `/admin` redirects to `/admin/stands`.
+- **The one dropped `scaling` block in that plan was service-level state the config never declares**
+  — the `template` scaling blocks (`services.tf` 171, 292) are unchanged, so autoscaling behavior
+  did not move.
 
 ## Verification
 
-- **2,335 unit tests pass across 166 files; 7 corpus-only tests skip** (2026-08-18, on merged
-  `main` at `beeb386`). Integration is
-  **1,435/1,441 across 106 of 107 files** against disposable local Postgres databases (2026-08-17,
-  not re-run this session — nothing touched a writer or a query).
+- **2,335 unit tests pass across 166 files; 7 corpus-only tests skip**, and integration is
+  **1,441/1,441 across all 107 files** (both 2026-08-18, on `25665e8`, the commit deployed).
+  The previously recorded 1,435/106 was the missing `PUBLIC_BASE_URL` and nothing else — exporting
+  it alongside `DATABASE_URL` turns all six failures green, confirming the environment reading
+  below. B-078's intermittent file passed in this run.
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it, six `apps/web/lib/farmer-stand.integration.test.ts` cases fail `PUBLIC_BASE_URL is required`.
   **Verified pre-existing**: checking out `main` reproduces the identical six. An environment fact
@@ -167,8 +177,7 @@ unit tests alone, and no width below 500px was reachable.
 
 ## Open before go-live
 
-- **`0042` through `0051`, in order, must be applied to production before the code that requires
-  them.** All ten are Max's call.
+- ~~`0042`–`0051` must be applied before the code that requires them.~~ **Done 2026-08-18**, along with `0052`–`0053`; see §Deployment and migrations.
 - **Pause/end is reachable by both VIGA and the farmer.** The admin half is the toggle and Remove
   on Stands & Sellers; the seller half is on the settings screen `LINK`/`SETTINGS` already texts
   her, with `mayPause` riding each listing from the seam's own arm so no control is offered that
