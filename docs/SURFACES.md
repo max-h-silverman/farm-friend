@@ -47,6 +47,26 @@ working URL and the same `listPublicSellers` read feeds both; the map page perfo
 same `?hidden=true` scope rule as its stands, so the two lists can never disagree about who is
 visible.
 
+**The two lists are one two-way view (F-118).** Stands and sellers are many-to-many, and that
+relationship is stated once — `apps/web/lib/stand-seller-graph.ts` — and rendered in both
+directions rather than three times in three shapes:
+
+- A **seller card** names her stands as ROWS carrying those stands' own pin numbers, each with
+  what she brings to *that* stand and a tap that goes to it. Collapsed, the same fact is the
+  strip of pin numbers under her name. A stand the map is not currently showing keeps its row,
+  named and marked "not on the map right now", so her stand count is never quietly shortened.
+- A **stand card** says how many sellers it carries before it is opened, and each seller is
+  named ONCE and that name is the crossing: the item credit is the link, because it is already
+  where the reader's eye is. The roster below names only sellers no item credited — someone at
+  the stand who has published nothing. `alsoSellingHere` (`sales_location_participants`, retired
+  as display-only history, no identity and so nothing to cross to) appears only for a stand with
+  no modelled sellers at all.
+- A **pin tapped while sellers are showing** opens a tooltip naming that stand's sellers instead
+  of selecting the stand — the pin answers the question the list is asking. Each name selects and
+  expands that seller, which lights her stands. `markerTipBox` keeps the tooltip inside the
+  island, clamping horizontally and flipping below a pin near the north shore: the figure clips,
+  and Vashon is narrow enough that most pins sit near an edge.
+
 `POST /api/public/stock-out` is the one public model-backed handler, behind the throttle.
 
 **The model-free property is structural, not a convention:** the public read path imports

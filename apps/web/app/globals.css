@@ -4664,6 +4664,15 @@ button.admin-action-danger,
   margin: 0.9rem 0 0 2.1rem;
 }
 
+/* NO INDENT ON A CARD WITH NO PIN NUMBER. The 2.1rem above aligns a stand's expanded body
+   under its NAME, clearing the pin number in the gutter beside it. A seller card has no pin
+   number — `.stand-head-no-pin` already reclaimed that column for her name — so the same
+   indent pushed her whole detail 34px right of the name it belongs to, measured in a browser
+   at 500px: heading at 47, body at 81. */
+.stand-no-pin .stand-details {
+  margin-left: 0;
+}
+
 /*
   THE EXPANDED CARD (max, 2026-08-06). Sections are separated by SPACE and a hairline, never by
   nesting a bordered box inside the card — a panel within a panel spends a border and two
@@ -6156,6 +6165,325 @@ button.admin-action-danger,
 .seller-browse-where {
   color: var(--olive);
   font-weight: 600;
+}
+
+/* ---- F-118: the crossing between stands and sellers --------------------
+
+   THE PIN NUMBER IS THE TOKEN THAT TIES THE THREE SURFACES TOGETHER — the pin
+   itself, the stand card that carries it, and now a seller card naming where
+   she sells. It has to LOOK the same in all three or it stops being a token,
+   so `.stand-number-ref` is deliberately the stand card's number in a badge:
+   same weight, same ink, one size down because it is a reference to another
+   card rather than this card's own identity.
+
+   It is a separate class and not `.stand-number` for the reason the component
+   states: "does this card have a pin number" must stay answerable, and a seller
+   card's answer is no. */
+.stand-number-ref {
+  display: inline-grid;
+  place-items: center;
+  min-width: 1.5rem;
+  height: 1.5rem;
+  padding: 0 0.35rem;
+  color: var(--olive);
+  background: color-mix(in srgb, var(--pin) 14%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pin) 45%, transparent);
+  border-radius: 0.5rem;
+  font-size: 0.85rem;
+  font-weight: 800;
+  line-height: 1;
+  font-variant-numeric: tabular-nums;
+}
+
+/* A stand that is not on the map has no number to show. It keeps the slot so the
+   rows stay in one column — an absent number that collapsed its column would
+   make the list look like two different lists. */
+.stand-number-absent {
+  color: var(--ink-soft);
+  background: none;
+  border-style: dashed;
+  border-color: var(--line);
+}
+
+/* WHERE SHE SELLS, ON THE COLLAPSED CARD: a strip of pin numbers, sitting where
+   the stand card puts its farm name. Numbers alone because the names are the
+   opened card's rows — and because this row's job is to be scannable down a
+   column of cards, which a set of names is not. */
+.seller-stand-pins {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.3rem;
+  margin: 0.35rem 0 0;
+}
+
+/* THE OPENED CARD'S PAYLOAD: her stands, each a destination. Styled as its own
+   panel in the detail stack — the same treatment `.detail-visit` and the rest
+   get — because that is exactly what it is: the seller card's answer to "how do
+   I get to you", in the slot the stand card gives to its address. */
+.seller-stands {
+  margin: 0;
+  padding: 1.15rem;
+  background: #fffefa;
+  border: 1px solid #d8d4c9;
+  border-radius: 1.1rem;
+  box-shadow: 0 1px 1px rgb(35 45 38 / 3%);
+}
+
+.seller-stand-links,
+.stand-seller-links {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* Number in its own column, body in the other, aligned to the first line so a
+   long stand name wraps under itself rather than under the badge. */
+.seller-stand-link {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.55rem;
+  align-items: start;
+}
+
+/* The row is a BUTTON, and it has to read as one without shouting. A whole-row
+   target rather than a link on the name: this is the primary act of the card,
+   read one-handed outdoors, and a name-sized tap target is the thing that makes
+   a map unusable on a phone. */
+.seller-stand-body {
+  display: grid;
+  gap: 0.15rem;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  background: rgb(255 255 255 / 55%);
+  border: 1px solid color-mix(in srgb, var(--sage-deep) 50%, transparent);
+  border-radius: 0.6rem;
+  font: inherit;
+  color: inherit;
+}
+
+.seller-stand-go {
+  cursor: pointer;
+}
+
+.seller-stand-go:hover {
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--olive) 55%, transparent);
+}
+
+.seller-stand-go:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--olive) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.seller-stand-name {
+  color: var(--brick);
+  font-size: 0.95rem;
+  font-weight: 700;
+  /* The poster's link red, underlined — the same signal `.directions` uses for
+     "this takes you somewhere". A row that only changed on hover would look
+     tappable to a mouse and dead to a thumb. */
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* Not a link: there is nowhere to go. Ink rather than the link red, so the
+   difference is legible without relying on the underline alone. */
+.seller-stand-link-off-map .seller-stand-name {
+  color: var(--ink);
+  text-decoration: none;
+}
+
+.seller-stand-relation,
+.stand-seller-relation {
+  color: var(--olive);
+  font-size: 0.76rem;
+  font-weight: 700;
+}
+
+.seller-stand-items {
+  color: var(--ink-soft);
+  font-size: 0.82rem;
+  line-height: 1.35;
+}
+
+/* A LONG NAME WRAPS RATHER THAN WIDENING ITS ROW. Farm names on this island run to
+   "Plum Forest Farm at Morgan Hill", and this list sits in a column that is the
+   whole width of a 360px phone. Without `min-width: 0` a grid child refuses to
+   shrink below its content and pushes the row — and then the page — sideways,
+   which is the one layout failure this map cannot have. */
+.seller-stand-body,
+.stand-seller-go,
+.seller-stand-name,
+.stand-seller-name,
+.seller-stand-items {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.seller-stand-off-map {
+  color: var(--ink-soft);
+  font-size: 0.78rem;
+  font-style: italic;
+}
+
+/* THE MIRROR, ON THE STAND CARD: how many sellers are here, in the summary row
+   beside the address. Quieter than the seller card's chips because a stand card
+   already carries an open state and a recency competing for the same glance. */
+.stand-seller-count {
+  display: inline-flex;
+  align-items: center;
+  align-self: flex-start;
+  padding: 0.1rem 0.5rem;
+  color: var(--olive);
+  background: color-mix(in srgb, var(--pin) 12%, transparent);
+  border: 1px solid color-mix(in srgb, var(--pin) 40%, transparent);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+/* The roster of sellers no item credited — see `StandSellers`. It sits in the
+   detail stack with the rest of the panels. */
+.stand-sellers {
+  margin: 0;
+  padding: 1.15rem;
+  background: #fffefa;
+  border: 1px solid #d8d4c9;
+  border-radius: 1.1rem;
+  box-shadow: 0 1px 1px rgb(35 45 38 / 3%);
+}
+
+.stand-seller-go {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.15rem 0.5rem;
+  align-items: baseline;
+  width: 100%;
+  min-height: 2.75rem;
+  padding: 0.4rem 0.6rem;
+  text-align: left;
+  background: rgb(255 255 255 / 55%);
+  border: 1px solid color-mix(in srgb, var(--sage-deep) 50%, transparent);
+  border-radius: 0.6rem;
+  font: inherit;
+  cursor: pointer;
+}
+
+.stand-seller-go:hover {
+  background: var(--card);
+  border-color: color-mix(in srgb, var(--olive) 55%, transparent);
+}
+
+.stand-seller-go:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--olive) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.stand-seller-name {
+  color: var(--brick);
+  font-size: 0.95rem;
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+}
+
+/* THE ITEM CREDIT IS THE CROSSING, so it has to look like one — but it sits
+   INSIDE a dense item list, where a boxed button per line would drown the items
+   the list exists to show. So it is the link and nothing else: the poster red,
+   underlined, at the weight the credit already had. */
+.item-seller-go {
+  padding: 0;
+  color: var(--brick);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.item-seller-go:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--olive) 55%, transparent);
+  outline-offset: 2px;
+  border-radius: 0.25rem;
+}
+
+/* ---- F-118: the marker tooltip ----------------------------------------
+
+   IT LIVES INSIDE THE SVG, in a `foreignObject` placed by the same projection
+   that placed the pin — see the component. That has one consequence this
+   stylesheet has to respect: the box is sized in VIEWBOX units and cannot grow,
+   so the type inside is sized in those units too. The numbers below are the
+   island's coordinate space, not CSS pixels, which is why they look large. */
+.marker-tip {
+  height: 100%;
+  padding: 14px 18px;
+  overflow: hidden;
+  color: var(--ink);
+  background: rgb(251 250 247 / 97%);
+  border: 2px solid var(--olive);
+  border-radius: 14px;
+  box-shadow: 0 6px 20px rgb(31 41 36 / 22%);
+  font-family: inherit;
+}
+
+.marker-tip-stand {
+  margin: 0 0 6px;
+  color: var(--olive);
+  font-size: 22px;
+  font-weight: 800;
+  line-height: 1.15;
+}
+
+.marker-tip-sellers {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.marker-tip-sellers li {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0 10px;
+  align-items: baseline;
+}
+
+.marker-tip-seller {
+  padding: 4px 0;
+  color: var(--brick);
+  background: none;
+  border: 0;
+  font: inherit;
+  font-size: 21px;
+  font-weight: 700;
+  text-align: left;
+  text-decoration: underline;
+  text-underline-offset: 0.15em;
+  cursor: pointer;
+}
+
+.marker-tip-seller:focus-visible {
+  outline: 3px solid var(--olive);
+  outline-offset: 2px;
+}
+
+.marker-tip-owner {
+  color: var(--ink-soft);
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.marker-tip-empty {
+  margin: 0;
+  color: var(--ink-soft);
+  font-size: 19px;
 }
 
 /* Dimmed, never hidden: the other stands are still real places, and removing them

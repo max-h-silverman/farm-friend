@@ -67,6 +67,23 @@ the link to `/sellers`; a chosen seller highlights the stands she sells at, and 
 in the stand card's own shape. **`GEOCODING_API_KEY` now lives only in Secret Manager** —
 `dev-setup.sh` fetches it per run and never writes it to `.env.local`.
 
+**F-118 makes the map's two lists one two-way view** (branch `f-118-map-seller-architecture`,
+uncommitted at time of writing). The stand/seller relationship is stated once in
+`apps/web/lib/stand-seller-graph.ts` and rendered from both sides: a seller card names her stands
+as tappable rows carrying their own pin numbers (and as a pin-number strip when collapsed), a
+stand card says how many sellers it carries and makes each item credit the link to that seller,
+and a pin tapped in seller mode opens a tooltip naming that stand's sellers rather than selecting
+the stand. Contract and rules: SURFACES.md §the public map.
+
+**Verified:** 2318 unit tests green, typecheck and lint clean, six sabotages caught (the relation
+label, the count threshold, the pooled-line collapse, the tab switch, and both tooltip clamps).
+Driven in a real browser against the local database at ~500px: all four crossings work, every
+tooltip measured fully inside the island on all four edges with no content clipping, and the
+seller card's expanded body measured aligned with its name (47/47, was 47/81). **Not verified:**
+any width below 500px — Chrome would not resize smaller — and the item-credit crossing has no
+local seed data, so it is covered by unit tests only. `/sellers` still exists and still works, but
+nothing links to it and it now renders a weaker seller card than the map does.
+
 ## Deployment and migrations
 
 - Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0053` are all

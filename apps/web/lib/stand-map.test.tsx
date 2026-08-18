@@ -1960,7 +1960,7 @@ describe("browsing by seller without leaving the map", () => {
 
   it("expands a seller card in place, the way a stand card expands", async () => {
     const user = userEvent.setup();
-    renderMap();
+    const { container } = renderMap();
     await user.click(screen.getByRole("tab", { name: "View sellers" }));
 
     const toggle = screen.getByRole("button", { name: /fernhorn bakery/i });
@@ -1969,8 +1969,13 @@ describe("browsing by seller without leaving the map", () => {
     await user.click(toggle);
 
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    // The detail is what a seller HAS — where she sells, and what she usually carries.
-    expect(screen.getByText(/sourdough/i)).toBeInTheDocument();
+    // The detail is what a seller HAS — the stands she sells at, named, each with what she
+    // brings THERE. F-118 made those the card's payload rather than a sentence.
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    expect(within(card).getByText("Morgan Hill Stand")).toBeInTheDocument();
+    expect(within(card).getByText(/sourdough/i)).toBeInTheDocument();
   });
 
   it("carries the seller's own metadata, not a stand's", async () => {
@@ -1979,10 +1984,17 @@ describe("browsing by seller without leaving the map", () => {
     await user.click(screen.getByRole("tab", { name: "View sellers" }));
 
     const card = container.querySelector("ul.stands > li.stand")!;
-    // A seller has no pin, so she carries no pin number — the one piece of stand chrome that
-    // would be a lie on this card.
+    /*
+      A SELLER HAS NO PIN OF HER OWN, so the card's HEAD carries no pin number — the one piece
+      of stand chrome that would be a lie on it.
+
+      The numbers it does carry are the STANDS' — F-118's summary line, in the row below the
+      name — and they are hers only in the sense that they are where to find her. Scoped to the
+      head, because that is where a number would be the lie.
+    */
     expect(card.querySelector(".stand-number")).toBeNull();
-    expect(within(card as HTMLElement).getByText(/morgan hill stand/i)).toBeInTheDocument();
+    // Where she sells, as those stands' own pin numbers.
+    expect(card.querySelector(".seller-stand-pins")).toHaveTextContent("2");
   });
 
   /*
@@ -2029,7 +2041,12 @@ describe("browsing by seller without leaving the map", () => {
       "aria-expanded",
       "false",
     );
-    expect(within(card).getByText(/morgan hill stand/i)).toBeInTheDocument();
+    /*
+      WHERE, as the stands' own pin numbers rather than their names (F-118). Names are the
+      expanded card's rows, and printing both says the same thing twice on one card; a number
+      is also what ties this card to a pin without reading a name off two surfaces.
+    */
+    expect(card.querySelector(".seller-stand-pins")).toHaveTextContent("2");
     expect(within(card).getByText(/sourdough/i)).toBeInTheDocument();
   });
 
@@ -2072,5 +2089,520 @@ describe("browsing by seller without leaving the map", () => {
     );
     // Nothing to switch TO, so the seller half is absent rather than offering an empty list.
     expect(screen.queryByRole("tab", { name: "View sellers" })).toBeNull();
+  });
+});
+
+/*
+  F-118 — THE TWO LISTS BECOME ONE TWO-WAY VIEW.
+
+  Stands and sellers are many-to-many, and before this the relationship was legible from
+  neither side: a stand with three sellers looked like a stand with one until it was opened,
+  a seller at three stands named them in a sentence that went nowhere, and a pin tapped while
+  the seller list was showing selected a STAND — the other list's subject — so the map stopped
+  answering the question the customer was asking.
+
+  Every assertion below is about the RELATIONSHIP being both visible and followable. The graph
+  itself is `stand-seller-graph.test.ts`; these hold the surface to account for rendering it.
+*/
+describe("crossing between stands and sellers", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  /** A stand hosting two sellers besides its owner — the case a card must declare at rest. */
+  const busyStand: PublicStandPayload = {
+    id: "morgan-hill",
+    farmName: "Morgan Hill",
+    locationName: "Morgan Hill Stand",
+    visitability: "visitable",
+    offeringType: "produce",
+    address: "1 Morgan Hill Rd",
+    latitude: 47.44,
+    longitude: -122.46,
+    stale: false,
+    availability: {},
+    alsoSellingHere: ["Fernhorn Bakery", "Island Apiary"],
+    links: [],
+    paymentMethods: [],
+    items: [{ itemName: "Kale" }],
+    sellers: [
+      {
+        providerId: "p-morgan",
+        sellerId: "morgan",
+        sellerName: "Morgan Hill",
+        describesOwnStand: true,
+        openState: "open",
+        confirmedItems: [{ itemName: "Kale" }],
+        usualItems: [],
+      },
+      {
+        providerId: "p-fernhorn",
+        sellerId: "fernhorn",
+        sellerName: "Fernhorn Bakery",
+        describesOwnStand: false,
+        openState: "open",
+        confirmedItems: [],
+        usualItems: [{ itemName: "Sourdough" }],
+      },
+      {
+        providerId: "p-apiary",
+        sellerId: "apiary",
+        sellerName: "Island Apiary",
+        describesOwnStand: false,
+        openState: "open",
+        confirmedItems: [],
+        usualItems: [{ itemName: "Honey" }],
+      },
+    ],
+  };
+
+  /** A stand with only its owner — the case that must NOT gain a seller count. */
+  const soloStand: PublicStandPayload = {
+    ...busyStand,
+    id: "kelsey",
+    farmName: "Kelseys Farm",
+    locationName: "Kelseys Stand",
+    address: "2 Kelsey Rd",
+    latitude: 47.46,
+    longitude: -122.44,
+    alsoSellingHere: [],
+    items: [{ itemName: "Eggs" }],
+    sellers: [
+      {
+        providerId: "p-kelsey",
+        sellerId: "kelseys",
+        sellerName: "Kelseys Farm",
+        describesOwnStand: true,
+        openState: "open",
+        confirmedItems: [{ itemName: "Eggs" }],
+        usualItems: [],
+      },
+      {
+        providerId: "p-fernhorn-2",
+        sellerId: "fernhorn",
+        sellerName: "Fernhorn Bakery",
+        describesOwnStand: false,
+        openState: "open",
+        confirmedItems: [],
+        usualItems: [{ itemName: "Sourdough" }],
+      },
+    ],
+  };
+
+  /** Hosted-only, at TWO stands — the case with no pin of her own and two destinations. */
+  const fernhorn = {
+    sellerId: "fernhorn",
+    sellerName: "Fernhorn Bakery",
+    description: "A wood-fired bakery on the north end.",
+    ownsAStand: false,
+    sellingAt: [
+      {
+        salesLocationId: "morgan-hill",
+        locationName: "Morgan Hill Stand",
+        describesOwnStand: false,
+        usualItems: [{ itemName: "Sourdough" }, { itemName: "Baguettes" }],
+      },
+      {
+        salesLocationId: "kelsey",
+        locationName: "Kelseys Stand",
+        describesOwnStand: false,
+        usualItems: [{ itemName: "Sourdough" }],
+      },
+    ],
+  };
+
+  const kelseys = {
+    sellerId: "kelseys",
+    sellerName: "Kelseys Farm",
+    ownsAStand: true,
+    sellingAt: [
+      {
+        salesLocationId: "kelsey",
+        locationName: "Kelseys Stand",
+        describesOwnStand: true,
+        usualItems: [{ itemName: "Eggs" }],
+      },
+    ],
+  };
+
+  function renderMap() {
+    return render(
+      <StandMap stands={[busyStand, soloStand]} sellers={[fernhorn, kelseys]} />,
+    );
+  }
+
+  async function openSellers(user: ReturnType<typeof userEvent.setup>) {
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+  }
+
+  /*
+    A SELLER'S STANDS ARE DESTINATIONS, NOT A SENTENCE.
+
+    The card used to end on prose — "Selling at Morgan Hill Stand and Kelseys Stand" — which
+    names the answer and then leaves the customer to find it. A seller's stands ARE the answer
+    to her card's question, so they are rows carrying the stands' own pin numbers, and each is
+    a way to get there.
+  */
+  it("names a seller's stands as rows carrying the stands' own pin numbers", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+
+    const rows = card.querySelectorAll(".seller-stand-link");
+    expect(rows).toHaveLength(2);
+    // The numbers are the STANDS' own, from the same numbering the pins use — the numbering is
+    // alphabetical by farm name, so Kelseys Farm is 1 and Morgan Hill is 2.
+    const numbers = [...rows].map((row) => row.querySelector(".stand-number-ref")?.textContent);
+    expect(numbers).toEqual(["2", "1"]);
+  });
+
+  it("lists what she brings TO EACH STAND, rather than one pooled list", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+
+    const rows = [...card.querySelectorAll(".seller-stand-link")] as HTMLElement[];
+    // Two things at one stand, one at the other. A pooled list would claim both at both.
+    expect(rows[0]!.querySelector(".seller-stand-items")).toHaveTextContent("Baguettes");
+    expect(rows[1]!.querySelector(".seller-stand-items")).not.toHaveTextContent("Baguettes");
+  });
+
+  it("takes a tap on one of her stands to that stand's card", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+    await user.click(
+      within(card).getByRole("button", { name: /go to morgan hill stand/i }),
+    );
+
+    // The list is the stand list again, and the stand she sells at is the OPEN card on it —
+    // the whole point of the tap is to land on the thing, not near it.
+    expect(screen.getByRole("tab", { name: "View stands" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(
+      screen.getByRole("button", { name: "Morgan Hill Stand" }),
+    ).toHaveAttribute("aria-expanded", "true");
+  });
+
+  /*
+    THE MIRROR FACT, ON THE STAND CARD.
+
+    A stand carrying three sellers looked identical to a stand carrying one until it was
+    opened. "Three sellers here" is one of the strongest reasons to choose a stand, so the
+    card says it at rest — the same place the seller card says how many stands she sells at.
+  */
+  it("says how many sellers a stand carries, before it is opened", async () => {
+    const { container } = renderMap();
+
+    const cards = [...container.querySelectorAll("li.stand")] as HTMLElement[];
+    const busy = cards.find((card) => card.textContent?.includes("Morgan Hill Stand"))!;
+    const solo = cards.find((card) => card.textContent?.includes("Kelseys Stand"))!;
+
+    expect(busy.querySelector(".stand-seller-count")).toHaveTextContent("3 sellers");
+    // Two sellers is still more than one, so it says so too.
+    expect(solo.querySelector(".stand-seller-count")).toHaveTextContent("2 sellers");
+  });
+
+  it("says nothing about seller count for a stand carrying only its owner", () => {
+    // Badging the normal case adds noise to every card to say nothing — the rule the open-state
+    // badge already follows.
+    const alone: PublicStandPayload = {
+      ...soloStand,
+      sellers: [soloStand.sellers![0]!],
+    };
+    const { container } = render(<StandMap stands={[alone]} sellers={[kelseys]} />);
+
+    expect(container.querySelector(".stand-seller-count")).toBeNull();
+  });
+
+  /*
+    ONE NAME PER SELLER ON A STAND CARD, AND IT IS THE CROSSING.
+
+    The card names sellers in three places for three reasons, and before this they did not know
+    about each other:
+
+      the item credit    "Sourdough — Fernhorn Bakery", from the modelled `sellers`
+      the roster         a list of who sells here, also from `sellers`
+      `alsoSellingHere`  display strings a stand owner typed, retired as display-only history,
+                         with no identity and so no card to cross to
+
+    Rendering all three names most sellers twice and one of them un-crossably. So there is ONE
+    name per seller: the item credit IS the link, because it is already where the customer's eye
+    is. The roster names only the sellers no item credited — someone at the stand who has
+    published nothing — and the typed names appear only for a stand with no modelled sellers at
+    all, the one case they still answer anything.
+  */
+  it("makes the item credit itself the way to that seller's card", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+
+    const busy = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Morgan Hill Stand"),
+    )! as HTMLElement;
+    await user.click(within(busy).getByRole("button", { name: "Morgan Hill Stand" }));
+
+    // Named once on the whole card — as the credit beside the thing she brings.
+    expect(within(busy).getAllByText("Fernhorn Bakery")).toHaveLength(1);
+    // And that one name is the door.
+    expect(
+      within(busy).getByRole("button", { name: /go to fernhorn bakery/i }),
+    ).toBeInTheDocument();
+    // The typed-name fallback stays out of the way entirely.
+    expect(busy.querySelector(".stand-participants")).toBeNull();
+  });
+
+  it("names a seller who has published nothing, whom no item credits", async () => {
+    const user = userEvent.setup();
+    const quiet: PublicStandPayload = {
+      ...busyStand,
+      sellers: [
+        busyStand.sellers![0]!,
+        // At the stand, publishing nothing. No item can credit her, so without the roster she
+        // would be at a stand the card never mentions her at.
+        {
+          ...busyStand.sellers![1]!,
+          confirmedItems: [],
+          usualItems: [],
+        },
+      ],
+    };
+    const { container } = render(<StandMap stands={[quiet]} sellers={[fernhorn]} />);
+
+    await user.click(screen.getByRole("button", { name: "Morgan Hill Stand" }));
+
+    const roster = container.querySelector(".stand-sellers")!;
+    expect(within(roster as HTMLElement).getByText("Fernhorn Bakery")).toBeInTheDocument();
+    // The owner is already all over the card — its name, its items — so the roster does not
+    // repeat her.
+    expect(within(roster as HTMLElement).queryByText("Morgan Hill")).toBeNull();
+  });
+
+  /*
+    THE POOLED LIST IS THE COLLAPSED CARD'S ANSWER, AND ONLY ITS ANSWER.
+
+    Collapsed, "Usually sells: …" is her whole range — the answer to "what does she make".
+    Opened, the stand rows answer the same question better, per stand, which is what a customer
+    deciding where to drive needs. Both at once prints one seller's sourdough twice on one card,
+    word for word identical for a seller at a single stand.
+  */
+  it("drops the pooled item line once the per-stand rows answer better", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    expect(card.querySelector(".seller-browse-items")).toHaveTextContent("Sourdough");
+
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+
+    expect(card.querySelector(".seller-browse-items")).toBeNull();
+    // Not lost — restated per stand, which is the stronger form of the same fact.
+    expect(card.querySelectorAll(".seller-stand-items")).toHaveLength(2);
+  });
+
+  /*
+    THE RELATION LABEL EARNS ITS PLACE ONLY WHERE IT DISTINGUISHES.
+
+    "Their own stand" on a row exists to tell one row apart from another on a MIXED card — she
+    runs this one and is a guest at that one. On a card where every stand is the same kind, the
+    chip in the summary already said it once, and repeating it per row says nothing new while
+    adding a line to every row.
+  */
+  it("labels a row's relation only on a card that mixes own and guest stands", async () => {
+    const user = userEvent.setup();
+    const mixed = {
+      ...fernhorn,
+      ownsAStand: true,
+      sellingAt: [
+        { ...fernhorn.sellingAt[0]!, describesOwnStand: true },
+        fernhorn.sellingAt[1]!,
+      ],
+    };
+    const { container } = render(
+      <StandMap stands={[busyStand, soloStand]} sellers={[mixed, kelseys]} />,
+    );
+    await openSellers(user);
+
+    const cards = [...container.querySelectorAll("li.stand")] as HTMLElement[];
+    const mixedCard = cards.find((card) => card.textContent?.includes("Fernhorn"))!;
+    const uniformCard = cards.find((card) => card.textContent?.includes("Kelseys"))!;
+
+    // ONE AT A TIME. Choosing a seller lights her stands on the map, so only one card is ever
+    // open — opening the second is what closes the first.
+    await user.click(within(mixedCard).getByRole("button", { name: /fernhorn bakery/i }));
+    // Mixed: the label is the only thing telling the two rows apart.
+    expect(mixedCard.querySelectorAll(".seller-stand-relation")).toHaveLength(1);
+
+    await user.click(within(uniformCard).getByRole("button", { name: /kelseys farm/i }));
+    // Uniform: the "Own stand" chip above already said it.
+    expect(uniformCard.querySelectorAll(".seller-stand-relation")).toHaveLength(0);
+  });
+
+  /*
+    THE EXPANDED BODY LINES UP WITH THE NAME ABOVE IT.
+
+    `.stand-details` carries a 2.1rem left margin that aligns a STAND's expanded body under its
+    name, clearing the pin number in the gutter beside it. A seller card has no pin number —
+    `.stand-head-no-pin` reclaims that column — so the same indent pushed her whole detail right
+    of the name it belongs to. Measured in a browser at 500px before the fix: heading at 47,
+    detail at 81.
+
+    Asserted as the CLASS the stylesheet keys off, because jsdom computes no layout. What it
+    produces is a geometry question, and it was answered by measuring the running page.
+  */
+  it("marks a pinless card so its expanded body is not indented past its name", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const card = container.querySelector("ul.stands > li.stand")!;
+    expect(card).toHaveClass("stand-no-pin");
+    // The body the rule targets is inside that card, so the selector can reach it.
+    expect(card.querySelector(".stand-details")).not.toBeNull();
+  });
+
+  it("falls back to the typed names for a stand with no modelled sellers", async () => {
+    const user = userEvent.setup();
+    const legacy: PublicStandPayload = {
+      ...busyStand,
+      sellers: undefined,
+      alsoSellingHere: ["Island Apiary"],
+    };
+    const { container } = render(<StandMap stands={[legacy]} sellers={[kelseys]} />);
+
+    await user.click(screen.getByRole("button", { name: "Morgan Hill Stand" }));
+
+    // Still named — a stand whose sellers were never modelled must not go silent about them.
+    expect(container.querySelector(".stand-participants")).toHaveTextContent("Island Apiary");
+    // But not as a link, because there is no seller record to cross to.
+    expect(screen.queryByRole("button", { name: /go to island apiary/i })).toBeNull();
+  });
+
+  it("takes a tap on a seller named at a stand to that seller's card", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+
+    const busy = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Morgan Hill Stand"),
+    )! as HTMLElement;
+    await user.click(within(busy).getByRole("button", { name: "Morgan Hill Stand" }));
+    await user.click(
+      within(busy).getByRole("button", { name: /go to fernhorn bakery/i }),
+    );
+
+    expect(screen.getByRole("tab", { name: "View sellers" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    expect(screen.getByRole("button", { name: "Fernhorn Bakery" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  /*
+    THE MAP ANSWERS THE QUESTION THE LIST IS ASKING.
+
+    In seller mode a pin tap used to select a STAND and open the stand card — the other list's
+    subject, on a list showing sellers. A customer looking at sellers who taps a pin is asking
+    "who sells HERE", so the pin answers with that stand's sellers, and each is a way into the
+    list they are already reading.
+  */
+  it("opens a tooltip naming a stand's sellers when a pin is tapped in seller mode", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    await user.click(container.querySelector("[data-stand-id='morgan-hill']")!);
+
+    const tip = container.querySelector(".marker-tip")!;
+    expect(tip).toBeInTheDocument();
+    expect(within(tip as HTMLElement).getByText("Morgan Hill Stand")).toBeInTheDocument();
+    expect(within(tip as HTMLElement).getAllByRole("button", { name: /^Fernhorn Bakery$/ }))
+      .toHaveLength(1);
+    expect(within(tip as HTMLElement).getByText("Island Apiary")).toBeInTheDocument();
+  });
+
+  it("does not open the stand sheet from a pin while sellers are showing", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    await user.click(container.querySelector("[data-stand-id='morgan-hill']")!);
+
+    // The sheet is the STAND list's answer. Raising it over a seller list swaps the subject
+    // under the customer, which is what this whole mode exists to stop.
+    expect(container.querySelector(".sheet")).toBeNull();
+  });
+
+  it("expands a seller in the list when their name is tapped in the tooltip", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+    await user.click(container.querySelector("[data-stand-id='morgan-hill']")!);
+
+    const tip = container.querySelector(".marker-tip")! as HTMLElement;
+    await user.click(within(tip).getByRole("button", { name: /^Fernhorn Bakery$/ }));
+
+    // Selected AND expanded — the same thing a single pin tap does to a stand card.
+    expect(screen.getByRole("button", { name: "Fernhorn Bakery" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    // And her stands are lit, exactly as choosing her from the list would light them.
+    expect(container.querySelectorAll("[data-seller-highlighted='true']")).toHaveLength(2);
+  });
+
+  it("still selects the stand from a pin while stands are showing", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+
+    await user.click(container.querySelector("[data-stand-id='morgan-hill']")!);
+
+    // The stand list's own behavior is untouched: no tooltip, and the card opens.
+    expect(container.querySelector(".marker-tip")).toBeNull();
+    expect(screen.getByRole("button", { name: "Morgan Hill Stand" })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+  });
+
+  it("closes the tooltip when the seller list is left", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+    await user.click(container.querySelector("[data-stand-id='morgan-hill']")!);
+    expect(container.querySelector(".marker-tip")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "View stands" }));
+
+    // A tooltip left over the map would name sellers for a list nobody is reading.
+    expect(container.querySelector(".marker-tip")).toBeNull();
   });
 });
