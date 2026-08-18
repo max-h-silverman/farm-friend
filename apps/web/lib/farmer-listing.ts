@@ -424,6 +424,13 @@ export interface ParsedListingSubmission {
    */
   currentStock: { itemName: string; priceText?: string }[] | null;
   /**
+   * A stand she also sells at (F-117). `null` means she named none.
+   *
+   * Beside the listing rather than inside it, for the same reason `currentStock` is: it is not
+   * a listing fact. The listing describes HER place; this is an arrangement at somebody else's.
+   */
+  hostStandId: string | null;
+  /**
    * F-097 — how often the farmer asked to be reminded. `null` means they said nothing.
    *
    * Beside the listing for the same reason `currentStock` is: it is not a listing fact. It is
@@ -457,6 +464,9 @@ function promptCadence(
  *
  * Returns `null` for a malformed body, which every caller answers as `invalid_request`.
  */
+/** The id shape the picker sends. Same expression as the settings boundary's. */
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
 export function parseListingSubmission(
   body: Record<string, unknown>,
 ): ParsedListingSubmission | null {
@@ -507,6 +517,12 @@ export function parseListingSubmission(
   return {
     currentStock,
     promptCadence: cadence,
+    // A UUID or nothing. Anything else is not a stand she could have picked — the form sends an
+    // id from the server's own list — and the writer skips a stand that does not qualify.
+    hostStandId:
+      typeof body.hostStandId === "string" && UUID_RE.test(body.hostStandId)
+        ? body.hostStandId
+        : null,
     standName,
     listing: {
       visitability,
@@ -634,6 +650,9 @@ export async function handleFarmerListingPost(
     // still gets a listing titled the thing their invitation named.
     standName: submission.standName ?? invitation.farmName ?? "",
     listing: submission.listing,
+    // F-117 — written in the writer's own transaction, beside her stand. It needs no
+    // authorization, so unlike the pending stock and cadence below it does not wait on `START`.
+    hostStandId: submission.hostStandId,
     occurredAt: deps.clock.now(),
   });
 

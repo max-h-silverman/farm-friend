@@ -1009,4 +1009,42 @@ describe("farmer onboarding listing endpoint", () => {
       expect(await response.text()).not.toContain("2065550143");
     });
   });
+
+  it("passes the chosen host stand to the writer, and null when she chose none", async () => {
+    /*
+      F-117. The arrangement is written in the SAME transaction as her own stand — it needs no
+      authorization, because `stand_providers` names a seller and the invitation already names
+      her farm. That is why it does not wait on `START` the way pending stock and cadence do.
+
+      Both directions asserted: an id when she picked one, and `null` when she did not. A
+      boundary that defaulted the field would attach every onboarding farmer to some stand.
+    */
+    const save = saver();
+    await handleFarmerListingPost(
+      deps(loader(), save),
+      post({ ...LISTING, token: TOKEN, hostStandId: "22222222-2222-4222-8222-222222222222" }),
+    );
+    expect(save.mock.calls[0]?.[1]).toMatchObject({
+      hostStandId: "22222222-2222-4222-8222-222222222222",
+    });
+
+    const withoutHost = saver();
+    await handleFarmerListingPost(
+      deps(loader(), withoutHost),
+      post({ ...LISTING, token: TOKEN }),
+    );
+    expect(withoutHost.mock.calls[0]?.[1]).toMatchObject({ hostStandId: null });
+  });
+
+  it("ignores a host stand that is not an id, rather than passing it on", async () => {
+    // The form sends an id from the server's own list, so anything else is not a stand she
+    // could have picked. Dropped here rather than handed to the writer to puzzle over.
+    const save = saver();
+    await handleFarmerListingPost(
+      deps(loader(), save),
+      post({ ...LISTING, token: TOKEN, hostStandId: "Kelseys Stand" }),
+    );
+    expect(save.mock.calls[0]?.[1]).toMatchObject({ hostStandId: null });
+  });
+
 });

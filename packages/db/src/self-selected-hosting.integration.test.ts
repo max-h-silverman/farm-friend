@@ -4,7 +4,11 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { selfSelectHostStand, setProviderParticipation } from "./index";
+import {
+  saveOnboardingListing,
+  selfSelectHostStand,
+  setProviderParticipation,
+} from "./index";
 import type { Db } from "./index";
 import type { Sql } from "./sql";
 
@@ -209,6 +213,91 @@ describe("F-117 a seller self-selects a host stand (integration)", () => {
       occurredAt: T0,
     });
     expect(ownStand.status).toBe("own_stand");
+  });
+
+  it("is written by ONBOARDING itself, in the transaction that creates her own stand", async () => {
+    /*
+      THE SIMPLE PATH, and a correction to this item's first reading.
+
+      I had assumed the arrangement could not be written at form time — that it needed holding
+      on the invitation until `START`, like `pendingStock` and `pendingPromptCadence` do. That
+      is wrong, and the difference matters: those two wait because they need an AUTHORIZATION
+      (a dated confirmation needs somebody to stand behind it; a reminder preference needs a
+      recipient). `stand_providers` needs only a `seller_id`, and the seller already exists when
+      the form is submitted — the invitation names her farm, and onboarding writes her own
+      stand's provider row in this very transaction.
+
+      So no migration, no pending column, and no change to the redemption path. She is listed at
+      the host stand the moment she submits, which is also what max asked for: live immediately.
+    */
+    const result = await saveOnboardingListing(handle(), {
+      farmId: guestSellerId,
+      standName: "Gracies Greens Stand",
+      listing: {
+        visitability: "contact_only",
+        offeringType: "produce",
+        publicAddress: null,
+        addressPublic: true,
+        pricesPublic: false,
+        latitude: null,
+        longitude: null,
+        hoursText: null,
+        paymentMethods: [],
+        items: [],
+      },
+      hostStandId: hostStandId,
+      occurredAt: T0,
+    });
+    expect(result.status).toBe("saved");
+
+    const hosted = await client()`
+      select id, lifecycle_state, approval_source from stand_providers
+      where sales_location_id = ${hostStandId} and seller_id = ${guestSellerId}
+    `;
+    expect(hosted).toHaveLength(1);
+    expect(hosted[0]?.lifecycle_state).toBe("active");
+    expect(hosted[0]?.approval_source).toBe("seller");
+
+    // Her OWN stand still exists beside it — the two arrangements are independent facts, which
+    // is the whole reason this is not a third `visitability` value.
+    if (result.status !== "saved") throw new Error("expected saved");
+    const own = await client()`
+      select id from stand_providers
+      where sales_location_id = ${result.salesLocationId} and seller_id = ${guestSellerId}
+    `;
+    expect(own).toHaveLength(1);
+  });
+
+  it("saves the listing even when the host stand is bad, rather than losing her whole form", async () => {
+    /*
+      The arrangement is a SECONDARY fact. A farmer who picked a stand that was retired between
+      loading the form and submitting it must still get her own listing — losing an entire
+      onboarding form over the optional half of one question is a far worse failure than a
+      missing arrangement she can add later from her settings screen.
+    */
+    const result = await saveOnboardingListing(handle(), {
+      farmId: guestSellerId,
+      standName: "Gracies Greens Stand",
+      listing: {
+        visitability: "contact_only",
+        offeringType: "produce",
+        publicAddress: null,
+        addressPublic: true,
+        pricesPublic: false,
+        latitude: null,
+        longitude: null,
+        hoursText: null,
+        paymentMethods: [],
+        items: [],
+      },
+      hostStandId: randomUUID(),
+      occurredAt: T0,
+    });
+    expect(result.status).toBe("saved");
+    // Nothing dangling was written for the stand that does not exist.
+    expect(await client()`
+      select id from stand_providers where seller_id = ${guestSellerId}
+    `).toHaveLength(1);
   });
 
   it("refuses an unknown seller or stand rather than writing a dangling row", async () => {

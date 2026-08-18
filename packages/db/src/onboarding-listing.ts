@@ -191,6 +191,19 @@ export interface SaveOnboardingListingInput {
    * farmer texts JOIN — and those seed no schedule rather than inventing a recipient.
    */
   authorizationId?: string | null;
+  /**
+   * A stand she also sells at, chosen from the picker (F-117).
+   *
+   * Written in THIS transaction, beside her own stand's provider row. It needs no authorization
+   * — `stand_providers` names a SELLER, and the seller exists the moment the invitation names
+   * her farm — which is why it does not wait on the invitation the way `pendingStock` and
+   * `pendingPromptCadence` do. Those two wait because a dated confirmation needs somebody to
+   * stand behind it and a reminder needs a recipient; an arrangement needs neither.
+   *
+   * **Secondary to the listing.** A stand that vanished between loading the form and submitting
+   * it must not cost the farmer her whole onboarding — see the write below.
+   */
+  hostStandId?: string | null;
   occurredAt: Date;
 }
 
@@ -353,6 +366,36 @@ export async function saveOnboardingListing(
 
     await writePaymentMethods(tx, salesLocationId, listing.paymentMethods);
     await writeStandingItems(tx, salesLocationId, listing.items);
+
+    /*
+      F-117 — the stand she also sells at, if she named one.
+
+      **Deliberately not fatal.** The arrangement is a secondary fact about a listing that is
+      otherwise complete, and the realistic failure is a stand retired between the form loading
+      and her pressing Submit. Losing an entire onboarding form over the optional half of one
+      question is a far worse outcome than a missing arrangement she can add later from her own
+      settings screen — so a stand that no longer qualifies is skipped, not raised.
+
+      `on conflict do nothing` for the same reason it guards her native row above: a resubmitted
+      form must not fail, and the partial unique index is the arbiter.
+    */
+    if (input.hostStandId != null && input.hostStandId !== salesLocationId) {
+      await tx`
+        insert into stand_providers (
+          sales_location_id, seller_id, lifecycle_state,
+          invited_at, accepted_at, approval_source, approved_at
+        )
+        select ${input.hostStandId}, ${input.farmId}, 'active',
+               ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()},
+               'seller', ${input.occurredAt.toISOString()}
+        where exists (
+          select 1 from sales_locations
+          where id = ${input.hostStandId}
+            and own_seller_id is distinct from ${input.farmId}
+        )
+        on conflict (sales_location_id, seller_id) where ended_at is null do nothing
+      `;
+    }
     await seedDefaultPromptPreference(tx, {
       salesLocationId,
       farmId: input.farmId,

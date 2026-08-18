@@ -339,7 +339,7 @@ export const standProviderLifecycle = pgEnum("stand_provider_lifecycle", [
  *
  * **`seller` — nobody vouched; she put herself there** (F-117, max 2026-08-17). A farmer
  * onboarding on her own may say she sells at someone else's stand, and that flow has no VIGA
- * step by design: the whole point is keeping the volunteer out of it. She is live immediately
+ * step by design: the whole point is that VIGA does no work for it. She is live immediately
  * and the host is asked afterwards, so at the moment the row is written neither existing value
  * is true — `viga` would make her indistinguishable from a seller VIGA actually approved, and
  * `host` requires a vouching authorization that does not exist yet.
