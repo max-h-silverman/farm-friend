@@ -565,6 +565,7 @@ export function ListingStep({
   description: initialDescription,
   smsNumber,
   mapUrl,
+  hostStandChoices = [],
 }: {
   credential: ListingCredential;
   farmName: string;
@@ -600,6 +601,17 @@ export function ListingStep({
    * already set up).
    */
   smsNumber?: string;
+  /**
+   * The stands she may say she sells at (F-117), from `listHostStandChoices`.
+   *
+   * **A picker, never free text** (max, 2026-08-17): a typed name would be ambiguous about
+   * which stand was meant and would make the host Farm Friend then texts a guess. Picking a
+   * real stand makes the host unambiguous.
+   *
+   * Empty or absent asks the question at all — an island with no stands to pick is a question
+   * with no answers, and asking it would invite a farmer to tick something she cannot finish.
+   */
+  hostStandChoices?: { standId: string; name: string }[];
 }) {
   // A stored payment method is either one of the offered checkboxes or something the farmer
   // typed. Split on the closed set so an edit shows "Venmo" ticked rather than as free text —
@@ -622,6 +634,17 @@ export function ListingStep({
   */
   const [editedFarmName, setEditedFarmName] = useState(farmName);
   const canRenameFarm = credential.kind === "stand_link";
+  /*
+    F-117 — WHETHER SHE ALSO SELLS AT SOMEBODY ELSE'S STAND.
+
+    Deliberately NOT a third `visitability` value. That column says whether THIS stand can be
+    visited — one fact about a place — and whether she also sells elsewhere is a fact about an
+    ARRANGEMENT. The three answers a farmer wants (own stand, someone else's, or both) are the
+    crossing of two independent questions, which is why these are two pieces of state.
+  */
+  const [sellsAtHostStand, setSellsAtHostStand] = useState(false);
+  const [hostStandId, setHostStandId] = useState("");
+
   const [visitability, setVisitability] = useState<
     "visitable" | "contact_only" | null
   >(defaults?.visitability ?? null);
@@ -1166,7 +1189,11 @@ export function ListingStep({
     standName.trim() !== "" &&
     visitability !== null &&
     address.trim() !== "" &&
-    pin !== null;
+    pin !== null &&
+    // F-117 — a ticked box with no stand chosen is half an answer: she said she sells somewhere
+    // else and named nowhere, so the host Farm Friend would text is nobody. It gates Submit for
+    // the same reason the SMS agreement does — the alternative is discoverable only by absence.
+    !(sellsAtHostStand && hostStandId === "");
   const contactDetailsReady =
     // The phone is what ties the handset to the farm, so an invited farmer without a usable one
     // has no way to finish. Blocking here beats publishing a listing they cannot complete.
@@ -1191,6 +1218,11 @@ export function ListingStep({
         : []),
     ...(visitability === null
       ? [completionIssue("farm", "Choose whether people can visit your stand.")]
+      : []),
+    // F-117 — she said she sells somewhere else and named nowhere, so the host we would text
+    // is nobody. Half an answer is exactly the mis-pick the confirmation exists to catch.
+    ...(sellsAtHostStand && hostStandId === ""
+      ? [completionIssue("farm", "Choose the stand where you sell.")]
       : []),
     ...(asksForPhone && !phoneLooksReal(phone)
       ? [completionIssue("contact", "Enter a valid phone number.")]
@@ -1261,6 +1293,11 @@ export function ListingStep({
           // be conditional because the database refused an address on a farm with no stand;
           // that is what changed. `visitability` still travels beside it and is what decides
           // the marker, the "no stand to visit" line, and whether directions are offered.
+          // F-117 — sent only when she said she sells somewhere else AND picked where. Always
+          // sending it would attach every onboarding farmer to whichever stand was first.
+          ...(sellsAtHostStand && hostStandId !== ""
+            ? { hostStandId }
+            : {}),
           publicAddress: address,
           // F-088 — sent with the address it governs. Always sent, never conditional on being
           // false: the writer sets this column on every save, so omitting it would reset a
@@ -1906,6 +1943,61 @@ export function ListingStep({
           <span>No — I deliver, or coordinate with people</span>
         </label>
       </fieldset>
+
+      {/*
+        F-117 — SELLING AT SOMEBODY ELSE'S STAND.
+
+        Its own question, directly under the one it is independent of. A farmer may have her own
+        stand AND sell at another; before this she could say neither honestly and either claimed
+        a stand that was not hers or picked "no stand" and vanished from the map.
+
+        Asked only when there are stands to pick. An empty island list is a question with no
+        answers, and offering it would invite a farmer to tick something she cannot finish.
+      */}
+      {hostStandChoices.length > 0 && (
+        <fieldset className="farmer-listing-branch">
+          <legend>Do you also sell at someone else&apos;s farm stand?</legend>
+          <label className="farmer-listing-choice">
+            <input
+              type="checkbox"
+              checked={sellsAtHostStand}
+              onChange={(event) => {
+                setSellsAtHostStand(event.target.checked);
+                // Clearing the pick with the answer, so an unticked box cannot leave a stand id
+                // behind for the payload to carry.
+                if (!event.target.checked) setHostStandId("");
+              }}
+            />
+            <span>Yes — I sell at someone else&apos;s stand</span>
+          </label>
+
+          {sellsAtHostStand && (
+            <>
+              <label htmlFor="host-stand">Which stand?</label>
+              {/*
+                A SELECT of real stands. Free text would make the host we then text a guess, and
+                this flow's whole safeguard is that the host is unambiguous.
+              */}
+              <select
+                id="host-stand"
+                value={hostStandId}
+                onChange={(event) => setHostStandId(event.target.value)}
+              >
+                <option value="">Choose a stand</option>
+                {hostStandChoices.map((choice) => (
+                  <option key={choice.standId} value={choice.standId}>
+                    {choice.name}
+                  </option>
+                ))}
+              </select>
+              <p className="farmer-listing-note">
+                We will text the person who runs that stand to let them know. You are listed
+                there straight away.
+              </p>
+            </>
+          )}
+        </fieldset>
+      )}
 
       </fieldset>
 
