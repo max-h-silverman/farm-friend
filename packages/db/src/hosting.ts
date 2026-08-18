@@ -78,6 +78,93 @@ export type InviteSellerToStandResult =
   | { status: "not_authorized" }
   | { status: "already_selling_here" };
 
+export type SelfSelectHostStandResult =
+  | { status: "selling"; providerId: string }
+  | { status: "unknown_stand" }
+  | { status: "unknown_seller" }
+  /** The stand she picked is her own. The native arrangement already exists. */
+  | { status: "own_stand" }
+  | { status: "already_selling_here" };
+
+/**
+ * A seller onboarding on her own says she sells at somebody else's stand (F-117).
+ *
+ * **The inverse of `inviteSellerToStand`, and deliberately not a flag on it.** That path starts
+ * with a HOST offering a place and ends with the seller accepting, so it writes `pending` and
+ * mints a link. Here the seller is the one acting and is already present, so there is nobody to
+ * invite and nothing to accept later — the arrangement is complete at the moment she submits.
+ * One function with a direction flag would have two disjoint halves and a name that lied about
+ * one of them.
+ *
+ * **She is live immediately** (max, 2026-08-17). Weighing an unconfirmed listing against making
+ * her wait on a host who may never reply, max chose live: *"i really don't imagine any fraud
+ * here."* The realistic error is a mis-picked stand, and the host confirmation catches that.
+ *
+ * **No VIGA approval anywhere** — keeping the volunteer out of it is the whole point — and
+ * `approval_source = 'seller'` records exactly that. See the enum: `viga` would make her
+ * indistinguishable from a seller VIGA approved, and `host` names a vouching authorization that
+ * does not exist until the host answers.
+ *
+ * **The same `stand_providers` shape F-114 built**, so every liveness predicate, targeting arm
+ * and participation control already reaches her. A second mechanism would be a second thing to
+ * teach each of them, and the one that gets forgotten.
+ */
+export async function selfSelectHostStand(
+  db: Db,
+  input: { sellerId: string; salesLocationId: string; occurredAt: Date },
+): Promise<SelfSelectHostStandResult> {
+  return driver(db).begin(async (tx) => {
+    const sellers = await tx`
+      select id from sellers where id = ${input.sellerId} for update
+    `;
+    if (sellers.length === 0) return { status: "unknown_seller" as const };
+
+    const stands = await tx`
+      select id, own_seller_id from sales_locations
+      where id = ${input.salesLocationId}
+      for update
+    `;
+    const stand = stands[0] as Record<string, unknown> | undefined;
+    if (stand === undefined) return { status: "unknown_stand" as const };
+
+    // Her own stand is not a host stand. Picking it is a mis-pick, and the arrangement it would
+    // describe is the native one onboarding already wrote.
+    if (stand.own_seller_id === input.sellerId) return { status: "own_stand" as const };
+
+    /*
+      The partial unique index is the arbiter, exactly as it is for an invitation: `for update`
+      cannot serialize a row that does not exist yet, so a double-tapped submit is resolved by
+      the index rather than by a preceding read. An empty result means the other one won.
+
+      `where ended_at is null` names the index's own predicate — `0051` made it partial so a
+      seller who left can come back, and an `on conflict` target omitting the predicate matches
+      no index at all.
+    */
+    const providers = await tx`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (
+        ${input.salesLocationId}, ${input.sellerId}, 'active',
+        ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()},
+        'seller', ${input.occurredAt.toISOString()}
+      )
+      on conflict (sales_location_id, seller_id) where ended_at is null do nothing
+      returning id
+    `;
+    const providerId = providers[0]?.id as string | undefined;
+    if (providerId === undefined) return { status: "already_selling_here" as const };
+
+    await tx`
+      insert into audit_events (action, actor_contact_hash, subject_type, subject_id, occurred_at)
+      values ('stand_provider_self_selected', null, 'stand_provider', ${providerId},
+        ${input.occurredAt.toISOString()})
+    `;
+
+    return { status: "selling" as const, providerId };
+  });
+}
+
 export interface InviteSellerToStandInput {
   salesLocationId: string;
   /** An existing seller. Mutually exclusive with `newSellerName`. */

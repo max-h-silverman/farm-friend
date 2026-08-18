@@ -365,6 +365,13 @@
       "when": 1788150417000,
       "tag": "0051_reinvitation_after_ending",
       "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1788150418000,
+      "tag": "0052_self_selected_hosting",
+      "breakpoints": true
     }
   ]
 }
