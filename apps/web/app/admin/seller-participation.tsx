@@ -36,7 +36,7 @@ export interface ParticipationRow {
   sellerId: string;
   sellerName: string;
   lifecycleState: "active" | "paused";
-  /** This seller owns the stand. Presentation only — see `standFraming` below. */
+  /** This seller owns the stand. Presentation only — see `soloNativeRow` below. */
   nativeSeller: boolean;
   ended: boolean;
 }
@@ -55,30 +55,42 @@ function subjectOf(view: View, row: ParticipationRow): string {
 }
 
 /**
- * THE ADAPTING LABEL (max, 2026-08-17).
+ * Does this row need to name a subject? (max, 2026-08-17; renamed for B-084.)
  *
- * On a stand whose only arrangement is its own seller's, pausing takes the stand's goods off
- * the map — so the toggle says so, because on that stand that is its true effect. It is a
- * presentation rule and nothing more: the control is still that provider's participation, and
- * **no stand-level closed state exists**.
+ * On a stand whose only arrangement is its own seller's, the seller and the stand are the same
+ * entity — "Misty Hollow Farm — selling here" on Misty Hollow Farm's own card is a tautology,
+ * so the solo native row drops the name and says the state alone.
  *
- * The condition is `rows.length === 1 && nativeSeller`, and the second half is what keeps it
- * honest. A stand with a paused native seller and a live guest is NOT closed — its guest is
- * still selling there — and a label saying otherwise is a lie a volunteer would act on. That
- * is the failure this rule exists to prevent, so the framing is computed from the whole set
- * rather than from the row.
+ * The condition is `rows.length === 1 && nativeSeller`, computed from the WHOLE SET rather than
+ * from the row: a stand with a paused native seller and a live guest still has two arrangements
+ * to tell apart, so both keep their names.
  *
- * The seller view never borrows it: there the subject is always the arrangement.
+ * The seller view never borrows it: there the subject is always the stand.
  */
-function standFraming(view: View, rows: ParticipationRow[]): boolean {
+function soloNativeRow(view: View, rows: ParticipationRow[]): boolean {
   return view === "stand" && rows.length === 1 && rows[0]?.nativeSeller === true;
 }
 
-function toggleLabel(view: View, row: ParticipationRow, framing: boolean): string {
-  if (framing) {
-    return row.lifecycleState === "active" ? "Stand is open" : "Stand is closed";
-  }
-  return `${subjectOf(view, row)} — ${row.lifecycleState === "active" ? "selling" : "paused"}`;
+/**
+ * What the control says, and the fact it deliberately does NOT say (B-084).
+ *
+ * This is the ARRANGEMENT: whether this seller is still selling at this stand. It is not
+ * whether a customer can buy there today — that is the stand card's header, computed from
+ * season, hours and any closure, and it is the only thing that computes it.
+ *
+ * The two used to be conflated. A solo native row read "Stand is open" off `lifecycleState`,
+ * which produced a card contradicting itself in production: Lavender Hill Farm showed
+ * "Not open — out of season" beside "Stand is open", because her season ended on 8/1 while her
+ * arrangement was still active. Both facts were true and the labelling made them look like a
+ * conflict a volunteer would try to resolve.
+ *
+ * **`Paused`, not "not active".** A paused arrangement is reversible and still reachable — she
+ * keeps her reminders and re-opens by texting an update (`reachableProviders`) — where an ended
+ * one is terminal and removes the row. The operator acts on that difference.
+ */
+function toggleLabel(view: View, row: ParticipationRow, solo: boolean): string {
+  const state = row.lifecycleState === "active" ? "Selling here" : "Paused";
+  return solo ? state : `${subjectOf(view, row)} — ${state.toLowerCase()}`;
 }
 
 /** What a refusal means in the operator's terms, never the seam's vocabulary. */
@@ -122,7 +134,7 @@ export function SellerParticipation({
    */
   const [note, setNote] = useState<Record<string, string>>({});
 
-  const framing = standFraming(view, live);
+  const solo = soloNativeRow(view, live);
 
   async function send(row: ParticipationRow, transition: "pause" | "resume" | "end") {
     setBusy(row.providerId);
@@ -172,7 +184,7 @@ export function SellerParticipation({
   function renderRow(row: ParticipationRow) {
     const paused = row.lifecycleState === "paused";
     const subject = subjectOf(view, row);
-    const label = toggleLabel(view, row, framing);
+    const label = toggleLabel(view, row, solo);
     return (
       <div className="admin-participation-row" key={row.providerId}>
         <div className="admin-participation-line">
@@ -206,8 +218,8 @@ export function SellerParticipation({
             }}
           >
             <span className="admin-participation-dot" aria-hidden="true" />
-            <span className="admin-participation-subject">{framing ? label : subject}</span>
-            {!framing && (
+            <span className="admin-participation-subject">{solo ? label : subject}</span>
+            {!solo && (
               <span className="admin-chip admin-chip--state" aria-hidden="true">
                 {paused ? "Paused" : "Selling"}
               </span>
@@ -241,19 +253,20 @@ export function SellerParticipation({
 
         {confirming?.providerId === row.providerId && confirming.kind === "pause" && (
           /*
-            The question NAMES THE ACT THE OPERATOR PRESSED. On a solo native-seller stand the
-            toggle reads as the stand being open or closed, so the question says "close this
-            stand" — asking about the seller under a control labelled "Stand is open" would
-            name a different act from the one that was tapped.
+            The question NAMES THE ACT THE OPERATOR PRESSED. Both arms say PAUSE, because that
+            is what the toggle says in both cases since B-084 — a question offering to "close
+            the stand" under a control reading "Selling here" would name a different act from
+            the one that was tapped, and would re-assert the open-now claim the label just
+            dropped. What differs is only whether the arrangement needs naming.
           */
           <div
             className="admin-confirm"
             role="group"
-            aria-label={framing ? `Close ${row.standName}` : `Pause ${subject}`}
+            aria-label={solo ? `Pause ${row.standName}` : `Pause ${subject}`}
           >
             <p>
-              {framing
-                ? `Close ${row.standName}? Customers stop seeing what it has until you open it again.`
+              {solo
+                ? `Pause ${row.standName}? Customers stop seeing what it has until you resume it.`
                 : `Pause ${subject}? Their goods stop showing on the map until you resume them.`}
             </p>
             <div className="admin-confirm-actions">
@@ -263,14 +276,14 @@ export function SellerParticipation({
                 disabled={busy === row.providerId}
                 onClick={() => void send(row, "pause")}
               >
-                {framing ? "Close the stand" : "Pause"}
+                Pause
               </button>
               <button
                 type="button"
                 className="admin-action-secondary"
                 onClick={() => setConfirming(null)}
               >
-                {framing ? "Keep it open" : "Keep selling"}
+                Keep selling
               </button>
             </div>
           </div>
