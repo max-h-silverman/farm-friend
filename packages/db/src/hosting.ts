@@ -6,6 +6,7 @@ import {
 } from "@farm-friend/core";
 import type { Db } from "./index";
 import { invalidateProviderWork } from "./provider-invalidation";
+import { visibleFarms } from "./test-farms";
 import { PROVIDER_SELLER_ARM } from "./provider-write-authority";
 import type { Sql, Tx } from "./sql";
 
@@ -77,6 +78,49 @@ export type InviteSellerToStandResult =
   | { status: "invalid_issuer" }
   | { status: "not_authorized" }
   | { status: "already_selling_here" };
+
+export interface HostStandChoice {
+  standId: string;
+  name: string;
+}
+
+/**
+ * The stands a self-selecting seller may pick from (F-117).
+ *
+ * max settled that the host stand comes from an autocomplete of EXISTING stands, never free
+ * text: a typed name would be ambiguous about which stand was meant and would make the host we
+ * then text a guess. Picking a real stand makes the host unambiguous.
+ *
+ * **A name and an id, and nothing else.** `listPublicStands` builds the whole map — inventory,
+ * closures, availability, payment methods, per-provider facts — and running it to fill a
+ * dropdown would put all of that behind a keystroke, on a surface that needs neither.
+ *
+ * **The same visibility rule the map uses**, composed from `visibleFarms` rather than restated.
+ * This list is shown to a stranger part-way through onboarding, so a retired stand, an unlisted
+ * one or a test farm appearing here would be a disclosure through a form nobody authenticates
+ * to reach — and would let a seller attach herself to a stand the public cannot see.
+ *
+ * Test farms are never included: the deliberate-viewer escape hatches (`?hidden=true`, a listed
+ * sender hash) are about SEEING fake stands, and neither is a reason to sell at one.
+ */
+export async function listHostStandChoices(db: Db): Promise<HostStandChoice[]> {
+  const rows = await driver(db).unsafe(`
+    select location.id as stand_id, location.name as stand_name
+    from sales_locations as location
+    -- LEFT join: a VENUE has no seller of its own (Morgan Hill), and it is exactly the kind of
+    -- place a self-selecting seller sells at. An inner join would silently drop the strongest
+    -- case for this whole flow. The farm rule is asked only where there is a farm to ask about.
+    left join sellers as farm on farm.id = location.own_seller_id
+    where location.is_public
+      and location.retired_at is null
+      and (farm.id is null or ${visibleFarms("farm", false)})
+    order by lower(location.name), location.id
+  `);
+  return rows.map((row) => ({
+    standId: row.stand_id as string,
+    name: row.stand_name as string,
+  }));
+}
 
 export type SelfSelectHostStandResult =
   | { status: "selling"; providerId: string }
