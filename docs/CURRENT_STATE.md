@@ -78,8 +78,12 @@ only because `0042`–`0051` are unapplied. Revisit once that queue lands.
 
 ## Deployment and migrations
 
-- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0051` are all
-  unapplied to production** and must land in that order. **`0042` must be applied before the merged
+- Neon `neondb` has **42 applied migrations (`0000`–`0041`)**. **`0042` through `0053` are all
+  unapplied to production** and must land in that order. `0052` adds
+  `stand_provider_approval_source = 'seller'` (F-117) and `0053` adds `pending_host_confirmations`;
+  both are proved against a populated schema, and `0052`'s new enum value is proved WRITABLE in a
+  statement after the migration — Postgres refuses a new enum value inside the transaction that
+  added it, so a clean apply proves nothing on its own. **`0042` must be applied before the merged
   code runs** — every writer now supplies `provider_id`, and against the un-migrated schema they
   fail immediately. `0043`–`0050` add no such requirement on their own but must not land ahead of it.
   **`0051` is a second such gate**: it makes the `stand_providers` uniqueness partial, and
@@ -92,12 +96,15 @@ only because `0042`–`0051` are unapplied. Revisit once that queue lands.
   §gotchas own the procedure and the evidence for it.
 - Cloud Run web `farm-friend-web-00082-2pl` and worker `farm-friend-worker-00077-rxp` serve digest
   `sha256:14347f34924bca7606d15065bebf145d1999feafa7bb222176d2a94f35cd727a`. Deployed 2026-08-14;
-  neither revision has an error-level log. **B-074, all of F-114/F-115, and F-101's admin console are on `main` and undeployed.**
+  neither revision has an error-level log. **B-074, all of F-114/F-115, and F-101's admin console are on `main` and undeployed. F-101's seller half and all of F-117 are on `f-101-seller-half`, unmerged.**
 
 ## Verification
 
-- **2,189 unit tests pass; 7 corpus-only tests skip.** Integration is **1409/1409 across 102 of 102
-  files** against disposable local Postgres databases (2026-08-17).
+- **2,210 unit tests pass; 7 corpus-only tests skip.** Integration is **1435/1441 across 106 of 107
+  files** against disposable local Postgres databases (2026-08-17). The six failures are all in
+  `apps/web/lib/farmer-stand.integration.test.ts` (`PUBLIC_BASE_URL is required`): a **pre-existing
+  test-isolation weakness**, confirmed by stashing — that file depends on another having set the
+  variable first, and passes in a full run only by luck of ordering. Not a product defect.
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it six `farmer-stand` cases fail `ConfigurationError: PUBLIC_BASE_URL is required` — identical on
   the untouched merged base, so it is an environment fact, not a regression.
