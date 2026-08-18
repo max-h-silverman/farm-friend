@@ -161,7 +161,7 @@ export function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdmini
           title: "Availability",
           prominent: true,
           items: [
-            ["Current items", inventory, "primary"],
+            ["Current items", inventory],
             ["Last confirmed", row.publishedAt?.toLocaleString() ?? "Never"],
             ["Current closure", closure?.state === "active" ? "Closed by farmer" : closure?.state === "upcoming" ? "Upcoming closure" : "None"],
             ["Usually sells", row.usualOfferings.join(", ") || "Not stated"],
@@ -189,14 +189,16 @@ export function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdmini
             ["Open days", row.openDays?.map((day) => DAYS[day]).join(", ") ?? "Not stated"],
             ["How often restocked", row.stockingCadence?.replaceAll("_", " ") ?? "Not stated"],
             ["Restocking days", row.stockingDays?.map((day) => DAYS[day]).join(", ") ?? "Not stated"],
+            ["Time zone", row.timezone],
           ],
         },
         {
-          title: "Other details",
+          // Not "Other details". A drawer named for what it is not collects whatever nobody
+          // filed, and Farm Bucks — which this card carries a verb for — was sitting in it.
+          title: "VIGA's record",
           items: [
-            ["Other sellers here", row.participantNames.join(", ") || "None"],
             ["Farm Bucks", row.farmBucksAccepted ? "Accepted" : row.farmBucksEligible ? "Eligible, not accepted" : "Not eligible"],
-            ["Time zone", row.timezone],
+            ["Approved", row.approved ? row.approvedAt?.toLocaleDateString() ?? "Yes" : "Not yet"],
           ],
         },
       ],

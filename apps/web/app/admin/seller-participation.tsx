@@ -106,7 +106,16 @@ export function SellerParticipation({
 }) {
   const [live, setLive] = useState(rows);
   const [busy, setBusy] = useState<string | null>(null);
-  const [confirming, setConfirming] = useState<string | null>(null);
+  /*
+    WHICH QUESTION is open on which row, or none.
+
+    Two acts on this row ask first, and they ask different things — pausing takes a seller's
+    goods off the map, ending the arrangement is terminal. One flag could not tell them apart,
+    so it carries the verb it belongs to.
+  */
+  const [confirming, setConfirming] = useState<
+    { providerId: string; kind: "pause" | "end" } | null
+  >(null);
   /**
    * Keyed by arrangement and rendered inside the row it belongs to. A message about the third
    * seller shown above the first is a message the operator does not see.
@@ -179,7 +188,22 @@ export function SellerParticipation({
             aria-label={label}
             className="admin-participation-toggle"
             disabled={busy === row.providerId}
-            onClick={() => void send(row, paused ? "resume" : "pause")}
+            onClick={() => {
+              /*
+                RESUME GOES STRAIGHT THROUGH; PAUSE ASKS (max, 2026-08-18).
+
+                The whole line is the toggle, which makes it a large and easily mistapped
+                target, and pausing takes a real seller's goods off the island's only guide.
+                Resume puts something BACK — its mistake is undone by the same control — and a
+                confirmation on a harmless act is chrome an operator learns to click past,
+                which is exactly how the one that matters stops being read.
+              */
+              if (paused) {
+                void send(row, "resume");
+                return;
+              }
+              setConfirming({ providerId: row.providerId, kind: "pause" });
+            }}
           >
             <span className="admin-participation-dot" aria-hidden="true" />
             <span className="admin-participation-subject">{framing ? label : subject}</span>
@@ -209,13 +233,50 @@ export function SellerParticipation({
                 label: `Remove ${subject}`,
                 icon: <TrashIcon />,
                 danger: true,
-                onSelect: () => setConfirming(row.providerId),
+                onSelect: () => setConfirming({ providerId: row.providerId, kind: "end" }),
               },
             ]}
           />
         </div>
 
-        {confirming === row.providerId && (
+        {confirming?.providerId === row.providerId && confirming.kind === "pause" && (
+          /*
+            The question NAMES THE ACT THE OPERATOR PRESSED. On a solo native-seller stand the
+            toggle reads as the stand being open or closed, so the question says "close this
+            stand" — asking about the seller under a control labelled "Stand is open" would
+            name a different act from the one that was tapped.
+          */
+          <div
+            className="admin-confirm"
+            role="group"
+            aria-label={framing ? `Close ${row.standName}` : `Pause ${subject}`}
+          >
+            <p>
+              {framing
+                ? `Close ${row.standName}? Customers stop seeing what it has until you open it again.`
+                : `Pause ${subject}? Their goods stop showing on the map until you resume them.`}
+            </p>
+            <div className="admin-confirm-actions">
+              <button
+                type="button"
+                className="admin-action-danger"
+                disabled={busy === row.providerId}
+                onClick={() => void send(row, "pause")}
+              >
+                {framing ? "Close the stand" : "Pause"}
+              </button>
+              <button
+                type="button"
+                className="admin-action-secondary"
+                onClick={() => setConfirming(null)}
+              >
+                {framing ? "Keep it open" : "Keep selling"}
+              </button>
+            </div>
+          </div>
+        )}
+
+        {confirming?.providerId === row.providerId && confirming.kind === "end" && (
           <div className="admin-confirm" role="group" aria-label={`Remove ${subject}`}>
             {/* Terminal, and the copy says so: there is no restore, only a fresh invitation. */}
             <p>

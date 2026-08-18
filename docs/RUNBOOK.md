@@ -38,7 +38,10 @@ npm run evals               # deterministic stub; critical fixtures must be 100%
 ```
 
 `apps/web/.env.local` is the file the web app reads — a `.env` at the repo root is **not** loaded by
-`next dev`, and the app starts without complaint lacking every value in it. The root migration command
+`next dev`, and the app starts without complaint lacking every value in it. Everything in that file is
+a throwaway local value; **the geocoding key is not written there**, because it is live and billed.
+`dev-setup.sh` fetches it from Secret Manager per run. Without it the address lookup reports itself
+unavailable, which is the same supported state as a deployment with no key. The root migration command
 reads the shell's `DATABASE_URL`: use `db:migrate:local` for the local app, and `db:migrate` only after
 explicitly setting the intended target.
 
@@ -134,7 +137,7 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | `TELNYX_API_KEY`, `TELNYX_MESSAGING_PROFILE_ID`, `TELNYX_FROM_NUMBER`, `TELNYX_PUBLIC_KEY` | All required with Telnyx; the public key verifies webhook signatures |
 | `LLM_PROVIDER` | Required `stub` or `deepinfra`; no default or environment exception |
 | `DEEPINFRA_API_KEY`, `DEEPINFRA_MODEL` | Required with DeepInfra; `anthropic/` and `google/` models are refused because their terms are not attested |
-| `GEOCODING_API_KEY` | **Required to create any stand** (F-077/F-088). Google Geocoding key for onboarding address lookup. Absent or blank disables lookup, and the form tells the farmer to contact VIGA. **Billed per call** — server-side only, behind the invitation token and its own throttle bucket. Restrict the key to the Geocoding API in the GCP console |
+| `GEOCODING_API_KEY` | **Required to create any stand** (F-077/F-088). Google Geocoding key for onboarding address lookup. **Secret Manager only** — never write it to `apps/web/.env.local`; `dev-setup.sh` reads it per run and passes it as an environment variable, the same way it handles `ADMIN_PASSWORD_HASH`. Absent or blank disables lookup, and the form tells the farmer to contact VIGA. **Billed per call** — server-side only, behind the invitation token and its own throttle bucket. Restrict the key to the Geocoding API in the GCP console |
 | `GMAIL_SENDER_ADDRESS`, `GMAIL_SENDER_NAME`, `GMAIL_OAUTH_CLIENT_ID` | **Required with `EMAIL_PROVIDER=gmail`, `web` only** (B-045). Gmail HTTPS delivery sends from VIGA's existing board mailbox over port 443; its sender remains configuration, never a code default |
 | `GMAIL_OAUTH_CLIENT_SECRET`, `GMAIL_OAUTH_REFRESH_TOKEN` | **Required with `EMAIL_PROVIDER=gmail`, `web` only.** Secret Manager only. The OAuth grant is bound to `board@vigavashon.org` and requests `gmail.send` only |
 | `SMTP_*` | Legacy local SMTP path only. Production must select Gmail because Cloud Run cannot open the Workspace SMTP connection |

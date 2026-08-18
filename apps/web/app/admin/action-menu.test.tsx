@@ -126,3 +126,41 @@ describe("ActionMenu", () => {
     expect(screen.getByRole("button", { name: /more for bank road gardens/i })).toBeInTheDocument();
   });
 });
+
+/*
+  AN OPEN MENU OUTRANKS THE CARDS BELOW IT (max, 2026-08-17).
+
+  Every card's actions cell is its own stacking context, so an open menu could only ever be
+  painted at its OWN card's level — and a card further down the list, painting later, covered
+  it. The menu's own `z-index` could not help: it competes inside its parent's context, not
+  against the parent's siblings.
+
+  So the open menu marks its wrapper, and the stylesheet raises that one context. Asserted on
+  the attribute the CSS actually selects, because jsdom computes no cascade — a test reading
+  the painted result here would prove nothing.
+*/
+describe("an open menu is raised above the cards below it", () => {
+  it("marks its wrapper only while open", async () => {
+    const { container } = render(
+      <ActionMenu label="Actions" items={[{ key: "edit", label: "Edit details", onSelect: vi.fn() }]} />,
+    );
+    const wrapper = container.querySelector(".admin-menu");
+
+    expect(wrapper).not.toHaveAttribute("data-open");
+
+    await open();
+    expect(wrapper).toHaveAttribute("data-open", "true");
+  });
+
+  it("drops the mark when it closes, so a shut card stops outranking anything", async () => {
+    const { container } = render(
+      <ActionMenu label="Actions" items={[{ key: "edit", label: "Edit details", onSelect: vi.fn() }]} />,
+    );
+    const wrapper = container.querySelector(".admin-menu");
+
+    await open();
+    await userEvent.keyboard("{Escape}");
+
+    expect(wrapper).not.toHaveAttribute("data-open");
+  });
+});

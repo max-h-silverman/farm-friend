@@ -83,7 +83,14 @@ export function ActionMenu({
   if (offered.length === 0) return null;
 
   return (
-    <div className="admin-menu" ref={wrapper}>
+    /*
+      `data-open` is what lifts the menu above the cards BELOW it. Each card's actions cell is
+      its own stacking context, so the list's `z-index` competes only inside that cell — the
+      card itself still paints in list order, and a later card covered the open menu. The
+      stylesheet raises this wrapper's context while it is open, which is the only place the
+      comparison against sibling cards actually happens.
+    */
+    <div className="admin-menu" ref={wrapper} {...(open ? { "data-open": "true" } : {})}>
       <button
         ref={trigger}
         type="button"

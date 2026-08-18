@@ -1,4 +1,5 @@
 import {
+  listHostStandChoices,
   loadFarmerInvitation,
   readFarmListingForOnboarding,
 } from "@farm-friend/db";
@@ -48,6 +49,19 @@ export default async function FarmerOnboardingPage({
     invitation.farmId === null
       ? null
       : await readFarmListingForOnboarding(db, { farmId: invitation.farmId });
+
+  /*
+    F-117 — THE STANDS SHE MAY SAY SHE SELLS AT.
+
+    Read here because the form is a client component and this is a database question. The
+    component asks the question only when the list is non-empty, so an island with no public
+    stands simply never raises it rather than offering an empty menu.
+
+    Not `listPublicStands`: that builds the whole map — inventory, closures, payment methods —
+    and this needs a name and an id. The visibility rule inside the query is the map's own, so
+    a retired, unlisted or test stand can never appear on a form nobody authenticates to reach.
+  */
+  const hostStandChoices = await listHostStandChoices(db);
 
   const fromNumber = process.env.TELNYX_FROM_NUMBER?.trim();
   // The public map, so the confirmation's own word "map" links to it (max, 2026-08-09). Read
@@ -108,6 +122,7 @@ export default async function FarmerOnboardingPage({
           credential={{ kind: "invitation", token: params.token }}
           farmName={invitation.farmName ?? ""}
           {...(existing === null ? {} : { defaults: existing })}
+          hostStandChoices={hostStandChoices}
           {...(fromNumber === undefined || fromNumber === "" ? {} : { smsNumber: fromNumber })}
           {...(mapUrl === undefined || mapUrl === "" ? {} : { mapUrl })}
         />

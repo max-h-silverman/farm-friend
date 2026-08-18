@@ -470,6 +470,42 @@ describe("editing a seller's details", () => {
   becomes a control.
 */
 describe("the card's actions live in one menu", () => {
+  /*
+    THE MENU BELONGS TO AN OPEN CARD (max, 2026-08-17).
+
+    A closed row is a thing to read: a name, a subtitle, its states. The Actions button on
+    every one of thirty closed rows put a control beside each name that could not act on
+    anything the operator was looking at, and gave a list meant for scanning thirty tap
+    targets. Opening the card is how you say "this one" — so the verbs arrive with the body
+    they act on.
+  */
+  it("offers no Actions menu on a closed card", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
+    await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
+
+    // Every seller is listed and every one of them is shut.
+    expect(screen.getByText("Misty Hollow Farm")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^actions$/i })).toBeNull();
+  });
+
+  it("brings the menu back when the card is opened", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+
+    expect(within(card).getByRole("button", { name: /^actions$/i })).toBeInTheDocument();
+  });
+
+  it("takes the menu away again when the card is closed", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
+
+    await openSeller("Misty Hollow Farm");
+    // The same press that opened it shuts it again.
+    await userEvent.click(screen.getByText("Misty Hollow Farm"));
+
+    expect(screen.queryByRole("button", { name: /^actions$/i })).toBeNull();
+  });
+
   it("shows no seller controls until the Actions menu is opened", async () => {
     render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
 

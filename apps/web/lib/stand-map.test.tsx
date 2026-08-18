@@ -697,8 +697,11 @@ describe("farm-map poster treatment", () => {
 
     render(<StandMap stands={stands} />);
 
-    const finder = screen.getByRole("region", { name: "Find a stand" });
-    expect(within(finder).getByRole("heading", { name: "Find a stand" })).toBeTruthy();
+    const finder = screen.getByRole("region", { name: /find a stand/i });
+    // The visible "Find a stand" heading became the view toggle (max, 2026-08-18). The section
+    // keeps its accessible name, because a region with no name is one a screen reader cannot
+    // announce — it just is not a heading any more.
+    expect(within(finder).queryByRole("heading", { name: "Find a stand" })).toBeNull();
     expect(
       within(finder).getByRole("searchbox", {
         name: "What they sell, or a farm or stand name",
@@ -1676,5 +1679,398 @@ describe("item-first stand card (F-114 C.5)", () => {
 
     expect(card.querySelectorAll(".item-group")).toHaveLength(0);
     expect(within(card).getByText("eggs")).toBeTruthy();
+  });
+});
+
+/*
+  BROWSE BY SELLER, INSIDE THE LIST (max, 2026-08-18).
+
+  It used to be a link to `/sellers` — a whole separate view, with its own header, its own
+  search box and a "back to the farm map" link. Answering "who sells bread?" meant leaving the
+  map, and coming back meant losing whatever filters were set.
+
+  Now the two are one list with a tab above it. Stands and sellers are two ways of looking at
+  the same island, exactly as the admin console's Stands & Sellers already treats them, so the
+  customer switches what the list is ABOUT without leaving the surface the map is on.
+
+  **The map stays, and it stays a map of stands.** A seller has no pin — that is the whole
+  reason the seller list exists — so picking one HIGHLIGHTS the stands she sells at. For a
+  hosted-only seller those are somebody else's pins, which is precisely the case the pins could
+  not express before.
+*/
+describe("browsing by seller without leaving the map", () => {
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      value: vi.fn(() => ({ matches: false })),
+    });
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: vi.fn(),
+    });
+  });
+
+  const hostStand: PublicStandPayload = {
+    id: "morgan-hill",
+    farmName: "Morgan Hill",
+    locationName: "Morgan Hill Stand",
+    visitability: "visitable",
+    offeringType: "produce",
+    address: "1 Morgan Hill Rd",
+    latitude: 47.44,
+    longitude: -122.46,
+    stale: false,
+    availability: {},
+    alsoSellingHere: ["Fernhorn Bakery"],
+    links: [],
+    paymentMethods: [],
+    items: [{ itemName: "Kale" }],
+  };
+
+  const otherStand: PublicStandPayload = {
+    ...hostStand,
+    id: "kelsey",
+    farmName: "Kelseys Farm",
+    locationName: "Kelseys Stand",
+    address: "2 Kelsey Rd",
+    latitude: 47.46,
+    longitude: -122.44,
+    alsoSellingHere: [],
+    items: [{ itemName: "Eggs" }],
+  };
+
+  /** A seller with no stand of her own — the case that has no pin and needs this view. */
+  const hostedOnly = {
+    sellerId: "fernhorn",
+    sellerName: "Fernhorn Bakery",
+    ownsAStand: false,
+    sellingAt: [
+      {
+        salesLocationId: "morgan-hill",
+        locationName: "Morgan Hill Stand",
+        describesOwnStand: false,
+        usualItems: [{ itemName: "Sourdough" }],
+      },
+    ],
+  };
+
+  const standOwner = {
+    sellerId: "kelseys",
+    sellerName: "Kelseys Farm",
+    ownsAStand: true,
+    sellingAt: [
+      {
+        salesLocationId: "kelsey",
+        locationName: "Kelseys Stand",
+        describesOwnStand: true,
+        usualItems: [{ itemName: "Eggs" }],
+      },
+    ],
+  };
+
+  function renderMap() {
+    return render(
+      <StandMap stands={[hostStand, otherStand]} sellers={[hostedOnly, standOwner]} />,
+    );
+  }
+
+  it("offers Stands and Sellers as tabs, with Stands the default", () => {
+    renderMap();
+
+    const stands = screen.getByRole("tab", { name: "View stands" });
+    const sellers = screen.getByRole("tab", { name: "View sellers" });
+
+    // Stands is the default: the map is a map of stands, and the seller list is the second view.
+    expect(stands).toHaveAttribute("aria-selected", "true");
+    expect(sellers).toHaveAttribute("aria-selected", "false");
+  });
+
+  it("no longer navigates away to a separate seller page", () => {
+    renderMap();
+
+    // The old door. Its absence is the point of the change — a link here took the customer off
+    // the map and lost whatever filters they had set.
+    expect(screen.queryByRole("link", { name: /browse by seller/i })).toBeNull();
+  });
+
+  it("swaps the list to sellers, the map staying put", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+
+    expect(screen.getByRole("heading", { name: "Morgan Hill Stand" })).toBeInTheDocument();
+
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    expect(screen.getByText("Fernhorn Bakery")).toBeInTheDocument();
+    // The stand cards are gone from the list...
+    expect(screen.queryByRole("heading", { name: "Morgan Hill Stand" })).toBeNull();
+    // ...and the map is still there, still carrying both pins.
+    expect(container.querySelectorAll(".pin-shape, .pin-market-shape").length).toBe(2);
+  });
+
+  it("lists a hosted-only seller, who has no pin of her own", async () => {
+    const user = userEvent.setup();
+    renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    // The case the whole seller view exists for: she owns no stand, so the map alone could
+    // never have shown her.
+    expect(screen.getByText("Fernhorn Bakery")).toBeInTheDocument();
+  });
+
+  it("highlights the stands a chosen seller sells at, including a host's", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    await user.click(screen.getByRole("button", { name: /fernhorn bakery/i }));
+
+    // Her host's pin, not her own — she has none.
+    const highlighted = container.querySelectorAll("[data-seller-highlighted='true']");
+    expect(highlighted).toHaveLength(1);
+    expect(highlighted[0]?.getAttribute("data-stand-id")).toBe("morgan-hill");
+  });
+
+  it("highlights only that seller's stands, never every pin", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+    const sellerList = container.querySelector(".seller-browse")!;
+    await user.click(within(sellerList as HTMLElement).getByRole("button", { name: /kelseys farm/i }));
+
+    const highlighted = container.querySelectorAll("[data-seller-highlighted='true']");
+    // A highlight that lit every pin would look like working and answer nothing.
+    expect(highlighted).toHaveLength(1);
+    expect(highlighted[0]?.getAttribute("data-stand-id")).toBe("kelsey");
+  });
+
+  it("drops the highlight when the tab goes back to stands", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+    await user.click(screen.getByRole("button", { name: /fernhorn bakery/i }));
+    expect(container.querySelectorAll("[data-seller-highlighted='true']")).toHaveLength(1);
+
+    await user.click(screen.getByRole("tab", { name: "View stands" }));
+
+    // A highlight left behind would mark pins for a seller nobody is looking at any more.
+    expect(container.querySelectorAll("[data-seller-highlighted='true']")).toHaveLength(0);
+    expect(container.querySelectorAll(".pin-seller-dimmed")).toHaveLength(0);
+  });
+
+  it("forgets the chosen seller, rather than re-lighting her on return", async () => {
+    /*
+      The clearing the tab switch does, asserted where it is observable.
+
+      Leaving the tab already blanks the highlight, because the stand list is not the seller
+      list — so the case that proves the CLEARING is coming BACK. A seller still selected
+      would re-light pins the customer never re-chose, and the card would show as pressed
+      under a list they had left.
+    */
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+    await user.click(screen.getByRole("button", { name: /fernhorn bakery/i }));
+
+    await user.click(screen.getByRole("tab", { name: "View stands" }));
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    expect(container.querySelectorAll("[data-seller-highlighted='true']")).toHaveLength(0);
+    // The card is collapsed again too — it is the stand card's own expand state now.
+    expect(screen.getByRole("button", { name: /fernhorn bakery/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("filters sellers by name and by what they sell", async () => {
+    const user = userEvent.setup();
+    renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    const search = screen.getByRole("searchbox", { name: /find a seller/i });
+    await user.clear(search);
+    await user.type(search, "sourdough");
+
+    // Matched on an item, not a name — the seller search's own rule.
+    expect(screen.getByText("Fernhorn Bakery")).toBeInTheDocument();
+    expect(screen.queryByText("Kelseys Farm")).toBeNull();
+  });
+
+  it("says so when no seller matches, rather than falling back to everyone", async () => {
+    const user = userEvent.setup();
+    renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    const search = screen.getByRole("searchbox", { name: /find a seller/i });
+    await user.clear(search);
+    await user.type(search, "zzzznothing");
+
+    expect(screen.queryByText("Fernhorn Bakery")).toBeNull();
+    expect(screen.queryByText("Kelseys Farm")).toBeNull();
+    expect(screen.getByText(/no seller matches/i)).toBeInTheDocument();
+  });
+
+  it("still works when no seller data is supplied at all", () => {
+    // The map is embedded on VIGA's Squarespace page and must not depend on the second read.
+    render(<StandMap stands={[hostStand]} />);
+
+    expect(screen.getByRole("heading", { name: "Morgan Hill Stand" })).toBeInTheDocument();
+    expect(screen.queryByRole("tab", { name: "View sellers" })).toBeNull();
+  });
+
+  /*
+    THE TOGGLE IS THE LABEL (max, 2026-08-18).
+
+    "Find a stand" sat as a heading with the tabs beside it, which said the same thing twice:
+    the heading named the list and the tab named it again. The toggle takes the heading's place
+    and its words say what you are looking at — "View farm stands" / "View sellers".
+  */
+  it("puts the toggle where the heading was, naming both views", () => {
+    renderMap();
+
+    expect(screen.getByRole("tab", { name: "View stands" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "View sellers" })).toBeInTheDocument();
+    // The heading it replaces is gone, not merely hidden behind it.
+    expect(screen.queryByRole("heading", { name: "Find a stand" })).toBeNull();
+  });
+
+  /*
+    ONE CARD LIST, TWO SUBJECTS (max, 2026-08-18).
+
+    The seller list was its own markup — a different card, a different heading level, a
+    different way of showing what someone sells. Two card vocabularies on one surface means a
+    customer switching tabs re-learns the list, and every future card change has two homes.
+
+    So a seller renders in the STAND card's shape: the same `<li class="stand">`, the same
+    heading button, the same expand-on-tap. Only the metadata differs, because that is the
+    only thing that genuinely does.
+  */
+  it("renders sellers in the stand card's own shape", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    // The same list and the same card element the stands use.
+    const cards = container.querySelectorAll("ul.stands > li.stand");
+    expect(cards).toHaveLength(2);
+    // And the same heading treatment: a seller's name is an <h2>, exactly as a stand's is.
+    expect(screen.getByRole("heading", { name: "Fernhorn Bakery" })).toBeInTheDocument();
+  });
+
+  it("expands a seller card in place, the way a stand card expands", async () => {
+    const user = userEvent.setup();
+    renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    const toggle = screen.getByRole("button", { name: /fernhorn bakery/i });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+
+    await user.click(toggle);
+
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    // The detail is what a seller HAS — where she sells, and what she usually carries.
+    expect(screen.getByText(/sourdough/i)).toBeInTheDocument();
+  });
+
+  it("carries the seller's own metadata, not a stand's", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    const card = container.querySelector("ul.stands > li.stand")!;
+    // A seller has no pin, so she carries no pin number — the one piece of stand chrome that
+    // would be a lie on this card.
+    expect(card.querySelector(".stand-number")).toBeNull();
+    expect(within(card as HTMLElement).getByText(/morgan hill stand/i)).toBeInTheDocument();
+  });
+
+  /*
+    THE CARD RECLAIMS THE COLUMNS THE PIN CHROME OWNED (max, 2026-08-18).
+
+    `.stand` and `.stand-head` are both grids whose FIRST column is stand chrome — the poster
+    dots and the pin number. A seller has neither, so the card inherited two empty gutters and
+    the name was laid out in a 1.65rem column, wrapping one word per line.
+
+    Asserted as a CLASS on the card, because jsdom computes no grid: the class is what the
+    stylesheet keys the corrected columns off, so it is the honest thing to hold to account.
+    What it produces is a layout question, checked in a browser.
+  */
+  it("marks itself as a card with no pin chrome, so the name gets the full width", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    const card = container.querySelector("ul.stands > li.stand")!;
+    expect(card).toHaveClass("stand-no-pin");
+    expect(card.querySelector(".stand-head")).toHaveClass("stand-head-no-pin");
+  });
+
+  /*
+    WHAT A SELLER CARD SAYS AT REST.
+
+    A stand card answers "what is here, and is it open?" without being opened. A seller card
+    was answering nothing — a bare name. It carries the same KINDS of fact the stand card does,
+    in the same places, drawn from what a seller actually has:
+
+      - where she sells, as the line under the name (the stand card's farm line)
+      - whether she is a host's guest or runs her own stand, as a summary chip
+      - what she usually brings, so the card is useful before it is expanded
+  */
+  it("says where she sells and what she brings, without being opened", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    const card = container.querySelector("ul.stands > li.stand")! as HTMLElement;
+
+    // Collapsed — this is what the card says before anyone touches it.
+    expect(within(card).getByRole("button", { name: /fernhorn bakery/i })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(within(card).getByText(/morgan hill stand/i)).toBeInTheDocument();
+    expect(within(card).getByText(/sourdough/i)).toBeInTheDocument();
+  });
+
+  it("distinguishes a guest from a seller who runs her own stand", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    const cards = [...container.querySelectorAll("ul.stands > li.stand")] as HTMLElement[];
+    const fernhorn = cards.find((card) => card.textContent?.includes("Fernhorn"))!;
+    const kelseys = cards.find((card) => card.textContent?.includes("Kelseys"))!;
+
+    // She has no stand of her own — the fact that explains why she has no pin.
+    expect(within(fernhorn).getByText("Guest seller")).toBeInTheDocument();
+    // Scoped to the summary chip: "Their own stand:" in the opened body says the same thing
+    // in a different place, and matching either would not prove the chip is right.
+    expect(kelseys.querySelector(".seller-kind")).toHaveTextContent("Own stand");
+    expect(fernhorn.querySelector(".seller-kind")).toHaveTextContent("Guest seller");
+  });
+
+  it("keeps the section announceable once its heading is gone", () => {
+    renderMap();
+
+    // A region with no accessible name is one a screen reader cannot announce, so the name
+    // survives the heading that used to carry it.
+    expect(screen.getByRole("region", { name: /find a stand/i })).toBeInTheDocument();
+  });
+
+  it("shows the toggle even when there are no sellers to switch to", () => {
+    /*
+      It is the list's LABEL now, not just a switch. With the old tabs, no sellers meant no
+      control at all — which would leave the header with nothing naming it.
+    */
+    render(<StandMap stands={[hostStand]} />);
+
+    expect(screen.getByRole("tab", { name: "View stands" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "View stands" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+    // Nothing to switch TO, so the seller half is absent rather than offering an empty list.
+    expect(screen.queryByRole("tab", { name: "View sellers" })).toBeNull();
   });
 });

@@ -1,3 +1,4 @@
+import { listPublicSellers } from "@farm-friend/db";
 import { publicReadContext } from "../../lib/public-context";
 import { listPublicStands, serializePublicStand } from "../../lib/public-listing";
 import { StandMap } from "../stand-map";
@@ -28,9 +29,23 @@ export default async function HomePage({
   searchParams: Promise<Record<string, string | string[] | undefined>>;
 }) {
   const params = await searchParams;
-  const stands = await listPublicStands(publicReadContext(), {
-    includeTestFarms: params.hidden === "true",
-  });
+  const context = publicReadContext();
+  /*
+    Both lists, in one pass. The map's list has a Sellers tab (max, 2026-08-18), and a seller
+    who sells only at other people's stands owns no `sales_locations` row — she has no pin, so
+    this read is the only way she is discoverable from the island's main view.
+
+    The SAME scope rule governs both: `?hidden=true` opens the door for test farms on the map
+    and for test sellers beside it, so the two lists can never disagree about who is visible.
+
+    Still model-free: `listPublicSellers` takes `db` alone, exactly as `listPublicStands` takes
+    this context — there is no seam here and so no path from this page to a model.
+  */
+  const includeHidden = params.hidden === "true";
+  const [stands, sellers] = await Promise.all([
+    listPublicStands(context, { includeTestFarms: includeHidden }),
+    listPublicSellers(context.db, { includeTestSellers: includeHidden }),
+  ]);
 
   // The SAME serializer `GET /api/public/stands` uses (F-042). This mapping used to be
   // written out again here, and the two copies had already diverged — the page sent
@@ -39,5 +54,5 @@ export default async function HomePage({
   // produced it. One statement of the wire format, both readers.
   const payload = stands.map(serializePublicStand);
 
-  return <StandMap stands={payload} />;
+  return <StandMap stands={payload} sellers={sellers} />;
 }

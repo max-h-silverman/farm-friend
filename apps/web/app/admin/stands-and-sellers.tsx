@@ -315,11 +315,16 @@ function Card({
             ))}
             {attention !== null && <Chip tone="attention">{attention}</Chip>}
           </span>
-          {actions !== undefined && (
+          {actions !== undefined && open && (
             /*
-              Inside the summary, so the one way in sits with the identity it belongs to — and
-              stopping the press here keeps opening the menu from also toggling the card, which
-              would collapse the body the operator is about to act on.
+              Only on an OPEN card (max, 2026-08-17). A closed row is a thing to read — a name,
+              a subtitle, its states — and a menu on each of thirty of them put a control beside
+              every name that could not act on anything the operator was looking at. Opening the
+              card is how an operator says "this one", so the verbs arrive with the body.
+
+              Still inside the summary, so the one way in sits with the identity it belongs to,
+              and the press is stopped here: without that, opening the menu would also toggle
+              the card and collapse the body the operator is about to act on.
             */
             <span
               className="admin-row-actions"

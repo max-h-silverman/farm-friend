@@ -126,6 +126,7 @@ describe("the toggle", () => {
     renderStand([host, guest], fetcher);
 
     await userEvent.click(screen.getByRole("switch", { name: /Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
 
     expect(fetcher).toHaveBeenCalledTimes(1);
     const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
@@ -157,10 +158,96 @@ describe("the toggle", () => {
     renderStand([host, guest], fetcher);
 
     await userEvent.click(screen.getByRole("switch", { name: /Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
 
     expect(await screen.findByRole("alert")).toHaveTextContent(/no longer sells here/i);
     // The toggle must not show the state the failed request asked for.
     expect(screen.getByRole("switch", { name: /Fernhorn Farm/i })).toBeChecked();
+  });
+});
+
+/*
+  PAUSING ASKS FIRST (max, 2026-08-18).
+
+  The whole row is the toggle, which makes it a large, easy target — and pausing takes a real
+  seller's goods off the island's only guide. A tap that lands by accident should not do that
+  silently, so pause now states what it will do and waits.
+
+  RESUME IS NOT GATED, deliberately. It puts something BACK: the mistake it can make is
+  undone by the same control, and a confirmation on a harmless act is the kind of chrome an
+  operator learns to click past — which is how the one that matters stops being read.
+*/
+describe("pausing asks before it acts", () => {
+  it("sends nothing on the first tap, and says what will happen", async () => {
+    const fetcher = vi.fn();
+    renderStand([host, guest], fetcher);
+
+    await userEvent.click(screen.getByRole("switch", { name: /Fernhorn Farm/i }));
+
+    expect(fetcher).not.toHaveBeenCalled();
+    // The row still reads as selling: nothing has changed yet.
+    expect(screen.getByRole("switch", { name: /Fernhorn Farm/i })).toBeChecked();
+    expect(screen.getByRole("group", { name: /pause fernhorn farm/i })).toBeInTheDocument();
+  });
+
+  it("pauses once confirmed", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: "changed", lifecycleState: "paused" }), {
+        status: 200,
+      }),
+    );
+    renderStand([host, guest], fetcher);
+
+    await userEvent.click(screen.getByRole("switch", { name: /Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("button", { name: /^pause$/i }));
+
+    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ transition: "pause" });
+  });
+
+  it("leaves the arrangement alone when the operator backs out", async () => {
+    const fetcher = vi.fn();
+    renderStand([host, guest], fetcher);
+
+    await userEvent.click(screen.getByRole("switch", { name: /Fernhorn Farm/i }));
+    await userEvent.click(screen.getByRole("button", { name: /keep selling/i }));
+
+    expect(fetcher).not.toHaveBeenCalled();
+    expect(screen.getByRole("switch", { name: /Fernhorn Farm/i })).toBeChecked();
+    // The question is gone, so the row is back to being a row.
+    expect(screen.queryByRole("group", { name: /pause fernhorn farm/i })).toBeNull();
+  });
+
+  it("does NOT ask to resume — putting something back is not the risky direction", async () => {
+    const fetcher = vi.fn().mockResolvedValue(
+      new Response(JSON.stringify({ status: "changed", lifecycleState: "active" }), {
+        status: 200,
+      }),
+    );
+    renderStand([host, { ...guest, lifecycleState: "paused" }], fetcher);
+
+    await userEvent.click(screen.getByRole("switch", { name: /Fernhorn Farm/i }));
+
+    // Straight through on one press.
+    expect(fetcher).toHaveBeenCalledTimes(1);
+    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(JSON.parse(init.body as string)).toMatchObject({ transition: "resume" });
+  });
+
+  it("names the stand's own closing when one seller IS the stand", async () => {
+    /*
+      On a solo native-seller stand the toggle already reads as the stand being open or closed,
+      because that is its true effect. The question has to say the same thing — asking "pause
+      Misty Hollow Farm?" under a control labelled "Stand is open" would name a different act
+      from the one the operator pressed.
+    */
+    const fetcher = vi.fn();
+    renderStand([host], fetcher);
+
+    await userEvent.click(screen.getByRole("switch", { name: /stand is open/i }));
+
+    expect(screen.getByRole("group", { name: /close misty hollow stand/i })).toBeInTheDocument();
+    expect(fetcher).not.toHaveBeenCalled();
   });
 });
 

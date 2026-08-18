@@ -42,8 +42,9 @@ export interface AdminStandMetadata {
 
 export interface AdminStandDetailSection {
   title: string;
+  /** This section carries the facts that LEAD the card. See `LEAD_LABELS`. */
   prominent?: boolean;
-  items: Array<readonly [label: string, value: string, emphasis?: "primary"]>;
+  items: Array<readonly [label: string, value: string]>;
 }
 
 /**
@@ -114,11 +115,14 @@ function StandMetadataEditor({
   standName,
   metadata,
   onSaved,
+  onClose,
 }: {
   standId: string;
   standName: string;
   metadata: AdminStandMetadata;
   onSaved: (metadata: AdminStandMetadata) => void;
+  /** Leave the editor without writing. The draft goes with it. */
+  onClose: () => void;
 }) {
   const [draft, setDraft] = useState(metadata);
   const [busy, setBusy] = useState(false);
@@ -250,10 +254,132 @@ function StandMetadataEditor({
         onChange={(event) => field("hoursText", event.target.value)}
       />
 
-      <button type="button" disabled={busy} onClick={() => void save()}>
-        {busy ? "Saving…" : "Save stand details"}
-      </button>
+      {/*
+        Save commits; Cancel only closes. Cancel writes NOTHING and keeps no draft — the
+        component unmounts with the panel, so reopening starts from the saved facts rather
+        than from an edit the operator believed they had thrown away.
+      */}
+      <div className="admin-confirm-actions">
+        <button
+          className="admin-action-primary"
+          type="button"
+          disabled={busy}
+          onClick={() => void save()}
+        >
+          {busy ? "Saving…" : "Save stand details"}
+        </button>
+        <button
+          className="admin-action-secondary"
+          type="button"
+          disabled={busy}
+          onClick={onClose}
+        >
+          Cancel
+        </button>
+      </div>
     </section>
+  );
+}
+
+/**
+ * The two facts that lead a stand's profile, by label.
+ *
+ * **Named here rather than flagged in the data** (max, 2026-08-17). The card's shape is a
+ * presentation decision and belongs to the surface that presents it; `stand-cards.ts` states
+ * the facts and stays out of the layout. It also keeps ONE way to say "this leads" — the old
+ * `emphasis: "primary"` marker said the same thing a second time, from the other end.
+ */
+const LEAD_LABELS = ["Current items", "Last confirmed"] as const;
+
+/**
+ * One stand's read-only facts, as a PROFILE rather than a table (max, 2026-08-17).
+ *
+ * An operator opens a stand to learn two things — what is on the shelf, and how long ago
+ * anyone said so. Those lead, in their own block, in type you can read at a glance. Everything
+ * else is reference: true, occasionally needed, and never the reason the card was opened. It
+ * sits in the same titled boxes the rest of the card already uses, two across where there is
+ * room, so four short groups stop reading as one eighteen-row column.
+ *
+ * The recency line is load-bearing, not decoration. Nearly every stand is unattended and its
+ * stock is variable, so the honest claim is always "this is what she said, and this is when" —
+ * the card must never present an old inventory as a current one.
+ */
+function StandFacts({
+  standId,
+  sections,
+  farmBucks,
+}: {
+  standId: string;
+  sections: AdminStandDetailSection[];
+  /** The live Farm Bucks decision, which the operator can change without the page reloading. */
+  farmBucks: string;
+}) {
+  const lead = new Map<string, string>();
+  for (const section of sections) {
+    if (section.prominent !== true) continue;
+    for (const [label, value] of section.items) {
+      if ((LEAD_LABELS as readonly string[]).includes(label)) lead.set(label, value);
+    }
+  }
+  const items = lead.get("Current items");
+  const confirmed = lead.get("Last confirmed");
+
+  return (
+    <div className="admin-stand-facts">
+      {items !== undefined && (
+        <div className="admin-stand-lead" role="group" aria-label="What is on the shelf">
+          <p className="admin-stand-lead-items">{items}</p>
+          {confirmed !== undefined && (
+            /*
+              "Confirmed" rather than "updated": the farmer said so at that moment and nobody
+              has checked since. Never printed as a bare timestamp — a date with no verb reads
+              as a guarantee of the present, which is exactly what an honor-system stand
+              cannot give.
+            */
+            <p className="admin-stand-lead-when">
+              {confirmed === "Never"
+                ? "Never confirmed"
+                : `Confirmed ${confirmed}`}
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="admin-stand-groups">
+        {sections.map((section, index) => {
+          // The lead's facts are stated ONCE. A section whose items the lead consumed has
+          // nothing left to say, so it does not print a heading over an empty box.
+          const rows = section.items
+            .filter(([label]) => !(section.prominent === true && lead.has(label)))
+            .map(([label, value]) =>
+              label === "Farm Bucks" ? ([label, farmBucks] as const) : ([label, value] as const),
+            );
+          if (rows.length === 0) return null;
+
+          const headingId = `stand-${standId}-section-${index}`;
+          return (
+            <section
+              key={section.title}
+              className="admin-stand-group"
+              role="group"
+              aria-label={section.title}
+            >
+              <h3 className="admin-stand-group-title" id={headingId}>
+                {section.title}
+              </h3>
+              <dl className="admin-stand-group-body">
+                {rows.map(([label, value]) => (
+                  <div key={label}>
+                    <dt>{label}</dt>
+                    <dd>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            </section>
+          );
+        })}
+      </div>
+    </div>
   );
 }
 
@@ -599,31 +725,11 @@ export function StandDetails({
               )}
 
               {/* WHAT IS TRUE. Always on screen, whatever verb is open above it. */}
-              {stand.sections.map((section, index) => {
-                const headingId = `stand-${stand.standId}-section-${index}`;
-                const items = section.items.map((item) =>
-                  item[0] === "Farm Bucks"
-                    ? [item[0], farmBucksDetail(stand.farmBucksStatus), item[2]] as AdminStandDetailSection["items"][number]
-                    : item,
-                );
-                return (
-                  <section
-                    key={section.title}
-                    className={section.prominent ? "admin-stand-detail-section admin-stand-detail-section--prominent" : "admin-stand-detail-section"}
-                    aria-labelledby={headingId}
-                  >
-                    <h3 id={headingId}>{section.title}</h3>
-                    <dl>
-                      {items.map(([label, value, emphasis]) => (
-                        <div key={label} className={emphasis === "primary" ? "admin-stand-detail-item--primary" : undefined}>
-                          <dt>{label}</dt>
-                          <dd>{value}</dd>
-                        </div>
-                      ))}
-                    </dl>
-                  </section>
-                );
-              })}
+              <StandFacts
+                standId={stand.standId}
+                sections={stand.sections}
+                farmBucks={farmBucksDetail(stand.farmBucksStatus)}
+              />
 
               {panel === "retire" && (
                 <div
@@ -668,6 +774,7 @@ export function StandDetails({
                       ),
                     )
                   }
+                  onClose={() => showPanel(stand.standId, null)}
                 />
               )}
 
@@ -694,6 +801,21 @@ export function StandDetails({
                       <option value="does_not_accept">Does not accept Farm Bucks</option>
                     </select>
                   </label>
+                  {/*
+                    "Done", not "Cancel". The select writes on change, so by the time this is
+                    pressed the decision is already saved — offering to cancel would promise to
+                    undo a write that has happened.
+                  */}
+                  <div className="admin-confirm-actions">
+                    <button
+                      className="admin-action-secondary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => showPanel(stand.standId, null)}
+                    >
+                      Done
+                    </button>
+                  </div>
                 </section>
               )}
 
@@ -724,14 +846,24 @@ export function StandDetails({
                       }
                     />
                   </label>
-                  <button
-                    className="admin-action-secondary"
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void invite(stand.standId, stand.name)}
-                  >
-                    {busy ? "Inviting…" : "Invite and copy link"}
-                  </button>
+                  <div className="admin-confirm-actions">
+                    <button
+                      className="admin-action-primary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void invite(stand.standId, stand.name)}
+                    >
+                      {busy ? "Inviting…" : "Invite and copy link"}
+                    </button>
+                    <button
+                      className="admin-action-secondary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => showPanel(stand.standId, null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
                   {/*
                     Shown because the token exists exactly once. A clipboard write can fail with
                     nothing to show for it, and an operator who leaves without the link has to

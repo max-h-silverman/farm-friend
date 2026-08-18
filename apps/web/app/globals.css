@@ -1211,30 +1211,6 @@ body {
     justify-content: flex-start;
   }
 
-  .admin-farm-card > details > .admin-stand-detail-groups {
-    margin-left: 1rem;
-  }
-}
-
-.admin-stand-detail-groups {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 20rem), 1fr));
-  gap: 0.8rem;
-  margin: 0;
-  padding: 1rem;
-  background: var(--paper);
-  border-top: 2px solid var(--admin-yellow);
-}
-
-.admin-stand-detail-section {
-  overflow: hidden;
-  background: var(--card);
-  border: 1px solid var(--line);
-  border-radius: 10px;
-}
-
-.admin-stand-detail-section--prominent {
-  grid-column: 1 / -1;
 }
 
 /* VIGA's stand-details editor (F-101). Spans the card, because a form the operator types into
@@ -1276,63 +1252,12 @@ body {
   align-items: center;
 }
 
-.admin-stand-editor button {
+/* The editor's button pair. `justify-self` keeps the row at its content width
+   rather than stretching across the grid, and the top margin separates the
+   commitment from the last field it acts on. */
+.admin-stand-editor .admin-confirm-actions {
   justify-self: start;
-  margin-top: 0.35rem;
-}
-
-.admin-stand-detail-section h3 {
-  margin: 0;
-  padding: 0.65rem 0.8rem;
-  color: var(--ink);
-  background: var(--admin-cream);
-  border-bottom: 1px solid var(--admin-leaf);
-  font-size: 0.92rem;
-}
-
-.admin-stand-detail-section dl {
-  display: grid;
-  gap: 0;
-  margin: 0;
-}
-
-.admin-stand-detail-section dl > div {
-  display: grid;
-  grid-template-columns: minmax(8rem, 0.55fr) minmax(0, 1fr);
-  gap: 0.8rem;
-  padding: 0.6rem 0.8rem;
-  border-bottom: 1px solid var(--line);
-  font-size: 0.9rem;
-}
-
-.admin-stand-detail-section dl > div:last-child {
-  border-bottom: 0;
-}
-
-.admin-stand-detail-section dt {
-  color: var(--ink-faint);
-  font-weight: 600;
-}
-
-.admin-stand-detail-section dd {
-  min-width: 0;
-  margin: 0;
-  overflow-wrap: anywhere;
-}
-
-.admin-stand-detail-item--primary {
-  grid-column: 1 / -1;
-  padding: 0.8rem !important;
-  background: var(--card);
-}
-
-.admin-stand-detail-item--primary dt {
-  color: var(--green);
-}
-
-.admin-stand-detail-item--primary dd {
-  font-size: 1.05rem;
-  font-weight: 650;
+  margin-top: 0.6rem;
 }
 
 .admin-section-title {
@@ -3345,10 +3270,6 @@ form.farmer-picker-next {
     flex: 1 1 10rem;
   }
 
-  .admin-stand-detail-section dl > div {
-    grid-template-columns: 1fr;
-    gap: 0.1rem;
-  }
 }
 
 /* What the stand will actually say. Monospace and boxed so it reads as a QUOTATION of the
@@ -3665,61 +3586,12 @@ form.farmer-picker-next {
   box-shadow: 0 1px 2px rgb(31 41 36 / 5%);
 }
 
-.admin-stand-summary {
-  min-height: 5.25rem;
-  padding: 1rem 1.15rem;
-  align-items: center;
-  background: var(--card);
-}
-
-.admin-stand-summary:hover { background: var(--green-soft); }
-
 .admin-stand-states span {
   padding: 0.25rem 0.5rem;
   background: var(--green-soft);
   border: 0;
   border-radius: 999px;
 }
-
-.admin-stand-detail-groups {
-  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
-  gap: 0.75rem;
-  padding: 0 1rem 1rem;
-  background: var(--paper);
-}
-
-.admin-stand-detail-section,
-.admin-stand-detail-section--prominent {
-  grid-column: auto;
-  border: 1px solid var(--line);
-  border-radius: 10px;
-  box-shadow: none;
-}
-
-.admin-stand-detail-section h3 {
-  padding: 0.8rem 0.9rem 0.35rem;
-  color: var(--ink);
-  background: none;
-  border: 0;
-  font-size: 0.94rem;
-}
-
-.admin-stand-detail-section dl > div {
-  display: block;
-  padding: 0.45rem 0.9rem;
-  border-bottom: 0;
-}
-
-.admin-stand-detail-section dt {
-  margin-bottom: 0.1rem;
-  font-size: 0.76rem;
-  letter-spacing: 0.02em;
-  text-transform: uppercase;
-}
-
-.admin-stand-detail-section dd { font-size: 0.95rem; }
-.admin-stand-detail-item--primary { padding: 0.45rem 0.9rem !important; background: none; }
-.admin-stand-detail-item--primary dd { font-size: 0.95rem; font-weight: 600; }
 
 /* Admin is an operator tool: compact rows, square controls and rules instead of panels. */
 .admin-header h1,
@@ -3767,9 +3639,7 @@ form.farmer-picker-next {
 .admin-invite-card,
 .admin-invite-result,
 .admin-empty-state,
-.admin-thread,
-.admin-stand-detail-section,
-.admin-stand-detail-section--prominent {
+.admin-thread {
   border-radius: 4px;
   box-shadow: none;
 }
@@ -3778,26 +3648,12 @@ form.farmer-picker-next {
   padding: 0.7rem 0.8rem;
 }
 
-.admin-stand-summary {
-  min-height: 4rem;
-  padding: 0.7rem 0.8rem;
-}
-
-.admin-stand-summary:hover {
-  background: var(--paper);
-}
-
 .admin-stand-states span {
   padding: 0.15rem 0.35rem;
   background: transparent;
   border: 1px solid var(--line);
   border-radius: 3px;
   font-weight: 500;
-}
-
-.admin-stand-detail-groups {
-  padding: 0 0.8rem 0.8rem;
-  background: var(--card);
 }
 
 .admin-invite-card {
@@ -4118,27 +3974,25 @@ button.admin-action-danger,
 
 .filters {
   display: grid;
-  gap: 0.8rem;
+  gap: 1.15rem;
   margin: 1rem 0;
-  padding: 1.25rem;
+  padding: 1.4rem 1.5rem;
   background: var(--panel);
   border-radius: 8px;
 }
 
+/* `center`, not `baseline`: the label became a bordered segmented control with real
+   height, and baseline-aligning a box against the results text hangs the box low by
+   its own padding. Centring lines the two up by their middles, which is what reads
+   as level once one side has a border. */
 .filter-header {
   display: flex;
-  align-items: baseline;
+  align-items: center;
   justify-content: space-between;
-  gap: 0.75rem;
+  gap: 1rem;
+  flex-wrap: wrap;
 }
 
-.filter-header h2 {
-  margin: 0;
-  color: var(--olive);
-  font-size: 1.05rem;
-  line-height: 1.2;
-  letter-spacing: 0;
-}
 
 .filter-results {
   margin: 0;
@@ -4151,14 +4005,14 @@ button.admin-action-danger,
 
 .filter-command-bar {
   display: grid;
-  gap: 0.65rem;
+  gap: 0.85rem;
   min-width: 0;
 }
 
 .filter-actions {
   display: grid;
   grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
-  gap: 0.6rem;
+  gap: 0.75rem;
 }
 
 .field,
@@ -4187,8 +4041,8 @@ button.admin-action-danger,
 
 .field-input {
   width: 100%;
-  min-height: 2.75rem;
-  padding: 0.5rem 0.75rem;
+  min-height: 3rem;
+  padding: 0.6rem 0.9rem;
   font: inherit;
   font-size: 0.9rem;
   color: var(--ink);
@@ -4198,7 +4052,7 @@ button.admin-action-danger,
 }
 
 .field-search .field-input {
-  padding-left: 2.4rem;
+  padding-left: 2.6rem;
 }
 
 .field-input::placeholder {
@@ -4227,11 +4081,11 @@ button.admin-action-danger,
 .filter-drawer-button {
   display: inline-flex;
   min-width: 0;
-  min-height: 2.75rem;
+  min-height: 3rem;
   align-items: center;
   justify-content: center;
-  gap: 0.45rem;
-  padding: 0.45rem 0.7rem;
+  gap: 0.5rem;
+  padding: 0.5rem 0.95rem;
   color: var(--olive);
   background: var(--card);
   border: 1px solid var(--sage-deep);
@@ -4419,6 +4273,7 @@ button.admin-action-danger,
   .filter-command-bar {
     grid-template-columns: minmax(14rem, 1fr) auto;
     align-items: center;
+    gap: 1rem;
   }
 
   .filter-actions {
@@ -5162,15 +5017,19 @@ button.admin-action-danger,
     line-height: 1.35;
   }
 
+  /* The wide layout used to TIGHTEN the bar to buy vertical room for the list
+     beside the map. It bought too much: at this width there is space, and the
+     control row was reading as one dense band. These now match the base rule
+     rather than undercutting it. */
   .filters {
-    gap: 0.65rem;
-    margin: 0 0 0.6rem;
-    padding: 1.1rem 1.25rem;
+    gap: 1.15rem;
+    margin: 0 0 0.85rem;
+    padding: 1.4rem 1.5rem;
   }
 
   .filter-command-bar {
     grid-template-columns: minmax(16rem, 1fr) auto;
-    gap: 0.65rem;
+    gap: 1rem;
   }
 
   .filter-panel {
@@ -5380,10 +5239,13 @@ button.admin-action-danger,
 }
 
 @media (min-width: 87rem) and (max-height: 62rem) {
+  /* A SHORT viewport genuinely needs the vertical room back, so this stays
+     tighter than the base — but 0.4rem of padding left the controls touching
+     the panel edge. Trimmed rather than collapsed. */
   .filters {
-    gap: 0.25rem 0.65rem;
-    margin-bottom: 0.4rem;
-    padding: 0.4rem 0.6rem;
+    gap: 0.7rem 1rem;
+    margin-bottom: 0.6rem;
+    padding: 0.85rem 1.1rem;
   }
 
   .stand-head h2,
@@ -6133,17 +5995,180 @@ button.admin-action-danger,
 }
 
 /* The map's door to this page. */
-.seller-list-link {
-  color: var(--olive);
-  font-size: 0.85rem;
-  font-weight: 650;
-  text-decoration: none;
+/* STANDS OR SELLERS. Two ways of looking at one island, so the control is a pair
+   of segments on the list rather than a link off the page. It sits where the
+   "Find a stand" heading used to and is the label for the list below it.
+
+   THE TRACK CARRIES THE COLOUR; THE CHOSEN SEGMENT IS THE PALE PILL ON IT.
+
+   The previous pass had this the wrong way round — a white control with one dark
+   segment, which reads as a button that happens to be pressed. Filling the whole
+   track makes the control itself the coloured object on the page, and the pale
+   pill riding on it is unmistakably "you are here". It is also what makes the
+   unchosen side legible AS a choice: it is a word on the colour, not a greyed
+   thing beside a filled thing.
+
+   The colour is `--pin`, the poster's own pin green. It is already this map's
+   "this is the thing" colour, so the control draws the eye without introducing a
+   hue the island does not otherwise contain — which is what would make it
+   distracting rather than merely present. */
+.list-tabs {
+  display: inline-flex;
+  padding: 0.25rem;
+  background: var(--pin);
+  border: 1px solid color-mix(in srgb, var(--pin) 78%, #000);
+  /* Softened, not pilled. A full 999px would read as a tag; this keeps the
+     control's corner in the family of the surface's other controls while still
+     letting the inner pill be visibly round. */
+  border-radius: 10px;
+  box-shadow: 0 1px 3px rgb(31 41 36 / 18%);
+}
+
+.list-tab {
+  display: inline-flex;
+  /* Sized so the whole control lands at 3rem with the track's padding and border,
+     matching the search field and the buttons on the row below it. */
+  min-height: 2.4rem;
+  align-items: center;
+  padding: 0.4rem 1.1rem;
+  /* On the track, so white — the unchosen side is a legible word, never a dimmed
+     one. Anything less than full white here starts reading as disabled. */
+  color: #fff;
+  background: transparent;
+  border: 0;
+  border-radius: 8px;
+  font: inherit;
+  font-size: 0.9rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: pointer;
   white-space: nowrap;
 }
 
-.seller-list-link:hover,
-.seller-list-link:focus-visible {
-  text-decoration: underline;
+.list-tab:hover:not([aria-selected="true"]) {
+  background: rgb(255 255 255 / 16%);
+}
+
+/* THE CHOSEN SEGMENT: the pale pill, lifted off the track. Its ink is the same
+   green as the track, which is what ties the two halves into one object. */
+.list-tab[aria-selected="true"] {
+  color: var(--pin);
+  background: var(--card);
+  box-shadow: 0 1px 2px rgb(31 41 36 / 22%);
+}
+
+.list-tab:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--olive) 55%, transparent);
+  outline-offset: 2px;
+}
+
+/* A lone tab is a TITLE, not a switch — with no sellers there is nothing to
+   switch to, so a control that cannot do anything would be a lie. It drops the
+   whole treatment, colour included, and reads as the heading it replaced. */
+.list-tabs:has(.list-tab:only-child) {
+  padding: 0;
+  background: none;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+
+.list-tabs .list-tab:only-child,
+.list-tabs .list-tab:only-child[aria-selected="true"] {
+  min-height: 0;
+  padding: 0;
+  color: var(--olive);
+  background: none;
+  box-shadow: none;
+  font-size: 1.05rem;
+  font-weight: 700;
+  cursor: default;
+}
+
+/* ---- The seller list, in the map's own list column ---------------------- */
+
+.seller-browse {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.seller-browse-search .field-input {
+  width: 100%;
+}
+
+/* A seller renders in the STAND card's shape — `ul.stands > li.stand` — so those
+   rules do the work and none are restated here. What is left is only what a
+   seller card holds that a stand card does not.
+
+   THE TWO GRIDS RECLAIM THEIR FIRST COLUMN. `.stand` reserves column 1 for the
+   poster dots and `.stand-head` reserves its own for the pin number. A seller has
+   neither, so without this her name was laid out inside a 1.65rem gutter and
+   wrapped one word per line. `!important` is not needed: these rules sit after
+   the ones they correct and match on an extra class, so they simply win. */
+.stand-no-pin {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.stand-no-pin > .stand-content {
+  grid-column: 1;
+}
+
+.stand-head-no-pin {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+/* The seller's summary chips, in the row the stand card uses for its open state
+   and recency. Quieter than a stand's, because none of these is time-sensitive. */
+.seller-kind,
+.seller-stand-count {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.1rem 0.5rem;
+  color: var(--olive);
+  background: rgb(255 255 255 / 60%);
+  border: 1px solid color-mix(in srgb, var(--sage-deep) 55%, transparent);
+  border-radius: 999px;
+  font-size: 0.78rem;
+  font-weight: 700;
+}
+
+.seller-detail-body {
+  display: grid;
+  gap: 0.35rem;
+  padding-top: 0.15rem;
+}
+
+.seller-browse-description,
+.seller-browse-items,
+.seller-browse-where {
+  margin: 0;
+  color: var(--ink-soft, #55605c);
+  font-size: 0.85rem;
+}
+
+/* On the collapsed card, so it stays a supporting line under the name rather than
+   competing with it. */
+.seller-browse-items {
+  margin-top: 0.25rem;
+  line-height: 1.35;
+}
+
+.seller-browse-where {
+  color: var(--olive);
+  font-weight: 600;
+}
+
+/* Dimmed, never hidden: the other stands are still real places, and removing them
+   would redraw the island under someone only asking where one baker sells. */
+.pin-seller-dimmed {
+  opacity: 0.28;
+}
+
+.pin[data-seller-highlighted="true"] .pin-shape,
+.pin[data-seller-highlighted="true"] .pin-market-shape {
+  stroke: var(--olive);
+  stroke-width: 6;
+  paint-order: stroke;
 }
 
 /* ---------------------------------------------------------------------------
@@ -6231,36 +6256,54 @@ button.admin-action-danger,
   box-shadow: 0 1px 2px rgb(28 35 33 / 5%);
 }
 
-/* THE HEAD. Tinted, so an open card reads as one object with a titled lid rather
-   than as two stacked panels. The row keeps its grid so every name in a long list
-   sits on the same x. */
+/* THE HEAD. White at rest, so a long list reads as a stack of plain cards and the
+   eye spends its attention on the names rather than on the bands between them. The
+   tint arrives only when the card OPENS, where it earns its keep: it makes the head
+   a titled lid over the body instead of two stacked panels. The row keeps its grid
+   so every name in a long list sits on the same x. */
 .admin-stands-and-sellers .admin-row {
   grid-template-columns: 2.25rem minmax(0, auto) minmax(0, 1fr) auto;
   gap: 0.75rem;
   padding: 0.85rem 1rem;
-  background: var(--admin-cream);
+  background: var(--card);
   border-radius: calc(var(--radius) - 1px);
 }
 
 .admin-stands-and-sellers .admin-farm-card > details[open] > .admin-row {
+  background: var(--admin-cream);
   border-radius: calc(var(--radius) - 1px) calc(var(--radius) - 1px) 0 0;
   border-bottom: 1px solid var(--admin-leaf);
 }
 
+/* Hover moves each state AWAY from its own resting colour: a closed head warms
+   toward the tint, an open one deepens. One shared rule mixing toward white would
+   have made hovering a closed card do nothing and an open one go pale. */
 .admin-stands-and-sellers .admin-row:hover {
-  background: color-mix(in srgb, var(--admin-cream) 70%, var(--card));
+  background: var(--paper);
+}
+
+.admin-stands-and-sellers .admin-farm-card > details[open] > .admin-row:hover {
+  background: color-mix(in srgb, var(--admin-cream) 85%, var(--ink));
 }
 
 /* The caret gets a box of its own, so the one control in the head that opens the
-   card looks like a control — the bare triangle read as decoration. */
+   card looks like a control — the bare triangle read as decoration. Its ground is
+   the PAPER tone, not the card's: on a white head a white box is only its border,
+   which is how the triangle read as decoration in the first place. */
 .admin-row-caret-box {
   display: grid;
   place-items: center;
   width: 2.25rem;
   height: 2.25rem;
-  background: var(--card);
+  background: var(--paper);
   border: 1px solid var(--line);
   border-radius: 9px;
+}
+
+/* On an open head the tint is the ground, so the box goes back to white to stay
+   the lighter of the two and keep reading as a control. */
+.admin-stands-and-sellers .admin-farm-card > details[open] .admin-row-caret-box {
+  background: var(--card);
 }
 
 .admin-stands-and-sellers .admin-row-identity strong {
@@ -6270,10 +6313,26 @@ button.admin-action-danger,
 .admin-row-actions {
   display: flex;
   align-items: center;
-  /* The menu must escape the head it sits in; a stacking context here keeps it
-     above the cards below without a z-index on the whole card. */
+  /* The menu must escape the head it sits in. */
   position: relative;
   z-index: 1;
+}
+
+/* AN OPEN MENU OUTRANKS THE CARDS BELOW IT.
+
+   Each actions cell is its own stacking context, so `.admin-menu-list`'s z-index
+   competes only INSIDE that cell. Against other cards the contest is between the
+   cells themselves, which all sit at 1 — and equal z-indexes are settled by DOM
+   order, so every card further down the list painted over the open menu.
+
+   Raising it has to happen on both rungs: the cell, so it beats its sibling cells,
+   and the card, so it beats its sibling cards. Only the one with an open menu is
+   lifted, which is why the marker is on the menu rather than on the card. */
+.admin-row-actions:has(.admin-menu[data-open]),
+.admin-stands-and-sellers .admin-farm-card:has(.admin-menu[data-open]),
+.admin-stands-and-sellers .admin-stand:has(.admin-menu[data-open]) {
+  position: relative;
+  z-index: 30;
 }
 
 /* THE BODY. The card face, and generous with space — its groups are separated by
@@ -6791,35 +6850,104 @@ button.admin-action-danger,
   gap: 0.9rem;
 }
 
-/* The stand's facts, and the one surface a verb opened. Sections are separated by
-   space; a panel within a panel would spend a border and two paddings to say what
-   the gap already says. */
-.admin-stands-and-sellers .admin-stand-detail-section {
-  padding: 0;
-  background: transparent;
-  border: none;
-  border-radius: 0;
-  overflow: visible;
+/* ---- A stand's facts, as a profile ------------------------------------- */
+
+.admin-stand-facts {
+  display: grid;
+  gap: 1rem;
 }
 
-.admin-stands-and-sellers .admin-stand-detail-section h3 {
-  margin: 0 0 0.5rem;
-  padding: 0;
+/* THE LEAD. What is on the shelf, in reading type, on its own ground — this is
+   the answer the card was opened for, and it is the one thing here that is not a
+   label/value pair. A tinted panel rather than another bordered box: the card
+   already has boxes, and one more would rank it with them instead of above them. */
+.admin-stand-lead {
+  padding: 0.85rem 1rem;
+  background: var(--green-soft);
+  border-radius: 12px;
+}
+
+.admin-stand-lead-items {
+  margin: 0;
+  color: var(--ink);
+  font-size: 1.05rem;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+/* The recency line, quiet but never absent. An inventory with no date is a claim
+   about the present that an unattended stand cannot make. */
+.admin-stand-lead-when {
+  margin: 0.3rem 0 0;
   color: var(--ink-soft);
-  background: transparent;
-  border: none;
-  font-size: 0.86rem;
+  font-size: 0.85rem;
+}
+
+/* THE REFERENCE FACTS. Two across where there is room, so four short groups read
+   as a filing drawer rather than as one long column. `auto-fit` collapses them to
+   one column on a phone without a second breakpoint saying so. */
+.admin-stand-groups {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 18rem), 1fr));
+  gap: 0.9rem;
+  align-items: start;
+}
+
+.admin-stand-group-title {
+  margin: 0 0 0.4rem;
+  color: var(--ink-soft);
+  font-size: 0.78rem;
   font-weight: 700;
-  letter-spacing: 0.02em;
+  letter-spacing: 0.04em;
   text-transform: uppercase;
 }
 
-.admin-stands-and-sellers .admin-stand-detail-section dl > div {
-  grid-template-columns: minmax(8rem, 0.5fr) minmax(0, 1fr);
-  padding: 0.45rem 0;
+/* One box per group, rows divided by a hairline — the same shape `.admin-group-body`
+   gives "Who sells here", so an open card has one grammar throughout. */
+.admin-stand-group-body {
+  display: grid;
+  margin: 0;
+  padding: 0 0.9rem;
+  background: var(--card);
+  border: 1px solid var(--line);
+  border-radius: 12px;
+}
+
+.admin-stand-group-body > div {
+  display: grid;
+  grid-template-columns: minmax(7rem, 0.45fr) minmax(0, 1fr);
+  gap: 0.8rem;
+  padding: 0.55rem 0;
   border-bottom: 1px solid var(--line);
 }
 
+.admin-stand-group-body > div:last-child {
+  border-bottom: 0;
+}
+
+.admin-stand-group-body dt {
+  color: var(--ink-faint);
+  font-size: 0.85rem;
+}
+
+.admin-stand-group-body dd {
+  min-width: 0;
+  margin: 0;
+  font-size: 0.9rem;
+  overflow-wrap: anywhere;
+}
+
+/* On a phone the two-column row is a squeeze, so the label sits above its value. */
+@media (max-width: 560px) {
+  .admin-stand-group-body > div {
+    grid-template-columns: 1fr;
+    gap: 0.1rem;
+  }
+}
+
+/* The surface a verb opened. Its own ground, so a form the operator is typing into
+   is visibly not one of the fact groups above it. */
 .admin-stands-and-sellers .admin-stand-editor {
   gap: 0.45rem;
   padding: 0.95rem;
