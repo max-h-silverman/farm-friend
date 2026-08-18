@@ -112,9 +112,12 @@ unit tests alone, and no width below 500px was reachable.
   column); `drizzle-kit` does not emit them. A hand-written migration's snapshot is repaired as a **measured
   DELTA of its predecessor, never by introspection** — RUNBOOK §Migrations and DEVELOPMENT.md
   §gotchas own the procedure and the evidence for it.
-- Cloud Run web **`farm-friend-web-00083-zvf`** and worker **`farm-friend-worker-00078-x7f`** serve
-  digest `sha256:78ce947c6a2f928c392d590aa2296e1a7d4f594390f36c4fa5d0356f53283c73`, built from
-  `25665e8`. Deployed 2026-08-18. The plan was `0 to add, 2 to change, 0 to destroy` — the image on
+- Cloud Run web **`farm-friend-web-00084-wrh`** and worker **`farm-friend-worker-00079-922`** serve
+  digest `sha256:59bcf36053a5c973f0529fd62a792e5f80339acbfe7bade1f18a53d772cabdd1`, built from
+  `ee466c4` (B-083 + B-084). Deployed 2026-08-18, replacing `00083-zvf`/`00078-x7f` from `25665e8`
+  the same day. **Both label fixes verified IN THE SHIPPED BUNDLES**, not by exit status:
+  `Hours unknown` in the map chunk, `Selling here` in the admin chunk, and `Stand is open`,
+  `Keep it open` and `Close the stand` all absent. The plan was `0 to add, 2 to change, 0 to destroy` — the image on
   both services and nothing else; `plan-assertions.py` 61/61, `deploy_assertions.py` and
   `served_card_assertions.py` both pass. **B-074, F-114/F-115, F-101, F-117 and the two 2026-08-18
   UI passes (`b14155f`, `beeb386`) are now live.** Neither revision has an error-level log; the
@@ -124,6 +127,35 @@ unit tests alone, and no width below 500px was reachable.
 - **The one dropped `scaling` block in that plan was service-level state the config never declares**
   — the `template` scaling blocks (`services.tf` 171, 292) are unchanged, so autoscaling behavior
   did not move.
+
+## The hosted names are resolved (F-114 C.1, 2026-08-18)
+
+`0042` kept `sales_location_participants` as display-only history and refused to link those names
+to seller identities — the corpus held `Fernhorn Bakery` at Pacific Crest and `Fern Horn Bakery`
+at Tian Tian, and matching would have merged two stands' relationships on a guess or split one
+bakery in two. **max resolved three of the eleven on 2026-08-18**, and
+`scripts/resolve-hosted-sellers.ts` is that decision written down rather than inferred:
+
+- **Fernhorn Bakery is ONE bakery with TWO arrangements** — Tian Tian and Pacific Crest — and
+  `Fernhorn` is the correct spelling. This is the case the migration could not decide.
+- **Handpicked Homestead was linked, not created.** She already existed as a seller with a live
+  authorization, and her own description places her flowers at Plum Forest Farmstand — her word,
+  not a name match.
+- **Gracie's Greens** is a new seller with one arrangement at Venison Valley.
+
+Written as `active`/`approval_source = 'viga'` with no vouching authorization, because VIGA is the
+approver on record for an arrangement it already knows about. **The eleven retained participant
+rows are untouched** — they are history, and the public card now credits the real seller instead.
+
+**Verified by effect:** sellers 40 → 42, `stand_providers` 38 → 42, exactly one Fernhorn seller,
+all five arrangements active, and all three rendering on the live public map (payload 34 → 36
+sellers). The script dry-runs by default and fingerprints the corpus, refusing a wrong target.
+
+**Still unresolved, deliberately:** `Vashon Island Honey Co.` at Pacific Crest and `Kareli Farm` at
+Provo Farms — nobody has decided them. The remaining retained names stay display-only.
+
+**None of the three can update a listing.** No phone, no authorization: they are credited sellers
+with no inventory of their own until someone onboards them.
 
 ## Verification
 
