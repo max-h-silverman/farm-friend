@@ -5,6 +5,7 @@ import type {
   StockOutModel,
 } from "@farm-friend/ai";
 import {
+  answerHostConfirmation,
   applyPendingDeliveryEvents,
   authorizeDispatch,
   claimNextInboundEvent,
@@ -180,6 +181,14 @@ export async function runInboundPass(
             ),
           scheduledSame: (input) =>
             handleScheduledSame({ db: deps.db, clock: deps.clock }, input),
+          // F-117 — the host's answer to "do you host her?". Thin: the seam owns the
+          // last-message-in-the-thread rule and routes a denial through the participation seam.
+          hostConfirmation: (input) =>
+            answerHostConfirmation(deps.db, {
+              hostHash: input.senderHash,
+              token: input.token,
+              occurredAt: input.occurredAt,
+            }),
         },
         {
           senderHash: claimed.senderHash,

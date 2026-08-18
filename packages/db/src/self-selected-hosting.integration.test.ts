@@ -268,6 +268,107 @@ describe("F-117 a seller self-selects a host stand (integration)", () => {
     expect(own).toHaveLength(1);
   });
 
+  it("asks the HOST to confirm her, by text, and opens the question", async () => {
+    /*
+      F-117 — the host is asked, and may deny. A seller self-selecting with no way for the owner
+      to object would let anyone list goods at any stand on the island, which inverts the rule
+      F-116 settled: either side may always walk away.
+
+      **The host must have an authorized phone to reach.** Farm Friend cannot text first — a
+      number with no consent row has every non-reply send suppressed — so this asks the host
+      Farm Friend already knows, which is the ordinary case: a stand owner is an onboarded
+      farmer. A stand with nobody reachable simply gets no question, asserted below.
+    */
+    const hostHash = `h${randomUUID().replaceAll("-", "")}`;
+    const hostContacts = await client()`
+      insert into contacts (phone_e164, phone_hash, created_at)
+      values ('+12065550122', ${hostHash}, ${T0}) returning id
+    `;
+    await client()`
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${hostSellerId}, ${hostContacts[0]?.id as string}, ${T0}, ${T0})
+    `;
+
+    const result = await saveOnboardingListing(handle(), {
+      farmId: guestSellerId,
+      standName: "Gracies Greens Stand",
+      listing: {
+        visitability: "contact_only",
+        offeringType: "produce",
+        publicAddress: null,
+        addressPublic: true,
+        pricesPublic: false,
+        latitude: null,
+        longitude: null,
+        hoursText: null,
+        paymentMethods: [],
+        items: [],
+      },
+      hostStandId,
+      occurredAt: T0,
+    });
+    expect(result.status).toBe("saved");
+
+    // The question is open, bound to THIS arrangement.
+    const pending = await client()`
+      select stand_provider_id from pending_host_confirmations where host_hash = ${hostHash}
+    `;
+    expect(pending).toHaveLength(1);
+    const hosted = await client()`
+      select id from stand_providers
+      where sales_location_id = ${hostStandId} and seller_id = ${guestSellerId}
+    `;
+    expect(pending[0]?.stand_provider_id).toBe(hosted[0]?.id);
+
+    // And the text was queued to the host, naming the seller so the question can be answered.
+    const queued = await client()`
+      select body, message_category from outbox_work where recipient_hash = ${hostHash}
+    `;
+    expect(queued).toHaveLength(1);
+    expect(queued[0]?.body).toContain("Gracies Greens");
+    expect(String(queued[0]?.body)).toMatch(/YES/);
+    expect(String(queued[0]?.body)).toMatch(/NO/);
+    // GSM-7 only: one non-GSM character re-encodes the whole body to UCS-2 and halves the
+    // segment capacity. Asserted on the VALUE rather than trusting the copy was written well.
+    expect(String(queued[0]?.body)).toMatch(
+      /^[A-Za-z0-9 @£$¥èéùìòÇØøÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ!"#¤%&'()*+,\-./:;<=>?¡ÄÖÑÜ§¿äöñüà\r\n]*$/,
+    );
+  });
+
+  it("lists her even when the host has no phone Farm Friend may text", async () => {
+    /*
+      The stand exists and its owner is not reachable — a VIGA-seeded stand nobody has onboarded.
+      She is still listed, because the alternative is refusing a real arrangement over a message
+      we cannot send. No question is opened, because there is nobody it could be answered by.
+    */
+    const result = await saveOnboardingListing(handle(), {
+      farmId: guestSellerId,
+      standName: "Gracies Greens Stand",
+      listing: {
+        visitability: "contact_only",
+        offeringType: "produce",
+        publicAddress: null,
+        addressPublic: true,
+        pricesPublic: false,
+        latitude: null,
+        longitude: null,
+        hoursText: null,
+        paymentMethods: [],
+        items: [],
+      },
+      hostStandId,
+      occurredAt: T0,
+    });
+    expect(result.status).toBe("saved");
+
+    expect(await client()`
+      select id from stand_providers
+      where sales_location_id = ${hostStandId} and seller_id = ${guestSellerId}
+    `).toHaveLength(1);
+    expect(await client()`select id from pending_host_confirmations`).toHaveLength(0);
+    expect(await client()`select id from outbox_work`).toHaveLength(0);
+  });
+
   it("saves the listing even when the host stand is bad, rather than losing her whole form", async () => {
     /*
       The arrangement is a SECONDARY fact. A farmer who picked a stand that was retired between

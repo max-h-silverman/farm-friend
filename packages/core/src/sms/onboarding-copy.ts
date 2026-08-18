@@ -283,3 +283,27 @@ export function renderFarmerLinkMessage(link: string): string {
     "This link is just for you - please don't share it.",
   ].join("\n");
 }
+
+/**
+ * Ask a stand's owner to confirm a seller who put herself there (F-117).
+ *
+ * **Code-rendered from typed facts**, never model prose: this is a cross-actor message — it
+ * tells one farmer something another farmer did — and Golden Rule #6 permits only code-rendered
+ * text across that boundary. The only variable is a seller name, which
+ * `validatePublicStrings` has already refused if it carries contact details.
+ *
+ * **The two words are stated plainly** because the answer is deterministic: `YES` and `NO` are
+ * parsed before any model call, and a host who answers in a sentence gets no commitment. Naming
+ * them is what makes the reply answerable.
+ *
+ * **No deadline is stated**, matching the farmer target menu's reasoning. The question closes
+ * when anything else passes in the thread rather than on a clock, so there is no honest number
+ * to give — and the host's settings screen carries Remove either way, which is the sentence
+ * that actually helps. GSM-7: no em-dash, no curly quotes.
+ */
+export function renderHostConfirmationRequest(sellerName: string): string {
+  return [
+    `VIGA Farm Friend: ${sellerName} says they sell at your farm stand.`,
+    "Reply YES to confirm, or NO if that is wrong and we will remove them.",
+  ].join("\n");
+}

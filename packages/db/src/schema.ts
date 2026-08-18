@@ -4129,6 +4129,62 @@ export const pendingResultLists = pgTable(
  * rather than conventional — resolution happens inside the free-text customer branch, below
  * every compliance keyword.
  */
+/**
+ * A host has been asked to confirm a seller who put herself at their stand (F-117).
+ *
+ * ## Why this exists at all
+ *
+ * A seller self-selecting a stand with no way for the owner to object would let anyone list
+ * goods at any stand on the island, with the owner unable to remove them. That inverts the rule
+ * F-116 settled — either side may always walk away — so the host must be able to end it. Asking
+ * outright is better than relying on the host noticing a stranger appeared.
+ *
+ * ## Answerable only while it is the LAST MESSAGE IN THE THREAD (max, 2026-08-17)
+ *
+ * Any other traffic in either direction — the host texting us anything, or the system sending
+ * them anything — closes it. This is Golden Rule #2's requirement satisfied by CONVERSATION
+ * STATE rather than by a clock: context-bound rather than global, committing exactly once, and
+ * expiring. A bare `YES` can therefore never be misread against a stale question, because a
+ * stale question is no longer open.
+ *
+ * `askedAt` is what makes that decidable: an answer counts only when nothing in `sms_messages`
+ * or `outbox_work` for this host sits between it and the answer.
+ *
+ * **The consequence, accepted** (max): the window can be short in practice — a scheduled
+ * inventory prompt sent minutes later closes it before the host has read it. That is acceptable
+ * because the host's own settings screen carries the Remove control (F-101), so a closed
+ * confirmation costs the host a web visit, never the ability to act.
+ */
+export const pendingHostConfirmations = pgTable(
+  "pending_host_confirmations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /**
+     * The HOST's hash, never a raw number (Golden Rule #5). Unique: one open question per host,
+     * so a second self-selecting seller REPLACES the first rather than leaving two rows for a
+     * bare `YES` to choose between. The index is the arbiter, not a read-then-write.
+     */
+    hostHash: text("host_hash").notNull(),
+    /** The arrangement the answer acts on. A `NO` ends exactly this one. */
+    standProviderId: uuid("stand_provider_id").notNull(),
+    /**
+     * When the question was sent. The thread test compares against this: anything for this host
+     * after it closes the question.
+     */
+    askedAt: timestamp("asked_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    standProviderReference: foreignKey({
+      name: "pending_host_confirmations_provider_fk",
+      columns: [table.standProviderId],
+      foreignColumns: [standProviders.id],
+    }).onDelete("cascade"),
+    hostUnique: unique("pending_host_confirmations_host_hash_unique").on(
+      table.hostHash,
+    ),
+  }),
+);
+
 export const pendingStockOutReports = pgTable(
   "pending_stock_out_reports",
   {

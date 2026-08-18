@@ -7,6 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FixedClock } from "@farm-friend/core";
 import {
   activateWebProposal,
+  answerHostConfirmation,
   approveFarm,
   authorizeFarmer,
   createDb,
@@ -239,6 +240,18 @@ describe("public-string safety at the shared publication boundary (integration)"
     const forbiddenScheduledSame: RouteDeps["scheduledSame"] = async () => {
       throw new Error("scheduled SAME handler reached for deterministic YES");
     };
+    /*
+      F-117 — the REAL seam, not a stub. This suite drives a real database, and the host
+      question is genuinely consulted before the inventory proposal on every YES. A stub would
+      hide whether that ordering leaves this publication path working; the real reader answers
+      `no_open_question` here because no host was ever asked, which is the honest fixture.
+    */
+    const hostConfirmation: RouteDeps["hostConfirmation"] = async (input) =>
+      answerHostConfirmation(database(), {
+        hostHash: input.senderHash,
+        token: input.token,
+        occurredAt: input.occurredAt,
+      });
     return routeInboundMessage(
       {
         db: database(),
@@ -248,6 +261,7 @@ describe("public-string safety at the shared publication boundary (integration)"
         freeText: forbiddenFreeText,
         nextPage: forbiddenNextPage,
         farmerTarget: forbiddenFarmerTarget,
+        hostConfirmation,
         selectStand: forbiddenStandSelection,
         scheduledSame: forbiddenScheduledSame,
       },

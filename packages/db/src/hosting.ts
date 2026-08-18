@@ -79,6 +79,100 @@ export type InviteSellerToStandResult =
   | { status: "not_authorized" }
   | { status: "already_selling_here" };
 
+/**
+ * Ask the host to confirm a seller who put herself at their stand (F-117).
+ *
+ * **One open question per host**, and the newest replaces the older: a second self-selecting
+ * seller must not leave two rows for a bare `YES` to choose between. The unique index is the
+ * arbiter rather than a read-then-write, the same discipline `pending_stock_out_reports` uses.
+ *
+ * `askedAt` is the moment the question was sent. Everything about whether it is still answerable
+ * is decided from it — see `answerHostConfirmation`.
+ */
+export async function openHostConfirmation(
+  db: Db,
+  input: { hostHash: string; standProviderId: string; askedAt: Date },
+): Promise<{ status: "asked" }> {
+  await driver(db)`
+    insert into pending_host_confirmations (host_hash, stand_provider_id, asked_at)
+    values (${input.hostHash}, ${input.standProviderId}, ${input.askedAt.toISOString()})
+    on conflict (host_hash) do update
+      set stand_provider_id = excluded.stand_provider_id,
+          asked_at = excluded.asked_at
+  `;
+  return { status: "asked" };
+}
+
+export type AnswerHostConfirmationResult =
+  | { status: "confirmed" }
+  | { status: "denied" }
+  /** Nothing open, or the question is no longer the last message in the thread. */
+  | { status: "no_open_question" };
+
+/**
+ * The host's `YES` or `NO`, answerable ONLY while the question is the last message in the thread.
+ *
+ * ## The rule, and why it is conversation state rather than a clock
+ *
+ * max settled (2026-08-17) that any other traffic in either direction closes the question — the
+ * host texting us anything, or the system sending them anything. That satisfies Golden Rule #2's
+ * requirement on a confirmation token without a TTL: it is context-bound rather than global, it
+ * commits exactly once, and it expires. A bare `YES` cannot be misread against a stale question,
+ * because a stale question is no longer open.
+ *
+ * **Both directions are checked, and the system-sent half is the one worth stating.** It is easy
+ * to ask whether the host has spoken since; it is easy to forget that a scheduled inventory
+ * prompt WE queued also closed the question. max accepted that consequence explicitly: the
+ * window can be short, and the host's settings screen carries Remove either way (F-101), so a
+ * closed question costs a web visit and never the ability to act.
+ *
+ * ## What each answer does
+ *
+ * `YES` consumes the question and changes nothing else — she is already live, which is the whole
+ * point of the flow. `NO` ends the arrangement through `setProviderParticipation`, the same seam
+ * and the same authority rule as every other ending; a host ENDING is exactly what F-116 permits,
+ * so this introduces no new authority.
+ *
+ * The row is consumed either way, and BEFORE the ending is applied, so a redelivered inbound
+ * event cannot end a second arrangement.
+ */
+export async function answerHostConfirmation(
+  db: Db,
+  input: { hostHash: string; token: "YES" | "NO"; occurredAt: Date },
+): Promise<AnswerHostConfirmationResult> {
+  const consumed = await driver(db)`
+    delete from pending_host_confirmations as pending
+    where pending.host_hash = ${input.hostHash}
+      -- STILL THE LAST MESSAGE IN THE THREAD. Nothing this host sent, and nothing we sent them,
+      -- may sit between the question and this answer.
+      and not exists (
+        select 1 from sms_messages
+        where sms_messages.sender_hash = pending.host_hash
+          and sms_messages.received_at > pending.asked_at
+      )
+      and not exists (
+        select 1 from outbox_work
+        where outbox_work.recipient_hash = pending.host_hash
+          and outbox_work.created_at > pending.asked_at
+      )
+    returning stand_provider_id
+  `;
+  const standProviderId = consumed[0]?.stand_provider_id as string | undefined;
+  if (standProviderId === undefined) return { status: "no_open_question" };
+
+  if (input.token === "YES") return { status: "confirmed" };
+
+  // Through the SEAM, never a direct write: it owns the lock ordering, the authority resolution
+  // and the invalidation of that provider's open work. A host may end, and this is that act.
+  await setProviderParticipation(db, {
+    providerId: standProviderId,
+    transition: "end",
+    senderHash: input.hostHash,
+    occurredAt: input.occurredAt,
+  });
+  return { status: "denied" };
+}
+
 export interface HostStandChoice {
   standId: string;
   name: string;

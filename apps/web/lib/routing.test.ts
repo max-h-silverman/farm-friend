@@ -115,6 +115,18 @@ function forbiddenScheduledSame(): RouteDeps["scheduledSame"] {
   };
 }
 
+/**
+ * F-117 — the host question, answering "nothing open" by default.
+ *
+ * Deliberately NOT a throwing stub like its neighbours. Those guard seams that must not be
+ * reached at all on a given path; this one IS reached by every YES/NO, and the ordinary answer
+ * for a sender with no open question is exactly this. A throwing default would make every
+ * existing commitment test fail for a reason unrelated to what it asserts.
+ */
+function quietHostConfirmation(): RouteDeps["hostConfirmation"] {
+  return async () => ({ status: "no_open_question" as const });
+}
+
 function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
   const { db } = recordingDb();
   return {
@@ -129,6 +141,7 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     farmerTarget: forbiddenFarmerTarget(),
     selectStand: forbiddenStandSelection(),
     scheduledSame: forbiddenScheduledSame(),
+    hostConfirmation: quietHostConfirmation(),
     ...overrides,
   };
 }
@@ -966,5 +979,61 @@ describe("deterministic routing order (Golden Rule #2)", () => {
       expect(nextPage).not.toHaveBeenCalled();
       expect(freeText).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("F-117 the host's YES/NO", () => {
+  /*
+    A host answering "do you host her?" and a seller answering "publish this?" both text `YES`.
+    The two must never be confused, and the order that resolves it is stated here rather than
+    left to whichever query happens to run first.
+
+    **The host question is asked FIRST.** It is answerable only while it is the last message in
+    the thread, so it cannot be open at all unless we sent it and nothing has passed since — and
+    an inventory prompt sent to that same handset is exactly the traffic that would have closed
+    it. An open host question therefore means the host question is the live one.
+  */
+
+  it("routes a host's YES to the host question, never to a proposal", async () => {
+    const hostConfirmation = vi.fn(async () => ({ status: "confirmed" as const }));
+    const { db, queries } = recordingDb([]);
+    const result = await routeInboundMessage(
+      deps({ db, hostConfirmation }),
+      event("YES"),
+    );
+
+    expect(hostConfirmation).toHaveBeenCalledTimes(1);
+    expect(result.outcome).toEqual({ kind: "confirmation", status: "confirmed" });
+    // The proposal was never looked for: her inventory confirmation is untouched.
+    expect(queries.some((q) => q.includes("inventory_publication_proposals"))).toBe(false);
+  });
+
+  it("falls through to the inventory proposal when no host question is open", async () => {
+    // The ordinary case, and the one that must not regress: nearly every YES on the island is a
+    // farmer confirming her own listing.
+    const hostConfirmation = vi.fn(async () => ({ status: "no_open_question" as const }));
+    const { db, queries } = recordingDb([]);
+    const result = await routeInboundMessage(
+      deps({ db, hostConfirmation }),
+      event("YES"),
+    );
+
+    expect(hostConfirmation).toHaveBeenCalledTimes(1);
+    expect(result.outcome).toEqual({ kind: "confirmation", status: "no_open_proposal" });
+    expect(queries.some((q) => q.includes("inventory_publication_proposals"))).toBe(true);
+  });
+
+  it("still reaches the host question through NO", async () => {
+    // Both tokens, because a denial is the half that ENDS something — an implementation that
+    // only routed YES would leave the host unable to say no by text at all.
+    const hostConfirmation = vi.fn(async () => ({ status: "denied" as const }));
+    const result = await routeInboundMessage(
+      deps({ hostConfirmation }),
+      event("NO"),
+    );
+    expect(hostConfirmation).toHaveBeenCalledWith(
+      expect.objectContaining({ token: "NO" }),
+    );
+    expect(result.outcome).toEqual({ kind: "confirmation", status: "denied" });
   });
 });

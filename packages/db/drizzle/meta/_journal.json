@@ -372,6 +372,13 @@
       "when": 1788150418000,
       "tag": "0052_self_selected_hosting",
       "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1788150419000,
+      "tag": "0053_host_confirmation",
+      "breakpoints": true
     }
   ]
 }

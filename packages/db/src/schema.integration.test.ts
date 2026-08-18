@@ -62,6 +62,9 @@ const expectedTables = [
   "model_runs",
   "outbox_dispatch_attempts",
   "outbox_work",
+  // F-117 — the host's open "do you host her?" question, answerable only while it is the last
+  // message in the thread.
+  "pending_host_confirmations",
   // F-046 — the pending result list `MORE` pages through.
   "pending_result_lists",
   // B-065 — the stock-out report held between a clarifying question and its answer.
