@@ -1,4 +1,8 @@
 import {
+  CONSENT_INVITATION_REPLY,
+  requiresConsentBeforeAnswering,
+  shouldInviteToConsent,
+  type ConsentState,
   parseCommand,
   consentTransitionFor,
   ALREADY_JOINED_RESPONSE,
@@ -65,6 +69,11 @@ export interface RoutedReply {
 
 export type RouteOutcome =
   | { kind: "consent"; transition: "start" | "stop"; applied: boolean }
+  /**
+   * F-121 — the sender has no active consent, so nothing substantive was answered.
+   * `invited` is false for a sender who opted out: they are gated AND left alone.
+   */
+  | { kind: "consent_required"; invited: boolean }
   | { kind: "help" }
   | { kind: "map" }
   | { kind: "flag"; flagId: string }
@@ -259,10 +268,73 @@ export async function routeInboundMessage(
     return routeCompliance(deps, input, command.keyword);
   }
 
-  // F-057. MAP has no conversation state to corrupt, so like compliance it remains useful
-  // for a delayed carrier event. It is still ordered after every compliance command: a STOP
-  // always records the opt-out, and dispatch will suppress this inquiry reply for a stopped
-  // sender. The body is configuration, never model or sender data.
+  /*
+    Everything below either mutates conversation state or answers the sender, so a stale event
+    fails closed HERE — above the consent gate as well (F-121). A stale event must produce no
+    reply at all, and an invitation is a reply; checking consent first would answer a message
+    that is not supposed to be answered, and would spend a database read doing it.
+  */
+  if (input.isStale === true) {
+    return {
+      outcome: { kind: "stale", failureCode: "stale_conversation_event" },
+      replies: [],
+    };
+  }
+
+  /*
+    F-121 — THE CONSENT GATE. Farm Friend answers nothing substantive until the sender agreed.
+
+    max, 2026-08-18: a sender with no consent record gets ONE invitation and nothing else — the
+    invitation instead of the answer, not appended to it.
+
+    **Its POSITION is the exemption list.** Everything routed above it is a carrier-registered
+    compliance keyword — the opt-out list, `JOIN`/`START`/`VIGA`, and `HELP`/`INFO` — so they
+    keep working without this gate naming them. Nothing has to remember to exclude a keyword;
+    the order does it. The staleness guard also sits above, so a stale event still replies
+    nothing rather than being invited.
+
+    Two that must stay above it, because forgetting either dead-ends a real journey:
+      - `VIGA` completes farmer onboarding from a handset with no consent row yet. Gated, the
+        farmer is told to reply `JOIN`, which can never complete onboarding.
+      - Every `STOP` synonym must reach the opt-out writer rather than an invitation.
+
+    Everything BELOW gates, deliberately including `MAP` (max named it): the map is a service
+    Farm Friend provides, not a control for joining or leaving. `MAP` therefore MOVED below this
+    gate — it used to sit above the staleness check so a delayed carrier event still returned a
+    link, and that exemption does not survive a rule that says an unconsented sender is served
+    nothing. `YES`/`NO`, the farmer keywords,
+    `MORE`, a stand menu number and all free text gate too — so no model runs for a sender who
+    has not agreed, which is a stricter guarantee than the routing order alone gave.
+
+    A STOPPED sender is gated and receives NOTHING. Dispatch would suppress their reply anyway,
+    and queuing an opt-in pitch at someone who texted `STOP` is what `STOP` exists to end.
+  */
+  const consent = await deps.db.sql`
+    select state from sms_consents where recipient_hash = ${input.senderHash}
+  `;
+  const consentRecord = consent[0]
+    ? { state: consent[0].state as ConsentState }
+    : null;
+  if (requiresConsentBeforeAnswering(consentRecord)) {
+    return {
+      outcome: { kind: "consent_required", invited: shouldInviteToConsent(consentRecord) },
+      replies: shouldInviteToConsent(consentRecord)
+        ? [{
+            body: CONSENT_INVITATION_REPLY,
+            // Answering the sender's OWN inbound message, so it rides on that message rather
+            // than on a standing consent basis — which is the only reason a message to someone
+            // with no consent record can be sent at all.
+            category: "inquiry_reply",
+            logicalKey: `consent-invite-${input.providerEventId}`,
+          }]
+        : [],
+    };
+  }
+
+  // F-057. MAP returns only the configured canonical URL — configuration, never model or
+  // sender data. Ordered after every compliance command, so a STOP always records the opt-out
+  // first, and now after the consent gate too (F-121): the map is a service, not a consent
+  // control, so a sender who has not agreed is invited rather than handed a link.
   if (command.kind === "map") {
     return {
       outcome: { kind: "map" },
@@ -271,14 +343,6 @@ export async function routeInboundMessage(
         category: "inquiry_reply",
         logicalKey: `map-${input.providerEventId}`,
       }],
-    };
-  }
-
-  // Everything below mutates conversation state, so a stale event fails closed here.
-  if (input.isStale === true) {
-    return {
-      outcome: { kind: "stale", failureCode: "stale_conversation_event" },
-      replies: [],
     };
   }
 

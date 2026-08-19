@@ -15,6 +15,7 @@ import {
   renderFarmerOnboardingComplete,
   FARMER_ONBOARDING_REQUEST_ACKNOWLEDGEMENT,
   CONTACT_CARD_PATH,
+  CONSENT_INVITATION_REPLY,
   CUSTOMER_WELCOME,
   FixedClock,
   hashPhone,
@@ -236,6 +237,30 @@ describe("inbound routing end to end (integration)", () => {
     `;
   });
 
+  /**
+   * Give a sender active launch consent.
+   *
+   * F-121 gates every non-compliance message for a sender with no consent record, so a case
+   * about MAP, free text, paging or a farmer's publish must establish consent first or it is
+   * testing the gate instead of its own subject. `sms_consents` is truncated per test, so this
+   * is explicit wherever it matters rather than a shared default — a case that forgets it fails
+   * loudly on the invitation rather than passing for the wrong reason.
+   */
+  async function giveConsent(recipientHash: string): Promise<void> {
+    // `sms_consents_coherent_capture` requires all three capture columns together, and
+    // `sms_consents_active_has_capture` requires a source for an active row — so a consent
+    // fixture states real provenance rather than a bare state.
+    await client()`
+      insert into sms_consents (
+        recipient_hash, state, capture_source, captured_at, capture_evidence_ref, updated_at
+      )
+      values (
+        ${recipientHash}, 'active', 'join', ${at(-1)}, ${`seed-consent-${recipientHash}`}, ${at(-1)}
+      )
+      on conflict (recipient_hash) do update set state = 'active'
+    `;
+  }
+
   /** Sign and POST a `message.received` webhook through the REAL route handler. */
   async function deliverInbound(input: {
     fromPhone: string;
@@ -407,6 +432,8 @@ describe("inbound routing end to end (integration)", () => {
 
   describe("compliance keywords, with no model on the path", () => {
     it("queues only the configured MAP URL through real Postgres without a model call", async () => {
+      // F-121: this case is about what follows, not about the consent gate.
+      await giveConsent(customerHash);
       await deliverInboundOnly({ fromPhone: customerPhone, text: "  map. " });
       const provider = await runPassWithForbiddenModel();
 
@@ -420,13 +447,32 @@ describe("inbound routing end to end (integration)", () => {
       }]);
       expect(provider.calls).toBe(0);
 
+      // MAP is stateless: it must not ESTABLISH, restore or revoke consent. The seeded row is
+      // untouched and its capture provenance still says how it was really established — a MAP
+      // that wrote consent would show up here as a changed source (F-121 moved MAP below the
+      // gate, so the sender now necessarily has a record; the invariant is that MAP did not
+      // create or alter it).
       const consent = await client()`
-        select state from sms_consents where recipient_hash = ${customerHash}
+        select state, capture_source from sms_consents where recipient_hash = ${customerHash}
       `;
-      expect(consent).toEqual([]);
+      expect(consent).toEqual([{ state: "active", capture_source: "join" }]);
     });
 
-    it("keeps STOP's dispatch boundary over a later MAP reply", async () => {
+    /*
+      A STOPPED SENDER'S MAP IS NEVER EVEN COMPOSED (F-121 strengthened this).
+
+      Before the consent gate, a MAP after a STOP queued a reply that `authorizeDispatch` then
+      suppressed at the claim — correct, but it composed a message for someone who had opted
+      out and relied on a later check to withhold it. `STOP` clears consent, so the gate now
+      catches MAP first: nothing is queued at all, and no invitation is queued either, because
+      inviting someone who just texted STOP back into the program is exactly what STOP ends.
+
+      The suppression boundary itself is unchanged and still proved — see the JOIN/START cases
+      and `authorizeDispatch`'s own suite. What this now pins is the stronger property: the
+      message never exists.
+    */
+    it("composes nothing at all for a stopped sender who texts MAP", async () => {
+      await giveConsent(customerHash);
       await deliverInboundOnly({ fromPhone: customerPhone, text: "STOP" });
       await runPassWithForbiddenModel();
 
@@ -434,22 +480,149 @@ describe("inbound routing end to end (integration)", () => {
       const provider = await runPassWithForbiddenModel();
 
       const mapWork = await client()`
-        select id, message_category, body from outbox_work
+        select id from outbox_work
         where recipient_hash = ${customerHash} and logical_key like 'map-%'
       `;
-      expect(mapWork).toEqual([{
-        id: expect.any(String),
-        message_category: "inquiry_reply",
-        body: "https://www.vigavashon.org/farm-stand-map#map",
-      }]);
+      expect(mapWork).toEqual([]);
+
+      // Nor an invitation: a sender who opted out is gated AND left alone.
+      const invites = await client()`
+        select id from outbox_work
+        where recipient_hash = ${customerHash} and logical_key like 'consent-invite-%'
+      `;
+      expect(invites).toEqual([]);
       expect(provider.calls).toBe(0);
 
+      // The opt-out itself still stands.
+      const consent = await client()`
+        select state from sms_consents where recipient_hash = ${customerHash}
+      `;
+      expect(consent).toEqual([{ state: "stopped" }]);
+    });
+
+    /*
+      F-121 — NOTHING SUBSTANTIVE UNTIL THE SENDER HAS AGREED (max, 2026-08-18).
+
+      A sender with no consent record gets ONE invitation naming JOIN and nothing else — not
+      their answer with an invitation appended, the invitation INSTEAD of the answer. These
+      drive the real webhook against real Postgres, so they prove the gate where it actually
+      sits rather than in a unit fixture.
+    */
+    it("invites a consentless sender instead of answering their question", async () => {
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "who has eggs?" });
+      // NO MODEL RAN. The gate is above free text, so an unconsented question never reaches a
+      // seam — a stricter guarantee than the routing order alone gave.
+      const provider = await runPassWithForbiddenModel();
+      expect(provider.calls).toBe(0);
+
+      const work = await client()`
+        select message_category, body from outbox_work
+        where recipient_hash = ${customerHash}
+      `;
+      expect(work).toEqual([{
+        message_category: "inquiry_reply",
+        body: CONSENT_INVITATION_REPLY,
+      }]);
+
+      // The invitation does not enroll them. Only their own JOIN can do that.
+      const consent = await client()`
+        select state from sms_consents where recipient_hash = ${customerHash}
+      `;
+      expect(consent).toEqual([]);
+    });
+
+    it("gates MAP for a consentless sender rather than handing over the link", async () => {
+      // max named this one: the map is a service Farm Friend provides, not a consent control.
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "MAP" });
+      await runPassWithForbiddenModel();
+
+      const work = await client()`
+        select body from outbox_work where recipient_hash = ${customerHash}
+      `;
+      expect(work).toEqual([{ body: CONSENT_INVITATION_REPLY }]);
+    });
+
+    for (const keyword of ["LINK", "STAND", "SETTINGS", "MORE"]) {
+      it(`gates ${keyword} instead of refusing it on its own terms`, async () => {
+        // Without the gate, a stranger texting LINK gets the farmer-keyword refusal. With it,
+        // consent is asked for first — a refusal is still a Farm Friend answer, and answers wait.
+        await deliverInboundOnly({ fromPhone: farmerPhone, text: keyword });
+        await runPassWithForbiddenModel();
+
+        const work = await client()`
+          select body from outbox_work where recipient_hash = ${farmerHash}
+        `;
+        expect(work).toEqual([{ body: CONSENT_INVITATION_REPLY }]);
+      });
+    }
+
+    /*
+      A SENDER WHO OPTED OUT IS GATED AND LEFT ALONE — never invited back.
+
+      This is the compliance half of the gate and it needs its own case: inviting someone who
+      texted STOP to reply JOIN is precisely the nagging STOP exists to end, and dispatch
+      suppressing it later is not good enough — the message must never be composed. Proved on
+      FREE TEXT rather than MAP, because free text reaches the gate's invite branch directly.
+    */
+    it("never invites a sender who opted out, whatever they text", async () => {
+      await giveConsent(customerHash);
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "STOP" });
+      await runPassWithForbiddenModel();
+      await client()`truncate table outbox_work restart identity cascade`;
+
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "who has eggs?" });
+      const provider = await runPassWithForbiddenModel();
+
+      const work = await client()`
+        select body from outbox_work where recipient_hash = ${customerHash}
+      `;
+      expect(work).toEqual([]);
+      expect(provider.calls).toBe(0);
+    });
+
+    /*
+      THE INVITATION ACTUALLY SENDS. It rides on the sender's own inbound message as an
+      `inquiry_reply`, which is the only category that can reach someone with no consent
+      record — a proactive category would be composed and then silently suppressed at the
+      claim, and the sender would experience a number that never replies.
+    */
+    it("dispatches the invitation to a sender who has no consent record", async () => {
+      await deliverInboundOnly({ fromPhone: customerPhone, text: "sign me up" });
+      await runPassWithForbiddenModel();
+
+      const work = await client()`
+        select id from outbox_work where recipient_hash = ${customerHash}
+      `;
+      expect(work).toHaveLength(1);
+
       const authorization = await authorizeDispatch(database(), {
-        outboxWorkId: mapWork[0]?.id as string,
+        outboxWorkId: work[0]?.id as string,
         now: at(2),
       });
-      expect(authorization.status).toBe("suppressed");
+      expect(authorization.status).toBe("authorized");
     });
+
+    /*
+      THE KEYWORDS THAT MUST SURVIVE THE GATE. Each is a carrier-registered compliance keyword,
+      and each is how a person opts in, opts out, or asks for help. `VIGA` matters most: it is
+      how an invited farmer completes onboarding from a handset with no consent row, so gating
+      it would dead-end the entire farmer path.
+    */
+    for (const keyword of ["JOIN", "START", "VIGA", "HELP", "INFO", "UNSUBSCRIBE", "CANCEL"]) {
+      it(`still honours ${keyword} from a sender with no consent record`, async () => {
+        await deliverInboundOnly({ fromPhone: customerPhone, text: keyword });
+        await runPassWithForbiddenModel();
+
+        const bodies = await client()`
+          select body from outbox_work where recipient_hash = ${customerHash}
+        `;
+        const texts = bodies.map((row) => row.body as string);
+        expect(texts.length, `${keyword} must be answered`).toBeGreaterThan(0);
+        for (const body of texts) {
+          expect(body, `${keyword} must not be gated`).not.toBe(CONSENT_INVITATION_REPLY);
+        }
+      });
+    }
 
     it("a verified STOP unsubscribes end to end and calls no model", async () => {
       const response = await deliverInbound({ fromPhone: customerPhone, text: "STOP" });
@@ -1141,6 +1314,8 @@ describe("inbound routing end to end (integration)", () => {
     }
 
     it("a farmer's inventory text opens exactly one proposal and queues its prompt", async () => {
+      // F-121: this case is about what follows, not about the consent gate.
+      await giveConsent(farmerHash);
       await seedFarmer();
       await deliverInboundOnly({ fromPhone: farmerPhone, text: "kale and eggs today" });
 
@@ -1209,6 +1384,8 @@ describe("inbound routing end to end (integration)", () => {
     });
 
     it("a YES arriving before its prompt was accepted commits nothing", async () => {
+      // F-121: this case is about what follows, not about the consent gate.
+      await giveConsent(farmerHash);
       await seedFarmer();
       await deliverInboundOnly({
         fromPhone: farmerPhone,
@@ -1316,6 +1493,8 @@ describe("inbound routing end to end (integration)", () => {
     // is meant to forbid: "the confirmation survived" passes trivially if MORE did nothing,
     // and "the page was served" passes trivially if the confirmation was never open.
     it("a farmer can page without disturbing an open confirmation, in both directions", async () => {
+      // F-121: this case is about what follows, not about the consent gate.
+      await giveConsent(farmerHash);
       await seedFarmer();
 
       // An open, ACTIVATED proposal — the state in which a YES would genuinely commit. An
@@ -1483,6 +1662,8 @@ describe("inbound routing end to end (integration)", () => {
     });
 
     it("a customer question is answered from retrieved rows, not model prose", async () => {
+      // F-121: this case is about what follows, not about the consent gate.
+      await giveConsent(customerHash);
       const { locationId, farmId } = await seedFarmer();
 
       // Publish a current revision the inquiry can retrieve. A published revision must
