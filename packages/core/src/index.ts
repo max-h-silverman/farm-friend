@@ -5,6 +5,7 @@ export * from "./privacy/phone";
 export * from "./privacy/email";
 export * from "./sms/commands";
 export * from "./sms/consent";
+export * from "./sms/consent-invitation";
 export * from "./sms/auto-responses";
 export * from "./sms/onboarding-copy";
 export * from "./sms/stock-out-alert";

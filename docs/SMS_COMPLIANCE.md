@@ -27,6 +27,38 @@ route onward as free text (in an active flow that means the revision path, whose
 confirm protects against a garbled read). Matching is deterministic code — a fixed list, never fuzzy —
 and near-misses are never "interpreted" into a commit or decline.
 
+### The consent gate (F-121)
+
+**Farm Friend answers nothing substantive until the sender has agreed to receive texts**
+(max, 2026-08-18). A sender with **no consent record** receives one invitation naming `JOIN` and
+nothing else — the invitation *instead of* the answer, never appended to it. A sender who
+**opted out** is gated and receives **nothing at all**: inviting someone back who texted `STOP`
+is what `STOP` exists to end.
+
+**What still works without consent is exactly the carrier-registered compliance keywords** — the
+opt-out list, `JOIN`/`START`/`VIGA`, and `HELP`/`INFO`. They are exempt because they are how a
+person opts in, opts out, or asks for help. The exemption is enforced by **routing order**, not by
+a second list: the gate sits directly below the compliance branch in `routeInboundMessage`, so
+nothing has to remember to exclude a keyword.
+
+Two that must stay above it, because forgetting either dead-ends a real journey:
+
+- **`VIGA`** completes farmer onboarding from a handset that by definition has no consent row yet.
+  Gated, the farmer would be told to reply `JOIN` — which can never complete onboarding.
+- **Every `STOP` synonym** must reach the opt-out writer rather than an invitation.
+
+Everything else gates, including **`MAP`** (max named it explicitly): the map is a service Farm
+Friend provides, not a control for joining or leaving. `YES`/`NO`, `LINK`/`STAND`/`SETTINGS`,
+`MORE`, a stand menu number and all free text gate too — so **no model runs for a sender who has
+not agreed**, a stricter guarantee than the routing order alone gave.
+
+The **staleness guard sits above the gate**: a stale conversation event still fails closed and
+replies nothing, rather than being invited.
+
+The invitation is an `inquiry_reply`, riding on the sender's own inbound message — the only
+category that reaches someone with no consent record. It establishes nothing; only the sender's
+own `JOIN` can do that.
+
 ### Compliance keywords (always handled by code)
 
 | Keyword | Behavior |
@@ -60,7 +92,7 @@ omission. An untaught keyword is still parsed, still honoured, still bound by ev
 
 | Keyword | Behavior |
 |---|---|
-| `MAP` (F-057) | Return only the configured canonical Farm Friend public-map URL, which must match the constant customer copy embeds or the deployment refuses to start (F-110). Stateless, model-free, and does not alter an open confirmation or result list. Parsed after compliance keywords and before all stateful commands, so it cannot shadow STOP/START/VIGA/JOIN/HELP while a delayed MAP still receives the current link. Its reply is an `inquiry_reply`, so the STOP dispatch guard suppresses it for a stopped sender. |
+| `MAP` (F-057) | Return only the configured canonical Farm Friend public-map URL, which must match the constant customer copy embeds or the deployment refuses to start (F-110). Stateless, model-free, and does not alter an open confirmation or result list. Parsed after compliance keywords, so it cannot shadow STOP/START/VIGA/JOIN/HELP. **Subject to the consent gate (F-121)** — a sender who has not agreed is invited rather than handed the link, and a stale MAP now fails closed rather than returning a link. Its reply is an `inquiry_reply`, so the STOP dispatch guard suppresses it for a stopped sender. |
 | `MORE` / `NEXT` (F-046) | Return the next page of the sender's pending result list. **Context-bound, never global** — it means nothing without a pending list, and with none it answers honestly rather than failing silently. Must match the **entire message**, so "any more eggs?" stays a question. Deliberately **independent of `YES`/`NO`** (max, 2026-07-31): the words do not overlap, so blocking one for the other would solve a collision that does not exist while making a farmer feel ignored. |
 | `SAME` (F-052) | Publish an identical inventory revision only for the sender's active, provider-accepted scheduled prompt when that prompt displayed the complete current snapshot. **Context-bound, never global** — without that exact prompt it changes nothing, and "same eggs?" remains free text. It never confirms closure or profile data. Parsed after compliance and ordinary `YES`/`NO`, and before farmer product keywords. Replay, expiry, a changed inventory or closure base, a changed or paused preference, revoked consent or authority, and the wrong provider prompt all refuse without publishing. |
 
