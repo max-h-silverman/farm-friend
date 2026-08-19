@@ -71,9 +71,12 @@ arrangement has a switch and a **Remove** button. The switch pauses and resumes:
 goods leave the map and the text answers while the arrangement stays in place. **Pausing asks you
 to confirm**, because the whole row is the switch and pausing takes a real seller's goods off the
 island's only guide; resuming does not ask, because it puts them back. **Remove ends it and cannot
-be undone** — it asks too, and bringing that seller back means inviting them again. On a stand
-whose only seller is the farm that owns it, the switch reads **Stand is open / Stand is closed**,
-and the question asks about closing the stand, because that is what pausing does there.
+be undone** — it asks too, and bringing that seller back means inviting them again. The switch reads **"<seller> — selling here"** or **"<seller> — paused"**, and
+names its seller on every row including a stand whose only seller is the farm that owns it: the
+rows sit under **Also selling here**, so a row that named nobody answered a question nobody asked.
+It describes the ARRANGEMENT only. Whether customers can buy there today is the card's own header,
+computed from season and hours — the two used to share a vocabulary and contradicted each other in
+production.
 
 **"Unclaimed" is not a problem to fix.** It means no phone can publish for that farm yet, which is
 normal for a farm VIGA entered from the map. Send a setup link when you have someone to send it to.

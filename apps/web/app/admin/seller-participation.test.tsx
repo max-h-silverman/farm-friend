@@ -97,7 +97,7 @@ describe("the participation label", () => {
   */
   it("names the seller and says she is selling, never that the stand is open", () => {
     /*
-      B-085 — THE ROW ANSWERS THE HEADING. "Who sells here" followed by a bare "Selling here"
+      B-085 — THE ROW ANSWERS THE HEADING. "Also selling here" followed by a bare "Selling here"
       names nobody: B-084 dropped the seller's name from a solo native row on the grounds that
       it repeated the stand's, and under that heading the row stopped answering the question it
       sits beneath. Every row names its seller, solo or not.
@@ -357,7 +357,7 @@ describe("Remove", () => {
 
     // The lists are entities; an ended relationship is not one. With the guest gone the stand
     // is back to its solo shape — plain fact, no list. The remaining row still NAMES its seller
-    // (B-085): it sits under "Who sells here" and has to answer that.
+    // (B-085): it sits under "Also selling here" and has to answer that.
     const remaining = await screen.findByRole("switch", { name: /selling here/i });
     expect(remaining).toHaveAccessibleName(/Misty Hollow Farm/i);
     expect(screen.queryByText(/Fernhorn Farm/i)).not.toBeInTheDocument();

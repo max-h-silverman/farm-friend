@@ -86,7 +86,7 @@ function soloNativeRow(view: View, rows: ParticipationRow[]): boolean {
  *
  * **Every row names its seller, solo or not** (B-085). B-084 dropped the name from a solo
  * native row because it repeats the stand's own — which is true, and was still the wrong call:
- * these rows sit under a heading that asks **"Who sells here"**, and a row reading only
+ * these rows sit under **"Also selling here"**, and a row reading only
  * "Selling here" answers a question nobody asked. The repetition is the point on a stand whose
  * seller IS the stand; a bare state is what confused an operator in production.
  *

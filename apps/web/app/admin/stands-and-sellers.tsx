@@ -532,7 +532,7 @@ export function StandsAndSellers({
               open={open === stand.standId}
               onToggle={() => setOpen(open === stand.standId ? null : stand.standId)}
             >
-              <Group title="Who sells here">
+              <Group title="Also selling here">
                 <SellerParticipation view="stand" rows={stand.providers} fetcher={fetcher} />
               </Group>
               {/* The card head already named this stand, so the block does not name it again. */}

@@ -327,8 +327,8 @@ function StandSellers({
 
   if (links.length > 0) {
     return (
-      <section className="stand-sellers" aria-label="Who sells here">
-        <DetailSectionHeading icon="participants">Who sells here</DetailSectionHeading>
+      <section className="stand-sellers" aria-label="Also selling here">
+        <DetailSectionHeading icon="participants">Also selling here</DetailSectionHeading>
         <ul className="stand-seller-links">
           {links.map((link) => (
             <li className="stand-seller-link" key={link.sellerId}>

@@ -11,7 +11,146 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-18 (latest) — the map's two lists become one two-way view of stands and sellers
+## 2026-08-18 (latest) — the queue ships, then five defects max found by using it
+
+Four deploys in one day, from a standing start of twelve unapplied migrations. Ends with
+`3797ddc` serving as **`farm-friend-web-00086-597` / `farm-friend-worker-00081-lqj`**, digest
+`sha256:f69fee26…03e1`. Unit **2,367 across 167 files** (7 corpus skips), integration
+**1,445 across 107 files**, typecheck, lint, scripted evals 11/11 · 4/4 · 19/19.
+**Live evals owed** — DeepInfra returned `502 Bad Gateway` to every call during the wrap; max's
+call was to ship and file it (B-089).
+
+### The release: migrations 0042–0053, then the four merged tranches
+
+Preflight was treated as live evidence, and it matched the record exactly: 42 applied migrations,
+serving digest `14347f34…`, no `sellers`/`stand_providers`/`own_seller_id`. The one thing worth
+measuring beforehand was `0042`'s riskiest claim — that every row can find a provider. Against the
+real corpus: **zero unbackfillable rows across all seven tables** (250 stand items, 34 revisions,
+19 proposals, 17 links, 15 preferences, 9 prompts, 0 menu options), no farm owning two stands, no
+NULL `owner_farm_id`.
+
+Applied on the direct Neon URL and verified BY EFFECT: ledger 42 → 54, `stand_providers`
+backfilled to 38, all seven `provider_id` columns NOT NULL and fully attributed, `0051`'s partial
+index carrying the exact predicate `hosting.ts`'s `ON CONFLICT` names, and **`0052`'s enum value
+proved WRITABLE in a statement after the migration** — a clean apply proves nothing there.
+
+**One correction to the record.** `inventory_publication_proposals.provider_id` is nullable in
+production and that is *correct*: `0042` sets it NOT NULL and **`0046` deliberately relaxes it**
+so a venue's closure-only proposal can name no provider, replacing it with the
+`inventory_proposals_provider_arm` CHECK — probed live, it refuses `has_inventory` with no
+provider, by name. A preflight assertion reading the bare nullability reports a false failure.
+Integration was also re-measured at **1,441/1,441 across all 107 files**, not the recorded
+1,435/106: the six failures were the missing `PUBLIC_BASE_URL` and nothing else.
+
+### Five defects, all found by max using the deployed product
+
+Each was measured against production before it was touched.
+
+**B-083 — seller cards claimed closures no farmer had made.** `sellerIsOpenNow` reduced a
+**seven-member** `OpenState` union to a boolean by testing `=== "open"`, so `unknown` and
+`by_appointment` printed "Closed". Measured on the live payload: **9 of 34 seller cards** were
+asserting a closure nobody declared. The stand list beside it already held the right rule
+(`map-view.ts` §the open-now filter). Three states now — max's rule: *Closed is reserved for out
+of season or outside defined hours* — and the closed set moved to `isDefinitelyShut`, read by both
+readers, written as the set of things that ARE closed rather than "not open". **That polarity is
+the bug**: a state a later author adds now defaults to unknown.
+
+**B-084 — the admin card contradicted itself.** Lavender Hill showed "Not open — out of season"
+above "Stand is open". Both were true: her season ended 8/1, her *arrangement* is active. Two
+different facts in one vocabulary. The control now names only the arrangement.
+
+**B-085 — Morgan Hill's four "also selling here" names vanished.** F-118 made the typed list a
+fallback suppressed by *any* modelled seller, and `0042` then gave **every** stand a self-pointer,
+making that condition true everywhere. One native row hid four names and replaced none, because a
+self-pointer is never an item credit. The fallback now counts **guests** — which is what the rule's
+own comment always meant. This also reversed B-084's over-correction: dropping the seller's name
+from a solo row left "Who sells here" answered by a bare "Selling here".
+
+**B-087 (critical) — nine stands invisible to a direct question.** `who has eggs?` returned **one**
+stand while ten were listing eggs. Every component checked out in isolation — the model returned
+`["eggs","duck eggs","chicken eggs"]`, retrieval returned all ten rows. The defect was between
+them: the **catalog** is built from `listPublicStands`, which drops the items of any confirmation
+past 28 days, while the answer is **filtered** from `retrieveSmsListings`, which applies no such
+filter. A stand 29 days stale contributed no catalog value, and **the model cannot select a value
+it was never shown** — unreachable by name, not merely ranked last. Catalog now built from the
+same rows the answer is filtered from.
+
+**B-086 — category matches presented as equals.** `who has kale?` returned eleven stands, one with
+kale: the matcher had expanded up a generality ladder (kale → leafy greens → produce) and back
+down its other rungs. **The expansion is correct and F-045 requires it**, so the fix is
+presentational (max's call): exact matches first, the rest under `Other stands with <category>:`.
+`sortMatchesByExactness` is pure code — no model, no taxonomy, category named from the matched
+catalog values themselves.
+
+**B-088 — two display facts repeated or shrunk away.** Per-item recency printed the section
+heading's own phrase on every line (**33 of 37 public stands have one seller**); it now appears
+only where the sellers on that item disagree — keyed on *agreement*, not seller count, because
+three of the remaining four publish on the same day. And the map tooltip is a `foreignObject`, so
+its font sizes are viewBox units: **"Runs this stand" measured 6.6px on a 390px phone**, text that
+shrank as the screen did. It counter-scales now; raising the CSS numbers would have inflated
+desktop by the factor it rescued the phone.
+
+### The data work: hosted sellers resolved, one listing moved
+
+`0042` left eleven typed participant names as display-only history and refused to link them,
+because the corpus held `Fernhorn Bakery` at Pacific Crest and `Fern Horn Bakery` at Tian Tian —
+one bakery, two spellings, and matching would either merge two stands' relationships or split one
+bakery. **max resolved three** (`scripts/resolve-hosted-sellers.ts`): Fernhorn is ONE bakery with
+TWO arrangements; Handpicked Homestead was *linked not created*, because she already existed with
+a live authorization and her own description places her at Plum Forest; Gracie's Greens is new.
+Two sellers and four arrangements written, verified by effect.
+
+**Morgan Hill keeps its self-pointer, permanently.** `0042` called that seller "a row invented to
+satisfy NOT NULL". Measured, it is not: VIGA's own description, 17 pooled items, a current
+revision, a name byte-identical to the stand's, and four participant rows naming it through a
+composite FK with `ON DELETE RESTRICT`. Clearing it would re-root history and orphan real data to
+change nothing visible. **max's read is the right one: those four names are decorative, not
+operational** — no handset, no seller rows, and 17 items ("vegetables", "duck eggs") no rule could
+attribute. Promoting them would have created four identities nobody owns or can update.
+
+**Handpicked Homestead's listing moved to Plum Forest**, where she actually sells. Inventory is
+keyed to a `provider_id` — a seller *at a stand* — so there is no seller-only state to move to;
+the real answer was that her own stand should not exist. Re-pointing the revisions is **refused by
+the database** (`guard_inventory_revision_history` covers `provider_id` since `0042`), and rightly:
+those records say she published at *her own stand* on 8/11 and 8/17. So it supersedes and
+republishes, as her own update would. **Two constraints corrected the design mid-write**, each
+rolling back cleanly: `source_keys_coherent` refused a `viga` revision carrying her approval, and
+`scheduled_prompt_subjects_inventory_base_fk` refused moving a prompt already *sent* — that row
+stays with the stand it happened at; her cadence preference is a setting and moved.
+
+### Verified in production, not by exit status
+
+After the final deploy, the real inquiry path was exercised against production data:
+`who has eggs?` → **12 matching stands** (was 1), Provo Farms third on its two-day-old listing.
+`who has kale?` → 6, led by the stands that have kale, with `Other stands with salad greens:`
+separating the rest. No regressions: flowers 13, tomatoes 6, `who has durian?` still returns the
+honest no-listing reply. Both label fixes were confirmed **in the shipped JS bundles** — the new
+strings present, every old string absent.
+
+### Late in the session: one rename, and next session's design filed
+
+`Who sells here` became **`Also selling here`** on both the public stand card and the admin console
+(max). On the public card that gives two sections one heading — the modelled-seller roster and the
+typed-names fallback — which is safe because they are mutually exclusive by construction, and a
+test now pins that they never both render. Tian Tian is the case that prompted it: a modelled guest
+(Fernhorn Bakery) alongside the retained typed spelling `Fern Horn Bakery`, where only the roster
+shows.
+
+**F-119** files max's mockup for the next session: In stock and Usually sells become per-seller
+groups of bordered item cards, each seller sub-heading carrying its own recency. It is presentation
+over data the card already receives — `groupProviderItems` returns providers per item today, so
+regrouping to seller-major is the work.
+
+### What this session cost, and the standing lesson
+
+Two defects (B-085, B-088's recency) were **caused by the previous tranche's own fixes**, and one
+(B-085's bare row) by a fix made earlier the same day. The pattern: a rule written against a
+corpus where its distinguishing case cannot occur. `alsoSellingHere`'s fallback was written before
+every stand had a self-pointer; the per-item recency before anyone counted that 33 of 37 stands
+have one seller. **Measure the rule against the real corpus before believing it** — the arithmetic
+is minutes and it caught every one of these.
+
+## 2026-08-18 — the map's two lists become one two-way view of stands and sellers
 
 Branch `f-118-map-seller-architecture`, squash-merged as **`beeb386`** (PR #134). **Not deployed** —
 it joins the three tranches already waiting on max's 2026-08-18 leave-it-undeployed call, and adds

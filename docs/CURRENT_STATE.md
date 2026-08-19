@@ -13,6 +13,24 @@
   expands it to every supporting stand and evidence voice, orders, pages, and renders.
 - **Code owns closure timing and consequential output.** Models select bounded values; they never
   write public claims, authorize publication, resolve open-now state, or choose evidence.
+- **An answer separates what was asked from what merely relates to it.** The matcher still expands
+  by meaning (F-045 requires it), but `sortMatchesByExactness` — pure code, no model, no taxonomy —
+  leads with values containing the customer's own word and files the rest under
+  `Other stands with <category>:`. **Known limit:** `a choy` also treats `bok choy` as exact,
+  because stripping question grammar removes the article; separating them needs a second food
+  vocabulary the architecture does not allow. Marked INVERT WHEN that changes.
+- **The matcher's catalog is built from the same rows the answer is filtered from.** Building it
+  from a source that drops expired confirmations made stands past 28 days unreachable BY NAME
+  rather than merely ranked last — the model cannot select a value it was never shown (B-087).
+- **`Also selling here` is the heading on both the public stand card and the admin console**
+  (max, 2026-08-18, renamed from "Who sells here"). On the public card two sections share it — the
+  modelled-seller roster and the typed-names fallback — and they are **mutually exclusive by
+  construction**: the roster excludes own-sellers so it needs a guest, and the fallback renders
+  only when no guest exists. A test pins that they never both appear.
+- **Three public states, not two.** `Open` / `Closed` / `Hours unknown`, and **Closed is reserved
+  for out of season or outside stated hours** (max). `isDefinitelyShut` in `map-view.ts` is the one
+  definition, read by both the map filter and the seller card, written as the set of states that
+  ARE closed so a state added later defaults to unknown.
 - **Every public and SMS link is on `farmfriend.vigavashon.org`** (F-113), and `vigavashon.org` DNS
   authenticates VIGA's mail (SPF includes Google; `_dmarc` at `p=none`).
 - **This repo has no CI.** Local suites are the merge gate; `gh pr checks` has no required checks.
@@ -21,199 +39,63 @@
   client bundle and **500s every farmer web screen in `next dev`**. jsdom resolves the barrel fine,
   so no suite catches it — only launching the app does.
 
-## Deployed 2026-08-18 — the four-tranche queue is released
-
-**F-114 + F-115 — the multi-seller model.** `sellers` is the identity root;
-`sales_locations.own_seller_id` is the **self-pointer** naming the one nested seller that IS the
-stand, NULL for a venue. `stand_providers` holds one row per seller-at-stand, and **every
-suppression and labelling rule follows that pointer, never a name match** (`creditSeller` states it
-once). `setProviderParticipation` is the sole writer for pause/resume/end. Two liveness predicates,
-never one: `publicProviders` (active) and `reachableProviders` (active or paused) — **pausing hides
-a seller's public facts and keeps her reachable**. Every public and SMS surface dates goods PER
-SELLER. A seller's open-now state is the INTERSECTION with the stand's.
-
-**F-101 — the admin console.** Three destinations: **Stands & Sellers · SMS Users · Alerts**; the
-"Farms" tab is gone, not renamed, and `/admin` redirects to `/admin/stands`. **The lists are
-entities, not states** — one row per stand or seller, a participation always a detail inside a row.
-`POST /api/admin/participation` is the thin caller for the seam. **Remove is `end`, terminal, no
-restore.** The adapting label reads as the stand being open/closed only where one arrangement is
-its own seller's, computed from the whole set so it can never say "closed" while a guest sells.
-
-**F-117 — self-selected hosted sellers.** A farmer onboarding on her own says where she sells:
-**one question, four answers** — just my own stand · only at someone else's · both · a farm with no
-stand people can visit. Two columns underneath (`visitability` describes *her* place; the
-arrangement names *someone else's*), derived from the one answer. `approval_source = 'seller'`
-(`0052`) is the honest third value. She is **live on submit**, non-fatally; the host is asked and
-may deny (`pending_host_confirmations`, `0053`), answerable only while the question is the last
-message in the thread. A host we cannot text still lists her.
-
-**One recorded exception to "no produce taxonomy in a behavioral branch":** `map-view.ts`'s
-`FLOWER_VOCABULARY` picks a pin glyph and answers the "Flowers only" filter. Kept because it is
-DISPLAY only; `map-view.test.ts` measures the known failure and guards against growth. **A term for
-anything that is not a flower means it should become data.**
-
-**`paused` means two unrelated things and stays that way for now.**
-`stand_providers.lifecycle_state = 'paused'` is a suspended selling relationship;
-`inventory_prompt_preferences.cadence = 'paused'` is reminders off. Renaming the cadence value to
-`off` is one migration with no behaviour change. **`0042`–`0053` have now landed, so the condition
-that deferred it is cleared** — it is unblocked work, not a blocked one.
-
-**Deliberately unchanged:** VIGA's `issue_link` stays stand-shaped and REFUSES on ambiguity;
-`farm_bucks_*`, `farm_approval_id`, every `farmer_*` table and `GENERIC_WORDS` keep their names.
-
-**A UI pass sits on top of all three**, in two branches. `admin-card-design` (merged, `b14155f`):
-the admin stand card reads as a profile, and `GEOCODING_API_KEY` now lives only in Secret Manager
-— `dev-setup.sh` fetches it per run and never writes it to `.env.local`.
-
-**`f-118-map-seller-architecture` makes the map's two lists one two-way view.** The stand/seller
-relationship is stated once in `apps/web/lib/stand-seller-graph.ts` and read from both sides; no
-read changed, because both payloads already carry the ids. Contract and rules: SURFACES.md §the
-public map. In short:
-
-- A **seller card** says Open/Closed and a season badge, both derived from her stands and never
-  guessed. Its stand rows **expand that stand's detail in place** rather than switching lists.
-- A **stand card** says how many sellers it carries, and names each seller ONCE — the item credit
-  is the crossing. `alsoSellingHere` is now the fallback for a stand with no modelled sellers.
-- A **pin in seller mode** answers "who sells here": a tooltip for several, straight to her card
-  for one. One search box feeds both lists; one selection halo marks both.
-- The mockup's **category chip is deliberately not built** — no seller column carries it, and
-  guessing it from item names would be a second food-vocabulary branch where the project allows
-  exactly one (`map-view.ts` §the flower vocabulary exception). Needs a field the seller picks.
-
-**`/sellers` is pruned** (max, 2026-08-18). Nothing linked to it and the map's own View sellers
-list superseded it; `sellerSellingSummary` and `joinNames` went with it as its only consumers. The
-model-free tripwire keeps its seller-read coverage on a second entry for the map's own page.
-
-**Verified:** 2,335 unit tests across 166 files (7 corpus skips), typecheck and lint clean;
-nineteen sabotages caught. No evals owed — `packages/ai` and `evals/` untouched. Integration not
-re-run: no writer or query touched. Browser-measured on the first pass at ~500px; max checked the
-later passes himself. **Open:** the item-credit crossing has no local seed data, so it rests on
-unit tests alone, and no width below 500px was reachable.
-
 ## Deployment and migrations
 
-- Neon `neondb` has **54 applied migrations (`0000`–`0053`)**. `0042`–`0053` were applied
-  2026-08-18 on the DIRECT Neon URL, ahead of the code that requires them, and verified BY EFFECT
-  rather than by exit status: ledger 42 → 54; `stand_providers` backfilled to **38 rows**, one per
-  stand; every stand carries a self-pointer; all seven `provider_id` columns fully attributed
-  (`farmer_links` 17, `farmer_target_menu_options` 0, `inventory_prompt_preferences` 15,
-  `inventory_publication_proposals` 19, `inventory_revisions` 34,
-  `scheduled_inventory_prompt_subjects` 9, `stand_items` 250) with **zero** unbackfilled rows.
-  `0051`'s partial index carries the exact `WHERE (ended_at IS NULL)` predicate `hosting.ts`'s
-  `ON CONFLICT` names. **`0052`'s new enum value was proved WRITABLE in a statement after the
-  migration** — production reads `viga,host,seller` — because a clean apply proves nothing on its
-  own. The corpus is intact: 38 stands / 40 sellers / 250 items / 34 revisions.
+- Serving **`farm-friend-web-00086-597`** / **`farm-friend-worker-00081-lqj`**, digest
+  `sha256:f69fee2671618a5fa7d219a41ac74f04afe23176345723144b6a64c6407303e1`, built from `3797ddc`.
+  Deployed 2026-08-18. Neither revision has an error-level log; the worker's recovery pass runs
+  every minute returning 200.
+- Neon `neondb` has **54 applied migrations (`0000`–`0053`)**. Nothing is unapplied and nothing is
+  unreleased: `main` is fully deployed.
 - **`inventory_publication_proposals.provider_id` is nullable in production, and that is correct.**
   `0042` sets it NOT NULL and **`0046` deliberately relaxes it** so a venue's closure-only proposal
-  can name no provider, replacing the blanket constraint with the `inventory_proposals_provider_arm`
-  CHECK. Probed live 2026-08-18: the arm **refuses** `has_inventory` with no provider, by name.
-  A preflight assertion that reads the bare nullability without `0046` will report a false failure.
+  can name no provider, replacing it with the `inventory_proposals_provider_arm` CHECK. A preflight
+  assertion reading the bare nullability reports a false failure.
 - **`0045`–`0049` and `0051` are constraint-only and were NOT generated** (`0050` adds one nullable
-  column); `drizzle-kit` does not emit them. A hand-written migration's snapshot is repaired as a **measured
-  DELTA of its predecessor, never by introspection** — RUNBOOK §Migrations and DEVELOPMENT.md
-  §gotchas own the procedure and the evidence for it.
-- Cloud Run web **`farm-friend-web-00086-597`** and worker **`farm-friend-worker-00081-lqj`** serve
-  digest `sha256:f69fee2671618a5fa7d219a41ac74f04afe23176345723144b6a64c6407303e1`, built from
-  `3797ddc` (B-086 + B-087 + B-088). Deployed 2026-08-18 — the fourth deploy that day, after
-  `25665e8` (the migration queue), `ee466c4` (B-083/B-084) and `9bc7e78` (B-085).
-- **The inquiry answers were verified IN PRODUCTION against real data**, not by exit status:
-  `who has eggs?` returns **12 matching stands** (it returned 1 before B-087), with Provo Farms
-  third on its two-day-old listing. `who has kale?` returns 6, led by the stands that actually
-  have kale, with `Other stands with salad greens:` separating the category matches. No
-  regressions: flowers 13, tomatoes 6, and `who has durian?` still gives the honest no-listing
-  reply rather than inventing a match. The plan was `0 to add, 2 to change, 0 to destroy` — the image on
-  both services and nothing else; `plan-assertions.py` 61/61, `deploy_assertions.py` and
-  `served_card_assertions.py` both pass. **B-074, F-114/F-115, F-101, F-117 and the two 2026-08-18
-  UI passes (`b14155f`, `beeb386`) are now live.** Neither revision has an error-level log; the
-  worker's recovery pass runs every minute returning 200. The served map carries the multi-seller
-  payload (`providerId`, `describesOwnStand`, `sellingAt`, `alsoSellingHere`) and both F-118 toggle
-  labels; `/admin` redirects to `/admin/stands`.
-- **The one dropped `scaling` block in that plan was service-level state the config never declares**
-  — the `template` scaling blocks (`services.tf` 171, 292) are unchanged, so autoscaling behavior
-  did not move.
+  column); `drizzle-kit` does not emit them. A hand-written migration's snapshot is repaired as a
+  **measured DELTA of its predecessor, never by introspection** — RUNBOOK §Migrations and
+  DEVELOPMENT.md §gotchas own the procedure.
+- **`paused` still means two unrelated things.** `stand_providers.lifecycle_state = 'paused'` is a
+  suspended selling relationship; `inventory_prompt_preferences.cadence = 'paused'` is reminders
+  off. Renaming the cadence value to `off` is one migration with no behaviour change, and the
+  `0042`–`0053` condition that deferred it is now cleared — unblocked work, not blocked.
 
-## The hosted names are resolved (F-114 C.1, 2026-08-18)
+## Data resolutions a cold start should not re-litigate
 
-`0042` kept `sales_location_participants` as display-only history and refused to link those names
-to seller identities — the corpus held `Fernhorn Bakery` at Pacific Crest and `Fern Horn Bakery`
-at Tian Tian, and matching would have merged two stands' relationships on a guess or split one
-bakery in two. **max resolved three of the eleven on 2026-08-18**, and
-`scripts/resolve-hosted-sellers.ts` is that decision written down rather than inferred:
-
-- **Fernhorn Bakery is ONE bakery with TWO arrangements** — Tian Tian and Pacific Crest — and
-  `Fernhorn` is the correct spelling. This is the case the migration could not decide.
-- **Handpicked Homestead was linked, not created.** She already existed as a seller with a live
-  authorization, and her own description places her flowers at Plum Forest Farmstand — her word,
-  not a name match.
-- **Gracie's Greens** is a new seller with one arrangement at Venison Valley.
-
-Written as `active`/`approval_source = 'viga'` with no vouching authorization, because VIGA is the
-approver on record for an arrangement it already knows about. **The eleven retained participant
-rows are untouched** — they are history, and the public card now credits the real seller instead.
-
-**Verified by effect:** sellers 40 → 42, `stand_providers` 38 → 42, exactly one Fernhorn seller,
-all five arrangements active, and all three rendering on the live public map (payload 34 → 36
-sellers). The script dry-runs by default and fingerprints the corpus, refusing a wrong target.
-
-**Still unresolved, deliberately:** `Vashon Island Honey Co.` at Pacific Crest and `Kareli Farm` at
-Provo Farms — nobody has decided them. The remaining retained names stay display-only.
-
-**None of the three can update a listing.** No phone, no authorization: they are credited sellers
-with no inventory of their own until someone onboards them.
-
-## The three inquiry and display defects max found on 2026-08-18
-
-All three were reported from a real handset or the live site, all three are fixed, deployed and
-verified in production.
-
-**B-087 (critical) — nine stands were invisible to a direct question.** The catalog the matcher
-sees was built from `listPublicStands`, which drops the items of any confirmation past 28 days,
-while the answer is filtered from `retrieveSmsListings`, which applies no such filter. A stand
-whose last confirmation was 29 days old therefore contributed NO catalog value, and **the model
-cannot select a value it was never shown** — so the stand was unreachable by name rather than
-merely ranked last. The catalog is now built from the same rows the answer is filtered from, so
-the two cannot disagree. Age still words the line and ranks the result; it no longer decides
-whether a farmer can be found.
-
-**B-086 — category matches were presented as equals to exact ones.** `who has kale?` returned
-eleven stands, one of which had kale: the matcher had expanded up a generality ladder and back
-down its other rungs. The expansion is CORRECT and F-045 requires it, so the fix is presentational
-(max, 2026-08-18): `sortMatchesByExactness` is pure code with no model involvement, exact matches
-lead, and the rest sit under `Other stands with <category>:` — the category named from the matched
-catalog values themselves, never from a taxonomy. **Known limit, asserted rather than hidden:**
-"a choy" also treats `bok choy` as exact, because stripping question grammar removes the article.
-
-**B-088 — two display facts repeated or shrunk away.** Per-item recency printed the section
-heading's own phrase on every line (33 of 37 public stands have one seller); it now appears only
-where the sellers on that item disagree. The map tooltip is a `foreignObject`, so its font sizes
-are viewBox units — "Runs this stand" measured **6.6px on a 390px phone**. It now counter-scales
-to a fixed real size.
-
-**A live-eval fixture fails intermittently and it is NOT caused by this work.** `live-operation`'s
-second-person case returns `search_stands`/`hours` for "when do you open?" on some runs and the
-correct `system_inquiry` on others — 4/5 or 5/5 with identical code. Confirmed pre-existing: it
-fails twice in a row on stashed `main`, and the classifier answers correctly 15/15 when exercised
-directly. Worth a fixture that tolerates the model's variance, or a corpus entry, rather than
-treating each run as a regression.
+- **Three hosted names are resolved** (`scripts/resolve-hosted-sellers.ts`, max 2026-08-18):
+  Fernhorn Bakery is ONE seller with TWO arrangements (Tian Tian + Pacific Crest); Handpicked
+  Homestead was linked to an existing seller, not created; Gracie's Greens is new.
+  **`Vashon Island Honey Co.` and `Kareli Farm` stay unresolved** — nobody has decided them.
+- **Morgan Hill keeps its self-pointer, permanently.** The seller it names carries VIGA's own
+  description, 17 pooled items and a current revision, and four participant rows reference it
+  through a composite FK with `ON DELETE RESTRICT`. Its four typed names are **decorative, not
+  operational** — no handset, no seller rows, and no rule could attribute those items. Promoting
+  them would create identities nobody owns or can update.
+- **Handpicked Homestead sells only at Plum Forest.** Her own stand is retired (`is_public = false`,
+  not deleted — its revisions are history) and her listing republished on that arrangement. Her
+  authorization is bound to her SELLER, so her handset still works and now publishes there.
 
 ## Verification
 
-- **2,335 unit tests pass across 166 files; 7 corpus-only tests skip**, and integration is
-  **1,441/1,441 across all 107 files** (both 2026-08-18, on `25665e8`, the commit deployed).
-  The previously recorded 1,435/106 was the missing `PUBLIC_BASE_URL` and nothing else — exporting
-  it alongside `DATABASE_URL` turns all six failures green, confirming the environment reading
-  below. B-078's intermittent file passed in this run.
+- **2,367 unit tests pass across 167 files; 7 corpus-only tests skip**, and integration is
+  **1,445/1,445 across all 107 files** (both 2026-08-18, on `3797ddc`, the commit deployed).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it, six `apps/web/lib/farmer-stand.integration.test.ts` cases fail `PUBLIC_BASE_URL is required`.
   **Verified pre-existing**: checking out `main` reproduces the identical six. An environment fact
   and a test-isolation weakness, not a regression and not a product defect.
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19.
   The build retains tracked Next configuration/lint warnings (B-008).
-- Live model evals pass: containment 4/4, closure 7/7, quality 16/16, operation 5/5, catalog 7/7;
-  broad/inventory 13/13, other operations 7/7, second-person boundaries 5/5, VIGA/domain 5/5. Last
-  run 2026-08-14. **No live run is owed** — checked rather than assumed each time: nothing in
-  F-114, F-115, F-101, F-117 or the 2026-08-18 UI pass changed a seam projection or output
-  contract, and `git diff main` shows `packages/ai` and `evals/` untouched.
+- **A LIVE EVAL RUN IS OWED** (max's call, 2026-08-18). B-086/B-087 changed what a seam's output
+  feeds, so a run is required; DeepInfra returned **`502 Bad Gateway` to every call** during the
+  wrap, so it shipped without one. Verified instead by exercising the real inquiry path against
+  production data — see the release state above. Last clean run 2026-08-14.
+- **`evals:live` is not currently a reliable gate (B-089).** Two independent reasons, both measured:
+  `live-operation`'s second-person fixture returns `search_stands`/`hours` for `"when do you open?"`
+  on some runs and the correct `system_inquiry` on others — **4/5 or 5/5 with identical code**,
+  confirmed pre-existing by failing twice on stashed `main` while the classifier answers 15/15 when
+  exercised directly. And a provider outage fails ten fixtures as `{"kind":"unclear"}`, which reads
+  as model quality rather than transport. Fixing the second half is what makes a red run mean
+  something.
 - **Every tranche here is sabotage-proved** — each guard has a breakage aimed at it that the suite
   caught. The standing lessons: **assert the absence of the wrong behavior; when a breakage changes
   no test result, ask which other guard answered first; and confirm the sabotage actually applied
@@ -248,7 +130,6 @@ treating each run as a regression.
 
 ## Open before go-live
 
-- ~~`0042`–`0051` must be applied before the code that requires them.~~ **Done 2026-08-18**, along with `0052`–`0053`; see §Deployment and migrations.
 - **Pause/end is reachable by both VIGA and the farmer.** The admin half is the toggle and Remove
   on Stands & Sellers; the seller half is on the settings screen `LINK`/`SETTINGS` already texts
   her, with `mayPause` riding each listing from the seam's own arm so no control is offered that
@@ -298,6 +179,12 @@ treating each run as a regression.
   this advisory fixture without production evidence.
 - Provider-failure copy is integration-tested only. A real outage test belongs on an isolated preview
   service, never VIGA's production model account.
+- **Everything shipped 2026-08-18 is unseen in a browser.** The three-state open badge, the admin
+  participation labels, Morgan Hill's restored typed names, the per-item recency rule, and the
+  counter-scaled map tooltip were all verified by test, by measurement and (for the two label
+  fixes) in the shipped JS bundles — but **no pixel of any of them has been looked at**. The
+  tooltip is the one to check first: its fix is a geometry change proven only arithmetically, and
+  it is the surface that was unreadable at 6.6px on a phone.
 - Phone-width visual checks remain owed for onboarding, farmer settings/listing, map details, and the
   three administrator tabs — now **Stands & Sellers · SMS Users · Alerts** — including the once-shown
   setup link, which sits in a control a farmer has to be able to select on a handset. **The whole

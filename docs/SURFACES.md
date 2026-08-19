@@ -67,10 +67,12 @@ of stands either way.
   the map says "you picked this" one way rather than two.
 - A **stand card** says how many sellers it carries before it is opened, and each seller is
   named ONCE and that name is the crossing: the item credit is the link, because it is already
-  where the reader's eye is. The roster below names only sellers no item credited — someone at
-  the stand who has published nothing. `alsoSellingHere` (`sales_location_participants`, retired
-  as display-only history, no identity and so nothing to cross to) appears only for a stand with
-  no modelled sellers at all.
+  where the reader's eye is. The roster below — headed **Also selling here** — names only sellers
+  no item credited: someone at the stand who has published nothing. `alsoSellingHere` (`sales_location_participants`, retired
+  as display-only history, no identity and so nothing to cross to) appears for a stand with no
+  modelled **guest** — its own seller does not suppress it, because a self-pointer is never an item
+  credit and so names nobody. **A stand with typed hosted names and no seller profiles for them is
+  a supported shape**, not a migration leftover: Morgan Hill carries four.
 - A **pin tapped while sellers are showing** answers "who sells here" instead of selecting the
   stand — the pin answers the question the list is asking. With SEVERAL sellers that is a tooltip
   naming them, each a tap into the list; with ONE it goes straight to her card, because a menu of

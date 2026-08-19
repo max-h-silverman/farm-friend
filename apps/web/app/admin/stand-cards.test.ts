@@ -92,7 +92,7 @@ describe("a stand card's groups", () => {
   });
 
   it("does not list who sells here, which the card's own group already answers", () => {
-    // "Who sells here" sits directly above these groups on an open card, with the controls
+    // "Also selling here" sits directly above these groups on an open card, with the controls
     // that change it. A second, read-only copy of the same names is the card disagreeing
     // with itself the moment an operator pauses someone.
     expect(labels(row)).not.toContain("Other sellers here");

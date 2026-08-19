@@ -22,6 +22,71 @@ describe("public participant names", () => {
     });
   });
 
+  it("never shows two sections with the same heading on one card", async () => {
+    /*
+      Both the modelled-seller roster and the typed-names fallback are headed "Also selling here"
+      (max, 2026-08-18 — renamed from "Who sells here"). They are mutually exclusive by
+      construction: the roster excludes own-sellers and so renders only when a GUEST exists, and
+      the fallback renders only when no guest does. This asserts that, because the two sections
+      sharing a heading makes an accidental overlap read as a duplicated card.
+
+      Tian Tian is the real shape being pinned: a modelled guest (Fernhorn Bakery) AND a retained
+      typed name (`Fern Horn Bakery`) on the same stand.
+    */
+    const user = userEvent.setup();
+    const stand: PublicStandPayload = {
+      id: "both-stand",
+      farmName: "Tian Tian",
+      locationName: "Tian Tian Stand",
+      visitability: "visitable",
+      offeringType: "produce",
+      address: "3 Both Way",
+      latitude: 47.44,
+      longitude: -122.46,
+      updated: "updated 1 hour ago",
+      confirmedElapsed: "1 hour ago",
+      cardRecency: "Last updated 1 hour ago",
+      stale: false,
+      availability: {},
+      alsoSellingHere: ["Fern Horn Bakery"],
+      sellers: [
+        {
+          providerId: "p-own",
+          sellerId: "s-own",
+          sellerName: "Tian Tian",
+          describesOwnStand: true,
+          openState: "unknown" as const,
+          confirmedItems: [],
+          usualItems: [],
+        },
+        {
+          providerId: "p-guest",
+          sellerId: "s-guest",
+          sellerName: "Fernhorn Bakery",
+          describesOwnStand: false,
+          openState: "unknown" as const,
+          confirmedItems: [],
+          usualItems: [],
+        },
+      ],
+      links: [],
+      paymentMethods: [],
+      items: [{ itemName: "Kale" }],
+    };
+
+    const { container } = render(<StandMap stands={[stand]} />);
+    await user.click(screen.getByRole("button", { name: "Tian Tian Stand" }));
+    const card = container.querySelector("ul.stands > li.stand")! as HTMLElement;
+
+    const headings = [...card.querySelectorAll("section")].filter(
+      (section) => section.getAttribute("aria-label") === "Also selling here",
+    );
+    expect(headings).toHaveLength(1);
+    // The guest is the one named; the typed duplicate spelling stays suppressed.
+    expect(within(card).getByText("Fernhorn Bakery")).toBeTruthy();
+    expect(within(card).queryByText("Fern Horn Bakery")).toBeNull();
+  });
+
   it("keeps the typed names when the only modelled seller is the stand's own (B-085)", async () => {
     /*
       MORGAN HILL. The fallback suppressed the typed names whenever ANY modelled seller existed,
