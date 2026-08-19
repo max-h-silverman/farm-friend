@@ -70,20 +70,28 @@ export function SignedOutAdmin() {
 export type AdminRefusalKind = "wrong_origin" | "not_signed_in";
 
 /**
- * Read the server's own name for a refusal off a response.
+ * Read the server's own name for a refusal.
  *
- * **The status cannot tell these apart** — that is the whole defect this replaces. Measured in
+ * **The status cannot tell these apart** — that is the defect this exists for. Measured in
  * production 2026-08-19: the console was open at the `*.run.app` host, the origin check refused
- * every write, and six screens each guessed "your session expired" from the bare 403. max signed
- * in three times against a refusal that had nothing to do with his session.
+ * every write, and six screens each guessed "your session expired" from the bare 403.
+ *
+ * **Takes the STATUS and the PAYLOAD THE CALLER ALREADY PARSED, never the `Response`.** The first
+ * version took the response and read the body itself, so every caller — each of which parses that
+ * body for its own payload — reached for `clone()`. `clone()` THROWS once the body is consumed,
+ * the throw landed in each caller's catch, and every refusal came out as the generic "That change
+ * did not go through": the labelling shipped to production and never once ran. A signature that
+ * cannot be handed a drained stream is the fix, not a rule about calling it earlier.
  *
  * A 403 that names nothing falls back to the session reading, because that is the RECOVERABLE
  * one: offering a sign-in that turns out to be unnecessary costs less than withholding one that
  * was needed. Anything other than 403 is not this conversation at all.
  */
-export async function refusalFromResponse(response: Response): Promise<AdminRefusalKind | null> {
-  if (response.status !== 403) return null;
-  const payload = (await response.json().catch(() => ({}))) as { error?: unknown };
+export function refusalFromResponse(
+  status: number,
+  payload: { error?: unknown },
+): AdminRefusalKind | null {
+  if (status !== 403) return null;
   return payload.error === "wrong_origin" ? "wrong_origin" : "not_signed_in";
 }
 

@@ -104,7 +104,7 @@ export function FarmerQueue({
       if (!response.ok) {
         // Say what happened rather than silently reverting: an operator who believes they
         // revoked a link that is still live is worse off than one who sees an error.
-        const refused = await refusalFromResponse(response.clone());
+        const refused = refusalFromResponse(response.status, payload);
         if (refused !== null) setRefusal(refused);
         else setError("That change did not go through. Reload and try again.");
         return { ok: false, payload };

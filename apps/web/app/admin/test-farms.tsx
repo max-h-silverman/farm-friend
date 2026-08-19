@@ -51,8 +51,12 @@ export function TestFarms({
    * Takes the RESPONSE rather than its status: the two 403s need different next moves and the
    * status cannot tell them apart — see `refusalFromResponse`.
    */
-  async function handleFailure(response: Response, message: string = FAILED) {
-    const refused = await refusalFromResponse(response.clone());
+  function handleFailure(
+    status: number,
+    payload: { error?: unknown },
+    message: string = FAILED,
+  ) {
+    const refused = refusalFromResponse(status, payload);
     if (refused !== null) setRefusal(refused);
     else setError(message);
   }
@@ -69,7 +73,7 @@ export function TestFarms({
         }),
       });
       if (!response.ok) {
-        await handleFailure(response);
+        handleFailure(response.status, (await response.json().catch(() => ({}))) as { error?: unknown });
         return;
       }
       setFarmRows((current) =>
@@ -97,8 +101,9 @@ export function TestFarms({
         // Two failures an operator can actually act on get their own words. Everything else
         // gets the generic message, because guessing at a cause is worse than not saying.
         const body = (await response.json().catch(() => ({}))) as { error?: string };
-        await handleFailure(
-          response,
+        handleFailure(
+          response.status,
+          body,
           body.error === "invalid_phone"
             ? "That does not look like a phone number. Use a 10-digit US number."
             : response.status === 409
@@ -145,7 +150,7 @@ export function TestFarms({
         body: JSON.stringify({ action: "remove", id }),
       });
       if (!response.ok) {
-        await handleFailure(response);
+        handleFailure(response.status, (await response.json().catch(() => ({}))) as { error?: unknown });
         return;
       }
       setPhoneRows((current) => current.filter((row) => row.id !== id));

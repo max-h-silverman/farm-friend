@@ -74,7 +74,10 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
     try {
       const response = await fetch(`/api/admin/flags/${flagId}/thread`);
       if (!response.ok) {
-        const refused = await refusalFromResponse(response.clone());
+        const refused = refusalFromResponse(
+          response.status,
+          (await response.json().catch(() => ({}))) as { error?: unknown },
+        );
         if (refused !== null) setRefusal(refused);
         else
           setThreadErrors((current) => ({
@@ -115,7 +118,10 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
         body: JSON.stringify({ flagId, action, dispositionCode }),
       });
       if (!response.ok) {
-        const refused = await refusalFromResponse(response.clone());
+        const refused = refusalFromResponse(
+          response.status,
+          (await response.json().catch(() => ({}))) as { error?: unknown },
+        );
         if (refused !== null) setRefusal(refused);
         else setError(
           response.status === 409
