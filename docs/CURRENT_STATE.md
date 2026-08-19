@@ -170,13 +170,27 @@
 
 ## Open before go-live
 
-- **The admin console is not yet stripped down (F-122).** Max asked for it this session and it is
-  deliberately deferred, not forgotten: bare-minimum info and actions, built back out only as real
-  admins ask. The four functions VIGA needs are edit, unpublish **and delete**, re-send onboarding
-  links, and add an SMS owner. **Delete is new** — max chose "off the map, plus a real delete"
-  (2026-08-19), and nothing in the console destroys anything today. Approval, test-farm marking, the
-  Farm Bucks decision, pause/resume and the state chips are all candidates for removal, each needing
-  its own decision rather than a blanket sweep.
+- **The admin console strip-down is IN PROGRESS (F-122**, branch `f-122-admin-console`, merged
+  nowhere and undeployed). Landed so far, all locally verified:
+  - **The trash**, replacing the "real delete" max first asked for — he revised it to trash the
+    same day (2026-08-19). A trashed stand or seller leaves the roster and is restorable;
+    **nothing destroys anything**, and "empty the trash" is deliberately not built because the
+    referencing closure it must answer is its own item. `trashed_at` + `retired_by_trash` on both
+    tables, migration `0056`, four hand-appended CHECKs. **No trash VIEW is built yet** — the
+    writers and the scoped list readers exist, the screen does not.
+  - **Alerts is the flag queue alone.** Stock-outs and "Questions about our records" are gone
+    with their components and their two API routes. `stand_data_flags` is written only by the
+    SEEDER, so that queue was never a product surface.
+  - **Invites** moved to a collapsed section atop Stands & Sellers; "Waiting for your decision"
+    is now "Open invites".
+  - Approval and test-farm marking are **decided for removal** (max, 2026-08-19) but **not yet
+    removed**. Both are safe to remove: onboarding redemption auto-approves, so the only
+    unapproved farm is one VIGA explicitly revoked — and with the toggle gone nobody can revoke.
+  - Still to decide: the Farm Bucks decision, pause/resume, and the state chips.
+- **A stock-out report whose farmer cannot be reached now reaches nobody.** `stockout.ts` files
+  those "for VIGA review" and VIGA's queue was removed (max chose "keep collecting, drop the
+  screen", 2026-08-19). Eight were open at removal. `listStockOutReports` is kept and marked with
+  the reason, so restoring the screen is a render rather than a rewrite.
 - **Pause/end is reachable by both VIGA and the farmer.** The admin half is the toggle and Remove
   on Stands & Sellers; the seller half is on the settings screen `LINK`/`SETTINGS` already texts
   her, with `mayPause` riding each listing from the seam's own arm so no control is offered that

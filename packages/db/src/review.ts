@@ -437,6 +437,18 @@ export interface StockOutReportRow {
  * The three sources are mutually exclusive at the database, so the coalesce has exactly one
  * non-null input per row; its order is presentational, not a precedence rule.
  */
+/**
+ * **No console screen reads this today** (F-122, max 2026-08-19). Alerts is the flag queue
+ * alone; a stock-out is a signal about a listing that the FARMER acts on, so VIGA's queue for
+ * it went while the reporting feature stayed.
+ *
+ * Kept rather than deleted, and this is the one place that says why: the reports whose farmer
+ * cannot be reached — a stand with no current authorization, or one publishing no confirmed
+ * inventory — are recorded "for VIGA review" by `apps/web/lib/stockout.ts` and now reach
+ * nobody. That is a known consequence of the choice, not an oversight, and putting the screen
+ * back is meant to be a render rather than a rewrite. If it is still unread when that stops
+ * being true, delete this and its route together.
+ */
 export async function listStockOutReports(
   db: Db,
   input: { status: ReviewQueueFilter },

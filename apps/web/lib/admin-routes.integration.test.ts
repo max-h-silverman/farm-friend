@@ -52,8 +52,6 @@ describe("admin routes (integration)", () => {
   let farmsRoute: typeof import("../app/api/admin/sellers/route");
   let flagsRoute: typeof import("../app/api/admin/flags/route");
   let threadRoute: typeof import("../app/api/admin/flags/[flagId]/thread/route");
-  let reportsRoute: typeof import("../app/api/admin/stock-out-reports/route");
-  let standDataRoute: typeof import("../app/api/admin/stand-data-flags/route");
   let farmersRoute: typeof import("../app/api/admin/farmers/route");
   let standsRoute: typeof import("../app/api/admin/stands/route");
   let logoutRoute: typeof import("../app/api/auth/logout/route");
@@ -138,8 +136,6 @@ describe("admin routes (integration)", () => {
     farmsRoute = await import("../app/api/admin/sellers/route");
     flagsRoute = await import("../app/api/admin/flags/route");
     threadRoute = await import("../app/api/admin/flags/[flagId]/thread/route");
-    reportsRoute = await import("../app/api/admin/stock-out-reports/route");
-    standDataRoute = await import("../app/api/admin/stand-data-flags/route");
     farmersRoute = await import("../app/api/admin/farmers/route");
     standsRoute = await import("../app/api/admin/stands/route");
     logoutRoute = await import("../app/api/auth/logout/route");
@@ -194,17 +190,6 @@ describe("admin routes (integration)", () => {
           )
         ).status,
       ).toBe(403);
-      expect(
-        (
-          await reportsRoute.POST(
-            request("https://ff.example/api/admin/stock-out-reports", {
-              method: "POST",
-              body: JSON.stringify({ reportId: randomUUID(), action: "review" }),
-            }),
-          )
-        ).status,
-      ).toBe(403);
-
       // F-040's mutation grants publication authority and
       // revokes standing links, so an unguarded handler here is authority over every farm's
       // published state.
@@ -218,18 +203,6 @@ describe("admin routes (integration)", () => {
                 farmId: ids.farm,
                 contactHash: "a".repeat(64),
               }),
-            }),
-          )
-        ).status,
-      ).toBe(403);
-
-      // F-037's mutation, same rule: a handler that forgets its guard fails here.
-      expect(
-        (
-          await standDataRoute.POST(
-            request("https://ff.example/api/admin/stand-data-flags", {
-              method: "POST",
-              body: JSON.stringify({ flagId: randomUUID(), note: "decided" }),
             }),
           )
         ).status,
@@ -752,73 +725,7 @@ describe("admin routes (integration)", () => {
       expect(rows[0]?.status).toBe("open");
     });
 
-    it("triages a stock-out report", async () => {
-      const token = await sessionFor(ids.administrator as string);
-      const locations = await sql()`
-        insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
-        )
-        values (
-          ${ids.farm as string}, 'farm_stand', 'Route Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Vashon Hwy',
-          47.4, -122.4, false, false
-        )
-        returning id
-      `;
-      const reports = await sql()`
-        insert into stock_out_reports (
-          sales_location_id, unlisted_item_text, status, reported_at
-        )
-        values (${locations[0]?.id as string}, 'green beans', 'open', ${at(1).toISOString()})
-        returning id
-      `;
-      const reportId = reports[0]?.id as string;
 
-      const triaged = await reportsRoute.POST(
-        request("https://ff.example/api/admin/stock-out-reports", {
-          method: "POST",
-          token,
-          body: JSON.stringify({ reportId, action: "review" }),
-        }),
-      );
-      expect(triaged.status).toBe(200);
-
-      const rows = await sql()`
-        select status, reviewed_by_administrator_id from stock_out_reports
-        where id = ${reportId}
-      `;
-      expect(rows[0]?.status).toBe("reviewed");
-      expect(rows[0]?.reviewed_by_administrator_id).toBe(ids.administrator);
-    });
-
-    it("refuses a malformed triage without touching the report", async () => {
-      const token = await sessionFor(ids.administrator as string);
-      const before = await sql()`
-        select count(*)::int as n from stock_out_reports where status <> 'open'
-      `;
-
-      for (const payload of [
-        {},
-        { reportId: randomUUID() },
-        { action: "review" },
-        { reportId: randomUUID(), action: "delete" },
-        { reportId: 42, action: "review" },
-      ]) {
-        const response = await reportsRoute.POST(
-          request("https://ff.example/api/admin/stock-out-reports", {
-            method: "POST",
-            token,
-            body: JSON.stringify(payload),
-          }),
-        );
-        expect(response.status, JSON.stringify(payload)).toBe(400);
-      }
-
-      const after = await sql()`
-        select count(*)::int as n from stock_out_reports where status <> 'open'
-      `;
-      expect(after[0]?.n).toBe(before[0]?.n);
-    });
 
     it("returns 404 for a thread whose flag does not exist", async () => {
       const token = await sessionFor(ids.administrator as string);
@@ -831,97 +738,6 @@ describe("admin routes (integration)", () => {
     });
   });
 
-  describe("the stand-data flag queue through its route (F-037)", () => {
-    /** A seeded stand with one open data flag, the way the loader writes them. */
-    async function standDataFlag(): Promise<{ flagId: string }> {
-      const sellers = await sql()`
-        insert into sellers (name) values (${`Data Farm ${randomUUID()}`}) returning id
-      `;
-      const locations = await sql()`
-        insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
-        )
-        values (
-          ${sellers[0]?.id as string}, 'farm_stand', ${`Data Stand ${randomUUID()}`}, 'America/Los_Angeles',
-          'visitable', 'produce', '9 Vashon Hwy', 47.42, -122.44, false, false
-        )
-        returning id
-      `;
-      const flags = await sql()`
-        insert into stand_data_flags (sales_location_id, reason, source_text)
-        values (
-          ${locations[0]?.id as string}, 'contradictory_hours',
-          'Open: 9-5 | Open: dawn to dusk'
-        )
-        returning id
-      `;
-      return { flagId: flags[0]?.id as string };
-    }
-
-    it("resolves an open stand-data flag, recording the SESSION's administrator", async () => {
-      const token = await sessionFor(ids.administrator as string);
-      const { flagId } = await standDataFlag();
-
-      const impostorId = randomUUID();
-      const resolved = await standDataRoute.POST(
-        request("https://ff.example/api/admin/stand-data-flags", {
-          method: "POST",
-          token,
-          // Naming someone else must not make them the actor.
-          body: JSON.stringify({
-            flagId,
-            note: "confirmed with the farmer",
-            administratorId: impostorId,
-          }),
-        }),
-      );
-      expect(resolved.status).toBe(200);
-
-      const rows = await sql()`
-        select resolution_note, resolved_by_administrator_id
-        from stand_data_flags where id = ${flagId}
-      `;
-      expect(rows[0]?.resolution_note).toBe("confirmed with the farmer");
-      expect(rows[0]?.resolved_by_administrator_id).toBe(ids.administrator);
-
-      // A second operator's decision is refused, not overwritten.
-      const again = await standDataRoute.POST(
-        request("https://ff.example/api/admin/stand-data-flags", {
-          method: "POST",
-          token,
-          body: JSON.stringify({ flagId, note: "a different decision" }),
-        }),
-      );
-      expect(again.status).toBe(409);
-    });
-
-    it("refuses a resolution without a note, without resolving anything", async () => {
-      const token = await sessionFor(ids.administrator as string);
-      const { flagId } = await standDataFlag();
-
-      for (const body of [
-        { flagId },
-        { flagId, note: "" },
-        { flagId, note: "   " },
-        { note: "decided but no flag" },
-      ]) {
-        const response = await standDataRoute.POST(
-          request("https://ff.example/api/admin/stand-data-flags", {
-            method: "POST",
-            token,
-            body: JSON.stringify(body),
-          }),
-        );
-        expect(response.status).toBe(400);
-      }
-
-      const rows = await sql()`
-        select resolved_at from stand_data_flags where id = ${flagId}
-      `;
-      expect(rows[0]?.resolved_at).toBeNull();
-    });
-  });
 
 
   describe("the farmer authorization surface through its route (F-040)", () => {
