@@ -61,13 +61,21 @@
 
 ## Deployment and migrations
 
-- Serving **`farm-friend-web-00089-vz7`** / **`farm-friend-worker-00084-48v`**, digest
-  `sha256:9e7a41396f6edefb45ddfd73f4336578bb0087092ca95ede6169bae8e2a248c0`, built from `65e83cf`.
+- Serving **`farm-friend-web-00090-qwk`** / **`farm-friend-worker-00085-ths`**, digest
+  `sha256:b5fe5f9e3a8378a40d675a4b71994f150340ace3da1c805d1ef7b4b708016ae5`, built from `3f3530f`.
   Deployed 2026-08-19 (B-090, B-091, and F-122 so far). **Production matches `main`.** Plan was
   0 add / 2 change / 0 destroy — only the image digest moved; 61/61 plan assertions, deploy
   assertions and served-card assertions all passed. **Verified live by effect**, not by the
   deploy's own report: both removed admin routes answer 404, and the two 403s now name themselves
-  (`wrong_origin` from the `run.app` host, `not_signed_in` on the custom domain). Neither revision has an error-level log; the worker's recovery
+  (`wrong_origin` from the `run.app` host, `not_signed_in` on the custom domain), and the shipped
+  admin bundle carries the new copy with no `clone()` left in it.
+- **A refusal reader that takes a `Response` is a trap, and the tests could not see it.** The
+  first shape read the body itself; every caller had already parsed it, so each reached for
+  `clone()` — which THROWS on a consumed body, landing in the caller's catch and printing the
+  generic "That change did not go through". It shipped and never ran once. The reader now takes
+  the STATUS and the ALREADY-PARSED PAYLOAD, so a drained stream cannot reach it. The regression
+  test drives the real screen's failure path rather than the reader alone, and reproduces the
+  production symptom when the old shape is restored. Neither revision has an error-level log; the worker's recovery
   pass runs every minute returning 200. **F-119 verified in the shipped assets**: `items-cards`,
   `item-card-price`, `item-card-name` and `seller-block-heading` present in both the JS and CSS
   bundles, and the old `items-nested` / `item-sellers` absent.
