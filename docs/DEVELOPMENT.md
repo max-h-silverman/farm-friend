@@ -32,6 +32,11 @@ The Golden Rules are in [../CLAUDE.md](../CLAUDE.md). The checklists below are h
   contract — the scripted suite's stub reads neither your instructions nor your schema, so it cannot
   see an output contract that describes the wrong job. `live-containment` must be 100%; a failure
   **stops and reports**.
+- **Variance across live runs** — `npx tsx evals/variance.ts <N>` runs `evals:live` N times, writing
+  each transcript to its own file **before** parsing, then reports which fixtures ever missed. Reach
+  for it before concluding the model is unstable from remembered runs: a fixture that PASSES can
+  still be moving, so it reports score movement separately from pass/fail. `--summarise-only --out
+  <dir>` re-reads an existing capture directory for free.
 
 ## Before you ship a change that touches…
 

@@ -11,7 +11,52 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-19 (latest) — the eval gate learns to tell an outage from a regression, and SMS stops answering strangers
+## 2026-08-19 (latest) — the classifier's variance turns out to be the two cases we already knew about
+
+One tranche, `b-090-classifier-variance`. Unit **2,418 across 171 files** (7 corpus skips),
+typecheck, lint, scripted evals 11/11 · 4/4 · 19/19. Integration not run — this session touches no
+database or web code, and `DATABASE_URL`/`PUBLIC_BASE_URL` are not set locally.
+
+**B-090 — measure before tuning, and the measurement said "don't tune".** Twenty `evals:live` runs
+against `mistralai/Mistral-Small-24B-Instruct-2501`, each captured to its own file:
+**20/20 green, zero FAIL, zero SKIP**, every required group 100% every run. Only two fixtures move,
+and both move *only* on the two already-catalogued baseline cases — `"what is viga"` missed 4/20
+(corpus 52–53 of 53), `"when do you open?"` missed 11/20 (second-person 4–5 of 5). Roughly 800
+classifications, 15 misses, both known phrases, **no third case**. So the previous session's
+standing caution overstated the problem: `ADVISORY_CLASSIFIER_CASES` needs no new entry, and the
+threshold that entry anticipated is not needed — the corpus holds at the existing gate. That was the
+product decision the item reserved for max, and the measurement retired it rather than forcing it.
+
+**The 51/53 did not reproduce, and the 3/5 `live-operation` failure was almost certainly an outage.**
+Worst of twenty runs was 52/53. More conclusively, 3/5 is *arithmetically unreachable* from these
+misses: the advisory list absorbs both, so neither can drop that group below 5/5 no matter how the
+model flaps. That run predates B-089's `couldNotRun` labelling — an unlabelled transport failure is
+exactly what it would have looked like, and it explains why four immediate reruns could not
+reproduce it. Filed as explanation, not proof; the original transcript was lost, which is the whole
+reason this session captures every run.
+
+**A passing fixture can still be moving — the gap that made the extra tool necessary.** The corpus
+fixture gates on "no *non-baseline* regression", so 51/53 and 53/53 are both PASS. A pass/fail tally
+across runs would therefore have reported both moving fixtures as perfectly stable and concluded
+"no variance", which is precisely the wrong answer. `live-eval-variance.ts` reads each fixture's
+*internal score* out of its observed line and reports score movement separately from pass/fail. The
+score regexes are anchored to the start of the observed line on purpose: ratios also appear inside
+quoted customer messages (`"is 2/3 of a pound ok"`) and JSON payloads, and an unanchored search
+reads one of those as the score — sabotage-proved.
+
+**Capture-before-parse is the load-bearing design choice.** `evals/variance.ts` writes each run's
+transcript to its own file *before* anything is parsed, so a crash, a Ctrl-C, or a parse bug still
+leaves the evidence on disk; an unparseable file is reported loudly by name rather than silently
+shrinking the sample. Re-summarise any capture directory for free with
+`npx tsx evals/variance.ts --summarise-only --out <dir>`. The 20 transcripts are committed under
+`evals/captures/2026-08-19-b090/` as the evidence for the conclusion above.
+
+Sabotage-proved (three, all caught): counting an outage as a miss; reporting an always-failing
+fixture as merely flaky; and the unanchored score regex above.
+
+---
+
+## 2026-08-19 (earlier session) — the eval gate learns to tell an outage from a regression, and SMS stops answering strangers
 
 Four tranches, merged as `session-2026-08-18-wrap`. Unit **2,399 across 170 files** (7 corpus
 skips), integration **1,463 across 107 files**, typecheck, lint, scripted evals 11/11 · 4/4 · 19/19,
@@ -37,12 +82,11 @@ makes that one shared, tested list; the case is kept and still printed. Confirme
 *missed* it: the corpus reported 51/53 "known baseline miss only" and passed, where the old code
 would have gone red.
 
-**Standing caution:** across ~10 runs this session the corpus scored both 51/53 and 53/53 with
-identical code, so this model flaps beyond the two catalogued cases. The gate is now legible; the
-variance is not characterised. **Measure before tuning** — capture N runs and count which fixtures
-ever miss. Do **not** grow `ADVISORY_CLASSIFIER_CASES` to make runs green; a list used as a pressure
-valve stops being a guard. If the corpus cannot hold 53/53, a threshold ("no more than N baseline
-misses") is the honest instrument.
+**Standing caution — SUPERSEDED by B-090 later the same day.** This entry recorded that the corpus
+scored both 51/53 and 53/53 across ~10 uncaptured runs and concluded the model "flaps beyond the two
+catalogued cases". Twenty captured runs showed otherwise: only the two catalogued cases ever miss,
+and the 51/53 never reproduced. The instruction it gave was still the right one — *measure before
+tuning* — and the measurement is what retired the caution. See the B-090 entry above.
 
 **F-119 — the stand card is seller-major.** `standCardSellerGroups` replaces `standCardSections`
 (deleted, with its CSS): the seller is a sub-heading carrying its own recency, its items bordered

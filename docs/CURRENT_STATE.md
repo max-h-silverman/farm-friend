@@ -102,33 +102,24 @@
   and a test-isolation weakness, not a regression and not a product defect.
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19.
   The build retains tracked Next configuration/lint warnings (B-008).
-- **Live evals ran clean on 2026-08-19: 39/39** across containment, closure, quality, operation and
-  catalog, against `mistralai/Mistral-Small-24B-Instruct-2501` — the model production serves. This
-  clears the run owed from B-086/B-087.
 - **`evals:live` is a trustworthy gate (B-089).** A fixture whose model call never reached the
   provider is counted `couldNotRun` — neither pass nor fail — and the run exits 2 reporting "N
   fixtures could not run", so an outage no longer reads as a quality regression. A real failure
   always outranks an outage.
-- **The classifier's variance is now measured, and it is narrower than it looked (B-090).** Twenty
-  captured runs on 2026-08-19 against `mistralai/Mistral-Small-24B-Instruct-2501`: **20/20 green,
-  zero FAIL, zero SKIP**, every required group at 100% in every run. Only two fixtures move, and
-  both move **only on the two already-catalogued baseline cases** — no third case ever missed:
-  `"what is viga"` missed **4/20** (corpus 52–53 of 53) and `"when do you open?"` missed **11/20**
-  (second-person 4–5 of 5). Roughly 800 classifications, 15 misses, all two known phrases.
-  **`ADVISORY_CLASSIFIER_CASES` needs no new entry and no threshold** — the corpus holds, so the
-  honest instrument stays the existing pass/fail gate.
-- **The remembered 51/53 and the 3/5 `live-operation` failure did not reproduce, and 3/5 was almost
-  certainly an outage rather than a classifier miss.** Both baseline cases are absorbed by the
-  advisory list, so neither can drop that group below 5/5 — the arithmetic cannot reach 3/5 from
-  classifier misses at all. That run predates B-089's `couldNotRun` labelling, which is exactly what
-  a transport failure looked like before it had a name, and is consistent with four reruns failing
-  to reproduce it.
-- **A passing fixture can still be moving.** The top-level corpus fixture gates on "no *non-baseline*
-  regression", so 51/53 and 53/53 are both green and a PASS/FAIL tally reports it as perfectly
-  stable. `evals/variance.ts` + `packages/ai/src/live-eval-variance.ts` capture every run to its own
-  file and report **score movement separately** from pass/fail. Re-summarise any capture directory
-  without spending money: `npx tsx evals/variance.ts --summarise-only --out <dir>`. Captures for this
-  measurement are kept in `evals/captures/2026-08-19-b090/`.
+- **The classifier's variance is measured and bounded (B-090, 2026-08-19).** Twenty captured runs
+  against `mistralai/Mistral-Small-24B-Instruct-2501`: **20/20 green, zero FAIL, zero SKIP**, every
+  required group at 100% every run. Only the two already-catalogued baseline cases ever miss —
+  `"what is viga"` 4/20, `"when do you open?"` 11/20 — across ~800 classifications. No third case.
+  This also clears the live run owed from B-086/B-087.
+  **`ADVISORY_CLASSIFIER_CASES` needs no new entry and no threshold**; the corpus holds at the
+  existing gate. The earlier unreproducible `live-operation` 3/5 cannot come from these misses (the
+  advisory list absorbs both), and predates B-089's outage labelling.
+- **A passing fixture can still be moving**, because the corpus fixture gates on "no *non-baseline*
+  regression" — 51/53 and 53/53 are both green. `evals/variance.ts` +
+  `packages/ai/src/live-eval-variance.ts` capture each run to its own file and report **score
+  movement separately** from pass/fail. Re-summarise a capture directory without spending money:
+  `npx tsx evals/variance.ts --summarise-only --out <dir>`; this measurement's runs are in
+  `evals/captures/2026-08-19-b090/`.
 - **Every tranche here is sabotage-proved** — each guard has a breakage aimed at it that the suite
   caught. The standing lessons: **assert the absence of the wrong behavior; when a breakage changes
   no test result, ask which other guard answered first; and confirm the sabotage actually applied
