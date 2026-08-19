@@ -416,10 +416,12 @@ describe("administrator language", () => {
 
     expect(screen.getByText("Shown on map")).toBeTruthy();
     expect(screen.getByRole("heading", { name: "Invite a farmer to join" })).toBeTruthy();
-    expect(screen.getByRole("heading", { name: "Waiting for your decision" })).toBeTruthy();
+    // "Open invites" since 2026-08-19 (max): the heading says what the rows ARE, where
+    // "Waiting for your decision" described how they were meant to make an operator feel.
+    expect(screen.getByRole("heading", { name: "Open invites" })).toBeTruthy();
     // F-100's finding, fixed in F-101: "No requests." was terse beside its neighbours and read
     // as a missing value rather than a settled state.
-    expect(screen.getByText(/nobody is waiting to be set up/i)).toBeTruthy();
+    expect(screen.getByText(/no invites are open/i)).toBeTruthy();
     expect(screen.getByText("Contact")).toBeTruthy();
     // Who can update a farm is the FARM card's subject now, not this queue's. The same farm
     // appearing in both places under two different headings is what this restructure removed.

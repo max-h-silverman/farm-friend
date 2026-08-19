@@ -52,8 +52,8 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Stands & Sellers | `/admin/stands` | Two views of the island's farms. **Stands**: each stand, who sells there, and its own details. **Sellers**: each farm, where it sells, who can update it, and everything VIGA decides about it — approve it, edit its name and description, revoke access, send a setup link, take it off the map and put it back, mark it a test farm |
-| SMS Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm; prepare an invitation; decide access requests that arrived by text with no farm attached |
+| Stands & Sellers | `/admin/stands` | **Invites** (collapsed at the top): send a new invitation, and see the invitations already out. Then two views of the island's farms. **Stands**: each stand, who sells there, and its own details. **Sellers**: each farm, where it sells, who can update it, and everything VIGA decides about it — approve it, edit its name and description, revoke access, send a setup link, take it off the map and put it back, mark it a test farm |
+| SMS Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm |
 | Alerts | `/admin/messages` | Everything a person sent us: customer `FLAG` messages with the thread viewer (phones masked), stock-out reports, and questions about VIGA's own records |
 
 **Three tabs: Stands & Sellers, SMS Users, Alerts** (F-101, max 2026-08-17). **There is no Farms
@@ -101,7 +101,8 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Seed initial listing data:** run the one-time seed utility per [RUNBOOK.md](RUNBOOK.md). This
   is a greenfield load from reference input, not a migration with provenance. A location that
   cannot be geocoded is an operator task — the system never invents a coordinate.
-- **Invite a farmer — this is where you decide.** On `/admin/users`, choose the farm (or
+- **Invite a farmer — this is where you decide.** Open **Invites** at the top of `/admin/stands`
+  (it starts closed), choose the farm (or
   **New farm** and type its name, which creates it), choose text or email, and enter the
   recipient's address. Farm Friend creates a one-use onboarding link and opens your own text or
   email app with the message ready. Send it from there. The link expires after seven days.

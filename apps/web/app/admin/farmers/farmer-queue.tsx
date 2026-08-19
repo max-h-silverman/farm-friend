@@ -389,15 +389,15 @@ export function FarmerQueue({
       <section className="admin-queue-group" aria-labelledby="waiting-heading">
         <div className="admin-group-heading">
           <div>
-            <h3 id="waiting-heading">Waiting for your decision</h3>
+            <h3 id="waiting-heading">Open invites</h3>
           </div>
-          <span className="admin-count" aria-label={`${pendingRequests.length} waiting`}>
+          <span className="admin-count" aria-label={`${pendingRequests.length} open`}>
             {pendingRequests.length}
           </span>
         </div>
         {pendingRequests.length === 0 ? (
           <p className="admin-empty-state">
-            Nobody is waiting to be set up.
+            No invites are open.
           </p>
         ) : (
           <ul className="admin-sellers">
