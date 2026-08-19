@@ -14,6 +14,13 @@
   carrier-registered keywords (`STOP` + synonyms, `JOIN`/`START`/`VIGA`, `HELP`/`INFO`) pass by
   construction. Everything else gates, **`MAP` included**, so no model runs for an unconsented
   sender. `MAP` therefore lost its delayed-event exemption: a stale `MAP` now fails closed.
+- **HELP answers with two messages, and issue reports reach VIGA (B-091 — local only, not
+  deployed).** The carrier-registered help body is followed by a code-rendered guide naming the
+  keywords the sender can actually use; farmers and customers get different lists. The classifier
+  gained an `issue_report` category that FILES NOTHING — the report is parked, the sender confirms,
+  and code writes the flag into the same queue `FLAG` fills. `YES <email>` optionally leaves a reply
+  address on that flag. Result pages now name the `MAP` keyword instead of carrying a URL, and the
+  header reads `Results 4-6 of 12`.
 - **A stand answering the whole request outranks one answering part of it (F-120).** `matchCount` is
   `rankCandidates`' first key, ahead of freshness. `broad` passes a constant, so a catalog-wide
   request is not a biggest-listing leaderboard.
@@ -62,8 +69,12 @@
   pass runs every minute returning 200. **F-119 verified in the shipped assets**: `items-cards`,
   `item-card-price`, `item-card-name` and `seller-block-heading` present in both the JS and CSS
   bundles, and the old `items-nested` / `item-sellers` absent.
-- Neon `neondb` has **54 applied migrations (`0000`–`0053`)**. Nothing is unapplied and nothing is
-  unreleased: `main` is fully deployed.
+- Neon `neondb` has **54 applied migrations (`0000`–`0053`)**. **`0054` and `0055` are written and
+  locally verified but NOT applied and NOT deployed** (B-091): `0054` adds `pending_issue_reports`,
+  `0055` adds `flags.reporter_email` / `reporter_email_hash`. Both carry hand-appended CHECKs
+  (`drizzle-kit` does not emit them) and both needed their journal `when` repaired to follow their
+  predecessor — the generator stamped wall-clock timestamps that sort BEFORE `0053`, which would have
+  skipped them silently while the runner printed "migrations applied".
 - **`inventory_publication_proposals.provider_id` is nullable in production, and that is correct.**
   `0042` sets it NOT NULL and **`0046` deliberately relaxes it** so a venue's closure-only proposal
   can name no provider, replacing it with the `inventory_proposals_provider_arm` CHECK. A preflight
@@ -94,8 +105,12 @@
 
 ## Verification
 
-- **2,418 unit tests pass across 171 files; 7 corpus-only tests skip**, and integration is
-  **1,463/1,463 across all 107 files** (both 2026-08-19, on the merged wrap commit).
+- **2,439 unit tests pass across 173 files; 7 corpus-only tests skip**, and integration is
+  **1,473/1,473 across all 108 files** (both 2026-08-19, after B-091). Typecheck and lint clean.
+- **`npm run evals:live` has NOT been run for B-091 and is required before it ships.** The
+  request-classification seam gained a category and its prompt gained two rules, which is exactly the
+  change the live suite exists to measure: the scripted suites use cooperative stubs that cannot see
+  whether a real model distinguishes `issue_report` from `inventory_report`.
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it, six `apps/web/lib/farmer-stand.integration.test.ts` cases fail `PUBLIC_BASE_URL is required`.
   **Verified pre-existing**: checking out `main` reproduces the identical six. An environment fact

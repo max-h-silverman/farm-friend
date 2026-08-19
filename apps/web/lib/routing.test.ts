@@ -164,6 +164,7 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     // must never come from a request header.
     publicBaseUrl: "https://farmfriend.example",
     publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+    emailSalt: "test-email-salt",
     freeText: forbiddenFreeText(),
     nextPage: forbiddenNextPage(),
     farmerTarget: forbiddenFarmerTarget(),

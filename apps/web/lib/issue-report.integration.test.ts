@@ -5,8 +5,10 @@ import postgres from "postgres";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   FixedClock,
+  hashEmail,
   ISSUE_REPORT_CONFIRMATION,
   ISSUE_REPORT_FILED,
+  ISSUE_REPORT_FILED_WITH_REPLY,
   type InventoryInterpreter,
 } from "@farm-friend/core";
 import type {
@@ -192,13 +194,32 @@ describe("B-091 issue reports reach VIGA only on confirmation (integration)", ()
    * can reach the filing path without displacing an inventory publication, and only the real
    * router decides that order.
    */
-  async function confirm(token: "YES" | "NO", occurredAt = minutesAfter(1)) {
+  /** Send an arbitrary body through routing — for the `YES <email>` grammar. */
+  async function confirmWith(
+    body: string,
+    occurredAt = minutesAfter(1),
+    /*
+      `"none"` rather than `undefined`, because a default parameter cannot express "explicitly
+      no salt" — passing `undefined` selects the default and the test would silently exercise
+      the configured case it means to rule out.
+    */
+    salt: string | "none" = "test-email-salt",
+  ) {
+    return confirm(body as "YES" | "NO", occurredAt, salt);
+  }
+
+  async function confirm(
+    token: "YES" | "NO",
+    occurredAt = minutesAfter(1),
+    salt: string | "none" = "test-email-salt",
+  ) {
     return routeInboundMessage(
       {
         db: database(),
         clock: new FixedClock(occurredAt),
         publicBaseUrl: "https://example.test",
         publicMapUrl: "https://example.test/map",
+        emailSalt: salt === "none" ? undefined : salt,
         freeText: async () => {
           throw new Error("a commitment token must never reach the model");
         },
@@ -243,6 +264,90 @@ describe("B-091 issue reports reach VIGA only on confirmation (integration)", ()
     // It points at the message that DESCRIBES the problem, not at the bare YES, which carries
     // nothing a coordinator could read.
     expect(flags[0]?.eventId).toBe(eventId);
+  });
+
+  /*
+    THE OPTIONAL ADDRESS (max, 2026-08-19).
+
+    A reporter may ask to hear back, and the only way to answer them is an address. It is
+    scoped to the one flag it was given for and disappears with it — a customer acquires no
+    durable profile by reporting a problem (Golden Rule #5). The raw value lives in exactly one
+    column with its hash beside it, the same discipline `seller_emails` follows.
+  */
+  it("keeps the address a reporter offers, with its hash beside it", async () => {
+    await report(await inboxEvent());
+    const confirmed = await confirmWith("YES cathy@example.com");
+
+    // The reply says the address landed, which is the half the reporter cannot otherwise see.
+    expect(confirmed.replies[0]?.body).toBe(ISSUE_REPORT_FILED_WITH_REPLY);
+
+    const rows = await client()`
+      select reporter_email, reporter_email_hash from flags where status = 'open'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.reporter_email).toBe("cathy@example.com");
+    // The hash is the lookup key and must actually be derivable, not merely present.
+    expect(rows[0]?.reporter_email_hash).toBe(hashEmail("cathy@example.com", "test-email-salt"));
+  });
+
+  it("normalizes the address before storing it", async () => {
+    // One spelling per address, so the same person is one person however they typed it.
+    await report(await inboxEvent());
+    await confirmWith("YES Cathy@Example.COM");
+
+    const rows = await client()`select reporter_email from flags where status = 'open'`;
+    expect(rows[0]?.reporter_email).toBe("cathy@example.com");
+  });
+
+  it("files with no address when the reporter does not offer one", async () => {
+    await report(await inboxEvent());
+    const confirmed = await confirm("YES");
+
+    expect(confirmed.replies[0]?.body).toBe(ISSUE_REPORT_FILED);
+    const rows = await client()`
+      select reporter_email, reporter_email_hash from flags where status = 'open'
+    `;
+    // Both columns absent together — the CHECK refuses any other combination.
+    expect(rows[0]?.reporter_email).toBeNull();
+    expect(rows[0]?.reporter_email_hash).toBeNull();
+  });
+
+  it("refuses the address rather than storing it unfindable, when no salt is configured", async () => {
+    /*
+      A REAL DEPLOYMENT SHAPE, not a hypothetical: `EMAIL_HASH_SALT` is mounted on the web
+      service only, and the WORKER runs the inbound pass. The hash is the only lookup key an
+      address has, so storing one without it would leave a value nobody can ever find — and
+      the CHECK refuses that pairing outright.
+
+      So the address is dropped and the reporter is told what is actually true: someone will
+      look. Promising a reply we cannot send would be the worse failure.
+    */
+    await report(await inboxEvent());
+    const confirmed = await confirmWith("YES cathy@example.com", minutesAfter(1), "none");
+
+    expect(confirmed.replies[0]?.body).toBe(ISSUE_REPORT_FILED);
+    const rows = await client()`
+      select reporter_email, reporter_email_hash from flags where status = 'open'
+    `;
+    expect(rows).toHaveLength(1);
+    expect(rows[0]?.reporter_email).toBeNull();
+    expect(rows[0]?.reporter_email_hash).toBeNull();
+  });
+
+  it("does not read a mistyped address as a bare confirmation", async () => {
+    /*
+      The failure `JOIN <token>` used to have, and the reason this grammar is admitted at all:
+      a mistyped argument must not be silently swallowed. "YES cathy@" is not an address, so it
+      is not a commitment — it stays free text, the report stays open, and the sender can try
+      again rather than wondering what happened.
+    */
+    await report(await inboxEvent());
+    await confirmWith("YES cathy@").catch(() => undefined);
+
+    expect(await openFlags()).toHaveLength(0);
+    expect(
+      (await client()`select count(*)::int as n from pending_issue_reports`)[0]?.n,
+    ).toBe(1);
   });
 
   it("files nothing when the sender declines, and forgets the report", async () => {

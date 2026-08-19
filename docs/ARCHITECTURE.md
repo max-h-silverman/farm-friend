@@ -279,8 +279,9 @@ order:
     inquiry, finds no item, and dead-ends. **A reply that resolves no stand at all releases the
     held report** and is handled as an ordinary new message: releasing is recoverable, capturing a
     real question is another dead end.
-13. **One first-pass request classifier** (F-111) returns exactly one of six categories:
-    `search_stands`, `stand_lookup`, `inventory_report`, `system_inquiry`, `chitchat`, `unclear`.
+13. **One first-pass request classifier** (F-111) returns exactly one of seven categories:
+    `search_stands`, `stand_lookup`, `inventory_report`, `system_inquiry`, `issue_report`,
+    `chitchat`, `unclear`.
     One taxonomy for every sender — **who sent the message is not an input**, so there is no field
     through which a manipulated model could claim a sender may publish. Two code-owned fast paths
     run inside the seam ahead of the model; see AI_ARCHITECTURE.md §the seam catalog.
@@ -292,6 +293,10 @@ order:
     `search_stands`/`stand_lookup` use grounded inquiry; `system_inquiry` answers from constants,
     including the map from the same `PUBLIC_MAP_URL` the `MAP` keyword serves; `chitchat` and
     `unclear` are code-rendered. No classification outcome publishes inventory.
+
+    **`issue_report` files nothing** (B-091). It parks the report and asks the sender to confirm;
+    code files the flag on their `YES`, into the same review queue `FLAG` fills. See
+    SMS_COMPLIANCE.md §the FLAG safety rail.
 15. **`inventory_report` forks on ACCESS, decided in code from `farmer_authorizations`** — this is
     where B-053 lives. A customer's report, and a farmer's report about a stand they do **not**
     hold, both take the customer-style report flow: a private signal that prompts that stand's own

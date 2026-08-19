@@ -481,6 +481,19 @@ duplicate must show rather than be papered over.
   resolution and on release. It holds a question, not a conversation: nothing outside the stock-out
   path reads it, it teaches no token, and it is unreachable from deterministic routing, which still
   takes the body and nothing else.
+- **pending issue reports** (B-091) — the report held between "shall we tell VIGA about this?" and the
+  sender's `YES`. The classifier RECOGNISES that a message says our own information is wrong, and
+  recognising it commits nothing: this row is inert until a human confirms, and code — not the model —
+  then files the flag (Golden Rule #3). Holds the reporter's own message and the inbox event it
+  arrived on, so the filed flag points at the sentence describing the problem rather than at a bare
+  `YES` that carries nothing readable. **One open report per sender**, enforced by a unique index
+  rather than a read-then-write. Expires (15 minutes) against the **message's** clock; deleted on
+  confirmation, on refusal, and on abandonment.
+
+  **Its own table rather than a second meaning for `pending_stock_out_reports`.** That record answers
+  "which half of a stock-out is missing" and carries a bound stand plus an `awaiting` CHECK proving
+  that shape; an issue report has no halves and no stand. One table serving both would need that
+  CHECK relaxed to admit a row it was written to refuse.
 - **minimized SMS inbox and message records** with limited retention — unique provider event/message
   identifiers, event type and `occurred_at`, sender/contact reference, TTL-bound body where needed,
   processing state, and per-sender conversation watermark/claim. The raw provider envelope is not a
@@ -524,7 +537,14 @@ duplicate must show rather than be papered over.
   availability request — which a later page **cannot re-derive**: such a question names no item, so
   code substitutes a placeholder into the requested items, and a page reading that column alone would
   print the placeholder as though the customer had typed it.
-- **flags and admin dispositions.**
+- **flags and admin dispositions**, which now also carry an issue reporter's **optional** reply
+  address (B-091). It lives on the FLAG and not on the contact, and that placement is the privacy
+  posture: the address is scoped to the one issue it was given for and disappears with it, so a
+  customer acquires no durable profile by reporting a problem. Raw value in exactly one column with
+  its hash beside it — the discipline `seller_emails` follows — both columns present or both absent,
+  enforced by a CHECK. Masked in the console and reachable only through a mail link. Where
+  `EMAIL_HASH_SALT` is not mounted (the worker), an offered address is **refused rather than stored
+  without its lookup key**.
 - **transactional outbox.**
 - **minimal audit and model-run evidence.**
 

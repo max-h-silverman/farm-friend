@@ -3,6 +3,8 @@
 // STOP is always global and can never be reinterpreted by conversation state; YES/NO are
 // context-bound, never global.
 
+import { normalizeEmail } from "../privacy/email";
+
 export type ComplianceKeyword =
   | "STOP"
   | "START"
@@ -38,7 +40,14 @@ export type ParsedCommand =
   | { kind: "compliance"; keyword: ComplianceKeyword; global: boolean }
   /** The live public-map link (F-057), a stateless product command. */
   | { kind: "map" }
-  | { kind: "commitment"; token: CommitmentToken; contextBound: true }
+  /**
+   * `YES`/`NO` against the sender's one open question.
+   *
+   * `email` appears only on a `YES` that carried a single valid address (B-091) — the reporter
+   * asking to hear back about the issue they raised. It is normalized here and never on any
+   * other token: see `parseCommand` for why the grammar is this narrow.
+   */
+  | { kind: "commitment"; token: CommitmentToken; contextBound: true; email?: string }
   | { kind: "scheduled_same"; contextBound: true }
   | { kind: "farmer"; keyword: FarmerKeyword }
   /**
@@ -165,6 +174,41 @@ export function parseCommand(body: string): ParsedCommand {
   const commitment = COMMITMENT_WORDS[normalized];
   if (commitment) {
     return { kind: "commitment", token: commitment, contextBound: true };
+  }
+  /*
+    `YES <email>` — confirm an issue report AND ask to hear back (B-091).
+
+    THE ONLY argument grammar in this parser, and deliberately the narrowest one that can
+    exist. `YES` is also the inventory publication token, so a loose remainder would let
+    "YES i have eggs" publish a proposal the farmer never reviewed. The remainder must be a
+    single valid address or this is not a commitment at all: `normalizeEmail` throws on
+    anything else and the message falls through to free text, where it is answered.
+
+    That property is what makes this safe where `JOIN <token>` was not (removed 2026-08-07).
+    A mistyped 64-character token was indistinguishable from a valid one, so it failed
+    silently; a mistyped address is something code can RECOGNISE as not-an-address, so the
+    sender gets an answer instead of silence.
+
+    Deliberately `YES` only. A sender declining is not asking to be contacted, so an address
+    on `NO` would mean nothing — and it sits below every compliance word, so no argument can
+    ever produce a spelling of `STOP` that fails to stop.
+
+    The `+` is optional because the copy offers the grammar as "YES + your email", and a
+    reader who copies that literally must not be punished for it.
+  */
+  const withEmail = /^(YES)\s*\+?\s+(\S+)$/.exec(normalized);
+  if (withEmail) {
+    try {
+      return {
+        kind: "commitment",
+        token: "YES",
+        contextBound: true,
+        email: normalizeEmail(withEmail[2]!),
+      };
+    } catch {
+      // Not an address. Falls through to free text rather than being read as a bare YES —
+      // committing something the sender did not plainly say is the failure to avoid.
+    }
   }
   // F-052. Exact scheduled-snapshot confirmation, after STOP and ordinary commitments.
   // The database subject decides whether it has meaning; this parser supplies no context.

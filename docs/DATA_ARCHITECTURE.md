@@ -227,6 +227,15 @@ It reports **counts only** — never a body, an identifier, or a phone.
 lightweight facts such as foods requested or preferred stands; it must not accumulate a rich personal
 profile, and **precise durable home addresses are not part of a customer profile**.
 
+**A customer's email is held only where they asked for a reply, and only for as long as that reply is
+owed** (B-091). An issue reporter may add an address so VIGA can answer them; it is stored **on the
+flag**, not on the contact, so it is scoped to the one issue it was given for and disappears with it.
+This is not the start of a customer profile and must not become one: the address exists because a
+person asked to be written to, and it dies with the question they asked. It follows the same shape as
+every other identifier here — raw value in exactly one column, the hash as the only lookup and log key,
+masked wherever an operator reads it, never in model context. Where the salt is not mounted, the
+address is **refused rather than stored without its key**.
+
 **Browser origins are transient.** Optional browser geolocation may be used to calculate approximate
 proximity to validated public sales-location coordinates; it is not stored, logged, sent to the model,
 or retained as a customer preference.

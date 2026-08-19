@@ -20,6 +20,10 @@ export interface FlagRow {
   disposedByEmail: string | null;
   disposedAt: string | null;
   createdAt: string;
+  /** The address a reporter left for a reply (B-091). Reaches the browser only as a mailto. */
+  reporterEmail: string | null;
+  /** What is DISPLAYED. The raw address is never rendered as text. */
+  reporterEmailMask: string;
   hasReadableThread: boolean;
 }
 
@@ -172,6 +176,23 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
               <p className="admin-note">
                 Flagged for review · received {formatWhen(row.createdAt)}
               </p>
+              {/*
+                B-091 — the reporter ASKED to hear back, so the way to answer them is here.
+
+                The address is shown MASKED and the raw value appears only inside the mail
+                link's href, never as page text (Golden Rule #5). A coordinator recognises who
+                they are writing to and can write; a screenshot of this queue leaks nothing.
+
+                Absent entirely when no address was left, rather than rendered as an empty
+                row: most reporters will not leave one, and a permanent "(no email on file)"
+                on every flag is noise on the screen that exists to be scanned.
+              */}
+              {row.reporterEmail !== null && (
+                <p className="admin-note admin-flag-reply">
+                  Asked for a reply:{" "}
+                  <a href={`mailto:${row.reporterEmail}`}>{row.reporterEmailMask}</a>
+                </p>
+              )}
               {row.status !== "open" && (
                 <p className="admin-approved">
                   {row.status === "resolved" ? "Resolved" : "Dismissed"}

@@ -12,6 +12,8 @@ import {
   REGISTERED_HELP_AUTO_RESPONSE,
   renderHelpGuide,
   ISSUE_REPORT_FILED,
+  ISSUE_REPORT_FILED_WITH_REPLY,
+  hashEmail,
   JOIN_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
   renderClarificationRequest,
@@ -125,6 +127,17 @@ export interface RouteDeps {
   publicBaseUrl: string;
   /** The validated canonical URL returned by the stateless MAP command. */
   publicMapUrl: string;
+  /**
+   * The salt the reporter's email hash is derived under (B-091).
+   *
+   * Injected rather than read from the environment here, like every other configured value on
+   * this interface: `EMAIL_HASH_SALT` must be the same salt `seller_emails` was hashed under,
+   * and a module reading it directly would be a second place for that agreement to break.
+   *
+   * OPTIONAL because the worker — which runs the inbound pass — deliberately does not mount
+   * it. With no salt an address is refused rather than stored without its lookup key.
+   */
+  emailSalt?: string;
   /**
    * Handle a message that is NOT any deterministic keyword or token. Invoked only after
    * `parseCommand` returns `kind: "none"`; this is the only path on which a model may run.
@@ -352,7 +365,7 @@ export async function routeInboundMessage(
   }
 
   if (command.kind === "commitment") {
-    return routeCommitment(deps, input, command.token);
+    return routeCommitment(deps, input, command.token, command.email);
   }
 
   if (command.kind === "scheduled_same") {
@@ -700,6 +713,7 @@ async function fileConfirmedIssueReport(
   deps: RouteDeps,
   input: RouteInput,
   token: "YES" | "NO",
+  reporterEmail?: string,
 ): Promise<RouteResult | null> {
   const pending = await readPendingIssueReport(deps.db, {
     senderHash: input.senderHash,
@@ -720,11 +734,26 @@ async function fileConfirmedIssueReport(
     opening the thread needs the sentence describing the problem; the confirmation carries no
     information on its own.
   */
+  /*
+    The address, when the reporter offered one (B-091). Hashed HERE rather than by the caller,
+    because the raw value and its key must be written in one statement — the CHECK requires
+    both columns or neither, so a hash computed somewhere else is a second place for them to
+    come apart.
+
+    Already normalized by `parseCommand`, which is what admitted the grammar at all.
+  */
+  const salt = deps.emailSalt;
+  const storedEmail = reporterEmail !== undefined && salt !== undefined ? reporterEmail : null;
+  const emailHash = storedEmail === null ? null : hashEmail(storedEmail, salt!);
+
   const inserted = await deps.db.sql`
-    insert into flags (contact_hash, inbox_event_id, reason_code, status, created_at)
+    insert into flags (
+      contact_hash, inbox_event_id, reason_code, status, created_at,
+      reporter_email, reporter_email_hash
+    )
     values (
       ${input.senderHash}, ${pending.inboxEventId}, 'issue_reported', 'open',
-      ${input.occurredAt}
+      ${input.occurredAt}, ${storedEmail}, ${emailHash}
     )
     returning id
   `;
@@ -733,7 +762,12 @@ async function fileConfirmedIssueReport(
     outcome: { kind: "flag", flagId: inserted[0]?.id as string },
     replies: [
       {
-        body: ISSUE_REPORT_FILED,
+        // Says back what was actually recorded. A reporter who gave an address and is told
+        // only "a coordinator will review this" has no way to know it landed — and the
+        // address is precisely the thing they would want confirmed.
+        // Promises a reply only when one is actually possible: an address the deployment
+        // cannot hash was not kept, and saying otherwise would be a promise nobody can honour.
+        body: storedEmail === null ? ISSUE_REPORT_FILED : ISSUE_REPORT_FILED_WITH_REPLY,
         // Answering the sender's own message, so it rides on that message.
         category: "required_reply",
         logicalKey: `issue-filed-${input.providerEventId}`,
@@ -746,6 +780,7 @@ async function routeCommitment(
   deps: RouteDeps,
   input: RouteInput,
   token: "YES" | "NO",
+  reporterEmail?: string,
 ): Promise<RouteResult> {
   /*
     F-117 — THE HOST'S QUESTION FIRST.
@@ -793,7 +828,7 @@ async function routeCommitment(
       Nothing here is reinterpreted from the token: with nothing open at all, `YES` still means
       nothing, and the sender falls through to the same `no_open_proposal` answer.
     */
-    const filed = await fileConfirmedIssueReport(deps, input, token);
+    const filed = await fileConfirmedIssueReport(deps, input, token, reporterEmail);
     if (filed !== null) return filed;
 
     return {

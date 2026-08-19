@@ -3903,6 +3903,25 @@ export const flags = pgTable(
       { onDelete: "restrict" },
     ),
     reasonCode: text("reason_code").notNull(),
+    /**
+     * Where VIGA may write back, when the reporter ASKED to hear about their issue (B-091).
+     *
+     * Optional and reporter-supplied. Nothing sends to it automatically: it exists so a
+     * coordinator reading the review item can reply, which is the only reason it was
+     * collected.
+     *
+     * **The same discipline `seller_emails` follows** (Golden Rule #5): this is the one column
+     * holding a raw address, read by a person or the send path and nothing else, with the hash
+     * beside it as the lookup and log key. Never in a log line, never in model context, masked
+     * in admin.
+     *
+     * It lives on the FLAG rather than on the contact, and that is the privacy posture: the
+     * address is scoped to the one issue it was given for and disappears when the flag does.
+     * A customer acquires no durable profile by reporting a problem.
+     */
+    reporterEmail: text("reporter_email"),
+    /** The lookup and log key for `reporter_email`. Both columns move together. */
+    reporterEmailHash: text("reporter_email_hash"),
     status: flagStatus("status").notNull().default("open"),
     dispositionCode: text("disposition_code"),
     disposedByAdministratorId: uuid(
@@ -3917,6 +3936,23 @@ export const flags = pgTable(
     reasonNotBlank: check(
       "flags_reason_code_not_blank",
       sql`length(trim(${table.reasonCode})) > 0`,
+    ),
+    /*
+      The address and its hash exist together or not at all. A raw address with no hash is
+      unfindable and unloggable; a hash with no address points at something nobody can read.
+      Written as one biconditional, and NOT vulnerable to the NULL trap — `is null` yields
+      true or false, never NULL.
+    */
+    reporterEmailPaired: check(
+      "flags_reporter_email_paired",
+      sql`(${table.reporterEmail} is null) = (${table.reporterEmailHash} is null)`,
+    ),
+    reporterEmailNotBlank: check(
+      "flags_reporter_email_not_blank",
+      sql`
+        ${table.reporterEmail} is null
+        or length(btrim(${table.reporterEmail}, E' \t\r\n')) > 0
+      `,
     ),
     coherentDisposition: check(
       "flags_coherent_disposition",

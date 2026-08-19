@@ -334,6 +334,7 @@ describe("inbound routing end to end (integration)", () => {
       // F-040: configured origin for a farmer standing link. Never a request header.
       publicBaseUrl: "https://farmfriend.example",
       publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+      emailSalt: "test-email-salt",
     });
     return provider;
   }
@@ -1242,6 +1243,7 @@ describe("inbound routing end to end (integration)", () => {
           // F-040: configured origin for a farmer standing link. Never a request header.
           publicBaseUrl: "https://farmfriend.example",
           publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+          emailSalt: "test-email-salt",
         }),
         runInboundPass({
           db: database(),
@@ -1257,6 +1259,7 @@ describe("inbound routing end to end (integration)", () => {
           // F-040: configured origin for a farmer standing link. Never a request header.
           publicBaseUrl: "https://farmfriend.example",
           publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+          emailSalt: "test-email-salt",
         }),
       ]);
 
@@ -1343,6 +1346,7 @@ describe("inbound routing end to end (integration)", () => {
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
         publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+        emailSalt: "test-email-salt",
       });
 
       const proposals = await client()`
@@ -1416,6 +1420,7 @@ describe("inbound routing end to end (integration)", () => {
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
         publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+        emailSalt: "test-email-salt",
       });
 
       // Precondition, asserted rather than assumed: the proposal is genuinely open and
@@ -1526,6 +1531,7 @@ describe("inbound routing end to end (integration)", () => {
         clock: new FixedClock(at(1)),
         publicBaseUrl: "https://farmfriend.example",
         publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+        emailSalt: "test-email-salt",
       });
       await client()`
         update inventory_publication_proposals
@@ -1748,6 +1754,7 @@ ${farmId}, ${locationId},
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
         publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+        emailSalt: "test-email-salt",
       });
 
       const work = await client()`
@@ -1786,6 +1793,7 @@ ${farmId}, ${locationId},
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
         publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+        emailSalt: "test-email-salt",
       });
 
       // Answering a question is not enrollment: it licenses this reply and nothing later.

@@ -189,8 +189,9 @@ flag:
   interprets arbitrary inventory language and must preserve inventory plus closure in one mixed result.
   Code validates the shape and authority and renders every public status; the model cannot publish or
   author a public closure note.
-- **request classification** (F-111) — any sender's free text → exactly one of six categories:
-  `search_stands`, `stand_lookup`, `inventory_report`, `system_inquiry`, `chitchat`, `unclear`. One
+- **request classification** (F-111) — any sender's free text → exactly one of seven categories:
+  `search_stands`, `stand_lookup`, `inventory_report`, `system_inquiry`, `issue_report`, `chitchat`,
+  `unclear`. One
   `.strict()` enum field and nothing else, so the seam has no channel through which a stand, a
   recipient, an attribute or prose could travel. **It replaces the two sender-split intent seams
   below**, which Phase 2 deletes.
@@ -199,6 +200,12 @@ flag:
     which is B-053 reintroduced. Who may act on a report is an **access** question code answers from
     `farmer_authorizations` — customer → report; farmer with access → update; farmer **without**
     access → report. The classifier cannot express authority at all.
+  - **`issue_report` proposes; it never files** (B-091). It means the sender says OUR information is
+    wrong — distinct from `system_inquiry`, which asks what the service does, and from
+    `inventory_report`, which is a claim about a stand. Recognising one creates no review item: the
+    report is parked, the sender is asked to confirm, and **code** files the flag on their `YES`.
+    So a false positive costs one question rather than a false report in VIGA's queue, and the
+    property survives a weaker or hostile model — the seam still has no channel to a consequence.
   - **There is no fallback category.** A provider error or invalid output returns a failure the
     caller renders as an outage reply, rather than reusing a real category as its refusal value the
     way the two sender-split seams it replaced did — which made an outage indistinguishable from a

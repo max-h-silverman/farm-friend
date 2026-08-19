@@ -80,6 +80,7 @@ export async function POST(req: Request): Promise<Response> {
               clock: context.clock,
               publicBaseUrl: context.config.publicBaseUrl,
               publicMapUrl: context.config.publicMapUrl,
+              emailSalt: context.config.emailSalt,
             },
             senderHashes,
           ),

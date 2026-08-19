@@ -23,7 +23,8 @@
  * that is not YES lands as an ordinary message and is classified afresh.
  */
 export const ISSUE_REPORT_CONFIRMATION =
-  "Do you want to let VIGA know about this issue? Reply YES to confirm, or tell us more.";
+  "Do you want to let VIGA know about this issue? Reply YES to confirm. " +
+  "Reply YES + your email to confirm and get updates on the issue.";
 
 /**
  * What the sender reads once VIGA holds their report.
@@ -33,4 +34,15 @@ export const ISSUE_REPORT_CONFIRMATION =
  * two outcomes get invented later.
  */
 export const ISSUE_REPORT_FILED =
-  "Thanks — a VIGA coordinator will review this. Reply STOP to opt out at any time.";
+  "Thanks - a VIGA coordinator will review this. Reply STOP to opt out at any time.";
+
+/**
+ * What a reporter who left an address reads instead.
+ *
+ * It says the address was kept, because that is the half they cannot otherwise verify — a
+ * reporter told only that someone will look has no way to know whether the part they added
+ * landed. It promises a person will look, and still claims no timeline.
+ */
+export const ISSUE_REPORT_FILED_WITH_REPLY =
+  "Thanks - a VIGA coordinator will review this and reply to the email you gave. " +
+  "Reply STOP to opt out at any time.";

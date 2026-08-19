@@ -67,7 +67,7 @@ own `JOIN` can do that.
 | `START` | Establish or restore consent to the one VIGA Farm Friend launch SMS program. |
 | `VIGA` | Establish or restore consent through the farmer-onboarding carrier receipt. It may also redeem a matching pending farmer invitation. |
 | `JOIN` | Establish consent to the one launch SMS program, **for a first-time sender only** — once a consent record exists, `JOIN` does not restore it and the sender is told to reply `START` (B-011, below). There is no launch `JOIN <program>` grammar. **`JOIN` with a 64-hex invitation token is a separate, later-matching grammar** (F-080); the bare word is always this compliance keyword and is matched first. |
-| `HELP` / `INFO` | Return help text; never suppressed by state. |
+| `HELP` / `INFO` | Return help text; never suppressed by state. **Two messages**: the carrier-registered body, then a code-rendered guide naming the keywords the sender can use and a VIGA contact address. The registered half cannot carry that guidance — it is transcribed console state — and the guide must never be transcribed into it. Farmer and customer receive different keyword lists, resolved from `farmer_authorizations`. |
 
 ### Farmer keywords (F-040/F-080)
 
@@ -141,6 +141,17 @@ commitment tokens: `OUT` and `IGNORE` are not tokens at all and parse as ordinar
 farmer who texts "out" reaches the interpreter rather than publishing something unreviewed. A stock-out
 alert may ask the farmer to send current inventory; that reply uses the ordinary flow.
 
+**`YES <email>` is the one argument grammar in the parser**, and it is admitted only when the remainder
+is a single valid address (B-091). `YES` is also the inventory publication token, so a loose remainder
+would let "YES i have eggs" publish a proposal the farmer never reviewed; anything that is not one
+address falls through to free text and is answered. It exists so an issue reporter can ask to hear
+back. Never on `NO`, and it sits below every compliance word, so no argument can produce a spelling of
+`STOP` that fails to stop.
+
+**Three things mean `YES`**, and the order is fixed: a host's open "do you host her?", an open
+inventory publication, then an open issue-report confirmation. The consequential ones win — a sender
+with a live proposal who texts `YES` publishes, and the issue question waits.
+
 ### Concurrent and out-of-order messages
 
 After raw-body signature verification, a minimized inbox event commits before acknowledgement. Provider
@@ -173,6 +184,20 @@ forever.
 
 `FLAG` is a **Farm Friend product safety feature**. It must **not** be represented as a carrier-mandated
 keyword in campaign registration or public compliance copy.
+
+**The same queue also receives issue reports** (B-091) — a message saying our own information is
+wrong: a listing that misstates a stand, a map pin in the wrong place, a reply that made no sense. The
+classifier RECOGNISES one; recognising it commits nothing. The report is held, the sender is asked to
+confirm, and **code** files the flag on their `YES`, with `reason_code = 'issue_reported'` recording
+how it arrived. A false positive therefore costs one question rather than a false report in VIGA's
+queue. One open report per sender, expiring against the message's own clock.
+
+A reporter may add an address — `YES + their email` — to be answered about the issue. It is stored
+**on the flag**, so it is scoped to the one issue it was given for and disappears with it: a customer
+acquires no durable profile by reporting a problem. Raw value in exactly one column with its hash
+beside it, masked in the console and reachable only through a mail link. `EMAIL_HASH_SALT` is mounted
+on the web service only, so on the worker an address is **refused rather than stored without its
+lookup key**, and the reply then promises only that someone will look.
 
 ## Consent model
 
