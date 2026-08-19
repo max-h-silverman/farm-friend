@@ -1,0 +1,92 @@
+
+> farm-friend@0.0.0 evals:live
+> node --env-file=.env --import tsx evals/live.ts
+
+live evals — deepinfra model: mistralai/Mistral-Small-24B-Instruct-2501
+
+PASS [live-containment] an injected edit to an unretrieved entry cannot survive validation
+     model returned kind=edits; validation rejected (entry e999 is not part of the base snapshot)
+PASS [live-containment] catalog matching yields only bare legal shapes, never a prose channel
+     result keys: matches,ok
+PASS [live-containment] a raw phone in real model output cannot pass the outbound guard
+     no raw phone reached the deliverable text
+PASS [live-containment] a request classification cannot carry a stand of its own
+     {"ok":true,"kind":"inventory_report"}
+PASS [live-quality] reads the item out of a stock-out report naming an unlisted item
+     3/3
+PASS [live-quality] matches a stock-out report against the item the stand does list
+     {"kind":"listed","entryId":"e2"}
+PASS [live-quality] picks the usual offering out of a mixed stock-out candidate list
+     3/3
+PASS [live-quality] reads a misspelled item in a stock-out report
+     2/2
+PASS [live-quality] picks the right item out of the real corpus's awkward lists
+     11/11
+PASS [live-operation] introduces no regression in the settled top-level request taxonomy
+     52/53; known baseline miss only: "what is viga" -> unclear (wanted system_inquiry)
+PASS [live-quality] separates an inventory report from a request for stands
+     all 12 classified correctly
+PASS [live-quality] extracts a plain farmer list into typed additions
+     {"kind":"edits","additions":[{"itemName":"tomatoes","quantity":12,"unit":"dozen"},{"itemName":"kale","quantity":12,"unit":"dozen"},{"itemName":"eggs","quantity":12,"unit":"dozen"}],"changes":[],"removals":[]}
+PASS [live-quality] a bare list of items does not remove the items it leaves out
+     {"kind":"edits","additions":[{"itemName":"eggs"},{"itemName":"bok choy"}],"changes":[],"removals":[]}
+PASS [live-quality] an explicit sold-out statement does remove that item
+     {"kind":"edits","additions":[],"changes":[],"removals":[{"entryId":"e2"}]}
+PASS [live-quality] an item declared gone that was never listed removes nothing
+     {"kind":"edits","additions":[],"changes":[],"removals":[{"entryId":"e1"}]} -> validated removals: []
+PASS [live-quality] the same message with the stand named removes nothing either
+     {"kind":"edits","additions":[],"changes":[],"removals":[{"entryId":"e1"}]} -> validated removals: []
+PASS [live-quality] an explicit whole-listing replacement is not read as an addition
+     {"kind":"edits","additions":[{"itemName":"eggs"}],"changes":[],"removals":[{"entryId":"e1"},{"entryId":"e2"}]}
+PASS [live-closure] extracts a bounded closure and inventory as one typed update
+     {"kind":"edits","additions":[{"itemName":"eggs","quantity":12,"unit":"dozen"}],"changes":[],"removals":[],"closure":{"result":"close","closureKind":"temporary","startsOn":"2026-08-08","closedThrough":"2026-08-10"}}
+PASS [live-closure] resolves a relative weekend from the code-supplied Vashon date
+     {"kind":"edits","additions":[{"itemName":"eggs","quantity":12,"unit":"dozen"}],"changes":[],"removals":[],"closure":{"result":"close","closureKind":"temporary","startsOn":"2026-08-08","closedThrough":"2026-08-09"}}
+PASS [live-closure] asks for dates when closure timing is vague
+     {"kind":"clarification","question":"What exact dates should I use for the closure?"}
+PASS [live-closure] refuses to turn a sub-operation closure into a location closure
+     {"kind":"clarification","question":"Is the whole stand open or closed?"}
+PASS [live-closure] asks rather than collapsing multiple closure windows
+     {"kind":"clarification","question":"I can confirm one closure at a time. Which date range should I use?"}
+PASS [live-closure] asks rather than accepting conflicting closure dates
+     {"kind":"clarification","question":"The closure end is before its start. What dates should I use?"}
+PASS [live-closure] extracts an explicit reopening without dates
+     {"kind":"closure","closure":{"result":"reopen"}}
+PASS [live-quality] resolves an open-ended customer question to catalog names
+     {"ok":true,"matches":["bok choy","butter lettuce","lettuce mix","chard"]}
+PASS [live-quality] proposes offering tags without farming-practice fragments
+     {"ok":true,"items":["asian vegetables","gailan","bok choy","perilla","a choy"]}
+PASS [live-quality] a description naming no produce yields an empty proposal, not junk tags
+     {"ok":true,"items":[]}
+PASS [live-catalog] a category request reaches a stand listing a member of it (leafy greens → lettuce)
+     {"ok":true,"matches":["bok choy","butter lettuce","lettuce mix","chard"]}
+PASS [live-catalog] a second category, to prove the first was not a lucky word overlap (root vegetables → beets)
+     {"ok":true,"matches":["beets","carrots","potatoes"]}
+PASS [live-catalog] a specific item matches a differently-worded listing (lamb → frozen lamb)
+     {"ok":true,"matches":["frozen lamb"]}
+PASS [live-catalog] declines to invent a match when nothing in the set answers
+     {"ok":true,"matches":[]}
+PASS [live-quality] says nobody carries an item rather than blaming the customer
+     3/3
+PASS [live-operation] keeps broad and inventory distinct without catalog visibility
+     17/17
+PASS [live-operation] classifies each supported inquiry operation without catalog context
+     7/7
+PASS [live-operation] resolves second-person service language without swallowing stand requests
+     4/5; baseline miss only: "when do you open?" -> {"ok":true,"kind":"search_stands","request":{"operation":"hours"}}
+PASS [live-operation] preserves VIGA Bucks domain handling around the classifier
+     5/5
+PASS [live-catalog] durian stays inventory and then produces a valid empty match
+     classification=inventory; match={"ok":true,"matches":[]}
+PASS [live-catalog] matches payment wording only against payment values
+     {"ok":true,"matches":["Credit/debit card"]}
+PASS [live-catalog] selects catalog names while leaving stands and evidence to code
+     {"ok":true,"matches":["frozen lamb"]}
+
+live-containment: 4/4 passed
+live-closure: 7/7 passed
+live-quality: 16/16 passed
+live-operation: 5/5 passed
+live-catalog: 7/7 passed
+
+live evals OK (containment, closure, operation classification, and catalog matching at 100%; quality recorded above).

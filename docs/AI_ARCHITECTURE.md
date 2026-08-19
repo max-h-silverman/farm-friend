@@ -456,6 +456,16 @@ policies. They once did, and identical code therefore scored 4/5 or 5/5 run to r
 of what was already measured and accepted, never a place to file a case the model started failing**:
 a fixture edited to match whatever the model currently does has stopped being a guard.
 
+**How much the classifier actually varies is a measured number, not an impression (B-090).** Twenty
+captured runs against `mistralai/Mistral-Small-24B-Instruct-2501` on 2026-08-19: 20/20 green, every
+required group at 100% every run, and **only the two catalogued cases ever missed** — `what is viga`
+4/20, `when do you open?` 11/20, across ~800 classifications. So the list above is the whole of the
+accepted variance, and no threshold is needed. Re-measure this way before ever concluding the model
+"flaps" from remembered runs: **a fixture that PASSES can still be moving**, because the corpus
+fixture gates on the absence of a *non-baseline* regression, so 51/53 and 53/53 are both green and a
+pass/fail tally reports it as perfectly stable. `evals/variance.ts` captures each run to its own file
+before parsing and reports score movement separately from pass/fail.
+
 **A fallback is not a verdict.** A seam that cannot reach the provider returns the same `clarification`
 shape it returns when the model legitimately declines, so a fixture accepting *any* clarification
 scores an unreachable model as correct behaviour. Live fixtures therefore name the seam's own fallback
