@@ -132,9 +132,9 @@ are independent, intervening free text cannot make a consent command stale and a
 
 **Conversation staleness applies only to what mutates conversation state, and the router — not the
 worker — decides that** (GL-002). `routeInboundMessage` parses compliance keywords **before** the
-staleness gate and applies that gate to free text and confirmation tokens only, so a `STOP` delayed
-behind a newer processed message still reaches `applyConsentTransition` and still suppresses later
-proactive dispatch. Finalizing such an event as `processed` cannot corrupt ordering:
+staleness gate, so a `STOP` delayed behind a newer processed message still reaches
+`applyConsentTransition` and still suppresses later proactive dispatch. Everything else — `MAP`
+included since F-121 — is below that gate and fails closed when stale. Finalizing such an event as `processed` cannot corrupt ordering:
 `claimNextInboundEvent` advances the conversation watermark only for a non-stale event.
 
 ## Launch SMS consent
@@ -215,22 +215,30 @@ order:
    `START` and `VIGA` establish or restore the one launch-program consent state from any state;
    `VIGA` can also redeem a matching pending farmer invitation. `JOIN` establishes consent only for a
    sender with no record, and otherwise replies naming `START`.
-2. **`MAP`** returns only the configured canonical public-map URL. Stateless, model-free, available
-   for a delayed carrier event; its inquiry reply is still suppressed at dispatch if STOP has taken
-   effect. That URL is stated twice — as deployed configuration and as the core constant customer
+2. **The consent gate (F-121)** — a sender with no consent record receives one invitation naming
+   `JOIN` *instead of* any answer, and a sender who opted out receives nothing. **Its position is the
+   exemption list:** everything above it is a carrier-registered compliance keyword, so those pass by
+   construction without the gate naming them. The staleness gate also sits above it, so a stale event
+   still fails closed rather than being invited. Everything below gates — so **no model call can be
+   reached by a sender who has not agreed**, a structural guarantee rather than a property of the
+   free-text handler.
+3. **`MAP`** returns only the configured canonical public-map URL. Stateless and model-free, but
+   **below the consent gate and the staleness gate** (F-121): the map is a service Farm Friend
+   provides, not a control for joining or leaving, so an unconsented sender is invited rather than
+   handed the link, and a **stale `MAP` now fails closed**. That URL is stated twice — as deployed configuration and as the core constant customer
    copy embeds — so `resolvePublicMapUrl` refuses to start a non-local deployment where the two
    disagree, rather than letting one surface send a link the others do not (F-110).
-3. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). A **Farm
+4. **`FLAG`** pauses the thread + creates a review item (the human-handoff safety rail). A **Farm
    Friend product safety feature**, not a carrier-mandated keyword.
-4. **Live farmer-update confirmation** — a context-bound `YES` or `NO` applying to the sender's one
+5. **Live farmer-update confirmation** — a context-bound `YES` or `NO` applying to the sender's one
    open proposal, carrying inventory, owner-only closure/reopening, or both. **Never global**, commits
    **exactly once**, and **expires**. A token must match deterministically and be the **entire
    message**; anything else is free text for the steps below.
-5. **Scheduled snapshot confirmation** (F-052) — exact whole-message `SAME` may publish an identical
+6. **Scheduled snapshot confirmation** (F-052) — exact whole-message `SAME` may publish an identical
    inventory revision only for the sender's active, provider-accepted scheduled prompt whose complete
    snapshot was shown. With no such prompt it changes nothing; "same eggs?" continues as free text. It
    never confirms closure or profile data.
-6. **Farmer keywords** (F-040/F-051) — `LINK` asks for their private web-form link, `STAND` issues an
+7. **Farmer keywords** (F-040/F-051) — `LINK` asks for their private web-form link, `STAND` issues an
    exact numbered target menu, `SETTINGS` opens the settings view through the existing standing link.
    Like `FLAG`, these are **Farm Friend product keywords, never carrier-mandated**, and must never be
    registered as such. They are parsed **last among the keyword branches** so one can never shadow a
@@ -247,20 +255,20 @@ order:
    message the farmer sent. An invited `JOIN` does establish launch *consent* when its invitation
    carries the web agreement — in the same transaction that redeems the invitation, so the two cannot
    come apart and strand a farmer with a spent invitation and no consent record.
-7. **`MORE`** (F-046) returns the next page of the sender's pending result list. Also a Farm Friend
+8. **`MORE`** (F-046) returns the next page of the sender's pending result list. Also a Farm Friend
    product keyword, parsed **alongside the farmer keywords at the end** for the same reason. It is
    **context-bound like a confirmation token, never global** — it means nothing without a pending
    list, and must match the **entire message**, so "any more eggs?" stays a question. It is
    deliberately **independent of `YES`/`NO`**: a farmer with an open inventory confirmation can page
    and keep it, because the words do not overlap.
-8. **A positive whole-message number** selects only from the sender's live 12-hour `STAND` menu. The
+9. **A positive whole-message number** selects only from the sender's live 12-hour `STAND` menu. The
    stored option binds an exact authorization+**provider** pair — one seller's listing at one
    stand — and is re-resolved against live authority when answered, so a withdrawn stock right or an
    ended hosting relationship refuses the number the menu already issued. Without that context it is
    a code-rendered refusal, never free text.
-9. **Active conversation state** routes the message to its in-flight flow.
-10. **Authority and consent gates** determine what the sender may do.
-11. **An open stock-out clarification is offered the message first** (B-065), for any sender.
+10. **Active conversation state** routes the message to its in-flight flow.
+11. **Authority and consent gates** determine what the sender may do.
+12. **An open stock-out clarification is offered the message first** (B-065), for any sender.
     Farm Friend asks "Which stand are you at?" or "What was sold out?" and holds the original
     report; the next message from that sender completes it. This must run here and not in
     deterministic routing: steps 1–10 take the body and nothing else, which is what makes "no
@@ -271,7 +279,7 @@ order:
     inquiry, finds no item, and dead-ends. **A reply that resolves no stand at all releases the
     held report** and is handled as an ordinary new message: releasing is recoverable, capturing a
     real question is another dead end.
-12. **One first-pass request classifier** (F-111) returns exactly one of six categories:
+13. **One first-pass request classifier** (F-111) returns exactly one of six categories:
     `search_stands`, `stand_lookup`, `inventory_report`, `system_inquiry`, `chitchat`, `unclear`.
     One taxonomy for every sender — **who sent the message is not an input**, so there is no field
     through which a manipulated model could claim a sender may publish. Two code-owned fast paths
@@ -280,11 +288,11 @@ order:
     **There is no fallback category.** A provider error or invalid output produces no category at
     all and a code-rendered outage reply that blames nobody's wording — a *different* message from
     the `unclear` reply, which says the sender's own message was unhandleable (B-049's precedent).
-13. **Each category selects a code path, and code owns every consequence.**
+14. **Each category selects a code path, and code owns every consequence.**
     `search_stands`/`stand_lookup` use grounded inquiry; `system_inquiry` answers from constants,
     including the map from the same `PUBLIC_MAP_URL` the `MAP` keyword serves; `chitchat` and
     `unclear` are code-rendered. No classification outcome publishes inventory.
-14. **`inventory_report` forks on ACCESS, decided in code from `farmer_authorizations`** — this is
+15. **`inventory_report` forks on ACCESS, decided in code from `farmer_authorizations`** — this is
     where B-053 lives. A customer's report, and a farmer's report about a stand they do **not**
     hold, both take the customer-style report flow: a private signal that prompts that stand's own
     farmer and never mutates published state (Golden Rule #1). A farmer reporting a stand they
@@ -295,7 +303,7 @@ order:
     may publish", so a hostile classifier cannot route a stranger's report into anyone's publish
     path. A prompt-level split was measured and failed: "no eggs left at Pinecone Gardens" from a
     farmer handset classified as that farmer's *own* update 3/3.
-15. **Stand resolution runs only inside the arms that need one**, below classification. Running it
+16. **Stand resolution runs only inside the arms that need one**, below classification. Running it
     above was one defect with two faces: an ordinary question containing a word that happens to sit
     inside a stand's name bound to that farm before anything knew what the message was.
 

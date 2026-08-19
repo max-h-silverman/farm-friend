@@ -130,6 +130,20 @@ describe("public-string safety at the shared publication boundary (integration)"
       )
       returning id
     `;
+    /*
+      F-121 — the farmer has ACTIVE consent, as every real authorized farmer does: onboarding
+      completes with a bare `VIGA` from their stated handset, and that text is what establishes
+      it. Without it the consent gate answers their `YES` with the join invitation instead of
+      publishing, so these cases would measure the gate rather than publication.
+    */
+    await sql()`
+      insert into sms_consents (
+        recipient_hash, state, capture_source, captured_at, capture_evidence_ref, updated_at
+      )
+      values (
+        ${senderHash}, 'active', 'start', ${at(0)}, ${`onboarding-${senderHash}`}, ${at(0)}
+      )
+    `;
     const opened = await openFarmerOnboardingRequest(database(), {
       contactHash: senderHash,
       occurredAt: at(0),

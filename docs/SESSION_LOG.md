@@ -6,12 +6,105 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps recent entries; older entries rotate into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 94. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 100. A log too large to open
 mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-18 (latest) — the queue ships, then five defects max found by using it
+## 2026-08-19 (latest) — the eval gate learns to tell an outage from a regression, and SMS stops answering strangers
+
+Four tranches, merged as `session-2026-08-18-wrap`. Unit **2,399 across 170 files** (7 corpus
+skips), integration **1,463 across 107 files**, typecheck, lint, scripted evals 11/11 · 4/4 · 19/19,
+and **live evals 39/39 clean** — which also clears the run owed from B-086/B-087.
+
+**B-089 — a red live-eval run now means the model got worse.** Two independent lies, both fixed by
+giving the runner facts it lacked rather than by weakening a fixture. *Transport:* every seam
+collapses `provider_error` into its ordinary failure outcome **on purpose** — a sender who could not
+be understood is owed the same honest reply either way — so a DeepInfra 502 surfaced as ten fixtures
+returning `{"kind":"unclear"}`, indistinguishable on screen from a quality regression.
+`createTransportObserver` counts throws out of `generateJson` at the provider, the last place the
+difference survives; a fixture whose call never landed is `couldNotRun`, neither pass nor fail, and
+the run exits 2 saying "N fixtures could not run". A genuine failure always outranks an outage, so
+an outage can never launder a real regression into "inconclusive"; a fixture that *passed* through a
+dead provider still passes, because a barrier holding against no answer is what containment asserts.
+Proved by effect against a real 502 through the real adapter.
+
+*The flapping fixture was a **contradiction**, not model variance.* `"when do you open"` was graded
+by two fixtures in the same required group — the top-level corpus scored it advisory (max relabelled
+it 2026-08-13: in an SMS thread with the service, "you" reads as the service) while the second-person
+fixture failed the run on it. Identical code therefore scored 4/5 or 5/5. `classifier-baseline.ts`
+makes that one shared, tested list; the case is kept and still printed. Confirmed on a live run that
+*missed* it: the corpus reported 51/53 "known baseline miss only" and passed, where the old code
+would have gone red.
+
+**Standing caution:** across ~10 runs this session the corpus scored both 51/53 and 53/53 with
+identical code, so this model flaps beyond the two catalogued cases. The gate is now legible; the
+variance is not characterised. **Measure before tuning** — capture N runs and count which fixtures
+ever miss. Do **not** grow `ADVISORY_CLASSIFIER_CASES` to make runs green; a list used as a pressure
+valve stops being a guard. If the corpus cannot hold 53/53, a threshold ("no more than N baseline
+misses") is the honest instrument.
+
+**F-119 — the stand card is seller-major.** `standCardSellerGroups` replaces `standCardSections`
+(deleted, with its CSS): the seller is a sub-heading carrying its own recency, its items bordered
+cards in a responsive grid. Presentation over data the card already received. **The tradeoff is
+deliberate:** seller-major cannot keep F-114's "each item appears once" — two sellers carrying eggs
+means eggs appears under each, and each copy carries that seller's own price under that seller's own
+freshness, which is the comparison the mockup exists to offer. B-088 holds and is decided **per
+section**, not per stand; F-118 holds — the sub-heading is still a link. max re-attached the mockup,
+which settled two things the transcription could not: the heading is **`Usually carries`**, and
+price is never a bare `$4` (the corpus holds `$6/dozen`, `$5 a bunch`, `$1.50/lb`, `$180 half` and
+one phone number; the local stand renders `$8/dozen` and `$4/lb`). Measured in a browser at real
+356px and 386px: no horizontal overflow, grid reflows 3→1, a 34-character unbroken name stays inside
+its card. Computed styles confirm the cards are surfaces, not the old pills — `.items li` (0,1,1)
+beat a bare class once before, and only a running-page read sees that.
+
+**F-120 — answer more of the question before answering it fresher.** `matchCount` is now
+`rankCandidates`' first key. Measured live: "any stands have kale and eggs?" led with a stand
+carrying eggs, putting the stand carrying **both** second, because its evidence was a few hours
+fresher inside the same day. **Broad is deliberately exempt** — it selects the whole catalog as its
+"requested names", so counting there would rank by listing size, a leaderboard answering a question
+that named no item. No new query: `groupSelectableStands` already deduplicates matched items by
+name. Every ordering fixture puts the higher-match-count stand at the **older** timestamp, so a
+dropped key fails rather than passing by coincidence.
+
+**F-121 — Farm Friend answers nothing substantive until the sender has agreed (max).** Began as
+"what does a pre-joined customer who texts without JOIN get?" Measured first: they were answered
+normally, because `inquiry_reply` rides on the sender's own inbound message and needs no consent
+basis. max's call reversed that — consent comes before service. A sender with **no consent record**
+gets one invitation naming `JOIN` *instead of* their answer; a sender who **opted out** gets nothing,
+because inviting someone back who texted `STOP` is what `STOP` exists to end.
+
+**The exemption list is the routing ORDER**, not a second list: the gate sits directly below the
+compliance branch, so the carrier-registered keywords pass by construction. Two would dead-end a
+journey if gated — `VIGA` completes farmer onboarding from a handset with no consent row yet (gated,
+the farmer is told to reply `JOIN`, which can never complete onboarding), and every `STOP` synonym
+must reach the opt-out writer. Everything else gates, **`MAP` included** (max named it): the map is a
+service, not a control for joining or leaving. So MAP moved below both the staleness guard and the
+gate and **lost its delayed-event exemption** — a stale MAP now fails closed. No model runs for a
+sender who has not agreed, which is stricter than the routing order alone gave.
+
+*Why intent-matching was rejected:* measured against the live model, "sign up", "signup",
+"subscribe", "sign me up", "add me to the list" and "i want to join" all classify `unclear`, while
+"how do i sign up" and "how do i get updates" classify `system_inquiry`. Wording-matching would have
+missed half; the consent row cannot. *Two defects found in my own work, both by a test:* the gate
+first sat **above** the staleness guard, so a stale event replied instead of failing closed; and
+nothing caught a stopped sender being invited — sabotage showed that assertion sat in the MAP test,
+which returns before reaching the invite branch. Existing suites got real fixtures rather than
+adjusted expectations.
+
+**Also measured, then dropped:** a branch proving a cold sender's answer actually *dispatches*
+(`inquiry_reply` and `required_reply` are the only categories that send with no consent row). F-121
+deliberately removed that behaviour, so the branch was deleted unmerged rather than landing a test
+we knowingly invalidate — F-121 carries the equivalent guarantee for the invitation itself.
+
+**Farmer consequence, accepted:** an authorized farmer with no consent row is gated out of `LINK`,
+`STAND`, `SETTINGS` and publishing `YES` until they text one of the five keywords. Normal onboarding
+establishes consent via `VIGA`, so the ordinary path is unaffected.
+
+**Owed:** no message has been read on a real handset — the F-121 invitation copy included — and the
+F-119 card has not been seen on a phone.
+
+## 2026-08-18 — the queue ships, then five defects max found by using it
 
 Five deploys in one day, from a standing start of twelve unapplied migrations. Ends with
 `ac90972` serving as **`farm-friend-web-00087-vt6` / `farm-friend-worker-00082-j8q`**, digest
@@ -1950,415 +2043,3 @@ pill right-aligned to its column. Pre-existing uncommitted work, covered by its 
 stands and 35 under `?hidden=true` right after, so both branches of the predicate are live and
 neither over-excludes. **Owed:** the console check — remove a test farm, confirm it leaves the map
 and the text answers, put it back. Filed as B-066.
-
-## 2026-08-12 — The flake was ours, and the corpus was fine
-
-Two bugs about live evals. The first was not an eval problem at all, and finding that out was the
-whole session.
-
-**B-058 was filed against the wrong thing.** The ticket said a B-056 live fixture "returns real but
-wrong verdicts in ~2 of 7 runs". It does not. Twenty runs against the real model, and **the B-056
-guard never failed once** — every `edits` run validated to zero removals, 16 for 16. The model
-always proposes removing an item the message never named ("no eggs left" → remove tomatoes), and
-code always strips it. That is the guarantee working, every time.
-
-Every failure was a `clarification`, and all three flavours traced to one cause: the model
-attaching a `closure` field to a message that mentions no closure. The trailing proper noun invites
-it — **5 of 12 runs on "no eggs left at Pinecone Gardens" versus 0 of 12 on the same sentence
-without the stand name.** Three distinct paths then threw away a perfectly good inventory edit:
-
-1. A schema-valid but unevidenced closure tripped `closureMatchesTiming`, which swapped the entire
-   result for "What exact dates should I use for the closure?"
-2. `closureKind:"none"` — the model echoing back the `closureTiming is {"kind":"none"}` it is shown
-   in the projection — is not a legal kind, so the **strict** schema failed the whole output, the
-   one repair attempt returned the same thing, and the seam fell through to its provider-error
-   clarification. 3 of 13 runs.
-3. `edits` arriving with `additions`/`changes` omitted entirely, which the seam note explicitly
-   calls required-but-possibly-empty. 2 of 15 runs.
-
-Each is a prompt promise the model does not keep, so each is now code. The shape of the fix matters
-more than the fix: **when deterministic code has found no closure evidence, no closure value the
-model returns can be admissible** — so the key is stripped before the schema sees it, and any that
-survives is dropped rather than discarding the farmer's report. The narrow seam was important.
-`kind: "closure"` is deliberately excluded, because there the closure *is* the payload and dropping
-it would return an empty result instead of a clean refusal; a test pins that, and sabotaging the
-exclusion fails it along with the pre-existing hallucinated-reopen guard.
-
-Nothing was loosened, which the ticket explicitly warned against. The strict schema is untouched,
-membership validation still runs, a malformed closure on a message that *does* evidence one is
-still refused, and the fixture still fails on a provider error or a real wrong verdict. Measured
-after: **70 of 70 clean** across both phrasings, against 3 failures in 20 before. Live quality went
-19/20 → 20/20 twice consecutively.
-
-The diagnostic lesson: the ticket's own hypotheses ("marginal model behavior", "phrasing admits a
-second reading") were both wrong, and reading the prompt would have confirmed either. Only running
-it 20 times and printing every raw verdict showed the model was 100% consistent on the thing being
-measured and the seam was the variable.
-
-**B-059 asked a fair question and got a boring answer, which is the useful outcome.** The worry was
-that B-057's widened candidate list — published inventory *plus* usual offerings, deduped on case
-and whitespace only — would make the stock-out seam grab near-neighbours on real data. B-057's
-fixture measured five clean, well-separated items and passed 7/7, which says nothing about the
-ordinary case.
-
-The ticket's cited examples were stale and the ticket said so, so the lists were read straight out
-of production through the same construction `apps/web/lib/stockout.ts` uses. The real rows are
-worse than the ticket described: Bart's Cart publishes `"Veggie"`, `"herb"`, `"flower plants"` — a
-farmer's comma list split into three entries, one of them the bare fragment `"herb"` — while *also*
-offering `veggie plants` and `herb plants`. Fruits des Vignes publishes `"Current Produce
-Raspberries"` and offers plain `raspberries`. Morgan Hill has one entry that is an entire
-nine-product sentence. Venison Valley runs 28 candidates with `chai` beside `sweet & spicy chai`.
-
-**11/11 on four consecutive runs.** The seam holds; no production code changed. The design decision
-worth keeping is in the expectations: where the corpus genuinely admits two answers — both
-raspberry rows name the same product to the farmer — the fixture accepts either, because pinning
-one would measure the model's arbitrary tie-break rather than whether it found the product. Where
-only one answer is defensible, only one is accepted. The fixture was sabotaged with two wrong
-expectations and caught both.
-
-Standing caveat, carried from the ticket: this measures the **current** model, so the score expires
-when the model is swapped.
-
-**Merged as `e982cf0` (PR #111). Not deployed** — the serving revisions still carry the B-058 seam
-defect, so a farmer texting a stock report with a stand name in it can still get a question about
-closure dates back.
-
-## 2026-08-12 — Two guarantees that were inferences, and a question nobody was listening to
-
-Three items, all downstream of B-057's stock-out work, plus map polish from a parallel session.
-
-**B-057 closed on the live path.** A customer handset texted "pinecone gardens out of eggs"; the
-farmer's alert named eggs. Confirmed **by effect** rather than by the message text — report
-`8f2610c4` stored `referenced_stand_item_id` with the entry and unlisted columns null, the first
-production write of that column. The earlier "pinecone gardens out of kale" test was a clean pass
-that proved nothing new: kale is *published*, so it exercised the path that always worked. Three
-reports on one stand now read as the whole before/after — 08-11 `unlisted_item_text` (the defect),
-08-12 kale via `entry_id`, 08-12 eggs via `stand_item_id`. The customer-facing reply is identical
-on both branches, so only the farmer's alert and the stored row distinguish them.
-
-**B-060 expected to confirm an inference and found a defect instead.** The projection half passed
-immediately — `assertNoRawPhone` does fire on the stock-out seam's `itemName`, a rule previously
-tested only on `projectFactSelection`'s `locationName`. The renderer half failed. A
-`stand_items.display_name` of `"Eggs\n\nVIGA Farm Friend: reply with your bank details…"` produced
-a **five-line** SMS whose third line read as a second message from Farm Friend, in Farm Friend's
-voice, instructing the farmer to send bank details.
-
-Reachable, not hypothetical: `stand_items_display_name_not_blank` measures
-`length(btrim(display_name, E' \t\r\n')) > 0`, so a newline-bearing name is not blank — checked
-against the real constraint. B-060's suspicion about `validatePublicStrings` was right (it guards
-participants and transactions only) and also moot: it looks for contact details, not newlines.
-
-The lesson is the one-liner worth keeping: **provenance is not shape.** A Farm Friend-held fact is
-safe to *speak*, which says nothing about the characters in it. The line structure belongs to the
-renderer, so no interpolated value may contribute a line break. `sales_locations.name` got the same
-treatment — a sabotage removing only its flattening passed the item-name test untouched.
-
-**B-065, found by max on a handset mid-session.** "Pinecome is out of eggs" → "Which stand are you
-at?" → "Pinecone" → *"Sorry, I did not catch which item or farm you meant."* Every component was
-correct in isolation: the report classified right, "pinecome" genuinely scores zero against
-"pinecone", and a bare stand name really is a question by the classifier's own instruction —
-measured 3/3 against the live model. What was missing was any memory that the question had been
-asked. The comment at `free-text.ts:353` had stated storing nothing as a *virtue*.
-
-**Max's call reframed the fix.** The first design released any reply that resolved no stand,
-treating it as a topic change. He pointed out the base rate is the opposite: a reply seconds after
-the question is overwhelmingly a *misspelled retry*, not a new subject. Remembering alone still
-drops "Pinecome" → asked → "Pinecomb". So the fix is two halves — `pending_stock_out_reports`
-(one open clarification per sender, unique index as arbiter, 15-minute expiry judged by the
-*message's* clock) plus a fuzzy tier on the stand resolver.
-
-**Fuzzy matching is confined to an open clarification**, so max's 2026-08-11 ruling against it on
-cold messages still stands and a test asserts it. The allowance scales with word length — under 5
-characters exact only, 5–7 one edit, 8+ two — which is load-bearing rather than tidy: measured
-against all 36 live stands, a **flat** allowance of 2 turned "barts" from an exact match into a
-three-way tie with Bananas Barn and Green Ears. Measured outcomes: pinecome/pinecon/pinecoen/
-pinecomb all reach Pinecone Gardens; eggs/kale/idk reach nothing, so a real topic change is still
-released; "holmstead" ties Handpicked Homestead against Holmestead Farms and asks, because those
-two are one edit apart and no code should choose between them.
-
-Resolution sits in the free-text customer branch, **below all deterministic routing** — steps 1–8
-take the body and nothing else, which is what makes "no stored state can reinterpret a STOP"
-structural rather than conventional.
-
-**Two things sabotage caught that reading would not have.** `resolveReportedStand`'s
-`allowFuzzy = false` default was **dead code**: all three call sites pass it explicitly, so it read
-like the cold-path guard while protecting nothing — flipping it changed no test. It is now required
-at every call site, and the real guard (`handleCustomerStockOut`'s default) fails 5 tests when
-flipped. Separately, migration `0041`'s generated `when` landed *behind* `0040`'s, because this
-machine's clock runs behind the repo's stamps; the ordering tests caught it and RUNBOOK §Migrations
-has the fix. Expect it again here.
-
-**A wrong claim corrected mid-session.** I reported `preflightClosureTiming` as dead code with six
-unreachable clarifying questions; it is called from `projections.ts:335`. An over-aggressive grep
-filter hid the hits. No item was filed.
-
-**Scope check on question-memory.** Surveyed every customer-facing question before building: the
-two stock-out clarifications are the only ones whose answer needs the *earlier* message to be
-actionable. "Sorry, I did not catch…", "I don't have a list going right now" and the
-interpreter-unavailable line all ask the customer to restate the whole thing, so their replies are
-self-contained and today's stateless routing handles them correctly. The mechanism serves two call
-sites and deliberately does not become general conversation state.
-
-**Parallel session (max):** stand cards now always lead with an "In stock" heading, with "Nothing
-confirmed recently" under it when there is no recent confirmation, and Typical Offerings always
-following. Same-line move, no new concept. The map search placeholder became
-`e.g. “eggs”, “flowers”, stand name…` — it names both halves of what the field actually matches,
-where the old copy named one specific stand. I claimed HTML entities render literally in a JSX
-attribute and changed the code to avoid them; **measured, and that was wrong** — JSX decodes them.
-The final code uses plain characters, which is simpler either way.
-
-Verified: 1,951 unit, 938 integration, typecheck, lint, stub evals 11/11 · 4/4 · 29/29. No
-`evals:live` — nothing touched a seam projection, schema, or output contract.
-
-**Deployed** (PR #110, squashed to `main` `99e63dd`) — web `00072-jvd`, worker `00067-7zf`, digest
-`6a6b40af`, plan assertions 60/60 with the image digest as the only delta; deploy and served-card
-assertions pass, and both services were read back for the serving digest. Migration `0041` went
-first and was verified **by effect** rather than by the runner's "migrations applied": 42 in the
-ledger, all three hand-written CHECKs present, the unique index and enum present,
-`sales_location_id` nullable, and farm/stand/item counts unchanged at 39/37/237. Production was
-fingerprinted before the DDL ran, so a mistyped connection string would have failed loudly.
-
-## 2026-08-12 (later) — A one-line link change that wasn't one, because the URL had two homes
-
-**F-110.** VIGA added a `#map` anchor to their farm-stand page that scrolls straight to the embed;
-the links Farm Friend sends should use it. That looked like editing one config value.
-
-**It was two values, and nothing compared them.** The map's address is stated as deployed
-configuration (`PUBLIC_MAP_URL`, which the `MAP` keyword replies with and the onboarding pages
-link to) *and* as a constant in `packages/core/src/inquiry/answer.ts` that customer copy embeds
-directly — the paged answer's `Map:` line, and the origin-limitation sentence. Changing the config
-alone would have updated some messages and not others, sending two different links to the same
-customer, and **no test would have failed**: the old link still resolves, so the only symptom is
-the reader landing in the wrong place.
-
-The constant is deliberate — its own comment says configuration must never be able to deliver a
-wrong or empty value to a real person as SMS — so collapsing the two was the wrong fix. Instead
-`resolvePublicMapUrl` now refuses to start a non-local deployment whose configured URL disagrees
-with the constant, naming both values in the error. Two homes are safe when they cannot drift
-silently.
-
-**An existing assertion was the loose-anchor trap in miniature.** `inquiry.integration.test.ts`
-checked `toContain("vigavashon.org/farm-stand-map")` — a substring that passes with or without the
-fragment, so it would have watched the anchor disappear without complaint. It now pins the whole
-constant.
-
-Verified before shipping that `id="map"` is actually present in the page VIGA serves, rather than
-trusting that the anchor exists because it was described. Sabotage-proven both directions: dropping
-the anchor fails the anchor test, disabling the guard fails 2 of 5 guard tests.
-
-`infra/terraform.tfvars` is gitignored, so its `public_map_url` edit lives only on the deploying
-machine — the standing trap in this repo. The new guard converts a missed edit from a silently
-stale link into a failed startup.
-
-Verified: 1,932 unit, 916 integration, typecheck, lint. Deployed from `main` `11c8163` — web
-`00071-fxf`, worker `00066-75p`, digest `e647210b`, plan assertions 60/60, no migration; both
-services read back the anchored URL, and the container starting clean *is* the guard passing
-against real deployed config. Not verified: the scroll behavior in a handset browser.
-
-**Doc sync (wrap).** Four contract docs described the old behavior and now don't: ARCHITECTURE and
-SMS_COMPLIANCE each said `MAP` returns "the configured" URL, which is now only half the rule;
-RUNBOOK's env table gained the agreement requirement, and its gitignored-`terraform.tfvars` warning
-gained `public_map_url` beside `rotation_applied_at` — same trap, different ending, because this one
-fails startup rather than silently serving a stale link. DEVELOPMENT gained the general lesson: one
-fact stated as both config and constant drifts silently, and where the second home is deliberate the
-disagreement must fail at startup rather than be documented.
-
----
-
-## 2026-08-12 — The farmer's reminder stops saying "will show", and starts saying how old it is
-
-**F-109.** The scheduled inventory reminder had been reusing the proposal renderer's heading,
-"Your stand will show:". That is confirmation copy — it describes something about to publish, read
-by a farmer approving a change. Nothing publishes on a reminder: it shows what is already live so
-the farmer can correct it. The future tense was describing the wrong act.
-
-The replacement states what our record holds, and how old that record is:
-
-```
-Items listed for Pinecone Gardens (updated 7d ago):
-
-- Eggs (2 dozen, $6)
-- Kale (some)
-
-Reply SAME to confirm, or let us know what changed.
-
-Reply STOP to opt out.
-```
-
-**The recency stamp was the whole point, and it was free.** `published_at` was already loaded at
-the call site and thrown away. It answers the farmer's actual first question — is this stale enough
-to be worth replying to — and it comes from the same `renderShortElapsed` the customer answer uses,
-so a listing cannot read as a week old over SMS and a fortnight old on the web. A null date renders
-no claim rather than a fabricated "now".
-
-**"Items listed", not "In stock" — and that was nearly the bug again.** "In stock at X (updated 7d
-ago)" was a live candidate, and it is B-063 exactly: a present-tense claim beside a stale
-timestamp, which was already found on a real handset and fixed by swapping the *label*. Here the
-farmer is the authority on what the stand has, and asking them is the point of the message, so the
-heading names the record instead of claiming anything about the stand.
-
-**Capacity was measured at every step, not reasoned about.** Five headings were run against
-F-046's live-corpus range of 22–57 characters per entry: the prompt fits 7/4/3 items inside the
-two-segment ceiling, and past it `scheduledPromptFitsSms` withdraws the `SAME` offer entirely and
-the farmer retypes their whole listing. The first draft heading cost so much that a typical stand
-dropped from 9 items to 3; shortening it bought most of that back. The opt-out footer's own doc
-comment still cited the old copy's numbers and was corrected to the measurement.
-
-**Two additions were considered and rejected on evidence.** `LINK` in the prompt costs an item of
-capacity to repeat a keyword onboarding already teaches — and would push the largest stands into
-the very fallback it means to help — so it went on the fallback only, where the farmer faces a full
-retype and the message has room. Putting an edit link in the STOP reply was rejected outright: that
-copy is carrier-registered and drift-tested character-for-character, STOP must never vary by
-conversation state, and it would send content to someone who just asked for silence. The farmer's
-standing web link survives an opt-out anyway — STOP ends messages, not the stand.
-
-**A sabotage run caught a weak test before it shipped.** The first recency test used a single
-7-day case, which a hard-coded `"7d ago"` satisfied. It now pins five different ages, and
-re-running the same sabotage fails it. Two further sabotages (the heading, the fallback's LINK
-line) also fail correctly, and the integration assertion was sabotaged against the real database to
-prove `published_at` actually reaches the copy.
-
-**Production data, same session:** four farm descriptions duplicated their payment chips in prose
-(Holmestead, Lavender Hill, Littlest Bird, Plum Forest). Measured first — 4 of 39 farms, and *half
-of those disagreed with the chips*, always by omitting a method. That killed the tempting fix: a
-prose stripper cannot know it is deleting the less complete copy, and every sentence was welded
-into a paragraph doing other work. Four hand edits instead, each approved as exact text, old values
-captured for rollback, re-queried after: 0 of 39 remain. Same bug class as B-054 one layer up — one
-fact, two homes. Lavender Hill separately duplicates its own "Wreaths can be preordered" sentence;
-left alone as a different defect.
-
-Verified: 1,926 unit, 916 integration, typecheck, lint. Deployed from `main` `be4aeeb` — web
-`00070-msn`, worker `00065-thb`, digest `c19eb0c7`, plan assertions 60/60, no migration; the four
-cleaned descriptions were read back off the live public API and carry no payment prose. Not
-verified: the reminder on a handset — no prompt has been sent since the change, and the schedule
-fires at 10:00 stand-local.
-
----
-
-## 2026-08-11 (later) — Two copy edits that each deleted a concept
-
-**Committed to `main` (`f8a0d4c`) and deployed.** No PR: max chose to commit directly. Both changes
-are render-layer only — no schema, no migration, no model seam. Web `00069-cd9`, worker `00064-wcn`,
-digest `sha256:9843a394…`; plan assertions 60/60 with the image digest as the only delta, deploy and
-served-card assertions pass, serving digest read back from both services.
-
-Two small wording corrections from reading the reply, and each turned out to remove machinery
-rather than add a special case. That is the pattern worth keeping: a copy fix that makes the code
-*smaller* is usually the copy fix that was actually correct.
-
-**"May also have" → "May have" when there is nothing above it.** The offerings line said "also"
-unconditionally, including on entries with no `In stock` line — where there is nothing for it to be
-additional to. The label is now chosen from whether the same entry rendered a confirmation. A stale
-confirmation (`Last seen`) still counts as a line above, so it keeps "also"; an *expired* one is
-dropped before rendering, so those entries correctly fall to "May have".
-
-**The header stopped naming the query.** It read "Eggs: 10 matching stands (1-3 of 10)"; it now
-reads "10 matching stands (1-3 of 10)". The echo spent characters on the one thing the customer
-already knows — they typed it moments ago — and it made the header a *claim about the entries
-beneath it*, which is precisely the shape B-049 and B-061 were, twice. A bare count cannot be false
-about any entry under it.
-
-**That deleted the `broad` render path.** The flag existed for exactly one reason, recorded in the
-entry below: page 2 couldn't re-derive whether the question was general, so a later page reading
-`itemsRequested` alone would print code's placeholder ("Produce:") where page 1 said "Recently
-reported inventory". With no echo, a general request and a named one now produce **byte-identical**
-pages, so the placeholder cannot leak by any path and the flag has no rendering job. `broad` is gone
-from `renderResultPage` and both call sites.
-
-The **column** stays on `pending_result_lists`, deliberately: dropping it is a migration on live
-data for no behavioral gain. It is now written and never read — flagged in CURRENT_STATE as the
-one piece of data with no consumer, which is normally a defect and here is a deliberate deferral.
-
-The header is also now a *fixed* cost — its length varies only with the digits in the total. The SMS
-segment-ceiling suite had a test budgeting for "the longest header a real query can produce"; that
-worst case no longer exists, and the test now pins the invariant instead: two different requests
-must render byte-identical pages.
-
-**Both fixes were sabotage-checked**, per the verification discipline — the label test caught a
-forced-constant label, and nine tests caught a reintroduced `Eggs:` prefix.
-
----
-
-## 2026-08-11 — One handset reply closed two items and opened three
-
-**Merged and deployed.** PR #107 (`fb6762f`); migration `0040` applied to Neon ahead of the image and
-verified by schema effect. Web `00068-l8z`, worker `00063-cpf`, digest `sha256:020dedb2…`; plan
-assertions 60/60, deploy and served-card assertions pass, serving digest read back and matches.
-
-**The live check passed, and then paid for itself.** max texted "what do you have" to production.
-The broad question was *answered* rather than deflected — B-061's code check firing on the real
-inbound path, through the real model, on the real corpus — in F-107's one-entry-per-stand format.
-Both items closed on that single message.
-
-The same reply exposed three new defects, none a regression of either. **A format nobody had read
-on a handset passed every test and was still wrong in three ways**, which is the reusable lesson:
-the suites measured the shape of the answer and could not measure whether it read.
-
-**B-062 — the count and the paging unit disagreed with the list.** "1-3 of 45" over an island with
-35 stands. F-107 merged a stand's two facts into one entry *at render time*, deliberately, so
-grounding and the MORE pending list keep working on fact ids — but the count and the page window
-stayed in facts. Two consequences, and the second is the one that matters: the total over-stated
-what exists, and a stand whose confirmed row ended one page while its offering row began the next
-printed **twice** across two messages.
-
-Fixed by making the stand the unit everywhere: `groupFactsByStand` orders a stand's ids adjacently
-and counts claiming entries; `factsPerPage` takes whole stands. Migration `0040` stores
-`stand_total`, `stand_offset`, and `broad`.
-
-`broad` needed a column because **page 2 cannot re-derive it**. A general question names no item, so
-code substitutes a placeholder ("produce") to drive retrieval; a later page reading `itemsRequested`
-alone would print "Produce:" where page 1 said "Recently reported inventory". Deriving it from the
-placeholder was considered and rejected — a customer can search for produce.
-
-The MORE path recovers which stand an id belongs to **from the identifier itself**: `offeringFactId`
-derives an offering id from the confirmed one, so `standKeyOfFactId` reads that derivation backwards.
-No database round trip inside the lock, and no second source of truth about stand identity.
-
-**B-063 — `IN STOCK (16d ago)`.** A present-tense label and a fortnight-old timestamp in one line,
-and the label is what a customer reads first. F-107 had dropped the "- may be out of date" suffix
-because twenty characters per entry pushed an all-stale page over the segment ceiling; that
-reasoning held at "(3d ago)" and broke completely by "(16d ago)".
-
-**The fix changes the label, not the suffix** — `Last seen (16d ago)` — which costs one character
-because it *replaces* rather than appends. Measured: an all-stale page of three both-claim stands is
-416 characters / 3 segments, inside the accepted ceiling. The constraint that killed the previous
-attempt did not apply to this shape of fix.
-
-Also added, unasked but necessary: past 28 days the stock claim drops entirely, from the same
-`isConfirmationExpired` the public map already used. Without it, "Last seen (94d ago)" is the same
-defect one version later. And ranking became three tiers — fresh confirmation, usual offerings,
-stale confirmation — because a fortnight-old snapshot outranking a stand that reliably sells the
-thing steers the customer to the worse bet.
-
-**Freshness threshold 48 → 96 hours (max's call).** Four days: nearly every stand is unattended
-honor-system with stable staples, so a farmer who confirms Saturday is not wrong by Monday, and 48
-hours marked ordinary weekend listings as suspect. max chose to move **both surfaces together**
-rather than split the constant — so the deployed map's stale warning now starts two days later too.
-Two numbers would let one row read as current stock in a text and stale on the web.
-
-**A test gap this exposed.** The existing threshold test asserted `isStale(STALE_AFTER_HOURS - 1)`
-is false and `isStale(STALE_AFTER_HOURS)` is true — written *against the constant*, so it passed at
-any value and could not notice the threshold moving. A product commitment with nothing testing its
-number. Now pinned directly, plus a test keeping staleness ordered before the 28-day expiry.
-
-**B-064 — closed `wont-fix`.** `In stock (23h ago): Veggie` looked like a data-quality defect; max
-confirmed "Veggie" is the farmer's own word. That killed both halves of the proposed fix, and the
-renderer-side one would have been **a bug**: a structural check on name length or fragment shape
-would have silently suppressed a farmer's deliberate wording on the one surface where they cannot
-see what the customer received. Golden rule 1 settles it — the farmer owns published state, and
-"customer-grade" is not ours to judge on their behalf.
-
-**A sabotage that survived, and what it found.** Seven sabotages were run; six were caught by their
-intended tests. The seventh — flattening the MORE path's own page measurement — **passed**, because
-every paging fixture was offering-only and so never produced a dual-basis stand. Two chains of
-reasoning about why it "should" have failed were both wrong; printing the actual pages settled it.
-The fixture now gives stands a usual offering their confirmed row does not name, and a second test
-saves a deliberately interleaved list to exercise the pager's own measurement rather than the
-save-time grouping that masks it.
-
-**Verified:** 1,922 unit, 916 integration, typecheck, lint, stub evals (11/11, 4/4, 29/29).
-Migration applied to a fresh database and confirmed by reading the columns back, with a no-op rerun.
-Live evals not run — `packages/ai` is untouched, so no seam projection, schema, or instruction moved.
-
-**Owed:** one live check, same shape as the one that started this — text a question whose answer
-includes a stand confirmed more than four days ago, and read the label.

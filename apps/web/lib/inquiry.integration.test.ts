@@ -533,6 +533,102 @@ ${farmId}, ${locationId},
     expect(result.body).toContain("Beta Farm Stand");
   });
 
+  it("ranks a stand carrying BOTH requested items above a fresher stand carrying one (F-120)", async () => {
+    /*
+      F-120, measured live on 2026-08-18. "any stands have kale and eggs?" returned 13 stands led
+      by Bananas Barn (eggs only) with Littlest Bird Farm (kale AND eggs) second — because Bananas
+      Barn's evidence was a few hours fresher inside the same day. The customer asked where they
+      can get both.
+
+      THE FIXTURE IS DELIBERATELY ADVERSARIAL TO THE NEW RULE: the two-item stand is the OLDER of
+      the pair. If match count stopped leading, freshness would put the one-item stand first and
+      this fails rather than passing by coincidence.
+    */
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["eggs"], hoursAgo(2));
+    await publish(ids.betaLocation!, ids.betaFarm!, ["kale", "eggs"], hoursAgo(20));
+
+    const { deps } = inquiryDeps({
+      "catalog-match": JSON.stringify({ matches: ["kale", "eggs"] }),
+    });
+
+    const result = await answerInquiry(deps, {
+      mode: "search_stands",
+      request: { operation: "inventory" },
+      taskText: "any stands have kale and eggs?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+
+    const both = result.body.indexOf("Beta Farm Stand");
+    const one = result.body.indexOf("Alpha Farm Stand");
+    expect(both).toBeGreaterThan(-1);
+    expect(one).toBeGreaterThan(-1);
+    expect(both).toBeLessThan(one);
+  });
+
+  it("still leads with the freshest stand when both carry everything asked for (F-120)", async () => {
+    // The other direction, and what keeps the case above falsifiable: with the match counts
+    // equal, the new key collapses and freshness decides exactly as it always has.
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["kale", "eggs"], hoursAgo(2));
+    await publish(ids.betaLocation!, ids.betaFarm!, ["kale", "eggs"], hoursAgo(20));
+
+    const { deps } = inquiryDeps({
+      "catalog-match": JSON.stringify({ matches: ["kale", "eggs"] }),
+    });
+
+    const result = await answerInquiry(deps, {
+      mode: "search_stands",
+      request: { operation: "inventory" },
+      taskText: "any stands have kale and eggs?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body.indexOf("Alpha Farm Stand")).toBeLessThan(
+      result.body.indexOf("Beta Farm Stand"),
+    );
+  });
+
+  it("does not turn a broad request into a biggest-listing leaderboard (F-120)", async () => {
+    /*
+      `operation: "broad"` selects the WHOLE catalog, so a real match count would rank stands by
+      how many items they list. The stand with the longer listing is deliberately the OLDER one
+      here: if broad were counted like a named request, it would lead — and it must not.
+    */
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["kale"], hoursAgo(2));
+    await publish(
+      ids.betaLocation!,
+      ids.betaFarm!,
+      ["kale", "eggs", "tomatoes", "carrots"],
+      hoursAgo(20),
+    );
+
+    const { deps } = inquiryDeps({});
+
+    const result = await answerInquiry(deps, {
+      mode: "search_stands",
+      request: { operation: "broad" },
+      taskText: "what do the stands have?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    // Freshest first, regardless of how much each stand lists.
+    expect(result.body.indexOf("Alpha Farm Stand")).toBeLessThan(
+      result.body.indexOf("Beta Farm Stand"),
+    );
+  });
+
   it("resolves one stand in code before asking which fact the customer wants (B-069)", async () => {
     await client()`
       update sales_locations set name = 'Pinecone Gardens', public_address = '123 Forest Road'

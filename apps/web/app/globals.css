@@ -628,77 +628,93 @@ body {
 }
 
 /*
-  F-114 C.5 — ITEM-FIRST, WITH SELLERS NESTED UNDER EACH ITEM.
+  F-119 — SELLER-MAJOR ITEM CARDS.
 
-  The chip row above says "these things are here". It cannot say "these three sellers each have
-  tomatoes, at three prices, confirmed at three different times" — a chip has one line and the
-  card now has two axes. So the item becomes a heading and its sellers become the lines beneath
-  it, which overrides the flex-wrap chip layout for this list only.
+  The chip row says "these things are here" and cannot hold two axes. F-114 made the ITEM the
+  heading with sellers nested beneath; this inverts that: the SELLER is the heading, and their
+  items are bordered cards in a grid. Each card is one seller's claim about one item, so the
+  price on it is unambiguously that seller's — which is what lets the recency move up to the
+  seller heading where it honestly belongs.
 
-  WHY THE ITEM KEEPS THE CHIP'S WEIGHT AND LOSES ITS PILL. What a customer scans for is the
-  ITEM, so it stays the heaviest thing in the block. The pill shape goes because a pill implies
-  one countable fact, and this one now has children — a bordered capsule with a list inside it
-  reads as a container rather than as an item.
-
-  A SELLER LINE WITH NO NAME IS THE STAND'S OWN. `credit` is absent for it (by self-pointer),
-  so the line renders as price and freshness alone — nothing echoes the card's own heading back.
+  WHY A GRID AND NOT CHIPS. A chip is one line, and these cards hold a wrapping name plus a
+  price on its own line. `auto-fill` with a `minmax` floor is what makes the same rule give the
+  mockup's four columns on a wide card and two at phone width, with no breakpoint to maintain
+  and no horizontal overflow at 360px.
 */
-.items-nested {
-  display: block;
-}
-
-.items-nested .item-group {
-  display: block;
-  padding: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  margin: 0 0 0.7rem;
-  font-size: inherit;
-}
-
-.items-nested .item-group:last-child {
-  margin-bottom: 0;
-}
-
-.items-nested .item-name {
-  display: block;
-  font-size: 0.98rem;
-  margin-bottom: 0.2rem;
-}
-
-.item-sellers {
-  list-style: none;
-  margin: 0;
-  padding: 0 0 0 0.75rem;
-  /* A quiet rule down the left, so the nesting is visible without indentation doing all the
-     work at phone width — where a 12px indent is nearly invisible on its own. */
-  border-left: 2px solid #cfe0d5;
-  display: flex;
-  flex-direction: column;
-  gap: 0.22rem;
+.items-cards {
+  /* Overrides `.items`' flex-wrap chip row for this list only. */
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(8.5rem, 1fr));
+  gap: 0.5rem;
+  align-items: stretch;
 }
 
 /*
-  `.item-sellers .item-seller`, not `.item-seller` alone, and the extra class is load-bearing.
+  `.items-cards .item-card`, not `.item-card` alone — the extra class is LOAD-BEARING.
 
-  `.items li` is (0,1,1) and beat a bare (0,1,0) class, so the nested lines kept the chip's
-  pill background, border and 999px radius while this rule "read correctly" in the file. Only a
-  computed-style read of the running page showed it. Matching the parent's weight is what makes
-  the override actually apply.
+  `.items li` is (0,1,1) and beats a bare (0,1,0) class, so a card styled with one class kept
+  the chip's pill background, border and 999px radius while the rule "read correctly" in this
+  file. That was found once already, by a computed-style read of the running page rather than by
+  reading source. Matching the parent's weight is what makes the override actually apply.
 */
-.item-sellers .item-seller {
+.items-cards .item-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.3rem;
+  padding: 0.6rem 0.7rem;
+  /* A card is a surface, not a pill: square-ish corners and a plain ground. */
+  background: var(--card);
+  border: 1px solid #cfe0d5;
+  border-radius: 0.5rem;
+  font-size: 0.9rem;
+  line-height: 1.3;
+}
+
+/*
+  The name wraps rather than truncating. "momotaro tomatoes" and "baby bok choy" are two lines
+  in the mockup at four columns, and a farmer can type something longer — `overflow-wrap` is
+  what keeps a single long word inside its card instead of pushing the grid wide.
+*/
+.item-card-name {
+  font-weight: 500;
+  color: var(--ink);
+  overflow-wrap: anywhere;
+}
+
+/*
+  THE PRICE IS THE EMPHASISED ELEMENT, and it is the farmer's own text — "$6/dozen", "$5 a
+  bunch", "$1.50/lb", or a phone number. So it wraps too, and it is never parsed or reformatted.
+  An item with no price simply has no element here.
+*/
+.item-card-price {
+  font-weight: 700;
+  color: var(--green);
+  font-size: 1rem;
+  overflow-wrap: anywhere;
+}
+
+/* One seller's block within a section: heading, then their grid of cards. */
+.seller-block + .seller-block {
+  margin-top: 0.85rem;
+  padding-top: 0.85rem;
+  /* The mockup's hairline between sellers — the separation is what makes two adjacent grids
+     read as two sellers rather than one longer list. */
+  border-top: 1px solid var(--line);
+}
+
+.seller-block-heading {
   display: flex;
   flex-wrap: wrap;
   align-items: baseline;
-  gap: 0.4rem;
-  /* Overrides `.items li`'s chip: a nested line is a line, not a pill. */
-  padding: 0;
-  background: none;
-  border: none;
-  border-radius: 0;
-  font-size: 0.88rem;
-  line-height: 1.35;
+  gap: 0.45rem;
+  margin-bottom: 0.45rem;
+}
+
+/* The seller name as a sub-heading: below the section heading, above its own items. */
+.seller-block-heading .item-seller-name {
+  font-size: 0.98rem;
 }
 
 .item-seller-name {
@@ -707,13 +723,12 @@ body {
 }
 
 /*
-  The per-seller freshness. Softer and smaller than the price beside it: it qualifies the claim
-  rather than being the claim, and the stand-level summary in the heading already carries the
-  headline answer.
+  The per-seller freshness, on the SELLER heading where the claim it qualifies actually lives.
+  Softer and smaller than the name beside it: it qualifies the seller's stock rather than being
+  the headline, which the stand-level summary in the section heading already carries.
 
-  It appears ONLY on a confirmed line. `standCardSections` leaves the field absent on a usual
-  one, so there is nothing here to style for a standing claim — the no-timestamp rule is
-  enforced in the data, and this stylesheet simply has no rule that could reveal one.
+  It appears ONLY on a confirmed section. `standCardSellerGroups` leaves the field absent on a
+  usual one, so this stylesheet has no rule that could reveal a date on a standing claim.
 */
 .item-seller-recency {
   color: var(--ink-soft);
@@ -721,11 +736,16 @@ body {
   font-weight: 500;
 }
 
-/* The same `--amber` `.listing-recency-aged` uses, so a stale seller line and a stale stand
-   heading warn in one colour rather than two near-misses. */
+/* The same `--amber` `.listing-recency-aged` uses, so a stale seller and a stale stand heading
+   warn in one colour rather than two near-misses. */
 .item-seller-recency-aged {
   color: var(--amber);
   font-weight: 600;
+}
+
+/* The one-line explainer under a multi-seller heading. */
+.listing-note-sellers {
+  margin-top: -0.35rem;
 }
 
 /* "Nothing confirmed recently." and the two no-listing sentences. */

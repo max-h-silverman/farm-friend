@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from "vitest";
-import { FixedClock, CUSTOMER_WELCOME, CONTACT_CARD_PATH } from "@farm-friend/core";
+import {
+  FixedClock,
+  CUSTOMER_WELCOME,
+  CONTACT_CARD_PATH,
+  CONSENT_INVITATION_REPLY,
+} from "@farm-friend/core";
 import type { Db } from "@farm-friend/db";
 import { routeInboundMessage, type RouteDeps } from "./routing";
 
@@ -34,14 +39,35 @@ function forbiddenFreeText(): RouteDeps["freeText"] {
  * transactions are exercised for real against Postgres in the integration suite; here we
  * only need to know WHICH handler routing chose.
  */
-function recordingDb(rows: Record<string, unknown>[] = []): {
+/**
+ * @param consented Whether the fixture sender has ACTIVE launch consent (F-121).
+ *
+ * Defaults to true, because these cases own routing ORDER and the consent gate would otherwise
+ * answer every one of them with the invitation — testing the gate instead of the branch each
+ * case is about. The gate's own behaviour is proved against real Postgres in
+ * `routing.integration.test.ts`, and by `consent-invitation.test.ts` for the predicate.
+ *
+ * Pass `false` to exercise a sender who never opted in.
+ */
+function recordingDb(rows: Record<string, unknown>[] = [], consented = true): {
   db: Db;
   queries: string[];
 } {
   const queries: string[] = [];
+  let consentReads = 0;
   const record = (strings: TemplateStringsArray) => {
     const text = strings.join("?").replace(/\s+/g, " ").trim();
     queries.push(text);
+    /*
+      F-121's gate reads consent before any non-compliance branch. It is the FIRST bare
+      `select state from sms_consents` on the path, and the JOIN guard's own probe (below)
+      must keep seeing an empty result — so this answers the gate's read once and lets every
+      later read fall through to the no-record fixture the JOIN cases depend on.
+    */
+    if (consented && consentReads === 0 && /^select state from sms_consents/.test(text)) {
+      consentReads += 1;
+      return Promise.resolve([{ state: "active" }]);
+    }
     // B-011: the first-time JOIN guard is an `insert ... on conflict do nothing returning`,
     // so an EMPTY result means "someone else already holds the record". A stub that returned
     // `[]` for this query would report every first-time sender as already-enrolled. The
@@ -205,14 +231,38 @@ describe("MAP routing (F-057)", () => {
     ]);
   });
 
-  it("still returns the link for a stale event because MAP has no conversation state", async () => {
+  /*
+    MAP MOVED BELOW THE STALENESS GUARD AND THE CONSENT GATE (F-121, max 2026-08-18).
+
+    It used to sit above both, so a delayed carrier event still returned a link. That exemption
+    does not survive a rule that says an unconsented sender is served nothing: the map is a
+    service Farm Friend provides, not a control for joining or leaving, and max named it
+    explicitly. A stale MAP now fails closed like every other stale conversation event.
+
+    What is unchanged: MAP still reaches no model, still returns only configured text, and is
+    still ordered below every compliance keyword so it can never shadow an opt-out.
+  */
+  it("fails a stale MAP closed rather than answering it", async () => {
     const result = await routeInboundMessage(
       deps(),
       { ...event("MAP"), isStale: true },
     );
 
-    expect(result.outcome).toEqual({ kind: "map" });
-    expect(result.replies[0]?.body).toBe("https://www.vigavashon.org/farm-stand-map#map");
+    expect(result.outcome).toEqual({
+      kind: "stale",
+      failureCode: "stale_conversation_event",
+    });
+    expect(result.replies).toEqual([]);
+  });
+
+  it("gates MAP for a sender who has not consented", async () => {
+    const result = await routeInboundMessage(
+      deps({ db: recordingDb([], false).db }),
+      event("MAP"),
+    );
+
+    expect(result.outcome).toEqual({ kind: "consent_required", invited: true });
+    expect(result.replies[0]?.body).toBe(CONSENT_INVITATION_REPLY);
   });
 });
 

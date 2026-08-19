@@ -8,6 +8,19 @@
 - Farm Friend is **pre-go-live**. Production serves customer SMS inquiry and paging, farmer stock
   updates and reminders, stock-out reporting, farmer onboarding/settings, administrator tools, the
   public stand map/details, and the contact card at `/viga-farm-friend`.
+- **SMS answers nothing substantive until the sender has agreed (F-121).** A sender with no consent
+  record gets one invitation naming `JOIN` *instead of* their answer; a sender who opted out gets
+  nothing. The exemption is the routing ORDER — the gate sits below the compliance branch, so the
+  carrier-registered keywords (`STOP` + synonyms, `JOIN`/`START`/`VIGA`, `HELP`/`INFO`) pass by
+  construction. Everything else gates, **`MAP` included**, so no model runs for an unconsented
+  sender. `MAP` therefore lost its delayed-event exemption: a stale `MAP` now fails closed.
+- **A stand answering the whole request outranks one answering part of it (F-120).** `matchCount` is
+  `rankCandidates`' first key, ahead of freshness. `broad` passes a constant, so a catalog-wide
+  request is not a biggest-listing leaderboard.
+- **The stand card is seller-major (F-119).** Each seller is a sub-heading carrying its own recency,
+  its items bordered cards in a grid. It deliberately gives up F-114's "each item appears once" —
+  two sellers carrying eggs print eggs twice, each with that seller's own price. B-088 (no
+  sub-heading for a single-seller *section*) and F-118 (the name stays a link) both hold.
 - **Customer inquiry classifies before it matches catalog.** One strict classifier sees the message
   alone; only inventory/payment make a second value-only matcher call. Code validates every match,
   expands it to every supporting stand and evidence voice, orders, pages, and renders.
@@ -77,25 +90,26 @@
 
 ## Verification
 
-- **2,367 unit tests pass across 167 files; 7 corpus-only tests skip**, and integration is
-  **1,445/1,445 across all 107 files** (both 2026-08-18, on `3797ddc`, the commit deployed).
+- **2,399 unit tests pass across 170 files; 7 corpus-only tests skip**, and integration is
+  **1,463/1,463 across all 107 files** (both 2026-08-19, on the merged wrap commit).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it, six `apps/web/lib/farmer-stand.integration.test.ts` cases fail `PUBLIC_BASE_URL is required`.
   **Verified pre-existing**: checking out `main` reproduces the identical six. An environment fact
   and a test-isolation weakness, not a regression and not a product defect.
 - Typecheck, lint, and scripted evals pass: critical 11/11, advisory 4/4, adversarial 19/19.
   The build retains tracked Next configuration/lint warnings (B-008).
-- **A LIVE EVAL RUN IS OWED** (max's call, 2026-08-18). B-086/B-087 changed what a seam's output
-  feeds, so a run is required; DeepInfra returned **`502 Bad Gateway` to every call** during the
-  wrap, so it shipped without one. Verified instead by exercising the real inquiry path against
-  production data — see the release state above. Last clean run 2026-08-14.
-- **`evals:live` is not currently a reliable gate (B-089).** Two independent reasons, both measured:
-  `live-operation`'s second-person fixture returns `search_stands`/`hours` for `"when do you open?"`
-  on some runs and the correct `system_inquiry` on others — **4/5 or 5/5 with identical code**,
-  confirmed pre-existing by failing twice on stashed `main` while the classifier answers 15/15 when
-  exercised directly. And a provider outage fails ten fixtures as `{"kind":"unclear"}`, which reads
-  as model quality rather than transport. Fixing the second half is what makes a red run mean
-  something.
+- **Live evals ran clean on 2026-08-19: 39/39** across containment, closure, quality, operation and
+  catalog, against `mistralai/Mistral-Small-24B-Instruct-2501` — the model production serves. This
+  clears the run owed from B-086/B-087.
+- **`evals:live` is now a trustworthy gate (B-089), with one caveat.** A fixture whose model call
+  never reached the provider is counted `couldNotRun` — neither pass nor fail — and the run exits 2
+  reporting "N fixtures could not run", so an outage no longer reads as a quality regression. A real
+  failure always outranks an outage. **The caveat:** across ~10 runs this session the top-level
+  corpus scored both 51/53 and 53/53 with identical code, so this model flaps beyond the two
+  catalogued baseline cases. **Measure before tuning** — capture N runs, count which fixtures ever
+  miss. Do NOT grow `ADVISORY_CLASSIFIER_CASES` to make a run green; a list used as a pressure valve
+  has stopped being a guard. A threshold ("no more than N baseline misses") is the honest instrument
+  if the corpus cannot hold 53/53.
 - **Every tranche here is sabotage-proved** — each guard has a breakage aimed at it that the suite
   caught. The standing lessons: **assert the absence of the wrong behavior; when a breakage changes
   no test result, ask which other guard answered first; and confirm the sabotage actually applied
