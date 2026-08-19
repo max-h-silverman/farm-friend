@@ -8,6 +8,79 @@ import {
   REGISTERED_OPT_OUT_KEYWORDS,
 } from "./commands";
 
+/*
+  B-091 — `YES <email>` confirms an issue report AND asks for a reply.
+
+  An argument grammar on a commitment token needs more care than most parsing here, because
+  `YES` is also the INVENTORY PUBLICATION token: a farmer with an open proposal texts it to
+  publish. So the grammar is admitted only when the remainder is a single valid address, and
+  the bare token is left exactly as it was. Anything else — `YES please`, `YES two words` —
+  stays free text rather than silently publishing or silently confirming.
+
+  This mirrors the reason `JOIN <token>` was REMOVED (max, 2026-08-07): that grammar failed
+  identically and silently on a mistyped argument. An address is different in the one way that
+  matters — code can tell a valid one from prose, so a typo falls through to free text and is
+  answered, instead of being consumed by a token that then does nothing visible.
+*/
+describe("YES with an email argument (B-091)", () => {
+  it("carries the address on the commitment", () => {
+    const parsed = parseCommand("YES cathy@example.com");
+    expect(parsed).toEqual({
+      kind: "commitment",
+      token: "YES",
+      contextBound: true,
+      email: "cathy@example.com",
+    });
+  });
+
+  it("normalizes the address it carries", () => {
+    // One spelling per address, the same rule `normalizeEmail` applies everywhere else.
+    expect(parseCommand("  YES   Cathy@Example.COM ")).toMatchObject({
+      email: "cathy@example.com",
+    });
+  });
+
+  it("accepts a + between the token and the address, as the copy offers it", () => {
+    expect(parseCommand("YES + cathy@example.com")).toMatchObject({
+      kind: "commitment",
+      token: "YES",
+      email: "cathy@example.com",
+    });
+  });
+
+  it("leaves a bare YES exactly as it was, carrying no address", () => {
+    const parsed = parseCommand("YES");
+    expect(parsed).toEqual({ kind: "commitment", token: "YES", contextBound: true });
+    expect(parsed).not.toHaveProperty("email");
+  });
+
+  it("refuses to read anything that is not one address as a commitment", () => {
+    // Each of these would be a publication if the grammar were loose about its argument.
+    for (const body of [
+      "YES please",
+      "YES i have eggs and kale",
+      "YES cathy@example.com bob@example.com",
+      "YES notanemail",
+      "YES @example.com",
+    ]) {
+      expect(parseCommand(body).kind, body).toBe("none");
+    }
+  });
+
+  it("never lets an argument attach to NO", () => {
+    // A declining sender is not asking to be contacted, so there is nothing for an address to
+    // mean here — and admitting one would widen the grammar for no reader.
+    expect(parseCommand("NO cathy@example.com").kind).toBe("none");
+  });
+
+  it("cannot be used to shadow STOP", () => {
+    // The guarantee the ordering exists for: an argument grammar must not create a spelling of
+    // an opt-out that stops opting out.
+    expect(parseCommand("STOP cathy@example.com").kind).toBe("none");
+    expect(parseCommand("STOP")).toMatchObject({ keyword: "STOP", global: true });
+  });
+});
+
 describe("deterministic command parsing (Golden Rule #2)", () => {
   it("compliance + commitment tokens all bypass the model", () => {
     for (const tok of ["STOP", "STOPALL", "START", "VIGA", "JOIN", "HELP", "INFO", "FLAG", "YES", "NO"]) {

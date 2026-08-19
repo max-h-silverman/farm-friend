@@ -222,12 +222,17 @@ describe("request-classification seam", () => {
     expect(fast).toEqual(viaModel);
   });
 
-  it("exposes exactly the six settled categories", () => {
+  it("exposes exactly the seven settled categories", () => {
     expect([...REQUEST_CATEGORIES]).toEqual([
       "search_stands",
       "stand_lookup",
       "inventory_report",
       "system_inquiry",
+      // B-091. Reporting that OUR information is wrong, which no other category covers:
+      // `system_inquiry` asks what the service does, `inventory_report` states a fact about
+      // a stand. Classifying it commits nothing — code files the review item, and only after
+      // the sender confirms.
+      "issue_report",
       "chitchat",
       "unclear",
     ]);

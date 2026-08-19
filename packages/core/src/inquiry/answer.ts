@@ -312,6 +312,24 @@ export const RECIPE_SCOPE_STATEMENT =
 export const PUBLIC_MAP_URL = "https://www.vigavashon.org/farm-stand-map#map";
 
 /**
+ * How a reply points at the map, instead of spending a URL on it (max, 2026-08-19).
+ *
+ * A raw link closed every answer, and a link in a text thread is the most expensive line
+ * there is: it survives no line break, it is what carriers score for spam, and most answers
+ * are read by someone who wanted the stand, not the whole island. Naming the word costs one
+ * short sentence and the sender fetches the link when they actually want it.
+ *
+ * ONE constant, because five places closed with the same line and a copy edit that reached
+ * four of them would leave the fifth quietly disagreeing.
+ *
+ * The word is real: `MAP` is a parsed product command that answers with exactly
+ * `PUBLIC_MAP_URL`. It is subject to the consent gate, so a sender who has not agreed is
+ * invited rather than handed the link — the pointer is still honest for them, and the
+ * invitation is the deliberate answer to an ungated stranger asking for anything.
+ */
+export const MAP_INVITATION_LINE = "Reply MAP for link to live map.";
+
+/**
  * The code-rendered response to a request that needs the customer's own position (F-017).
  *
  * Launch resolves no arbitrary origin over SMS — no geocoder, no address lookup, no

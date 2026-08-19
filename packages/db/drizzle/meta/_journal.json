@@ -379,6 +379,20 @@
       "when": 1788150419000,
       "tag": "0053_host_confirmation",
       "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1788150420000,
+      "tag": "0054_tough_frank_castle",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1788150421000,
+      "tag": "0055_clever_lightspeed",
+      "breakpoints": true
     }
   ]
 }

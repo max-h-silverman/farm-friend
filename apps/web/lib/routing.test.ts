@@ -4,6 +4,8 @@ import {
   CUSTOMER_WELCOME,
   CONTACT_CARD_PATH,
   CONSENT_INVITATION_REPLY,
+  REGISTERED_HELP_AUTO_RESPONSE,
+  renderHelpGuide,
 } from "@farm-friend/core";
 import type { Db } from "@farm-friend/db";
 import { routeInboundMessage, type RouteDeps } from "./routing";
@@ -162,6 +164,7 @@ function deps(overrides: Partial<RouteDeps> = {}): RouteDeps {
     // must never come from a request header.
     publicBaseUrl: "https://farmfriend.example",
     publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+    emailSalt: "test-email-salt",
     freeText: forbiddenFreeText(),
     nextPage: forbiddenNextPage(),
     farmerTarget: forbiddenFarmerTarget(),
@@ -496,6 +499,48 @@ describe("deterministic routing order (Golden Rule #2)", () => {
         false,
       );
     }
+  });
+
+  /*
+    B-091 — HELP owes two messages, and the useful one is not the registered one.
+
+    The carrier-registered body answers a request for help by naming the word the sender just
+    texted. It cannot be improved where it lives (see `auto-responses.ts`), so the guidance
+    rides beside it as ordinary code-rendered copy. Both are asserted here because the failure
+    mode is silent in both directions: dropping the registered body breaks a carrier
+    obligation, and dropping the guide leaves HELP useless while still looking answered.
+  */
+  it("follows the registered help copy with guidance a sender can act on", async () => {
+    for (const word of ["HELP", "INFO"]) {
+      const { db } = recordingDb();
+      const result = await routeInboundMessage(deps({ db }), event(word));
+
+      expect(result.replies[0]?.body, word).toBe(REGISTERED_HELP_AUTO_RESPONSE);
+      expect(result.replies[1]?.body, word).toBe(renderHelpGuide("customer"));
+      expect(result.replies[1]?.category, word).toBe("required_reply");
+      // Two messages, not one merged body: the registered half must stay byte-identical to
+      // what the carrier holds, which it cannot be if guidance is concatenated onto it.
+      expect(result.replies[1]?.logicalKey, word).not.toBe(result.replies[0]?.logicalKey);
+    }
+  });
+
+  it("asks who the sender is before choosing which keywords to teach", async () => {
+    /*
+      Authority is read from `farmer_authorizations` — the same source the free-text access
+      fork uses — so a farmer is taught her own words and a customer is not taught words she
+      cannot use. This asserts the QUESTION is asked; which body a real farmer receives is
+      proved in `routing.integration.test.ts` against real Postgres, because the answer comes
+      from a locking transaction no stub here models honestly.
+    */
+    const { db, queries } = recordingDb();
+    const result = await routeInboundMessage(deps({ db }), event("HELP"));
+
+    // Anchored to the lookup's FIRST statement — it establishes the sender is known before
+    // it reaches `farmer_authorizations` at all, so an unknown sender short-circuits and the
+    // later table name never appears. Asserting on that name would pass for the wrong reason.
+    expect(queries.some((q) => q.includes("insert into sender_states"))).toBe(true);
+    // No authorization in this fixture, so the customer guide is the honest fall-through.
+    expect(result.replies[1]?.body).toBe(renderHelpGuide("customer"));
   });
 
   it("routes FLAG to a durable review item without a model call", async () => {

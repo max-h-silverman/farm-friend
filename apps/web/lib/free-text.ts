@@ -3,6 +3,7 @@ import {
   meetsDistinctiveWordBar,
   renderClarificationRequest,
   PUBLIC_MAP_URL,
+  ISSUE_REPORT_CONFIRMATION,
   type Clock,
   type InventoryInterpreter,
 } from "@farm-friend/core";
@@ -20,6 +21,7 @@ import {
   readPendingStockOutReport,
   resolveFarmerTarget,
   savePendingStockOutReport,
+  savePendingIssueReport,
   senderHasListingAtStand,
   type Db,
 } from "@farm-friend/db";
@@ -532,6 +534,17 @@ async function resolveReportedStand(
 export const PENDING_STOCK_OUT_TTL_MINUTES = 15;
 
 /**
+ * How long an issue-report confirmation may still be answered (B-091).
+ *
+ * The same fifteen minutes, and deliberately the same NUMBER rather than a shared constant:
+ * the two questions expire together today by coincidence of judgement, not because one
+ * follows from the other, and binding them would mean tuning one silently retunes the other.
+ *
+ * Run from the MESSAGE's own time, never `now()`.
+ */
+export const PENDING_ISSUE_REPORT_TTL_MINUTES = 15;
+
+/**
  * A customer reporting that something is sold out (F-104).
  *
  * The stand is bound in CODE before anything durable happens. When it cannot be resolved the
@@ -979,6 +992,32 @@ export async function handleFreeText(
               : SYSTEM_INQUIRY_REPLY,
           category: "inquiry_reply",
           logicalKey: `system-inquiry-${input.providerEventId}`,
+        }],
+        handled: "customer",
+      };
+
+    case "issue_report":
+      /*
+        B-091 — RECOGNISED, NOT FILED. The model has said this message looks like a report
+        that our own information is wrong. Nothing durable follows from that alone: the report
+        is parked, a confirmation is asked for, and `routeCommitment` files the flag only if
+        the sender says YES (Golden Rule #3).
+
+        The row REPLACES any the sender already had, so a second issue described before the
+        first was confirmed does not leave two rows for one YES to choose between.
+      */
+      await savePendingIssueReport(deps.db, {
+        senderHash: input.senderHash,
+        reportText: input.taskText,
+        inboxEventId: input.inboxEventId,
+        occurredAt: input.occurredAt,
+        ttlMinutes: PENDING_ISSUE_REPORT_TTL_MINUTES,
+      });
+      return {
+        replies: [{
+          body: ISSUE_REPORT_CONFIRMATION,
+          category: "inquiry_reply",
+          logicalKey: `issue-confirm-${input.providerEventId}`,
         }],
         handled: "customer",
       };

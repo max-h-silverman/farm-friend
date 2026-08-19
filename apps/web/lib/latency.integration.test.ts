@@ -367,6 +367,7 @@ describe("inbound reply latency (integration)", () => {
       // F-040: configured origin for a farmer standing link. Never a request header.
       publicBaseUrl: "https://farmfriend.example",
       publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+      emailSalt: "test-email-salt",
     });
     await runOutboundPass({
       context: asContext(outboundContext()),
@@ -487,6 +488,7 @@ describe("inbound reply latency (integration)", () => {
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
         publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+        emailSalt: "test-email-salt",
       };
 
       // Fired together: kicks (sender-scoped) and cron passes (unscoped sweeps), REPEATED
@@ -562,6 +564,7 @@ describe("inbound reply latency (integration)", () => {
         // F-040: configured origin for a farmer standing link. Never a request header.
         publicBaseUrl: "https://farmfriend.example",
         publicMapUrl: "https://www.vigavashon.org/farm-stand-map#map",
+        emailSalt: "test-email-salt",
       };
       const kick = () =>
         kickSenderPasses(

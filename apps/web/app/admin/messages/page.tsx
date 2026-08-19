@@ -60,6 +60,8 @@ export default async function MessagesPage() {
             disposedByEmail: flag.disposedByEmail,
             disposedAt: flag.disposedAt?.toISOString() ?? null,
             createdAt: flag.createdAt.toISOString(),
+            reporterEmail: flag.reporterEmail,
+            reporterEmailMask: flag.reporterEmailMask,
             hasReadableThread: flag.hasReadableThread,
           }))}
         />

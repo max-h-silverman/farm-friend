@@ -1,4 +1,4 @@
-import { maskPhoneSuffix } from "@farm-friend/core";
+import { maskEmail, maskPhoneSuffix } from "@farm-friend/core";
 import type { Db } from "./index";
 import type { Sql } from "./sql";
 
@@ -49,6 +49,16 @@ export interface FlagReviewRow {
   disposedByEmail: string | null;
   disposedAt: Date | null;
   createdAt: Date;
+  /**
+   * The address the reporter left so VIGA could answer them, or null (B-091).
+   *
+   * **Raw, and the only raw address on this row** — a coordinator cannot reply to a mask, and
+   * replying is the entire reason it was collected. The console renders `reporterEmailMask`
+   * and reaches this only through a mail link, so it is never printed as page text.
+   */
+  reporterEmail: string | null;
+  /** What the operator READS. `(no email on file)` when the reporter left none. */
+  reporterEmailMask: string;
   /** Whether the flagged thread still has readable context to review. */
   hasReadableThread: boolean;
 }
@@ -73,6 +83,13 @@ export async function listFlagsForReview(
       administrator.email as disposed_by_email,
       flag.disposed_at,
       flag.created_at,
+      -- B-091 — the address a reporter left so VIGA could answer them.
+      --
+      -- The RAW value, deliberately, and the only raw address this projection carries: the
+      -- whole point of collecting it is that a coordinator can write back, and an operator
+      -- cannot send to a mask. It is rendered masked and reachable only through a mail link,
+      -- so the console still never prints it as page text (Golden Rule #5).
+      flag.reporter_email,
       exists (
         select 1 from provider_inbox_events event
         join sms_messages message on message.id = event.message_id
@@ -96,6 +113,8 @@ export async function listFlagsForReview(
     disposedAt:
       row.disposed_at === null ? null : new Date(row.disposed_at as string),
     createdAt: new Date(row.created_at as string),
+    reporterEmail: (row.reporter_email as string | null) ?? null,
+    reporterEmailMask: maskEmail((row.reporter_email as string | null) ?? null),
     hasReadableThread: row.has_readable_thread as boolean,
   }));
 }

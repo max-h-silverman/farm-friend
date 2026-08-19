@@ -118,6 +118,7 @@ export const SEAM_OUTPUT_SHAPES = {
     '{"kind":"stand_lookup","request":{"operation":"clarification"}}',
     '{"kind":"inventory_report"}',
     '{"kind":"system_inquiry"}',
+    '{"kind":"issue_report"}',
     '{"kind":"chitchat"}',
     '{"kind":"unclear"}',
   ],
@@ -208,6 +209,9 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "soon, whether or not a stand is named.\n" +
     "system_inquiry: asking what the service is, how it works, what it can do, or about the " +
     "map.\n" +
+    "issue_report: reporting that something is wrong with the service or its information - " +
+    "incorrect listing or hours, a wrong or missing map location, a stand that has closed, a " +
+    "reply that was wrong or made no sense, or a complaint.\n" +
     "chitchat: greeting, thanks, acknowledgement, or small talk.\n" +
     "unclear: none of the above.\n\n" +
     "Rules:\n" +
@@ -225,6 +229,10 @@ const SEAM_OUTPUT_NOTES: Record<SeamName, string> = {
     "itself, its identity, capabilities, operation, or availability. Do not apply this rule " +
     "when the message is clearly asking about farm-stand inventory, payment, or other stand " +
     "information.\n" +
+    "- Use issue_report when the message says our information or our reply is WRONG, not " +
+    "merely that a stand lacks an item. A statement that a stand is out of something is " +
+    "inventory_report; a statement that our listing or map misrepresents a stand is " +
+    "issue_report.\n" +
     "- Use unclear only when no other category reasonably fits.\n\n" +
     "Operations for search_stands:\n" +
     "- payment: asks which stands accept a payment method.\n" +

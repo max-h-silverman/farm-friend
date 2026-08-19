@@ -47,6 +47,13 @@ export interface InboundWorkerDeps {
   publicBaseUrl: string;
   /** Configured canonical customer map URL for the deterministic MAP command. */
   publicMapUrl: string;
+  /**
+   * The salt an issue reporter's email hash is derived under (B-091).
+   *
+   * Optional: `EMAIL_HASH_SALT` is mounted on the web service only, and the worker runs this
+   * pass. With no salt an address is refused rather than stored without its lookup key.
+   */
+  emailSalt?: string;
   /** Bound on how much work one pass will do. */
   maxEvents?: number;
 }
@@ -151,6 +158,7 @@ export async function runInboundPass(
           clock: deps.clock,
           publicBaseUrl: deps.publicBaseUrl,
           publicMapUrl: deps.publicMapUrl,
+          emailSalt: deps.emailSalt,
           freeText: (input) =>
             handleFreeText(
               {

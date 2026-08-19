@@ -17,7 +17,7 @@ import { relatedCategoryLabel, sortMatchesByExactness } from "./exactness";
 import {
   isConfirmationExpired,
   isStale,
-  PUBLIC_MAP_URL,
+  MAP_INVITATION_LINE,
   renderItem,
   renderNoCurrentListing,
   renderStockAge,
@@ -106,7 +106,7 @@ export function renderStandFactPage(input: {
     "",
     hasMore
       ? `Reply MORE for the next ${Math.min(PAGE_SIZE, input.total - input.offset - input.entries.length)}.`
-      : `Map: ${PUBLIC_MAP_URL}`,
+      : MAP_INVITATION_LINE,
   );
   return { body: lines.join("\n"), hasMore };
 }
@@ -128,12 +128,24 @@ export function renderStandFactPage(input: {
  */
 function renderHeader(input: { shown: number; offset: number; total: number }): string {
   const { shown, offset, total } = input;
-  // Stated only when this page is a window onto something larger. On a single-page answer the
-  // range is a restatement of the count, and the count is already right there.
-  const window =
-    shown < total || offset > 0 ? ` (${offset + 1}-${offset + shown} of ${total})` : "";
+  /*
+    "Results 4-6 of 12" (max, 2026-08-19). The word "matching" and the parenthetical both went:
+    the total appears exactly once, and the range is the header rather than an aside on it.
 
-  return `${total} matching stand${total === 1 ? "" : "s"}${window}`;
+    Two forms, but ONE vocabulary. A windowed page already carries the total inside its range,
+    so leading with the count as well said twelve twice; a single-page answer has no range to
+    carry it, so the count stands alone. Both say "result", and that agreement is the point —
+    a first page reading "Results 1-3 of 12" followed by a last page reading "3 stands" would
+    make one list look like two.
+
+    "Result" rather than "stand" because the header must not be a claim ABOUT the entries
+    beneath it — the shape B-049 and B-061 both got wrong. It counts what the answer contains,
+    which stays true however each entry reads.
+  */
+  const windowed = shown < total || offset > 0;
+  if (windowed) return `Results ${offset + 1}-${offset + shown} of ${total}`;
+
+  return `${total} result${total === 1 ? "" : "s"}`;
 }
 
 
@@ -441,10 +453,11 @@ export function renderResultPage(input: {
       : // The last page closes rather than dead-ending: the map is where the whole picture
         // lives, and browsing belongs there rather than in a text thread.
         //
-        // Bare, since the header already states the range and the total. The previous "All of
-        // them. Map:" answered a question the header had already answered, and read as a
-        // fragment doing it (max, 2026-08-11).
-        `Map: ${PUBLIC_MAP_URL}`,
+        // It NAMES the word rather than carrying the URL — see `MAP_INVITATION_LINE`. Bare
+        // either way, since the header already states the range and the total; the previous
+        // "All of them. Map:" answered a question the header had already answered, and read
+        // as a fragment doing it (max, 2026-08-11).
+        MAP_INVITATION_LINE,
   );
 
   return { body: lines.join("\n"), hasMore };

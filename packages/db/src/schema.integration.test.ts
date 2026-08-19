@@ -65,6 +65,9 @@ const expectedTables = [
   // F-117 — the host's open "do you host her?" question, answerable only while it is the last
   // message in the thread.
   "pending_host_confirmations",
+  // B-091 — the issue report held between "shall we tell VIGA?" and the sender's YES. Nothing
+  // reaches VIGA's review queue from this table until a human confirms it.
+  "pending_issue_reports",
   // F-046 — the pending result list `MORE` pages through.
   "pending_result_lists",
   // B-065 — the stock-out report held between a clarifying question and its answer.

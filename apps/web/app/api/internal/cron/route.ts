@@ -63,6 +63,7 @@ async function runScheduledWork(): Promise<Response> {
     clock: context.clock,
     publicBaseUrl: context.config.publicBaseUrl,
     publicMapUrl: context.config.publicMapUrl,
+    emailSalt: context.config.emailSalt,
   });
 
   const prompts = await runScheduledPromptPass({

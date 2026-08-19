@@ -2488,6 +2488,71 @@ describe("crossing between stands and sellers", () => {
     to her card's question, so they are rows carrying the stands' own pin numbers, and each is
     a way to get there.
   */
+  /*
+    ARRIVING AT A SELLER, NOT JUST SWITCHING TO HER LIST (max, 2026-08-19).
+
+    Tapping a name under "Also selling here" crossed to the seller list and chose her — and
+    left the reader's scroll position exactly where the stand list had it, so on a long
+    directory the card they asked for was off screen and the tap looked like it had done
+    nothing. The card now comes to them, the same way the map already slides to a chosen stand.
+
+    Asserted through the spy on `scrollIntoView` because jsdom has no layout: what is provable
+    here is that the CHOSEN SELLER'S element is the one asked into view, which is the part that
+    was missing. That it lands legibly is a browser check.
+  */
+  it("scrolls the seller's card into view after crossing from a stand", async () => {
+    const user = userEvent.setup();
+    const { container } = renderMap();
+
+    // Open the busy stand and cross from its "Also selling here" row.
+    const standCard = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Morgan Hill"),
+    )! as HTMLElement;
+    await user.click(within(standCard).getByRole("button", { name: /morgan hill/i }));
+
+    const scrolled: Element[] = [];
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: function (this: Element) {
+        scrolled.push(this);
+      },
+    });
+
+    // Scoped to the open stand card: the same seller is named on more than one card, and an
+    // unscoped query would pick whichever the DOM happened to order first.
+    await user.click(
+      within(standCard).getAllByRole("button", { name: "Go to Fernhorn Bakery" })[0]!,
+    );
+
+    const sellerCard = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    expect(scrolled).toContain(sellerCard);
+  });
+
+  it("does not scroll when a seller is chosen from the seller list itself", async () => {
+    // The reader is already looking at the card they pressed. Moving the page under a
+    // deliberate tap is the disorientation the crossing scroll exists to prevent.
+    const user = userEvent.setup();
+    const { container } = renderMap();
+    await openSellers(user);
+
+    const scrolled: Element[] = [];
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", {
+      configurable: true,
+      value: function (this: Element) {
+        scrolled.push(this);
+      },
+    });
+
+    const card = [...container.querySelectorAll("li.stand")].find((node) =>
+      node.textContent?.includes("Fernhorn"),
+    )! as HTMLElement;
+    await user.click(within(card).getByRole("button", { name: /fernhorn bakery/i }));
+
+    expect(scrolled).not.toContain(card);
+  });
+
   it("names a seller's stands as rows carrying the stands' own pin numbers", async () => {
     const user = userEvent.setup();
     const { container } = renderMap();

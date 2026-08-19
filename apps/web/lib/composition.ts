@@ -82,6 +82,20 @@ export interface AppConfig {
   /** The canonical customer-facing map URL, returned by the deterministic MAP command. */
   publicMapUrl: string;
   /**
+   * The salt every email hash is derived under — the farmer verification path's, and an issue
+   * reporter's optional contact address (B-091).
+   *
+   * **Optional, and that is a deployment fact rather than a preference.** `EMAIL_HASH_SALT` is
+   * mounted on the WEB service only, behind `mount_email_verification` — the worker has no use
+   * for an unrotatable lookup-key salt, and mounting it there would widen the blast radius of
+   * a compromise for nothing. The worker also runs the inbound pass, so requiring this here
+   * would crash the service that routes SMS.
+   *
+   * Absence is not silent: the hash is the only lookup key an address has, so a reporter's
+   * email is REFUSED rather than stored unfindable. See `fileConfirmedIssueReport`.
+   */
+  emailSalt?: string;
+  /**
    * F-069 — the Google Geocoding key for the onboarding DRAFT pin lookup.
    *
    * OPTIONAL — but F-077 changed what absence COSTS, and this comment used to describe a
@@ -308,6 +322,9 @@ export function resolveConfig(env: EnvVars = process.env): AppConfig {
     phoneSalt: required(env, "PHONE_HASH_SALT"),
     publicBaseUrl: resolvePublicBaseUrl(env),
     publicMapUrl: resolvePublicMapUrl(env),
+    // Empty string treated as absent, so a blank deployment variable is not a "salt" that
+    // hashes every address under nothing.
+    emailSalt: env.EMAIL_HASH_SALT?.trim() || undefined,
     // Optional by design, but NOT free: absent means no visitable stand can be created
     // (F-077 removed the tap-the-map fallback). An empty string is treated as absent so a
     // blank deployment variable does not become a key that fails on every call.

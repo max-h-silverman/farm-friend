@@ -3903,6 +3903,25 @@ export const flags = pgTable(
       { onDelete: "restrict" },
     ),
     reasonCode: text("reason_code").notNull(),
+    /**
+     * Where VIGA may write back, when the reporter ASKED to hear about their issue (B-091).
+     *
+     * Optional and reporter-supplied. Nothing sends to it automatically: it exists so a
+     * coordinator reading the review item can reply, which is the only reason it was
+     * collected.
+     *
+     * **The same discipline `seller_emails` follows** (Golden Rule #5): this is the one column
+     * holding a raw address, read by a person or the send path and nothing else, with the hash
+     * beside it as the lookup and log key. Never in a log line, never in model context, masked
+     * in admin.
+     *
+     * It lives on the FLAG rather than on the contact, and that is the privacy posture: the
+     * address is scoped to the one issue it was given for and disappears when the flag does.
+     * A customer acquires no durable profile by reporting a problem.
+     */
+    reporterEmail: text("reporter_email"),
+    /** The lookup and log key for `reporter_email`. Both columns move together. */
+    reporterEmailHash: text("reporter_email_hash"),
     status: flagStatus("status").notNull().default("open"),
     dispositionCode: text("disposition_code"),
     disposedByAdministratorId: uuid(
@@ -3917,6 +3936,23 @@ export const flags = pgTable(
     reasonNotBlank: check(
       "flags_reason_code_not_blank",
       sql`length(trim(${table.reasonCode})) > 0`,
+    ),
+    /*
+      The address and its hash exist together or not at all. A raw address with no hash is
+      unfindable and unloggable; a hash with no address points at something nobody can read.
+      Written as one biconditional, and NOT vulnerable to the NULL trap — `is null` yields
+      true or false, never NULL.
+    */
+    reporterEmailPaired: check(
+      "flags_reporter_email_paired",
+      sql`(${table.reporterEmail} is null) = (${table.reporterEmailHash} is null)`,
+    ),
+    reporterEmailNotBlank: check(
+      "flags_reporter_email_not_blank",
+      sql`
+        ${table.reporterEmail} is null
+        or length(btrim(${table.reporterEmail}, E' \t\r\n')) > 0
+      `,
     ),
     coherentDisposition: check(
       "flags_coherent_disposition",
@@ -4255,6 +4291,79 @@ export const pendingStockOutReports = pgTable(
       sql`${table.expiresAt} > ${table.createdAt}`,
     ),
     senderLookup: index("pending_stock_out_reports_sender_idx").on(
+      table.senderHash,
+      table.expiresAt,
+    ),
+  }),
+);
+
+/**
+ * The issue report waiting on the sender's YES (B-091).
+ *
+ * Farm Friend can now RECOGNISE that a message reports a problem with our own information —
+ * a listing that misstates a stand, a map pin in the wrong place, a reply that made no sense.
+ * Recognising it is a model judgement, so it commits nothing: this row holds the report while
+ * a confirmation is outstanding, and code files the flag only after the sender confirms
+ * (Golden Rule #3). A false positive therefore costs one question, never a false report in
+ * VIGA's queue.
+ *
+ * **Its own table rather than a second meaning for `pending_stock_out_reports`.** That record
+ * answers "which half of a stock-out is missing" and carries a bound stand and an `awaiting`
+ * CHECK to prove it; an issue report has no halves and no stand. One table serving both would
+ * mean a row whose columns are legal in two unrelated shapes, and the CHECK that currently
+ * makes the stock-out shape provable would have to be relaxed to allow it.
+ *
+ * Deliberately mirrors that table's three operations — save (replacing), read, clear — and
+ * its two disciplines: `sender_hash` is unique so a second recognition REPLACES the first
+ * rather than leaving two rows for a YES to choose between, and expiry is evaluated against
+ * the MESSAGE's time rather than `now()`.
+ *
+ * Holds raw inbound text, shorter-lived than the copy `sms_messages` keeps. Deleted on
+ * confirmation, on refusal, and on abandonment; the retention purge is the backstop.
+ */
+export const pendingIssueReports = pgTable(
+  "pending_issue_reports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The hash, never a raw number (Golden Rule #5). Unique: one open question per sender. */
+    senderHash: text("sender_hash").notNull(),
+    /**
+     * The reporter's own message — the sentence that says what is wrong.
+     *
+     * This is what reaches VIGA when the sender confirms. It is never spoken back to anyone
+     * else and never enters a model prompt after this point: the confirmation reply is
+     * code-rendered and names no part of it.
+     */
+    reportText: text("report_text").notNull(),
+    /**
+     * The inbound event that produced the report, so the filed flag points at the message
+     * DESCRIBING the problem rather than at the bare `YES`, which carries nothing readable.
+     *
+     * A real reference, like `flags.inbox_event_id`: a pending report naming an event that
+     * does not exist would file a flag a coordinator cannot open, and `restrict` means the
+     * event cannot be deleted out from under an unanswered question.
+     */
+    inboxEventId: uuid("inbox_event_id")
+      .notNull()
+      .references(() => providerInboxEvents.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Bounds how long a YES can land. Evaluated against the MESSAGE's time, never `now()`,
+     * for the same reason the stock-out record is.
+     */
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (table) => ({
+    senderUnique: unique("pending_issue_reports_sender_hash_unique").on(table.senderHash),
+    reportTextNotBlank: check(
+      "pending_issue_reports_report_text_not_blank",
+      sql`length(btrim(${table.reportText}, E' \t\r\n')) > 0`,
+    ),
+    expiresAfterCreation: check(
+      "pending_issue_reports_expires_after_creation",
+      sql`${table.expiresAt} > ${table.createdAt}`,
+    ),
+    senderLookup: index("pending_issue_reports_sender_idx").on(
       table.senderHash,
       table.expiresAt,
     ),

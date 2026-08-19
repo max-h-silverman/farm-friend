@@ -379,7 +379,9 @@ ${farmId}, ${locationId},
       answer from their standing description instead. Age changes the WORDING and the ORDER —
       it must never remove a stand that says it has the thing.
     */
-    expect(result.body).toMatch(/10 matching stands/);
+    // The header is windowed here (three of ten on this page), so the total is stated inside
+    // the range rather than as a leading count.
+    expect(result.body.split("\n")[0]).toBe("Results 1-3 of 10");
     /*
       `selectedFactIds` counts FACTS, not stands — a stand answering from both a confirmation
       and a standing description contributes two. The header's total is the stand count
