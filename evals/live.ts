@@ -1275,6 +1275,50 @@ fx("live-operation", "classifies each supported inquiry operation without catalo
   };
 });
 
+/*
+  B-091 — does a REAL model tell "your information is wrong" from "the stand is out of eggs"?
+
+  The scripted suite cannot answer that: its classifier is a stub keyed on exact strings, so it
+  agrees with whatever the fixture says. The boundary is the whole risk of the new category —
+  `issue_report` and `inventory_report` are both complaints in ordinary English, and a model
+  that collapses them would either bury real problems in the stock-out path or file a farmer's
+  routine "we sold out" into VIGA's review queue.
+
+  Cases are deliberately paired: each issue report sits beside a stock-out that must NOT move.
+  A fixture containing only issue reports would pass for a model that called everything an
+  issue.
+
+  A miss here is a REAL FAILURE, not advisory. The confirmation gate means a false positive
+  costs one question rather than a false report — but a false NEGATIVE is silent, and the
+  reporter simply never reaches a person.
+*/
+fx("live-operation", "tells a report about OUR information from a report about a stand", async () => {
+  const cases = [
+    // Ours is wrong: a claim about the service, which no inventory retrieval can answer.
+    { text: "your map shows the wrong hours for Pinecone Gardens", kind: "issue_report" },
+    { text: "the listing for Plum Forest says eggs but they closed months ago", kind: "issue_report" },
+    { text: "that reply made no sense, it did not answer my question", kind: "issue_report" },
+    { text: "the pin for Morgan Hill is in the wrong place on the map", kind: "issue_report" },
+    // A stand's stock is a claim about the WORLD, and must keep taking the report path.
+    { text: "Pinecone Gardens is out of eggs", kind: "inventory_report" },
+    { text: "no kale left at Morgan Hill", kind: "inventory_report" },
+    { text: "we have strawberries now", kind: "inventory_report" },
+    // Asking what the service does is neither.
+    { text: "what can you do?", kind: "system_inquiry" },
+  ] as const;
+  const failures: string[] = [];
+  for (const expected of cases) {
+    const raw = await requestClassifier.classify({ taskText: expected.text });
+    if (!raw.ok || raw.kind !== expected.kind) {
+      failures.push(`${JSON.stringify(expected.text)} -> ${JSON.stringify(raw)}`);
+    }
+  }
+  return {
+    ok: failures.length === 0,
+    observed: failures.length === 0 ? `${cases.length}/${cases.length}` : failures.join("; "),
+  };
+});
+
 fx("live-operation", "resolves second-person service language without swallowing stand requests", async () => {
   const cases = [
     { text: "when do you open?", kind: "system_inquiry" },

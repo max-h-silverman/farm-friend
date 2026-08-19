@@ -11,7 +11,103 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-19 (latest) — the classifier's variance turns out to be the two cases we already knew about
+## 2026-08-19 (latest) — HELP learns to be useful, and a customer can tell VIGA something is wrong
+
+One tranche, `b-091-help-pagination-admin-ux`. Unit **2,439 across 173 files** (7 corpus skips),
+integration **1,473 across 108 files**, typecheck, lint, scripted evals 11/11 · 4/4 · 19/19, and
+`evals:live` green with a NEW fixture for the new category (below). Six of max's seven asks landed;
+the seventh — simplifying the admin console — is deliberately left for the next session.
+
+**HELP could not be fixed where it lived, so it grew a second half.** The registered body answers a
+request for help by naming the word the sender just texted. It is transcribed from live Telnyx
+console state and pinned character-for-character, so a code-side rewrite would make live traffic
+differ from what the carrier approved. The guidance therefore rides as an ordinary second reply
+naming the keywords the reader can actually use, and the two audiences get different lists —
+resolved from `farmer_authorizations`, the same source the free-text access fork reads, because a
+farmer has no use for "ask what is available" and a customer has none for `LINK`. The customer and
+farmer contact addresses are separate constants holding one value today, so giving farmers their own
+inbox later is a value change rather than a hunt through copy.
+
+**An em dash cost a whole SMS segment.** The help guide measured three segments while reading as two
+lines: one character outside GSM-7 switches the entire body to UCS-2 and drops the budget from 153
+septets to 67. The test asserts the property directly rather than importing the segment estimator —
+that lives in the `sms` adapter and core must not depend on an adapter, which `architecture.test.ts`
+caught immediately. Sabotage-proved by putting the dash back; the failure names the character.
+
+**`Results 4-6 of 12`.** The header said the total twice ("12 matching stands (4-6 of 12)"), and max
+cut both the word and the parenthetical. Both forms now share one vocabulary — a windowed page and a
+whole answer must not read as two different lists — and it counts RESULTS rather than stands, so the
+header stays a claim about the answer's size and never about the entries beneath it, which is the
+shape B-049 and B-061 both got wrong.
+
+**Replies name the map keyword instead of carrying its URL.** A link is the most expensive line in a
+text thread: it survives no line break and it is what carriers score for spam. `MAP` is a real parsed
+command answering with exactly that URL, so the pointer costs one short sentence. Applied to all five
+sites — the two result pages max named and the three empty-result replies — from one constant,
+because five places closing with the same line and a copy edit reaching four of them is how two ways
+to do one thing appear. **Honest cost:** `MAP` is behind the consent gate, so an unconsented sender
+now needs a round trip where a raw URL needed none. Flagged and accepted.
+
+**Issue reports: the model proposes, code commits.** Max first asked for the classifier to handle
+this automatically. Doing it as asked would have put a model judgement in charge of durable state, so
+the shape landed differently: the classifier gained an `issue_report` category that FILES NOTHING —
+the report is parked in `pending_issue_reports`, the sender is asked to confirm, and code writes the
+flag on their `YES`, into the same queue `FLAG` already fills with a `reason_code` recording how it
+arrived. A false positive costs one question rather than a false report in VIGA's queue, and the
+property survives a hostile model because the seam still has no channel to a consequence.
+
+**Three things now mean `YES`, and the consequential ones win.** A host's open question, an open
+inventory publication, then an issue confirmation — a farmer with a live proposal who texts `YES`
+still publishes, exactly as before. Its own table rather than a second meaning for
+`pending_stock_out_reports`: that record carries a bound stand and an `awaiting` CHECK proving a
+shape an issue report does not have, and one table serving both would need that CHECK relaxed to
+admit a row it was written to refuse.
+
+**`YES <email>` is the parser's only argument grammar**, admitted only when the remainder is a single
+valid address. `YES` is also the publication token, so a loose remainder would let "YES i have eggs"
+publish something unreviewed. This is safe where `JOIN <token>` was not (removed 2026-08-07): a
+mistyped 64-hex token failed identically and silently, while a mistyped address is something code can
+RECOGNISE as not-an-address, so it falls through to free text and is answered.
+
+**The reply address lives on the FLAG, not on the contact** — scoped to the one issue it was given
+for, gone when the flag is. A customer acquires no durable profile by reporting a problem. Raw value
+in one column with its hash beside it, both present or both absent by CHECK, masked in the console
+and reachable only through a `mailto:` so a screenshot of the review queue leaks nothing.
+
+**A required config value would have crashed the worker.** `EMAIL_HASH_SALT` is mounted on the WEB
+service only, behind `mount_email_verification` — and the WORKER runs the inbound pass. Making it
+required in shared config typechecked, passed locally, and would have failed to boot the service that
+routes SMS. It is optional, and a deployment without it REFUSES the address rather than storing a
+value nobody could look up; the reply then promises only that someone will look, because a reply
+nobody can send is not a promise worth making.
+
+**Both migrations tripped documented generator traps, exactly as RUNBOOK warns.** `drizzle-kit` emits
+no `check()` constraints (four appended by hand) and stamped both journal entries with a wall clock
+that sorts BEFORE `0053` — which would have skipped them silently while the runner printed
+"migrations applied". The FK was folded back into `0054` rather than shipped as its own migration,
+since neither is applied anywhere yet.
+
+**The live evals passed and were not yet evidence.** The existing fixtures cover the classifier's
+older operations; none exercised the new category, so a green run said nothing about the change. A
+new `live-operation` fixture pairs each issue report against a stock-out that must NOT move — a set
+containing only issue reports would pass for a model that called everything an issue — and the real
+model takes all 8. Sabotage-proved by asserting "Pinecone Gardens is out of eggs" is an issue report;
+the model refuses and the fixture fails.
+
+**Crossing to a seller now brings her card and the map.** Tapping a name under "Also selling here"
+switched lists and left the reader's scroll where the stand list had it. The map's follow effect was
+written for stands and keyed on the stand selection; both lists render the same card in the same
+column, so the behaviour was never stand-specific — only its inputs were. One effect now serves both.
+`goToSeller` takes a source, like `select` does: a crossing scrolls, a tap inside the seller list does
+not, because that reader is already looking at the card they pressed.
+
+Sabotage-proved this session (seven): the pagination header, the help guide's segment budget, filing
+an issue on classification instead of confirmation, filing on a decline, swallowing a mistyped
+address as a bare YES, printing the raw address in the console, and the seller-crossing scroll.
+
+---
+
+## 2026-08-19 (earlier) — the classifier's variance turns out to be the two cases we already knew about
 
 One tranche, `b-090-classifier-variance`. Unit **2,418 across 171 files** (7 corpus skips),
 typecheck, lint, scripted evals 11/11 · 4/4 · 19/19. Integration not run — this session touches no

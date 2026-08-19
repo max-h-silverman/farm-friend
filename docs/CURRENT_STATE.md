@@ -14,8 +14,8 @@
   carrier-registered keywords (`STOP` + synonyms, `JOIN`/`START`/`VIGA`, `HELP`/`INFO`) pass by
   construction. Everything else gates, **`MAP` included**, so no model runs for an unconsented
   sender. `MAP` therefore lost its delayed-event exemption: a stale `MAP` now fails closed.
-- **HELP answers with two messages, and issue reports reach VIGA (B-091 — local only, not
-  deployed).** The carrier-registered help body is followed by a code-rendered guide naming the
+- **HELP answers with two messages, and issue reports reach VIGA (B-091 — merged, NOT deployed and
+  migrations NOT applied).** The carrier-registered help body is followed by a code-rendered guide naming the
   keywords the sender can actually use; farmers and customers get different lists. The classifier
   gained an `issue_report` category that FILES NOTHING — the report is parked, the sender confirms,
   and code writes the flag into the same queue `FLAG` fills. `YES <email>` optionally leaves a reply
@@ -107,10 +107,10 @@
 
 - **2,439 unit tests pass across 173 files; 7 corpus-only tests skip**, and integration is
   **1,473/1,473 across all 108 files** (both 2026-08-19, after B-091). Typecheck and lint clean.
-- **`npm run evals:live` has NOT been run for B-091 and is required before it ships.** The
-  request-classification seam gained a category and its prompt gained two rules, which is exactly the
-  change the live suite exists to measure: the scripted suites use cooperative stubs that cannot see
-  whether a real model distinguishes `issue_report` from `inventory_report`.
+- **`evals:live` is green INCLUDING the new category** — containment 4/4, closure 7/7, quality 16/16,
+  operation 6/6, catalog 7/7. The sixth operation fixture is new for B-091 and pairs each issue
+  report against a stock-out that must not move; a set of issue reports alone would pass for a model
+  that called everything an issue. Sabotage-proved: asserting a stock-out is an issue report fails.
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it, six `apps/web/lib/farmer-stand.integration.test.ts` cases fail `PUBLIC_BASE_URL is required`.
   **Verified pre-existing**: checking out `main` reproduces the identical six. An environment fact
@@ -169,6 +169,13 @@
 
 ## Open before go-live
 
+- **The admin console is not yet stripped down (F-122).** Max asked for it this session and it is
+  deliberately deferred, not forgotten: bare-minimum info and actions, built back out only as real
+  admins ask. The four functions VIGA needs are edit, unpublish **and delete**, re-send onboarding
+  links, and add an SMS owner. **Delete is new** — max chose "off the map, plus a real delete"
+  (2026-08-19), and nothing in the console destroys anything today. Approval, test-farm marking, the
+  Farm Bucks decision, pause/resume and the state chips are all candidates for removal, each needing
+  its own decision rather than a blanket sweep.
 - **Pause/end is reachable by both VIGA and the farmer.** The admin half is the toggle and Remove
   on Stands & Sellers; the seller half is on the settings screen `LINK`/`SETTINGS` already texts
   her, with `mayPause` riding each listing from the seam's own arm so no control is offered that
