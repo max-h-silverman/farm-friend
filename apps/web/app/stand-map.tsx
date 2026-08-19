@@ -19,7 +19,10 @@ import {
   type PublicStandPayload,
   type StandFilters,
 } from "../lib/map-view";
-import { standCardSections, type StandCardSection } from "../lib/stand-card";
+import {
+  standCardSellerGroups,
+  type StandCardSellerSection,
+} from "../lib/stand-card-sellers";
 import {
   filterSellers,
   type SellerListEntry,
@@ -568,7 +571,7 @@ function StandItemSections({
   onGoToSeller,
 }: {
   stand: FilteredStand;
-  sections: readonly StandCardSection[];
+  sections: readonly StandCardSellerSection[];
   onGoToSeller: (sellerId: string) => void;
 }) {
   return (
@@ -602,67 +605,92 @@ function StandItemSections({
                 )}
               </DetailSectionHeading>
             ) : (
-              <DetailSectionHeading icon="offerings">Typical offerings</DetailSectionHeading>
+              <DetailSectionHeading icon="offerings">Usually carries</DetailSectionHeading>
             )}
-            <ul className="items items-nested">
-              {section.items.map((item) => (
-                <li className="item-group" key={`${section.register}-${item.itemName}`}>
-                  <span className="item-name">{item.itemName}</span>
-                  <ul className="item-sellers">
-                    {item.providers.map((provider) => (
-                      <li className="item-seller" key={provider.providerId}>
-                        {/*
-                          F-118 — THE CREDIT IS THE CROSSING.
+            {/*
+              THE EXPLAINER EARNS ITS PLACE ONLY WHERE THERE IS SOMETHING TO EXPLAIN.
 
-                          It is already the one place a customer's eye lands on a seller's name
-                          on this card, so it is the name that carries the door — rather than a
-                          second roster below repeating everyone. A stand's OWN seller has no
-                          credit by design (`credit` is absent by self-pointer), so this renders
-                          nothing for them and there is no button where a bare line belongs.
-                        */}
-                        {provider.credit === undefined ? null : (
-                          <button
-                            type="button"
-                            className="item-seller-name item-seller-go"
-                            aria-label={`Go to ${provider.credit}`}
-                            onClick={() => onGoToSeller(provider.sellerId)}
-                          >
-                            {provider.credit}
-                          </button>
-                        )}
-                        {provider.quantity !== undefined ||
-                        provider.approximation !== undefined ? (
-                          <span className="item-detail">
-                            {provider.quantity !== undefined
-                              ? `${provider.quantity}${provider.unit !== undefined ? ` ${provider.unit}` : ""}`
-                              : provider.approximation}
-                          </span>
-                        ) : null}
-                        {provider.priceText !== undefined ? (
-                          <span className="item-price">{provider.priceText}</span>
-                        ) : null}
-                        {/*
-                          NO RECENCY ON A USUAL LINE, EVER. `standCardSections` leaves the field
-                          absent there rather than trusting this to omit it, so there is nothing
-                          to print even if this branch were written wrongly.
-                        */}
-                        {provider.recency === undefined ? null : (
-                          <span
-                            className={
-                              provider.stale === true
-                                ? "item-seller-recency item-seller-recency-aged"
-                                : "item-seller-recency"
-                            }
-                          >
-                            {provider.recency}
-                          </span>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </li>
-              ))}
-            </ul>
+              "Stock is updated separately by each seller" answers a question a customer only has
+              once the card shows more than one seller — on the 33-of-37 single-seller stands it
+              would be a sentence about a distinction that is not on screen. Tied to the same
+              `showHeading` decision so the two can never disagree.
+            */}
+            {section.register === "confirmed" && section.sellers.some((s) => s.showHeading) ? (
+              <p className="listing-note listing-note-sellers">
+                Stock is updated separately by each seller.
+              </p>
+            ) : null}
+            {section.register === "usual" ? (
+              <p className="listing-note listing-note-sellers">
+                These items are typical offerings and may not be in stock now.
+              </p>
+            ) : null}
+            {section.sellers.map((seller) => (
+              <div className="seller-block" key={seller.providerId}>
+                {/*
+                  F-118 — THE CREDIT IS THE CROSSING. The seller's name is the door into the
+                  seller list, so the sub-heading stays a button rather than becoming plain text.
+
+                  Unlike the nested credit line this replaces, a sub-heading names EVERY seller
+                  it shows, the stand's own included: here the name is the group's label rather
+                  than an attribution beside a bare line, so there is nothing redundant about it.
+                  The heading is suppressed entirely when this register has one seller (B-088).
+                */}
+                {seller.showHeading ? (
+                  <div className="seller-block-heading">
+                    <button
+                      type="button"
+                      className="item-seller-name item-seller-go"
+                      aria-label={`Go to ${seller.sellerName}`}
+                      onClick={() => onGoToSeller(seller.sellerId)}
+                    >
+                      {seller.sellerName}
+                    </button>
+                    {/*
+                      NO RECENCY ON A USUAL SECTION, EVER. `standCardSellerGroups` leaves the
+                      field absent there rather than trusting this to omit it.
+                    */}
+                    {seller.recency === undefined ? null : (
+                      <span
+                        className={
+                          seller.stale === true
+                            ? "item-seller-recency item-seller-recency-aged"
+                            : "item-seller-recency"
+                        }
+                      >
+                        {seller.recency}
+                      </span>
+                    )}
+                  </div>
+                ) : null}
+                <ul className="items items-cards">
+                  {seller.items.map((item) => (
+                    <li
+                      className="item-card"
+                      key={`${section.register}-${seller.providerId}-${item.itemName}`}
+                    >
+                      <span className="item-card-name">{item.itemName}</span>
+                      {item.quantity !== undefined || item.approximation !== undefined ? (
+                        <span className="item-detail">
+                          {item.quantity !== undefined
+                            ? `${item.quantity}${item.unit !== undefined ? ` ${item.unit}` : ""}`
+                            : item.approximation}
+                        </span>
+                      ) : null}
+                      {/*
+                        PRICE IS THE FARMER'S OWN TEXT, PRINTED AS TYPED. The mockup shows "$4",
+                        but the corpus holds "$6/dozen", "$5 a bunch", "$1.50/lb" and even a
+                        phone number — so this slot renders arbitrary text and wraps, and an item
+                        with no price grows no empty slot.
+                      */}
+                      {item.priceText === undefined ? null : (
+                        <span className="item-card-price">{item.priceText}</span>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+            ))}
           </div>
         </section>
       ))}
@@ -690,7 +718,7 @@ function StandListings({
     ("Nothing confirmed recently.", the contact-only wording, "No listing yet", and a confirmed
     list on a payload built without seller facts).
   */
-  const sections = standCardSections(stand);
+  const sections = standCardSellerGroups(stand);
   if (sections.length > 0) {
     return (
       <StandItemSections stand={stand} sections={sections} onGoToSeller={onGoToSeller} />
@@ -869,12 +897,14 @@ function StandDetailBody({
     raw seller list would call them credited on a card that never printed their name.
   */
   const credited = new Set(
-    standCardSections(stand).flatMap((section) =>
-      section.items.flatMap((item) =>
-        item.providers
-          .filter((provider) => provider.credit !== undefined)
-          .map((provider) => provider.sellerId),
-      ),
+    standCardSellerGroups(stand).flatMap((section) =>
+      section.sellers
+        // A SUPPRESSED SUB-HEADING NAMES NOBODY. On a single-seller register the heading is
+        // omitted (B-088), so that seller's name never appeared and the roster below is the
+        // only place it can — filtering on `showHeading` is what keeps "credited" meaning
+        // "actually printed" rather than "was in the data".
+        .filter((seller) => seller.showHeading)
+        .map((seller) => seller.sellerId),
     ),
   );
 

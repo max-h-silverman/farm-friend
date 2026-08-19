@@ -1780,71 +1780,137 @@ describe("item-first stand card (F-114 C.5)", () => {
     return document.querySelector(".stands .stand") as HTMLElement;
   };
 
-  it("draws one row for an item two sellers carry, with both nested beneath it", async () => {
+  /** The seller block for a given name, within a register's section. */
+  const sellerBlock = (card: HTMLElement, sellerName: string): HTMLElement =>
+    [...card.querySelectorAll(".seller-block")].find(
+      (block) => block.querySelector(".item-seller-name")?.textContent === sellerName,
+    ) as HTMLElement;
+
+  it("gives each seller its own block of item cards", async () => {
     const card = await openCard(sharedStand());
 
-    // ONE item group, not two. A card that printed a chip per seller would have two.
-    const groups = card.querySelectorAll(".item-group");
-    expect(groups).toHaveLength(2); // eggs (confirmed) + rhubarb (usual)
-    const eggs = [...groups].find(
-      (group) => group.querySelector(".item-name")?.textContent === "eggs",
-    )!;
-    expect(eggs.querySelectorAll(".item-seller")).toHaveLength(2);
-  });
-
-  it("prints each nested seller's own price and own freshness", async () => {
-    const card = await openCard(sharedStand());
-    const eggs = [...card.querySelectorAll(".item-group")].find(
-      (group) => group.querySelector(".item-name")?.textContent === "eggs",
-    )!;
-    const lines = [...eggs.querySelectorAll(".item-seller")];
-
-    expect(lines.map((line) => line.querySelector(".item-price")?.textContent)).toEqual([
-      "$8",
-      "$7",
-    ]);
+    // Two sellers carry eggs, so eggs appears under EACH — the seller-major tradeoff F-119
+    // takes deliberately, because each copy carries that seller's own price.
+    // Two headings in `In stock`, where two sellers share the section. The `Usually carries`
+    // section has only Gracies Greens, so it correctly grows NO heading (B-088) — the rule is
+    // per-section, and this fixture exercises both sides of it at once.
+    const confirmed = card.querySelector(".listing-confirmed") as HTMLElement;
     expect(
-      lines.map((line) => line.querySelector(".item-seller-recency")?.textContent),
+      [...confirmed.querySelectorAll(".seller-block-heading .item-seller-name")].map(
+        (name) => name.textContent,
+      ),
+    ).toEqual(["Venison Valley", "Gracies Greens"]);
+    expect(
+      (card.querySelector(".listing-usual") as HTMLElement).querySelector(
+        ".seller-block-heading",
+      ),
+    ).toBeNull();
+
+    const host = sellerBlock(card, "Venison Valley");
+    expect(
+      [...host.querySelectorAll(".item-card-name")].map((n) => n.textContent),
+    ).toEqual(["eggs"]);
+  });
+
+  it("prints each seller's own price on their own card", async () => {
+    const card = await openCard(sharedStand());
+    const prices = [...card.querySelectorAll(".item-card")].map((item) => [
+      item.querySelector(".item-card-name")?.textContent,
+      item.querySelector(".item-card-price")?.textContent,
+    ]);
+
+    // Two eggs cards at two different prices — the fact a single item-first row had to nest to
+    // express, and the reason the duplication is meaningful rather than redundant.
+    expect(prices).toEqual([
+      ["eggs", "$8"],
+      ["eggs", "$7"],
+      ["rhubarb", "$4 / bunch"],
+    ]);
+  });
+
+  it("puts each seller's freshness on the seller heading, never on an item card", async () => {
+    const card = await openCard(sharedStand());
+    const confirmed = card.querySelector(".listing-confirmed") as HTMLElement;
+
+    expect(
+      [...confirmed.querySelectorAll(".item-seller-recency")].map((r) => r.textContent),
     ).toEqual(["Last updated 2 hours ago", "Last updated 3 weeks ago"]);
+    // Nothing dates an individual card: the phrase describes the seller, not the item.
+    expect(card.querySelector(".item-card .item-seller-recency")).toBeNull();
   });
 
-  it("leaves the stand's own seller unnamed and credits the hosted one", async () => {
+  it("names the stand's own seller in the sub-heading and keeps it a link", async () => {
+    /*
+      F-118 — THE CREDIT IS THE CROSSING. Unlike the nested credit line this replaces, a
+      sub-heading is a LABEL for a group rather than an attribution beside a bare line, so the
+      stand's own seller is named here too — and both names stay buttons into the seller list.
+    */
     const card = await openCard(sharedStand());
-    const eggs = [...card.querySelectorAll(".item-group")].find(
-      (group) => group.querySelector(".item-name")?.textContent === "eggs",
-    )!;
-    const lines = [...eggs.querySelectorAll(".item-seller")];
+    const headings = [...card.querySelectorAll(".seller-block-heading .item-seller-name")];
 
-    // No element at all for the stand's own line — not an empty one. A rendered empty span
-    // would leave a gap in the row and would mean a name could be put back into it.
-    expect(lines[0]!.querySelector(".item-seller-name")).toBeNull();
-    expect(lines[1]!.querySelector(".item-seller-name")?.textContent).toBe("Gracies Greens");
+    expect(headings.every((heading) => heading.tagName)).toBe(true);
+    for (const heading of headings) expect(heading.tagName).toBe("BUTTON");
+    expect(headings[0]!.textContent).toBe("Venison Valley");
   });
 
-  it("marks a stale seller line without marking the fresh one", async () => {
+  it("marks a stale seller heading without marking the fresh one", async () => {
     const card = await openCard(sharedStand());
-    const eggs = [...card.querySelectorAll(".item-group")].find(
-      (group) => group.querySelector(".item-name")?.textContent === "eggs",
-    )!;
-    const recencies = [...eggs.querySelectorAll(".item-seller-recency")];
+    const confirmed = card.querySelector(".listing-confirmed") as HTMLElement;
+    const recencies = [...confirmed.querySelectorAll(".item-seller-recency")];
 
     expect(recencies[0]).not.toHaveClass("item-seller-recency-aged");
     expect(recencies[1]).toHaveClass("item-seller-recency-aged");
   });
 
-  it("gives a usual line no date at all", async () => {
-    // The rule §customer behavior states and `groupProviderItems` enforces: a hosted seller is
-    // public on standing claims alone, and a date beside one reads as a confirmation nobody
+  it("gives a usual section no date at all", async () => {
+    // The rule §customer behavior states and `standCardSellerGroups` enforces: a hosted seller
+    // is public on standing claims alone, and a date beside one reads as a confirmation nobody
     // made. The seller HAS a `cardRecency` in the fixture, so a component that passed it
     // through would print it here.
     const card = await openCard(sharedStand());
-    const rhubarb = [...card.querySelectorAll(".item-group")].find(
-      (group) => group.querySelector(".item-name")?.textContent === "rhubarb",
-    )!;
+    const usual = card.querySelector(".listing-usual") as HTMLElement;
 
-    expect(rhubarb.querySelector(".item-seller-recency")).toBeNull();
-    expect(rhubarb.querySelector(".item-price")?.textContent).toBe("$4 / bunch");
-    expect(rhubarb.querySelector(".item-seller-name")?.textContent).toBe("Gracies Greens");
+    expect(usual.querySelector(".item-seller-recency")).toBeNull();
+    expect(usual.querySelector(".item-card-price")?.textContent).toBe("$4 / bunch");
+    expect(usual.querySelector(".item-card-name")?.textContent).toBe("rhubarb");
+  });
+
+  /*
+    B-088's RULE ON THE RENDERED PAGE. 33 of 37 production stands have one seller, so the
+    suppressed heading is the common case — and a sub-heading there would repeat what the
+    section heading just said.
+  */
+  it("grows no sub-heading and no explainer on a single-seller stand", async () => {
+    const card = await openCard(
+      sharedStand({
+        sellers: [
+          {
+            providerId: "p-host",
+            sellerId: "s-host",
+            sellerName: "Venison Valley",
+            describesOwnStand: true,
+            cardRecency: "Last updated 2 hours ago",
+            stale: false,
+            openState: "open",
+            confirmedItems: [{ itemName: "eggs", priceText: "$8" }],
+            usualItems: [],
+          },
+        ],
+      }),
+    );
+
+    expect(card.querySelector(".seller-block-heading")).toBeNull();
+    expect(card.querySelector(".item-card-name")?.textContent).toBe("eggs");
+    expect(
+      within(card).queryByText("Stock is updated separately by each seller."),
+    ).toBeNull();
+  });
+
+  it("explains the per-seller split only where two sellers share the section", async () => {
+    const card = await openCard(sharedStand());
+    expect(
+      within(card).getByText("Stock is updated separately by each seller."),
+    ).toBeTruthy();
   });
 
   it("falls back to the chip list for a payload with no seller facts", async () => {
@@ -1853,7 +1919,7 @@ describe("item-first stand card (F-114 C.5)", () => {
     const { sellers: _sellers, ...withoutSellers } = sharedStand();
     const card = await openCard(withoutSellers);
 
-    expect(card.querySelectorAll(".item-group")).toHaveLength(0);
+    expect(card.querySelectorAll(".item-card")).toHaveLength(0);
     expect(within(card).getByText("eggs")).toBeTruthy();
   });
 });
