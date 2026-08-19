@@ -61,21 +61,24 @@
 
 ## Deployment and migrations
 
-- Serving **`farm-friend-web-00088-8cw`** / **`farm-friend-worker-00083-28n`**, digest
-  `sha256:bfbc1bc07b66b60d75620e82266ab5dd7c1c1928c99398d12a0aff9a2066e4e4`, built from `d9d0f6c`.
-  Deployed 2026-08-19 (B-089/F-119/F-120/F-121). **`main` is AHEAD of production**: B-090 and B-091
-  are merged and undeployed, and B-091's two migrations are unapplied (below). Plan was 0 add
-  / 2 change / 0 destroy — only the image digest moved; 61/61 plan assertions, deploy assertions and
-  served-card assertions all passed. Neither revision has an error-level log; the worker's recovery
+- Serving **`farm-friend-web-00089-vz7`** / **`farm-friend-worker-00084-48v`**, digest
+  `sha256:9e7a41396f6edefb45ddfd73f4336578bb0087092ca95ede6169bae8e2a248c0`, built from `65e83cf`.
+  Deployed 2026-08-19 (B-090, B-091, and F-122 so far). **Production matches `main`.** Plan was
+  0 add / 2 change / 0 destroy — only the image digest moved; 61/61 plan assertions, deploy
+  assertions and served-card assertions all passed. **Verified live by effect**, not by the
+  deploy's own report: both removed admin routes answer 404, and the two 403s now name themselves
+  (`wrong_origin` from the `run.app` host, `not_signed_in` on the custom domain). Neither revision has an error-level log; the worker's recovery
   pass runs every minute returning 200. **F-119 verified in the shipped assets**: `items-cards`,
   `item-card-price`, `item-card-name` and `seller-block-heading` present in both the JS and CSS
   bundles, and the old `items-nested` / `item-sellers` absent.
-- Neon `neondb` has **54 applied migrations (`0000`–`0053`)**. **`0054` and `0055` are written and
-  locally verified but NOT applied and NOT deployed** (B-091): `0054` adds `pending_issue_reports`,
-  `0055` adds `flags.reporter_email` / `reporter_email_hash`. Both carry hand-appended CHECKs
-  (`drizzle-kit` does not emit them) and both needed their journal `when` repaired to follow their
-  predecessor — the generator stamped wall-clock timestamps that sort BEFORE `0053`, which would have
-  skipped them silently while the runner printed "migrations applied".
+- Neon `neondb` has **57 applied migrations (`0000`–`0056`)**, applied 2026-08-19 and **verified by
+  effect**: all six trash columns, all six trash CHECKs, `pending_issue_reports`, and both
+  `flags.reporter_email*` columns present; 42 sellers / 38 stands unchanged. `0054` adds
+  `pending_issue_reports`, `0055` adds `flags.reporter_email` / `reporter_email_hash`, `0056` adds
+  the trash columns. All three carry hand-appended CHECKs (`drizzle-kit` does not emit them) and all
+  three needed their journal `when` repaired to follow their predecessor — the generator stamps
+  wall-clock timestamps that sort BEFORE this repo's future-dated entries, which would have skipped
+  them silently while the runner printed "migrations applied".
 - **`inventory_publication_proposals.provider_id` is nullable in production, and that is correct.**
   `0042` sets it NOT NULL and **`0046` deliberately relaxes it** so a venue's closure-only proposal
   can name no provider, replacing it with the `inventory_proposals_provider_arm` CHECK. A preflight
@@ -171,7 +174,7 @@
 ## Open before go-live
 
 - **The admin console strip-down is IN PROGRESS (F-122**, branch `f-122-admin-console`, merged
-  nowhere and undeployed). Landed so far, all locally verified:
+  merged to `main` and DEPLOYED 2026-08-19). Landed so far:
   - **The trash**, replacing the "real delete" max first asked for — he revised it to trash the
     same day (2026-08-19). A trashed stand or seller leaves the roster and is restorable;
     **nothing destroys anything**, and "empty the trash" is deliberately not built because the
