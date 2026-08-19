@@ -45,6 +45,8 @@ const row: AdminStandRow = {
   retired: false,
   retiredAt: null,
   retiredWithFarm: false,
+  trashed: false,
+  trashedWithFarm: false,
   farmBucksAccepted: true,
   farmBucksEligible: true,
   approved: true,

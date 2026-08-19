@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AdminRecoveryError } from "../admin-shell";
+import { AdminRefusal, refusalFromResponse, type AdminRefusalKind } from "../admin-shell";
 
 // The stand-data queue's interactive half (F-037).
 //
@@ -64,7 +64,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
    * below the fold. The message now sits with the control it is about.
    */
   const [rowError, setRowError] = useState<Record<string, string>>({});
-  const [sessionExpired, setSessionExpired] = useState(false);
+  const [refusal, setRefusal] = useState<AdminRefusalKind | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   function clearRowError(flagId: string) {
@@ -86,7 +86,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
     }
     setPending(flagId);
     clearRowError(flagId);
-    setSessionExpired(false);
+    setRefusal(null);
     setSuccess(null);
     try {
       const response = await fetch("/api/admin/stand-data-flags", {
@@ -95,7 +95,8 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
         body: JSON.stringify({ flagId, note }),
       });
       if (!response.ok) {
-        if (response.status === 403) setSessionExpired(true);
+        const refused = await refusalFromResponse(response.clone());
+        if (refused !== null) setRefusal(refused);
         else
           setRowError((current) => ({
             ...current,
@@ -145,9 +146,7 @@ export function StandDataQueue({ flags }: { flags: StandDataFlagItem[] }) {
         Your note closes the question and is kept as the record. Changing what a listing says
         is the farmer’s, not yours.
       </p>
-      {sessionExpired && (
-        <AdminRecoveryError>Your session expired before the decision was saved.</AdminRecoveryError>
-      )}
+      <AdminRefusal refusal={refusal} />
       {success !== null && (
         <p className="admin-success" role="status">
           {success}

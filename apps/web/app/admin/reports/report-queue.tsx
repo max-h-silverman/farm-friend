@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AdminRecoveryError } from "../admin-shell";
+import { AdminRefusal, refusalFromResponse, type AdminRefusalKind } from "../admin-shell";
 
 // The stock-out report queue's interactive half (F-030).
 //
@@ -33,13 +33,13 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
   const [rows, setRows] = useState(reports);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sessionExpired, setSessionExpired] = useState(false);
+  const [refusal, setRefusal] = useState<AdminRefusalKind | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   async function decide(reportId: string, action: "review" | "dismiss") {
     setPending(reportId);
     setError(null);
-    setSessionExpired(false);
+    setRefusal(null);
     setSuccess(null);
     try {
       const response = await fetch("/api/admin/stock-out-reports", {
@@ -48,7 +48,8 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
         body: JSON.stringify({ reportId, action }),
       });
       if (!response.ok) {
-        if (response.status === 403) setSessionExpired(true);
+        const refused = await refusalFromResponse(response.clone());
+        if (refused !== null) setRefusal(refused);
         else setError(
           response.status === 409
               ? "Someone else already triaged this report. Reload to see their decision."
@@ -93,9 +94,7 @@ export function ReportQueue({ reports }: { reports: ReportRow[] }) {
           {error}
         </p>
       )}
-      {sessionExpired && (
-        <AdminRecoveryError>Your session expired before the decision was saved.</AdminRecoveryError>
-      )}
+      <AdminRefusal refusal={refusal} />
       {success !== null && (
         <p className="admin-success" role="status">
           {success}

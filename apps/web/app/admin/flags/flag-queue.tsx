@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AdminRecoveryError } from "../admin-shell";
+import { AdminRefusal, refusalFromResponse, type AdminRefusalKind } from "../admin-shell";
 
 // The flag queue's interactive half (F-030). Like the approval queue, this renders what the
 // server already decided the viewer may see and posts decisions back to `/api/admin/flags`,
@@ -48,7 +48,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
   const [rows, setRows] = useState(flags);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sessionExpired, setSessionExpired] = useState(false);
+  const [refusal, setRefusal] = useState<AdminRefusalKind | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [openThread, setOpenThread] = useState<string | null>(null);
   const [threads, setThreads] = useState<Record<string, ThreadMessage[]>>({});
@@ -64,7 +64,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
     }
     setOpenThread(flagId);
     if (threads[flagId] !== undefined) return;
-    setSessionExpired(false);
+    setRefusal(null);
     setThreadLoading(flagId);
     setThreadErrors((current) => {
       const next = { ...current };
@@ -74,7 +74,8 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
     try {
       const response = await fetch(`/api/admin/flags/${flagId}/thread`);
       if (!response.ok) {
-        if (response.status === 403) setSessionExpired(true);
+        const refused = await refusalFromResponse(response.clone());
+        if (refused !== null) setRefusal(refused);
         else
           setThreadErrors((current) => ({
             ...current,
@@ -105,7 +106,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
 
     setPending(flagId);
     setError(null);
-    setSessionExpired(false);
+    setRefusal(null);
     setSuccess(null);
     try {
       const response = await fetch("/api/admin/flags", {
@@ -114,7 +115,8 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
         body: JSON.stringify({ flagId, action, dispositionCode }),
       });
       if (!response.ok) {
-        if (response.status === 403) setSessionExpired(true);
+        const refused = await refusalFromResponse(response.clone());
+        if (refused !== null) setRefusal(refused);
         else setError(
           response.status === 409
               ? "Someone else already reviewed this flag. Reload to see their decision."
@@ -160,9 +162,7 @@ export function FlagQueue({ flags }: { flags: FlagRow[] }) {
           {error}
         </p>
       )}
-      {sessionExpired && (
-        <AdminRecoveryError>Your session expired before the decision was saved.</AdminRecoveryError>
-      )}
+      <AdminRefusal refusal={refusal} />
       {success !== null && (
         <p className="admin-success" role="status">
           {success}

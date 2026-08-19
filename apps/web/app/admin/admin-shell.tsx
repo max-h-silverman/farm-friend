@@ -63,10 +63,51 @@ export function SignedOutAdmin() {
   );
 }
 
-export function AdminRecoveryError({ children }: { children: ReactNode }) {
+/**
+ * Why an administrator write was refused. Both arms are HTTP 403 and they need different next
+ * moves, so the cause is a name the server sends rather than something the screen infers.
+ */
+export type AdminRefusalKind = "wrong_origin" | "not_signed_in";
+
+/**
+ * Read the server's own name for a refusal off a response.
+ *
+ * **The status cannot tell these apart** — that is the whole defect this replaces. Measured in
+ * production 2026-08-19: the console was open at the `*.run.app` host, the origin check refused
+ * every write, and six screens each guessed "your session expired" from the bare 403. max signed
+ * in three times against a refusal that had nothing to do with his session.
+ *
+ * A 403 that names nothing falls back to the session reading, because that is the RECOVERABLE
+ * one: offering a sign-in that turns out to be unnecessary costs less than withholding one that
+ * was needed. Anything other than 403 is not this conversation at all.
+ */
+export async function refusalFromResponse(response: Response): Promise<AdminRefusalKind | null> {
+  if (response.status !== 403) return null;
+  const payload = (await response.json().catch(() => ({}))) as { error?: unknown };
+  return payload.error === "wrong_origin" ? "wrong_origin" : "not_signed_in";
+}
+
+/**
+ * What a refused write says, in the operator's terms and with the move that actually fixes it.
+ *
+ * **The wrong-address arm deliberately offers no sign-in link.** Signing in is precisely what
+ * cannot fix it, and a control that looks like the remedy is what cost an operator three
+ * attempts. It names the address instead, because opening the console there is the whole fix.
+ */
+export function AdminRefusal({ refusal }: { refusal: AdminRefusalKind | null }) {
+  if (refusal === null) return null;
+  if (refusal === "wrong_origin") {
+    return (
+      <p className="admin-error" role="alert">
+        This page is open at an address the console does not accept changes from, so nothing was
+        saved. Open it at <strong>farmfriend.vigavashon.org</strong> and try again.
+      </p>
+    );
+  }
   return (
     <p className="admin-error" role="alert">
-      {children} <Link href="/admin/login">Sign in again</Link>.
+      Your session expired before the change was saved.{" "}
+      <Link href="/admin/login">Sign in again</Link>.
     </p>
   );
 }

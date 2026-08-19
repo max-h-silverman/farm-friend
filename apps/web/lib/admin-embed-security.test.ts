@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import nextConfig from "../next.config.mjs";
-import { isTrustedAdminMutationSource } from "./admin-guard";
+import { isTrustedAdminMutationSource, requireAdministrator } from "./admin-guard";
 
 const APP_ORIGIN = "https://farm-friend-web-p5mfxfp5za-uw.a.run.app";
 
@@ -22,6 +22,47 @@ const deployedRequest = (origin?: string, method = "POST") =>
       ...(origin === undefined ? {} : { origin }),
     },
   });
+
+/*
+  Measured in production 2026-08-19: max opened the console at the `*.run.app` host, pressed
+  "Prepare invite", and was told "Your session expired" — three times, each within seconds of a
+  freshly issued and still-live session. The session was never the problem. `PUBLIC_BASE_URL` is
+  the custom domain (F-113), so a write from the `run.app` origin fails the origin check, and
+  BOTH refusals answered a bare `{ error: "forbidden" }` with status 403. The screen could not
+  tell them apart and guessed the wrong one.
+
+  A wrong diagnosis is worse than none: it sent the operator to sign in repeatedly, which could
+  never work, while the real fix — open the console on the custom domain — went unconsidered.
+  So the two refusals now name themselves, and the screen reads the name rather than the status.
+*/
+describe("what a refused administrator write says it is", () => {
+  it("names a wrong-origin refusal as such, never as an expired session", async () => {
+    const refusal = await requireAdministrator(
+      deployedRequest("https://farm-friend-web-p5mfxfp5za-uw.a.run.app"),
+      "https://farmfriend.vigavashon.org",
+    );
+    expect(refusal).toBeInstanceOf(Response);
+    const response = refusal as Response;
+    expect(response.status).toBe(403);
+    expect(
+      ((await response.json()) as { error?: string }).error,
+      "the operator's next move is to use the right address, not to sign in again",
+    ).toBe("wrong_origin");
+  });
+
+  it("still refuses, and says so, when the origin is right but nobody is signed in", async () => {
+    // The other arm. Without it, "names a wrong-origin refusal" would also pass for a guard
+    // that called every refusal `wrong_origin` and stranded a genuinely signed-out operator.
+    const refusal = await requireAdministrator(
+      deployedRequest("https://farmfriend.vigavashon.org"),
+      "https://farmfriend.vigavashon.org",
+    );
+    expect(refusal).toBeInstanceOf(Response);
+    const response = refusal as Response;
+    expect(response.status).toBe(403);
+    expect(((await response.json()) as { error?: string }).error).toBe("not_signed_in");
+  });
+});
 
 describe("embedded administrator security", () => {
   it("permits browser writes only when the admin app itself initiated them", () => {

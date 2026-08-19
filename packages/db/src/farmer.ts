@@ -2263,10 +2263,26 @@ export interface FarmerOnboardingRequestRow {
 }
 
 /**
- * The open onboarding queue — farmers who asked and are waiting on VIGA.
+ * The open onboarding queue — farmers who asked and are still waiting on VIGA.
  *
- * Only OPEN requests: this is a work queue, and a settled ask is history rather than work.
- * `listFarmerAuthorizations` is where the outcome shows up.
+ * **Two conditions, because "unsettled" is not the same as "waiting".** `settled_at` records
+ * that somebody closed the ticket; the operator's question is whether this person still needs
+ * access. A farmer who can ALREADY publish for the farm they asked about does not, however the
+ * access arrived, and offering "Give access" for access they hold is work that cannot be
+ * completed.
+ *
+ * Measured in production 2026-08-19: one row offered access to Provo Farms for a handset
+ * authorized for Provo Farms the previous day. Nothing was ever going to settle it — the
+ * request was opened AFTER the authorization, so the settle-on-redemption path had already run.
+ * Reading the authorization fixes the rows already stuck as well as the ones to come, which
+ * settling on write would not.
+ *
+ * **Scoped to the farm and to LIVE access.** A farmer authorized for one farm asking about a
+ * second is a real request; so is one whose access was revoked and who is asking again. A
+ * blanket "has any authorization" test would strand both.
+ *
+ * A request that names no farm is always waiting: there is no authorization it could match, and
+ * choosing the farm is precisely the decision the operator is being asked for.
  *
  * Masked at the query, like every other operator surface. A request carries no message text
  * at all, so there is nothing else here to leak.
@@ -2286,6 +2302,13 @@ export async function listOpenFarmerOnboardingRequests(
     left join farmer_invitations as invitation on invitation.id = request.invitation_id
     left join sellers as farm on farm.id = invitation.seller_id
     where request.settled_at is null
+      and not exists (
+        select 1
+        from farmer_authorizations as granted
+        where granted.contact_id = contact.id
+          and granted.seller_id = invitation.seller_id
+          and granted.revoked_at is null
+      )
     order by request.requested_at
   `;
 
