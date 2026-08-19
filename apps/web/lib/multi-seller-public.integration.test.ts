@@ -7,7 +7,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { FixedClock } from "@farm-friend/core";
 import { createDb, openOrReviseProposal, type Db, type Sql } from "@farm-friend/db";
 import { listPublicStands, serializePublicStand } from "./public-listing";
-import { standCardSections } from "./stand-card";
+import { standCardSellerGroups } from "./stand-card-sellers";
 import { standListingLines } from "./map-view";
 
 /*
@@ -240,23 +240,27 @@ describe("multi-seller public surface (integration)", () => {
     // future field that could read as one fails here rather than reaching a customer.
   });
 
-  it("builds an item-first card from the served payload", async () => {
-    const sections = standCardSections(await findStand());
+  it("builds a seller-major card from the served payload", async () => {
+    const sections = standCardSellerGroups(await findStand());
     const confirmed = sections.find((s) => s.register === "confirmed");
 
-    expect(confirmed?.items.map((i) => i.itemName)).toEqual(["venison", "salad greens"]);
-    // Each item once, each with exactly the sellers that support it.
-    expect(confirmed?.items[0]?.providers.map((p) => p.credit)).toEqual([undefined]);
-    expect(confirmed?.items[1]?.providers.map((p) => p.credit)).toEqual(["Gracies Greens"]);
+    // Each seller's own block, carrying exactly the items that seller published (F-119).
+    expect(confirmed?.sellers.map((s) => s.sellerName)).toEqual([
+      "Venison Valley",
+      "Gracies Greens",
+    ]);
+    expect(confirmed?.sellers[0]?.items.map((i) => i.itemName)).toEqual(["venison"]);
+    expect(confirmed?.sellers[1]?.items.map((i) => i.itemName)).toEqual(["salad greens"]);
 
     const usual = sections.find((s) => s.register === "usual");
-    expect(usual?.items.map((i) => i.itemName)).toEqual(["rhubarb"]);
-    expect(usual?.items[0]?.providers[0]?.recency).toBeUndefined();
+    expect(usual?.sellers.flatMap((s) => s.items.map((i) => i.itemName))).toEqual(["rhubarb"]);
+    // A standing claim is dated by nothing, on the real payload as in the unit suite.
+    expect(usual?.sellers.every((s) => s.recency === undefined)).toBe(true);
   });
 
-  it("nests both sellers under one item when they carry the same thing", async () => {
-    // The three-duplicate-Tomatoes case, on the real surface. Written as its own provider so
-    // it does not perturb the fixture the other cases assert against.
+  it("gives each seller its own block when they carry the same thing", async () => {
+    // The shared-item case, on the real surface. Written as its own provider so it does not
+    // perturb the fixture the other cases assert against.
     // Supersede FIRST: `inventory_revisions_one_current_per_provider` is a unique index, so a
     // second current revision for one provider is refused rather than accepted and reconciled.
     await sql()`
@@ -280,21 +284,30 @@ describe("multi-seller public surface (integration)", () => {
       items: [{ itemName: "eggs", priceText: "$7" }],
     });
 
-    const sections = standCardSections(await findStand());
+    const sections = standCardSellerGroups(await findStand());
     const confirmed = sections.find((s) => s.register === "confirmed");
 
-    expect(confirmed?.items).toHaveLength(1);
-    expect(confirmed?.items[0]?.itemName).toBe("eggs");
-    expect(confirmed?.items[0]?.providers.map((p) => p.priceText)).toEqual(["$8", "$7"]);
-    expect(confirmed?.items[0]?.providers.map((p) => p.credit)).toEqual([
-      undefined,
+    /*
+      TWO SELLERS, ONE ITEM, TWO BLOCKS (F-119). Seller-major prints `eggs` under each seller
+      rather than once with both nested — the deliberate tradeoff, and the reason it is not a
+      regression is right here: each copy carries THAT seller's price, under a heading carrying
+      THAT seller's freshness. The comparison is the point.
+    */
+    expect(confirmed?.sellers.map((s) => s.sellerName)).toEqual([
+      "Venison Valley",
       "Gracies Greens",
     ]);
-    // Two sellers, two freshnesses, one row.
-    expect(confirmed?.items[0]?.providers.map((p) => p.recency)).toEqual([
+    expect(confirmed?.sellers.map((s) => s.items.map((i) => i.itemName))).toEqual([
+      ["eggs"],
+      ["eggs"],
+    ]);
+    expect(confirmed?.sellers.map((s) => s.items[0]?.priceText)).toEqual(["$8", "$7"]);
+    expect(confirmed?.sellers.map((s) => s.recency)).toEqual([
       "Last updated 2 hours ago",
       "Last updated 1 hour ago",
     ]);
+    // Both blocks are headed, because two sellers share the section (B-088).
+    expect(confirmed?.sellers.every((s) => s.showHeading)).toBe(true);
   });
 
   describe("a stand shutdown overrides every seller", () => {
@@ -303,7 +316,7 @@ describe("multi-seller public surface (integration)", () => {
       are not notified.** A closed stand is a locked box — whatever any seller published, and
       however fresh, none of it is buyable there.
 
-      ASSERTED ON THE PAYLOAD, not only on the card. `standCardSections` already refuses to
+      ASSERTED ON THE PAYLOAD, not only on the card. `standCardSellerGroups` already refuses to
       itemize under an active closure, but the payload feeds several readers: the compact card
       reads `items`, the search haystack reads `items` and `usuallySells`, and SMS parity reads
       the same fields. Suppressing only in the detail card would leave a closed stand's stock
@@ -397,7 +410,7 @@ describe("multi-seller public surface (integration)", () => {
         expect((payload.sellers ?? []).flatMap((seller) => seller.usualItems)).toEqual([]);
         // No recency either: a date beside a closed stand claims a listing it does not have.
         expect(payload.updated).toBeUndefined();
-        expect(standCardSections(payload)).toEqual([]);
+        expect(standCardSellerGroups(payload)).toEqual([]);
       } finally {
         await reopenStand();
       }
@@ -408,7 +421,7 @@ describe("multi-seller public surface (integration)", () => {
       // that returned nothing for every stand would pass.
       const payload = await findStand();
       expect(payload.items.length).toBeGreaterThan(0);
-      expect(standCardSections(payload).length).toBeGreaterThan(0);
+      expect(standCardSellerGroups(payload).length).toBeGreaterThan(0);
     });
   });
 
