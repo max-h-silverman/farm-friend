@@ -13,9 +13,10 @@ mid-session defeats its own purpose.
 
 ## 2026-08-18 (latest) — the queue ships, then five defects max found by using it
 
-Four deploys in one day, from a standing start of twelve unapplied migrations. Ends with
-`3797ddc` serving as **`farm-friend-web-00086-597` / `farm-friend-worker-00081-lqj`**, digest
-`sha256:f69fee26…03e1`. Unit **2,367 across 167 files** (7 corpus skips), integration
+Five deploys in one day, from a standing start of twelve unapplied migrations. Ends with
+`ac90972` serving as **`farm-friend-web-00087-vt6` / `farm-friend-worker-00082-j8q`**, digest
+`sha256:79be6918…af79` — the last carrying only the heading rename, verified in the shipped bundle
+(`Also selling here` present, `Who sells here` absent). Unit **2,367 across 167 files** (7 corpus skips), integration
 **1,445 across 107 files**, typecheck, lint, scripted evals 11/11 · 4/4 · 19/19.
 **Live evals owed** — DeepInfra returned `502 Bad Gateway` to every call during the wrap; max's
 call was to ship and file it (B-089).

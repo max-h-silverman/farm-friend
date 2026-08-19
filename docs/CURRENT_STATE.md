@@ -41,9 +41,9 @@
 
 ## Deployment and migrations
 
-- Serving **`farm-friend-web-00086-597`** / **`farm-friend-worker-00081-lqj`**, digest
-  `sha256:f69fee2671618a5fa7d219a41ac74f04afe23176345723144b6a64c6407303e1`, built from `3797ddc`.
-  Deployed 2026-08-18. Neither revision has an error-level log; the worker's recovery pass runs
+- Serving **`farm-friend-web-00087-vt6`** / **`farm-friend-worker-00082-j8q`**, digest
+  `sha256:79be6918854e9434546b600332a6a4db2a7d42ddb1cb21c40354692bf9acaf79`, built from `ac90972`.
+  Deployed 2026-08-18 — the fifth deploy that day. `main` is pushed and fully deployed. Neither revision has an error-level log; the worker's recovery pass runs
   every minute returning 200.
 - Neon `neondb` has **54 applied migrations (`0000`–`0053`)**. Nothing is unapplied and nothing is
   unreleased: `main` is fully deployed.
