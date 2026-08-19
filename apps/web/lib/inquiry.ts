@@ -1126,11 +1126,25 @@ async function answerResolvedInquiry(
   }
 
   const grouped = groupSelectableStands(matching);
+  /*
+    F-120 — A STAND ANSWERING THE WHOLE REQUEST OUTRANKS ONE ANSWERING PART OF IT.
+
+    `groupSelectableStands` already deduplicates a stand's `matchedItems` by name across both
+    evidence voices, so its length IS the count of distinct requested names that stand supports.
+    No new query and no second grouping pass.
+
+    BROAD IS DELIBERATELY EXEMPT. `operation: "broad"` sets `selectedNames` to the entire catalog,
+    so a real count there would rank stands by how many items they list — a "biggest listing"
+    leaderboard, in answer to a question that named no item. Passing a constant collapses the key
+    and leaves a broad answer ordered by freshness exactly as it is today.
+  */
+  const isBroad = input.request.operation === "broad";
   const ranked = rankCandidates(
     grouped.map(({ fact }) => ({
       factId: fact.factId,
       locationName: fact.locationName,
       asOf: fact.asOf,
+      matchCount: isBroad ? 1 : fact.matchedItems.length,
     })),
   );
   const byStand = new Map(grouped.map((stand) => [stand.fact.factId, stand]));
@@ -1139,7 +1153,7 @@ async function answerResolvedInquiry(
   return deliverPage(deps, {
     facts,
     itemsRequested: selectedNames,
-    broad: input.request.operation === "broad",
+    broad: isBroad,
     senderHash: input.senderHash,
     occurredAt: input.occurredAt,
     withScope,
