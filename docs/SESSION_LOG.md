@@ -16,7 +16,9 @@ mid-session defeats its own purpose.
 One tranche, `b-091-help-pagination-admin-ux`. Unit **2,439 across 173 files** (7 corpus skips),
 integration **1,473 across 108 files**, typecheck, lint, scripted evals 11/11 · 4/4 · 19/19, and
 `evals:live` green with a NEW fixture for the new category (below). Six of max's seven asks landed;
-the seventh — simplifying the admin console — is deliberately left for the next session.
+the seventh — simplifying the admin console — is deliberately left for the next session as F-122.
+Merged to `main` as #137. **Not deployed, and migrations `0054`/`0055` not applied** — max chose to
+leave the release for next session, so `main` now runs ahead of production by B-090 and B-091.
 
 **HELP could not be fixed where it lived, so it grew a second half.** The registered body answers a
 request for help by naming the word the sender just texted. It is transcribed from live Telnyx

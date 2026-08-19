@@ -63,7 +63,8 @@
 
 - Serving **`farm-friend-web-00088-8cw`** / **`farm-friend-worker-00083-28n`**, digest
   `sha256:bfbc1bc07b66b60d75620e82266ab5dd7c1c1928c99398d12a0aff9a2066e4e4`, built from `d9d0f6c`.
-  Deployed 2026-08-19 (B-089/F-119/F-120/F-121). `main` is pushed and fully deployed. Plan was 0 add
+  Deployed 2026-08-19 (B-089/F-119/F-120/F-121). **`main` is AHEAD of production**: B-090 and B-091
+  are merged and undeployed, and B-091's two migrations are unapplied (below). Plan was 0 add
   / 2 change / 0 destroy — only the image digest moved; 61/61 plan assertions, deploy assertions and
   served-card assertions all passed. Neither revision has an error-level log; the worker's recovery
   pass runs every minute returning 200. **F-119 verified in the shipped assets**: `items-cards`,
