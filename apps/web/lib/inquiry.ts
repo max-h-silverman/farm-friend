@@ -1143,6 +1143,7 @@ async function answerResolvedInquiry(
     senderHash: input.senderHash,
     occurredAt: input.occurredAt,
     withScope,
+    taskText: input.taskText,
   });
 }
 
@@ -1167,6 +1168,12 @@ async function deliverPage(
     senderHash: string;
     occurredAt: Date;
     withScope: (body: string) => string;
+    /**
+     * The customer's own words, so the renderer can tell an exact answer from a related one
+     * (B-086). Only the FIRST page carries it: a `MORE` page renders from the stored list,
+     * where every entry has already earned its place in the order it was ranked.
+     */
+    taskText: string;
   },
 ): Promise<InquiryOutcome> {
   const { factIds, standCount } = groupFactsByStand(input.facts, deps.clock.now());
@@ -1180,6 +1187,7 @@ async function deliverPage(
     offset: 0,
     total: standCount,
     clock: deps.clock,
+    taskText: input.taskText,
   });
 
   if (page.hasMore) {

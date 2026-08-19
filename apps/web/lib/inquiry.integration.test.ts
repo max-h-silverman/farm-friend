@@ -457,6 +457,82 @@ ${farmId}, ${locationId},
     expect(fields!.values.map((v) => v.toLowerCase())).toContain("quince");
   });
 
+  it("puts exact matches first and files category matches under their own heading (B-086)", async () => {
+    /*
+      B-086 — "who has kale?" returned eleven stands, of which one had kale. The matcher had
+      expanded the request up a generality ladder (kale -> leafy greens -> produce) and then
+      back down its other rungs (bok choy, a choy), and the reply presented all of them as
+      equals — so a stand listing "vegetables" read as an answer about kale.
+
+      max's call (2026-08-18): the expansion is useful and stays; the PRESENTATION separates.
+      Exact matches first, the rest under "Other stands with <category>:".
+    */
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["kale"], hoursAgo(2));
+    await publish(ids.betaLocation!, ids.betaFarm!, ["bok choy"], hoursAgo(3));
+
+    const { deps } = inquiryDeps({
+      /*
+        Only values the fixture actually publishes: the membership guard REJECTS any name code
+        did not put in front of the model, which is Golden Rule #4 working. The production
+        expansion also included `leafy greens`, but a catalog value has to exist for a stand to
+        carry it, so the shape is proved with the two that do.
+      */
+      "catalog-match": JSON.stringify({ matches: ["kale", "bok choy"] }),
+    });
+
+    const result = await answerInquiry(deps, {
+      mode: "search_stands",
+      request: { operation: "inventory" },
+      taskText: "who has kale?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+
+    // The stand with kale leads; the stand with bok choy is below the heading, not above it.
+    const kaleAt = result.body.indexOf("Alpha Farm Stand");
+    const headingAt = result.body.indexOf("Other stands with");
+    const bokChoyAt = result.body.indexOf("Beta Farm Stand");
+    expect(kaleAt).toBeGreaterThan(-1);
+    expect(headingAt).toBeGreaterThan(kaleAt);
+    expect(bokChoyAt).toBeGreaterThan(headingAt);
+
+    // The heading NAMES the category, and names one the matcher actually chose.
+    expect(result.body).toMatch(/Other stands with bok choy:/);
+  });
+
+  it("uses no heading when every stand answers the question exactly (B-086)", async () => {
+    /*
+      The other half: a question whose matches are all exact must read exactly as it did before
+      this change. A heading over nothing, or a heading when there is nothing to be "other"
+      than, would be chrome on the common case.
+    */
+    await publish(ids.alphaLocation!, ids.alphaFarm!, ["kale"], hoursAgo(2));
+    await publish(ids.betaLocation!, ids.betaFarm!, ["Kale"], hoursAgo(3));
+
+    const { deps } = inquiryDeps({
+      "catalog-match": JSON.stringify({ matches: ["kale", "Kale"] }),
+    });
+
+    const result = await answerInquiry(deps, {
+      mode: "search_stands",
+      request: { operation: "inventory" },
+      taskText: "who has kale?",
+      senderHash: customerHash,
+      occurredAt: T0,
+      scope: { includeTestFarms: false },
+    });
+
+    expect(result.outcome).toBe("answered");
+    if (result.outcome !== "answered") return;
+    expect(result.body).not.toContain("Other stands with");
+    expect(result.body).toContain("Alpha Farm Stand");
+    expect(result.body).toContain("Beta Farm Stand");
+  });
+
   it("resolves one stand in code before asking which fact the customer wants (B-069)", async () => {
     await client()`
       update sales_locations set name = 'Pinecone Gardens', public_address = '123 Forest Road'

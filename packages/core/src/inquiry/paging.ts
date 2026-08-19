@@ -13,6 +13,7 @@
 // what lets the segment ceiling be asserted directly against its output.
 
 import type { Clock } from "../clock";
+import { relatedCategoryLabel, sortMatchesByExactness } from "./exactness";
 import {
   isConfirmationExpired,
   isStale,
@@ -286,6 +287,14 @@ export function renderResultPage(input: {
   offset: number;
   total: number;
   clock: Clock;
+  /**
+   * The customer's own message, when the caller has it (B-086).
+   *
+   * Used only to decide which matched values ANSWER the question and which merely relate to it,
+   * so a stand listing "vegetables" stops reading as an answer about kale. Absent on a `MORE`
+   * page rendered from a stored list, where every entry has already earned its place.
+   */
+  taskText?: string;
 }): RenderedPage {
   const { facts, offset, total, clock } = input;
   const now = clock.now();
@@ -304,9 +313,44 @@ export function renderResultPage(input: {
   // facts behind them promised more than existed (B-062).
   const hasMore = offset + ordered.length < total;
 
+  /*
+    B-086 — EXACT MATCHES FIRST, THEN WHAT MERELY RELATES (max, 2026-08-18).
+
+    A stand earns the top group when any item it matched on contains the customer's own product
+    word. The rest sell something the matcher reached by category — genuinely useful, and
+    genuinely not what was asked — so they sit under a heading that says which category.
+
+    Split AFTER `mergeIntoStandEntries` so a stand carrying both an exact item and a related one
+    counts once, in the group that answers. Stable within each group, so the ranking above
+    survives: fresh confirmations still lead.
+  */
+  const exactness =
+    input.taskText === undefined
+      ? undefined
+      : sortMatchesByExactness(
+          input.taskText,
+          ordered.flatMap((entry) =>
+            [
+              ...(entry.confirmed?.matchedItems ?? []),
+              ...(entry.offering?.matchedItems ?? []),
+            ].map((item) => item.itemName),
+          ),
+        );
+  const exactValues = new Set(
+    (exactness?.exact ?? []).map((value: string) => value.trim().toLowerCase()),
+  );
+  const answersExactly = (entry: StandEntry): boolean =>
+    exactness === undefined ||
+    [...(entry.confirmed?.matchedItems ?? []), ...(entry.offering?.matchedItems ?? [])].some(
+      (item) => exactValues.has(item.itemName.trim().toLowerCase()),
+    );
+  const exactEntries = ordered.filter(answersExactly);
+  const relatedEntries = ordered.filter((entry) => !answersExactly(entry));
+  const relatedLabel = relatedCategoryLabel(exactness?.related ?? []);
+
   lines.push(renderHeader({ shown: ordered.length, offset, total }));
 
-  for (const entry of ordered) {
+  for (const entry of exactEntries) {
     lines.push("");
     lines.push(entry.locationName);
 
@@ -354,6 +398,39 @@ export function renderResultPage(input: {
       if (items !== "") lines.push(`${label}: ${items}`);
     }
 
+    lines.push(entry.address);
+  }
+
+  /*
+    The heading names the CATEGORY, taken from the matched values themselves rather than any
+    taxonomy — these are names farmers typed. It appears only when there is something under it
+    AND something above it: a page of nothing but related stands has no "other" to be other
+    than, so those entries render as the ordinary answer.
+  */
+  if (relatedEntries.length > 0 && exactEntries.length > 0 && relatedLabel !== undefined) {
+    lines.push("");
+    lines.push(`Other stands with ${relatedLabel}:`);
+  }
+  for (const entry of relatedEntries) {
+    lines.push("");
+    lines.push(entry.locationName);
+    if (entry.confirmed !== undefined) {
+      lines.push(
+        `In stock (${renderStockAge(entry.confirmed.asOf, now)}): ${entry.confirmed.matchedItems.map(renderItem).join(", ")}`,
+      );
+    }
+    if (entry.offering !== undefined) {
+      const confirmedNames = new Set(
+        (entry.confirmed?.matchedItems ?? []).map((item) => item.itemName.trim().toLowerCase()),
+      );
+      const items = entry.offering.matchedItems
+        .filter((item) => !confirmedNames.has(item.itemName.trim().toLowerCase()))
+        .map(renderItem)
+        .join(", ");
+      if (items !== "") {
+        lines.push(`${entry.confirmed === undefined ? "May have" : "May also have"}: ${items}`);
+      }
+    }
     lines.push(entry.address);
   }
 
