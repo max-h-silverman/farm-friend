@@ -112,12 +112,16 @@ unit tests alone, and no width below 500px was reachable.
   column); `drizzle-kit` does not emit them. A hand-written migration's snapshot is repaired as a **measured
   DELTA of its predecessor, never by introspection** — RUNBOOK §Migrations and DEVELOPMENT.md
   §gotchas own the procedure and the evidence for it.
-- Cloud Run web **`farm-friend-web-00084-wrh`** and worker **`farm-friend-worker-00079-922`** serve
-  digest `sha256:59bcf36053a5c973f0529fd62a792e5f80339acbfe7bade1f18a53d772cabdd1`, built from
-  `ee466c4` (B-083 + B-084). Deployed 2026-08-18, replacing `00083-zvf`/`00078-x7f` from `25665e8`
-  the same day. **Both label fixes verified IN THE SHIPPED BUNDLES**, not by exit status:
-  `Hours unknown` in the map chunk, `Selling here` in the admin chunk, and `Stand is open`,
-  `Keep it open` and `Close the stand` all absent. The plan was `0 to add, 2 to change, 0 to destroy` — the image on
+- Cloud Run web **`farm-friend-web-00086-597`** and worker **`farm-friend-worker-00081-lqj`** serve
+  digest `sha256:f69fee2671618a5fa7d219a41ac74f04afe23176345723144b6a64c6407303e1`, built from
+  `3797ddc` (B-086 + B-087 + B-088). Deployed 2026-08-18 — the fourth deploy that day, after
+  `25665e8` (the migration queue), `ee466c4` (B-083/B-084) and `9bc7e78` (B-085).
+- **The inquiry answers were verified IN PRODUCTION against real data**, not by exit status:
+  `who has eggs?` returns **12 matching stands** (it returned 1 before B-087), with Provo Farms
+  third on its two-day-old listing. `who has kale?` returns 6, led by the stands that actually
+  have kale, with `Other stands with salad greens:` separating the category matches. No
+  regressions: flowers 13, tomatoes 6, and `who has durian?` still gives the honest no-listing
+  reply rather than inventing a match. The plan was `0 to add, 2 to change, 0 to destroy` — the image on
   both services and nothing else; `plan-assertions.py` 61/61, `deploy_assertions.py` and
   `served_card_assertions.py` both pass. **B-074, F-114/F-115, F-101, F-117 and the two 2026-08-18
   UI passes (`b14155f`, `beeb386`) are now live.** Neither revision has an error-level log; the
@@ -156,6 +160,41 @@ Provo Farms — nobody has decided them. The remaining retained names stay displ
 
 **None of the three can update a listing.** No phone, no authorization: they are credited sellers
 with no inventory of their own until someone onboards them.
+
+## The three inquiry and display defects max found on 2026-08-18
+
+All three were reported from a real handset or the live site, all three are fixed, deployed and
+verified in production.
+
+**B-087 (critical) — nine stands were invisible to a direct question.** The catalog the matcher
+sees was built from `listPublicStands`, which drops the items of any confirmation past 28 days,
+while the answer is filtered from `retrieveSmsListings`, which applies no such filter. A stand
+whose last confirmation was 29 days old therefore contributed NO catalog value, and **the model
+cannot select a value it was never shown** — so the stand was unreachable by name rather than
+merely ranked last. The catalog is now built from the same rows the answer is filtered from, so
+the two cannot disagree. Age still words the line and ranks the result; it no longer decides
+whether a farmer can be found.
+
+**B-086 — category matches were presented as equals to exact ones.** `who has kale?` returned
+eleven stands, one of which had kale: the matcher had expanded up a generality ladder and back
+down its other rungs. The expansion is CORRECT and F-045 requires it, so the fix is presentational
+(max, 2026-08-18): `sortMatchesByExactness` is pure code with no model involvement, exact matches
+lead, and the rest sit under `Other stands with <category>:` — the category named from the matched
+catalog values themselves, never from a taxonomy. **Known limit, asserted rather than hidden:**
+"a choy" also treats `bok choy` as exact, because stripping question grammar removes the article.
+
+**B-088 — two display facts repeated or shrunk away.** Per-item recency printed the section
+heading's own phrase on every line (33 of 37 public stands have one seller); it now appears only
+where the sellers on that item disagree. The map tooltip is a `foreignObject`, so its font sizes
+are viewBox units — "Runs this stand" measured **6.6px on a 390px phone**. It now counter-scales
+to a fixed real size.
+
+**A live-eval fixture fails intermittently and it is NOT caused by this work.** `live-operation`'s
+second-person case returns `search_stands`/`hours` for "when do you open?" on some runs and the
+correct `system_inquiry` on others — 4/5 or 5/5 with identical code. Confirmed pre-existing: it
+fails twice in a row on stashed `main`, and the classifier answers correctly 15/15 when exercised
+directly. Worth a fixture that tolerates the model's variance, or a corpus entry, rather than
+treating each run as a regression.
 
 ## Verification
 
