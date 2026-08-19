@@ -178,7 +178,7 @@ describe("a rendered page stays inside the two-segment ceiling (F-046)", () => {
       });
 
     const page = render(["leafy greens", "winter squash"]);
-    expect(page.body.split("\n")[0]).toBe("45 matching stands (1-3 of 45)");
+    expect(page.body.split("\n")[0]).toBe("Results 1-3 of 45");
     expect(page.body).toBe(render(["eggs"]).body);
     expect(estimateSmsSegments(page.body).segmentCount).toBeLessThanOrEqual(3);
   });

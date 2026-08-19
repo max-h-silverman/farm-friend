@@ -9,7 +9,7 @@ import {
   type LLMProvider,
   type ModelSafeContext,
 } from "@farm-friend/ai";
-import { FixedClock, PAGE_SIZE } from "@farm-friend/core";
+import { FixedClock, PAGE_SIZE, MAP_INVITATION_LINE } from "@farm-friend/core";
 import { createDb, type Db, type Sql } from "@farm-friend/db";
 import {
   answerInquiry,
@@ -321,7 +321,7 @@ describe("SMS result paging end to end (integration)", () => {
     expect(answer.body).toMatch(/reply MORE/i);
     // The header counts stands and names nothing. "produce" is code's own placeholder for
     // driving retrieval, and nothing echoes the request back, so it cannot reach the customer.
-    expect(answer.body.split("\n")[0]).toBe("9 matching stands (1-3 of 9)");
+    expect(answer.body.split("\n")[0]).toBe("Results 1-3 of 9");
     expect(answer.body).not.toMatch(/produce/i);
 
     expect(seen).toEqual([]);
@@ -341,7 +341,7 @@ describe("SMS result paging end to end (integration)", () => {
     expect(next.status).toBe("paged");
     expect(next.body).toMatch(/4-6 of 9/);
     // THE POINT: page 2 heads the same way page 1 did — same count, advanced window.
-    expect(next.body.split("\n")[0]).toBe("9 matching stands (4-6 of 9)");
+    expect(next.body.split("\n")[0]).toBe("Results 4-6 of 9");
     expect(next.body).not.toMatch(/produce/i);
   });
 
@@ -387,7 +387,7 @@ describe("SMS result paging end to end (integration)", () => {
     if (answer.outcome !== "answered") return;
 
     // Three stands, not six facts — the count the customer reads is stands.
-    expect(answer.body).toContain("3 matching stands");
+    expect(answer.body).toContain("3 results");
     // Everything fits, so there is no second page at all.
     expect(answer.body).not.toMatch(/MORE/i);
 
@@ -416,7 +416,7 @@ describe("SMS result paging end to end (integration)", () => {
 
     expect(answer.outcome).toBe("answered");
     if (answer.outcome !== "answered") return;
-    expect(answer.body).toContain("4 matching stands (1-3 of 4)");
+    expect(answer.body).toContain("Results 1-3 of 4");
     expect(answer.body).toMatch(/Reply MORE for the next 1\./);
     const firstPageNames = standNames.filter((name) => answer.body.includes(name));
     expect(firstPageNames).toHaveLength(3);
@@ -426,7 +426,7 @@ describe("SMS result paging end to end (integration)", () => {
 
     const next = await more(customerHash, at(1));
     expect(next.status).toBe("paged");
-    expect(next.body).toContain("4 matching stands (4-4 of 4)");
+    expect(next.body).toContain("Results 4-4 of 4");
     // The fourth stand, whole: its own entry with both claims, not a stray offering line.
     const lastName = standNames.find((name) => next.body.includes(name));
     expect(lastName).toBeDefined();
@@ -501,9 +501,11 @@ describe("SMS result paging end to end (integration)", () => {
     }
     expect(page.body.match(/^In stock /gm)).toHaveLength(3);
     expect(page.body.match(/^May also have: /gm)).toHaveLength(3);
-    // Every stand was served, so the list is spent and the page closes with the map.
+    // Every stand was served, so the list is spent and the page closes by naming the map
+    // keyword rather than spending a URL on it (B-091).
     expect(page.body).not.toMatch(/MORE/i);
-    expect(page.body).toMatch(/^Map: https:/m);
+    expect(page.body.endsWith(`\n${MAP_INVITATION_LINE}`)).toBe(true);
+    expect(page.body).not.toMatch(/https?:\/\//);
 
     const left = await client()`
       select id from pending_result_lists where sender_hash = ${customerHash}

@@ -11,7 +11,7 @@ import {
   renderStockAge,
   ORIGIN_LIMITATION_STATEMENT,
   PAGE_SIZE,
-  PUBLIC_MAP_URL,
+  MAP_INVITATION_LINE,
   RECIPE_SCOPE_STATEMENT,
   resolveStandName,
   timeZoneOffsetMinutes,
@@ -856,7 +856,7 @@ async function answerResolvedInquiry(
     if (matching.length === 0) {
       return {
         outcome: "answered",
-        body: `No public stand currently lists VIGA Farm Bucks acceptance.\n\nMap: ${PUBLIC_MAP_URL}`,
+        body: `No public stand currently lists VIGA Farm Bucks acceptance.\n\n${MAP_INVITATION_LINE}`,
         selectedFactIds: [],
       };
     }
@@ -952,7 +952,7 @@ async function answerResolvedInquiry(
     if (matching.length === 0) {
       return {
         outcome: "answered",
-        body: `No public stand is confirmed open right now.\n\nMap: ${PUBLIC_MAP_URL}`,
+        body: `No public stand is confirmed open right now.\n\n${MAP_INVITATION_LINE}`,
         selectedFactIds: [],
       };
     }
@@ -1051,7 +1051,7 @@ async function answerResolvedInquiry(
     if (matching.length === 0) {
       return {
         outcome: "answered",
-        body: `No public stand lists ${selectedMethods.join(" or ") || "that"} as a payment method.\n\nMap: ${PUBLIC_MAP_URL}`,
+        body: `No public stand lists ${selectedMethods.join(" or ") || "that"} as a payment method.\n\n${MAP_INVITATION_LINE}`,
         selectedFactIds: [],
       };
     }

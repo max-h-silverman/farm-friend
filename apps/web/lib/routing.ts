@@ -10,6 +10,8 @@ import {
   renderContactCardOffer,
   CUSTOMER_WELCOME,
   REGISTERED_HELP_AUTO_RESPONSE,
+  renderHelpGuide,
+  ISSUE_REPORT_FILED,
   JOIN_OPT_IN_AUTO_RESPONSE,
   REGISTERED_OPT_OUT_AUTO_RESPONSE,
   renderClarificationRequest,
@@ -24,6 +26,9 @@ import {
   applyConsentTransition,
   confirmInventoryPublication,
   openFarmerOnboardingRequest,
+  hasLiveFarmerAuthorization,
+  readPendingIssueReport,
+  clearPendingIssueReport,
   type Db,
 } from "@farm-friend/db";
 import type { PagingStatus } from "./paging";
@@ -477,19 +482,44 @@ async function routeCompliance(
   const transition = consentTransitionFor(keyword, null);
 
   if (transition === null) {
-    // HELP/INFO: an answer is owed, but consent is untouched — asking for help is not
-    // opting in, and the registered help copy is what the carrier approved.
+    /*
+      HELP/INFO: an answer is owed, but consent is untouched — asking for help is not opting
+      in, and the registered help copy is what the carrier approved.
+
+      TWO messages, deliberately (B-091). The registered body is transcribed from live Telnyx
+      console state and must stay byte-identical, so the guidance a sender can actually act on
+      cannot be concatenated onto it — it rides as its own ordinary reply. Both are
+      `required_reply`: HELP is answered for every sender, including one who has opted out.
+
+      The audience is resolved from `farmer_authorizations`, the same source the free-text
+      access fork reads. A farmer and a customer have different interfaces, and a list of words
+      that do nothing for the reader is worse than a shorter list. A failed lookup is answered
+      as a customer: that is the larger audience and the words it teaches are the ones anyone
+      may use, so the wrong guess costs a farmer a line rather than misleading a customer.
+    */
+    const isFarmer = await hasLiveFarmerAuthorization(deps.db, {
+      senderHash: input.senderHash,
+      occurredAt: input.occurredAt,
+    }).catch(() => false);
+
     return {
       outcome: { kind: "help" },
-      replies: autoResponse
-        ? [
-            {
-              body: autoResponse,
-              category: "required_reply",
-              logicalKey: `help-${input.providerEventId}`,
-            },
-          ]
-        : [],
+      replies: [
+        ...(autoResponse
+          ? [
+              {
+                body: autoResponse,
+                category: "required_reply" as const,
+                logicalKey: `help-${input.providerEventId}`,
+              },
+            ]
+          : []),
+        {
+          body: renderHelpGuide(isFarmer ? "farmer" : "customer"),
+          category: "required_reply" as const,
+          logicalKey: `help-guide-${input.providerEventId}`,
+        },
+      ],
     };
   }
 
@@ -652,6 +682,66 @@ async function routeCompliance(
 }
 
 
+/**
+ * Commit a pending issue report on the sender's `YES`, or release it on `NO` (B-091).
+ *
+ * **This is where the model's recognition becomes durable state, and code does it — not the
+ * model** (Golden Rule #3). The classifier only ever produced a question; the row it left
+ * behind is inert until a human confirms it here.
+ *
+ * The flag it files is the SAME insert `FLAG` uses, into the same queue, with the same
+ * `open` status — a different `reason_code` is the only difference, and it records how the
+ * item arrived rather than changing what it is. VIGA reads one review queue.
+ *
+ * Returns null when the sender has no pending report, so the caller falls through to its
+ * ordinary "nothing open" answer.
+ */
+async function fileConfirmedIssueReport(
+  deps: RouteDeps,
+  input: RouteInput,
+  token: "YES" | "NO",
+): Promise<RouteResult | null> {
+  const pending = await readPendingIssueReport(deps.db, {
+    senderHash: input.senderHash,
+    occurredAt: input.occurredAt,
+  });
+  if (pending === null) return null;
+
+  // Cleared on BOTH arms. A declined report that stayed open would make the sender's next
+  // unrelated YES file an issue they had already said no to.
+  await clearPendingIssueReport(deps.db, { senderHash: input.senderHash });
+
+  if (token === "NO") {
+    return { outcome: { kind: "confirmation", status: "issue_report_declined" }, replies: [] };
+  }
+
+  /*
+    The flag points at the event the REPORT arrived on, not at this bare `YES`. A coordinator
+    opening the thread needs the sentence describing the problem; the confirmation carries no
+    information on its own.
+  */
+  const inserted = await deps.db.sql`
+    insert into flags (contact_hash, inbox_event_id, reason_code, status, created_at)
+    values (
+      ${input.senderHash}, ${pending.inboxEventId}, 'issue_reported', 'open',
+      ${input.occurredAt}
+    )
+    returning id
+  `;
+
+  return {
+    outcome: { kind: "flag", flagId: inserted[0]?.id as string },
+    replies: [
+      {
+        body: ISSUE_REPORT_FILED,
+        // Answering the sender's own message, so it rides on that message.
+        category: "required_reply",
+        logicalKey: `issue-filed-${input.providerEventId}`,
+      },
+    ],
+  };
+}
+
 async function routeCommitment(
   deps: RouteDeps,
   input: RouteInput,
@@ -690,6 +780,22 @@ async function routeCommitment(
   const proposalId = open[0]?.id as string | undefined;
 
   if (!proposalId) {
+    /*
+      B-091 — THE ISSUE CONFIRMATION IS LAST, and losing is what makes it safe.
+
+      Three things now mean `YES`: a host answering "do you host her?", a seller publishing an
+      inventory update, and a sender confirming we should pass an issue to VIGA. The first two
+      are consequential — they change what the island reads — so the third is only consulted
+      when NEITHER is open. A sender with a live proposal who texts YES publishes their
+      inventory, exactly as before; the issue question waits, and its `or tell us more` arm is
+      the way back to it.
+
+      Nothing here is reinterpreted from the token: with nothing open at all, `YES` still means
+      nothing, and the sender falls through to the same `no_open_proposal` answer.
+    */
+    const filed = await fileConfirmedIssueReport(deps, input, token);
+    if (filed !== null) return filed;
+
     return {
       outcome: { kind: "confirmation", status: "no_open_proposal" },
       replies: [],

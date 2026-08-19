@@ -8,6 +8,7 @@ import {
   renderResultPage,
   type PageableFact,
 } from "./paging";
+import { MAP_INVITATION_LINE } from "./answer";
 
 const NOW = new Date("2026-07-25T12:00:00Z");
 const clock = new FixedClock(NOW);
@@ -435,7 +436,7 @@ describe("no rendered claim names an item its rows do not carry (B-049, B-061)",
   /**
    * The stand entries alone — the header is excluded deliberately.
    *
-   * The header names the customer's own query back to them ("Mangoes: 1 matching stand"), and
+   * The header names the customer's own query back to them ("Mangoes: 1 result"), and
    * that is NOT the defect class B-049 and B-061 describe. It claims only that stands matched
    * the request, which is a statement about our search; the fatal claim was always a sentence
    * asserting that a particular stand CARRIES the item. So these assertions are anchored to
@@ -841,7 +842,7 @@ describe("entry layout — name, then claims, then address", () => {
 /*
   The header states the count and the window — nothing else (max, 2026-08-11).
 
-  It named the query back first ("Eggs: 10 matching stands"). The customer just typed the
+  It named the query back first ("Eggs: 10 results"). The customer just typed the
   query, so echoing it spends characters on the one thing they already know, and it made the
   header a claim about the list that B-049 and B-061 both got wrong. A bare count cannot be
   false about any entry beneath it, and it reads identically for a named item and for "what do
@@ -866,7 +867,7 @@ describe("the header states the count and the window", () => {
       total: 10,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("10 matching stands (1-3 of 10)");
+    expect(body.split("\n")[0]).toBe("Results 1-3 of 10");
   });
 
   it("never echoes the requested items, however many were named", () => {
@@ -877,11 +878,11 @@ describe("the header states the count and the window", () => {
       total: 6,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("6 matching stands (1-3 of 6)");
+    expect(body.split("\n")[0]).toBe("Results 1-3 of 6");
     expect(body).not.toMatch(/eggs \+ kale/i);
   });
 
-  it("says stand, singular, for exactly one", () => {
+  it("says result, singular, for exactly one", () => {
     const body = renderResultPage({
       itemsRequested: ["nigella"],
       facts: [eggStand(1)],
@@ -889,9 +890,9 @@ describe("the header states the count and the window", () => {
       total: 1,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("1 matching stand");
+    expect(body.split("\n")[0]).toBe("1 result");
     // A range of one over a total of one is noise.
-    expect(body).not.toMatch(/\(1-1 of 1\)/);
+    expect(body).not.toMatch(/1-1 of 1/);
   });
 
   it("omits the window when everything fits on one page", () => {
@@ -902,7 +903,7 @@ describe("the header states the count and the window", () => {
       total: 2,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("2 matching stands");
+    expect(body.split("\n")[0]).toBe("2 results");
   });
 
   it("counts the window from the page's true offset", () => {
@@ -913,7 +914,7 @@ describe("the header states the count and the window", () => {
       total: 10,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("10 matching stands (4-6 of 10)");
+    expect(body.split("\n")[0]).toBe("Results 4-6 of 10");
   });
 
   it("reads the same with no requested term at all", () => {
@@ -924,7 +925,7 @@ describe("the header states the count and the window", () => {
       total: 1,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("1 matching stand");
+    expect(body.split("\n")[0]).toBe("1 result");
   });
 
   it("never says Here are matching stands", () => {
@@ -959,7 +960,7 @@ describe("the header states the count and the window", () => {
       total: grouped.standCount,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("1 matching stand");
+    expect(body.split("\n")[0]).toBe("1 result");
     // The two facts printed one entry, so there is nothing further to page to.
     expect(body).not.toMatch(/MORE/);
   });
@@ -1258,7 +1259,7 @@ describe("the general inventory header", () => {
       total: 45,
       clock,
     }).body;
-    expect(body.split("\n")[0]).toBe("45 matching stands (1-3 of 45)");
+    expect(body.split("\n")[0]).toBe("Results 1-3 of 45");
     // The placeholder the code path substitutes must never surface as the customer's word.
     expect(body).not.toMatch(/produce/i);
   });
@@ -1280,7 +1281,12 @@ describe("the general inventory header", () => {
 });
 
 /*
-  The last page closes with the map (max, 2026-08-11).
+  The last page closes by NAMING the map keyword, not by carrying the URL (max, 2026-08-19).
+
+  A link is the most expensive line in a text thread — it survives no line break and it is what
+  carriers score for spam — and most answers are read by someone who wanted the stand, not the
+  whole island. `MAP` is a real parsed command that replies with exactly that URL, so the
+  pointer costs one short sentence and the sender fetches the link when they want it.
 
   "All of them. Map: <url>" read as a sentence fragment answering a question nobody asked. The
   header already states the range and the total, so the closing line has no counting to do —
@@ -1297,7 +1303,7 @@ describe("the closing line", () => {
     basis: "confirmed",
   });
 
-  it("offers the bare map link on the final page", () => {
+  it("names the map keyword on the final page, spending no URL", () => {
     const body = renderResultPage({
       itemsRequested: ["eggs"],
       facts: [stand(4), stand(5), stand(6)],
@@ -1305,11 +1311,13 @@ describe("the closing line", () => {
       total: 6,
       clock,
     }).body;
-    expect(body).toMatch(/\nMap: https:\/\/\S+$/);
+    expect(body.endsWith(`\n${MAP_INVITATION_LINE}`)).toBe(true);
     expect(body).not.toMatch(/all of them/i);
+    // The whole point: no link on a page that already fit in the thread.
+    expect(body).not.toMatch(/https?:\/\//);
   });
 
-  it("offers the map on a single-page answer too", () => {
+  it("names the map keyword on a single-page answer too", () => {
     const body = renderResultPage({
       itemsRequested: ["nigella"],
       facts: [stand(1)],
@@ -1317,7 +1325,8 @@ describe("the closing line", () => {
       total: 1,
       clock,
     }).body;
-    expect(body).toMatch(/\nMap: https:\/\/\S+$/);
+    expect(body.endsWith(`\n${MAP_INVITATION_LINE}`)).toBe(true);
+    expect(body).not.toMatch(/https?:\/\//);
   });
 
   it("offers MORE instead of the map when results remain", () => {

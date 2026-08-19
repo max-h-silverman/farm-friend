@@ -43,6 +43,22 @@ export const REQUEST_CATEGORIES = [
   "inventory_report",
   /** What the service is, how it works, the map. */
   "system_inquiry",
+  /**
+   * Something is WRONG and a person should know — a listing that misstates what a stand
+   * carries, a map pin in the wrong place, a reply that made no sense, a stand that has
+   * closed. Distinct from `system_inquiry`, which asks what the service does: this reports
+   * that it did something incorrectly (max, 2026-08-19).
+   *
+   * **Classifying this commits nothing.** Code files the review item, and only after the
+   * sender confirms — the model names a possibility, never a consequence (Golden Rule #3).
+   * That gate is why a false positive here costs one question rather than a false report in
+   * VIGA's queue.
+   *
+   * It is deliberately NOT `inventory_report`. "Pinecone is out of eggs" is a claim about the
+   * world that the stock-out path already handles; "your map shows the wrong hours" is a
+   * claim about US, and no amount of inventory retrieval answers it.
+   */
+  "issue_report",
   /** Greeting, thanks, acknowledgement, small talk. */
   "chitchat",
   /**
@@ -90,6 +106,7 @@ export const requestClassificationSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("stand_lookup"), request: lookupRequestSchema }).strict(),
   z.object({ kind: z.literal("inventory_report") }).strict(),
   z.object({ kind: z.literal("system_inquiry") }).strict(),
+  z.object({ kind: z.literal("issue_report") }).strict(),
   z.object({ kind: z.literal("chitchat") }).strict(),
   z.object({ kind: z.literal("unclear") }).strict(),
 ]);
