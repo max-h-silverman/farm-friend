@@ -54,10 +54,14 @@
 
 ## Deployment and migrations
 
-- Serving **`farm-friend-web-00087-vt6`** / **`farm-friend-worker-00082-j8q`**, digest
-  `sha256:79be6918854e9434546b600332a6a4db2a7d42ddb1cb21c40354692bf9acaf79`, built from `ac90972`.
-  Deployed 2026-08-18 — the fifth deploy that day. `main` is pushed and fully deployed. Neither revision has an error-level log; the worker's recovery pass runs
-  every minute returning 200.
+- Serving **`farm-friend-web-00088-8cw`** / **`farm-friend-worker-00083-28n`**, digest
+  `sha256:bfbc1bc07b66b60d75620e82266ab5dd7c1c1928c99398d12a0aff9a2066e4e4`, built from `d9d0f6c`.
+  Deployed 2026-08-19 (B-089/F-119/F-120/F-121). `main` is pushed and fully deployed. Plan was 0 add
+  / 2 change / 0 destroy — only the image digest moved; 61/61 plan assertions, deploy assertions and
+  served-card assertions all passed. Neither revision has an error-level log; the worker's recovery
+  pass runs every minute returning 200. **F-119 verified in the shipped assets**: `items-cards`,
+  `item-card-price`, `item-card-name` and `seller-block-heading` present in both the JS and CSS
+  bundles, and the old `items-nested` / `item-sellers` absent.
 - Neon `neondb` has **54 applied migrations (`0000`–`0053`)**. Nothing is unapplied and nothing is
   unreleased: `main` is fully deployed.
 - **`inventory_publication_proposals.provider_id` is nullable in production, and that is correct.**
@@ -193,6 +197,11 @@
   this advisory fixture without production evidence.
 - Provider-failure copy is integration-tested only. A real outage test belongs on an isolated preview
   service, never VIGA's production model account.
+- **The F-121 consent gate is unexercised on a real handset.** It ships verified by integration
+  (44 routing cases) and by unit tests, but exercising it in production means sending real texts, so
+  the invitation copy has never been read on a phone. First handset check should be: text the number
+  from an unenrolled phone, confirm the invitation arrives, reply `JOIN`, confirm the welcome, then
+  ask a stand question and confirm it is answered.
 - **Everything shipped 2026-08-18 is unseen in a browser.** The three-state open badge, the admin
   participation labels, Morgan Hill's restored typed names, the per-item recency rule, and the
   counter-scaled map tooltip were all verified by test, by measurement and (for the two label

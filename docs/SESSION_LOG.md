@@ -101,8 +101,15 @@ we knowingly invalidate — F-121 carries the equivalent guarantee for the invit
 `STAND`, `SETTINGS` and publishing `YES` until they text one of the five keywords. Normal onboarding
 establishes consent via `VIGA`, so the ordinary path is unaffected.
 
+**Deployed** 2026-08-19 as **`farm-friend-web-00088-8cw` / `farm-friend-worker-00083-28n`**, digest
+`sha256:bfbc1bc0…e4e4`, from `d9d0f6c`. Plan was 0 add / 2 change / 0 destroy — only the digest moved
+— with 61/61 plan assertions, deploy assertions and served-card assertions all passing. F-119
+confirmed in the shipped bundles (`items-cards`, `item-card-price`, `seller-block-heading` present;
+`items-nested` and `item-sellers` gone).
+
 **Owed:** no message has been read on a real handset — the F-121 invitation copy included — and the
-F-119 card has not been seen on a phone.
+F-119 card has not been seen on a phone. F-121 could not be exercised against production without
+sending real texts, so it ships verified by integration only.
 
 ## 2026-08-18 — the queue ships, then five defects max found by using it
 
