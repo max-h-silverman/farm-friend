@@ -140,7 +140,9 @@ shows.
 **F-119** files max's mockup for the next session: In stock and Usually sells become per-seller
 groups of bordered item cards, each seller sub-heading carrying its own recency. It is presentation
 over data the card already receives — `groupProviderItems` returns providers per item today, so
-regrouping to seller-major is the work.
+regrouping to seller-major is the work. **The mockup image itself was not preserved** — it arrived
+through the conversation rather than as a file, so F-119 carries a written transcription and a note
+to have max re-attach the original before building.
 
 ### What this session cost, and the standing lesson
 
