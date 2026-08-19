@@ -1108,6 +1108,54 @@ body {
 /* `.admin-farm` is a flex row for the queue cards that share the class, which makes this
    card's `<details>` shrink-wrap to its content — the row's right column then lands mid-row
    instead of at the edge. A farm card is one full-width block, so it says so. */
+/*
+  INVITES — a collapsed section above the roster (F-122, max 2026-08-19).
+
+  Reads as a band rather than as a card: it sits above the list and is not one of the entities
+  in it, so it borrows the row's caret and count but none of the card's border treatment. Shut by
+  default, because the roster is the daily work and an invite is occasional.
+*/
+.admin-invites-section {
+  margin-bottom: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--admin-cream);
+}
+
+.admin-invites-summary {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+  /* 48px minimum: an operator taps this on a phone, like every other row. */
+  min-height: 48px;
+  box-sizing: border-box;
+  padding: 0.75rem 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.admin-invites-summary::-webkit-details-marker {
+  display: none;
+}
+
+.admin-invites-summary:focus-visible {
+  outline: 3px solid color-mix(in srgb, var(--green) 35%, transparent);
+  outline-offset: -3px;
+}
+
+.admin-invites-title {
+  font-weight: 600;
+}
+
+/* The same rotation the entity rows use, so one disclosure gesture reads the same everywhere. */
+.admin-invites-section[open] > .admin-invites-summary .admin-row-caret {
+  transform: rotate(90deg);
+}
+
+.admin-invites-body {
+  padding: 0 1rem 1rem;
+}
+
 .admin-farm-card {
   display: block;
   padding: 0;

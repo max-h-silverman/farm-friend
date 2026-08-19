@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AdminRecoveryError } from "../admin-shell";
+import { AdminRefusal, refusalFromResponse, type AdminRefusalKind } from "../admin-shell";
 import { copyText } from "../../../lib/copy-text";
 import {
   buildInviteDeliveryUrl,
@@ -75,7 +75,7 @@ export function FarmerQueue({
   } | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sessionExpired, setSessionExpired] = useState(false);
+  const [refusal, setRefusal] = useState<AdminRefusalKind | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
   async function post(
@@ -84,7 +84,7 @@ export function FarmerQueue({
   ): Promise<{ ok: boolean; payload: Record<string, unknown> }> {
     setBusy(key);
     setError(null);
-    setSessionExpired(false);
+    setRefusal(null);
     setSuccess(null);
     // Deliberately does NOT clear `invite`. Clearing transient banners on a new request is
     // right; clearing a rendered credential is not. A minted onboarding link cannot be read
@@ -104,7 +104,8 @@ export function FarmerQueue({
       if (!response.ok) {
         // Say what happened rather than silently reverting: an operator who believes they
         // revoked a link that is still live is worse off than one who sees an error.
-        if (response.status === 403) setSessionExpired(true);
+        const refused = await refusalFromResponse(response.clone());
+        if (refused !== null) setRefusal(refused);
         else setError("That change did not go through. Reload and try again.");
         return { ok: false, payload };
       }
@@ -231,9 +232,7 @@ export function FarmerQueue({
           {error}
         </p>
       )}
-      {sessionExpired && (
-        <AdminRecoveryError>Your session expired before the change was saved.</AdminRecoveryError>
-      )}
+      <AdminRefusal refusal={refusal} />
       {success !== null && (
         <p className="admin-success" role="status">
           {success}
@@ -390,15 +389,15 @@ export function FarmerQueue({
       <section className="admin-queue-group" aria-labelledby="waiting-heading">
         <div className="admin-group-heading">
           <div>
-            <h3 id="waiting-heading">Waiting for your decision</h3>
+            <h3 id="waiting-heading">Open invites</h3>
           </div>
-          <span className="admin-count" aria-label={`${pendingRequests.length} waiting`}>
+          <span className="admin-count" aria-label={`${pendingRequests.length} open`}>
             {pendingRequests.length}
           </span>
         </div>
         {pendingRequests.length === 0 ? (
           <p className="admin-empty-state">
-            Nobody is waiting to be set up.
+            No invites are open.
           </p>
         ) : (
           <ul className="admin-sellers">

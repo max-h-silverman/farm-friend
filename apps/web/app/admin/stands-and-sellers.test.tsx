@@ -139,6 +139,81 @@ function renderPage() {
   return render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
 }
 
+/*
+  Invites live HERE now (max, 2026-08-19), collapsed at the top of Stands & Sellers.
+
+  Inviting a farmer and the invitations already out are both about a STAND OR SELLER joining the
+  roster — the subject of this screen — where the SMS Users tab is about handsets that have
+  texted us. "Waiting for your decision" is now "Open invites", which says what the rows ARE
+  rather than how they make an operator feel about them.
+
+  **Collapsed, because it is not the daily work.** The roster is what an operator comes here for;
+  an invite is occasional. A section that opened by default would push the list an operator came
+  to read below the fold every visit.
+*/
+describe("invites sit at the top of this screen, collapsed", () => {
+  const invites = {
+    requests: [
+      {
+        requestId: "request-1",
+        senderMask: "(•••) •••-4320",
+        requestedAt: new Date("2026-08-13T12:00:00Z").toISOString(),
+        farmId: "seller-1",
+        farmName: "Misty Hollow Farm",
+      },
+    ],
+    sellers: [{ farmId: "seller-1", name: "Misty Hollow Farm" }],
+  };
+
+  function renderWithInvites() {
+    return render(
+      <StandsAndSellers stands={stands} sellers={sellers} invites={invites} fetcher={vi.fn()} />,
+    );
+  }
+
+  it("names the section Invites and keeps it shut until asked", () => {
+    renderWithInvites();
+
+    const section = screen.getByRole("group", { name: /invites/i });
+    expect(
+      section.querySelector("details")?.hasAttribute("open") ?? section.hasAttribute("open"),
+      "the roster is the daily work; an invite is occasional",
+    ).toBe(false);
+  });
+
+  it("puts the section above the roster, not below it", () => {
+    const { container } = renderWithInvites();
+
+    const section = screen.getByRole("group", { name: /invites/i });
+    const tabs = screen.getByRole("tablist", { name: /stands or sellers/i });
+    expect(
+      section.compareDocumentPosition(tabs) & Node.DOCUMENT_POSITION_FOLLOWING,
+      "an operator reads the section heading before the list it sits above",
+    ).toBeTruthy();
+    expect(container).toBeTruthy();
+  });
+
+  it("opens to reveal both the invite form and the open invites", async () => {
+    renderWithInvites();
+
+    await userEvent.click(screen.getByRole("group", { name: /invites/i }).querySelector("summary") as Element);
+
+    expect(screen.getByRole("heading", { name: /invite a farmer/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: /open invites/i })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("heading", { name: /waiting for your decision/i }),
+      "the old name said how it felt rather than what the rows are",
+    ).not.toBeInTheDocument();
+  });
+
+  it("renders nothing at all when no invites were supplied", () => {
+    // The prop is optional so a screen that does not carry invites — or a test that does not
+    // care about them — is not forced to invent an empty one.
+    renderPage();
+    expect(screen.queryByRole("group", { name: /invites/i })).not.toBeInTheDocument();
+  });
+});
+
 describe("one destination, two views", () => {
   it("opens on the stands view", () => {
     renderPage();

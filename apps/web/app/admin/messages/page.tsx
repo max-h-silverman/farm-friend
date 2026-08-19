@@ -1,25 +1,24 @@
 import { headers } from "next/headers";
-import {
-  listFlagsForReview,
-  listStandDataFlags,
-  listStockOutReports,
-} from "@farm-friend/db";
+import { listFlagsForReview } from "@farm-friend/db";
 import { resolveAdministrator } from "../../../lib/auth";
 import { publicReadContext } from "../../../lib/public-context";
 import { FlagQueue } from "../flags/flag-queue";
-import { ReportQueue } from "../reports/report-queue";
-import { StandDataQueue } from "../stand-data/stand-data-queue";
 import { AdminShell, SignedOutAdmin } from "../admin-shell";
 
-// Everything a person sent us, on one screen.
+// Messages a person sent that need a human to read them.
 //
-// The three queues here were three separate destinations — "Customer reports", "Stock
-// reports", and an unreachable `/admin/stand-data` — with names a volunteer could not tell
-// apart: a stock-out report IS a customer report, and neither name said which was which.
+// **One queue, not three** (max, 2026-08-19). This screen used to carry stock-outs and
+// "Questions about our records" beside the flags, on the reading that all three were inbound
+// signals with a recorded decision. They are not the same thing to a volunteer:
 //
-// They are the same shape: an inbound signal, a required note, a recorded decision that
-// changes nothing customers see. All three already carried the same boundary disclaimer.
-// One screen, three sections, one nav entry.
+//   - a FLAG or an issue report is somebody writing to VIGA in words, and a person has to read
+//     it. That is this screen;
+//   - a stock-out is a signal about a listing, and the FARMER acts on it (Golden Rule #1).
+//     Customers still report them and farmers are still told — what went is VIGA's queue, not
+//     the feature (max, 2026-08-19);
+//   - `stand_data_flags` was never a product surface. The SEEDER writes one when the original
+//     VIGA spreadsheet carried availability text a human should check. Production holds four,
+//     all resolved, from the initial load, and nothing in the running product creates another.
 //
 // Same server-side authorization shape as every other admin page.
 
@@ -38,11 +37,7 @@ export default async function MessagesPage() {
   }
 
   const { db } = publicReadContext();
-  const [flags, standDataFlags, reports] = await Promise.all([
-    listFlagsForReview(db, { status: "open" }),
-    listStandDataFlags(db, { status: "open" }),
-    listStockOutReports(db, { status: "open" }),
-  ]);
+  const flags = await listFlagsForReview(db, { status: "open" });
 
   return (
     <AdminShell currentPath="/admin/messages">
@@ -67,39 +62,6 @@ export default async function MessagesPage() {
         />
       </section>
 
-      <section id="stock-outs" aria-labelledby="stock-outs-heading">
-        <h2 id="stock-outs-heading" className="admin-section-title">
-          Stock-outs
-        </h2>
-        <ReportQueue
-          reports={reports.map((report) => ({
-            reportId: report.reportId,
-            farmName: report.farmName,
-            salesLocationName: report.salesLocationName,
-            itemText: report.itemText,
-            status: report.status,
-            reviewedByEmail: report.reviewedByEmail,
-            reportedAt: report.reportedAt.toISOString(),
-          }))}
-        />
-      </section>
-
-      <section id="listing-questions" aria-labelledby="listing-questions-heading">
-        <h2 id="listing-questions-heading" className="admin-section-title">
-          Questions about our records
-        </h2>
-        <StandDataQueue
-          flags={standDataFlags.map((flag) => ({
-            flagId: flag.flagId,
-            standName: flag.standName,
-            reason: flag.reason,
-            sourceText: flag.sourceText,
-            resolutionNote: flag.resolutionNote,
-            resolvedByEmail: flag.resolvedByEmail,
-            createdAt: flag.createdAt.toISOString(),
-          }))}
-        />
-      </section>
     </AdminShell>
   );
 }

@@ -236,4 +236,139 @@ describe("administrator farmer invitations (integration)", () => {
       ]),
     );
   });
+
+  /*
+    Measured in production, 2026-08-19: one row sat in "Waiting for your decision" offering
+    "Give access" to Provo Farms for a handset that had held a LIVE authorization for Provo
+    Farms since the day before. Nothing was ever going to settle it — the request was opened
+    AFTER the authorization, so the settle-on-redemption path had already run and moved on.
+
+    The queue asked the wrong question. `settled_at is null` means "nobody has closed this
+    ticket"; what the operator needs is "does this person still need access?" — and a farmer who
+    can already publish for the farm they are asking about does not. So the answer comes from
+    the authorization, which is the fact that actually decides it.
+
+    Scoped to the SAME farm, not to the handset: a farmer authorized for one farm asking to be
+    set up for a second is a real request, and dropping it would strand her.
+  */
+  it("drops a request from the queue when the asker can already publish for that farm", async () => {
+    const phone = "+12065550199";
+    const phoneHash = hashPhone(phone, "test-phone-salt");
+    const contacts = await sql()`
+      insert into contacts (phone_e164, phone_hash) values (${phone}, ${phoneHash})
+      returning id
+    `;
+    const contactId = contacts[0]?.id as string;
+
+    // Access FIRST, exactly as production had it: the authorization predates the request, so
+    // no later redemption can settle the row.
+    await sql()`
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${farmId}, ${contactId}, ${new Date(now.getTime() + 31_000)},
+        ${new Date(now.getTime() + 31_000)})
+    `;
+
+    // The request row as PRODUCTION holds it: open, bound to an invitation naming the farm.
+    // Written directly because `openFarmerOnboardingRequest` refuses to bind an invitation for
+    // a contact that already has access — which is exactly why this row could only ever be
+    // created in the order production created it, and why nothing later settles it.
+    const invitationRows = await sql()`
+      insert into farmer_invitations (seller_id, token_hash, channel,
+        created_by_administrator_id, created_at, expires_at)
+      values (${farmId}, ${randomUUID().replaceAll("-", "").repeat(2)}, 'sms', ${administratorId},
+        ${new Date(now.getTime() + 32_000)},
+        ${new Date(now.getTime() + 32_000 + 7 * 24 * 60 * 60 * 1000)})
+      returning id
+    `;
+    await sql()`
+      insert into farmer_onboarding_requests (contact_hash, requested_at, invitation_id)
+      values (${phoneHash}, ${new Date(now.getTime() + 32_000)},
+        ${invitationRows[0]?.id as string})
+    `;
+
+    const queue = await listOpenFarmerOnboardingRequests(database());
+    expect(
+      queue.some((row) => row.senderMask.endsWith("0199")),
+      "a farmer who can already publish for this farm is not waiting on a decision",
+    ).toBe(false);
+  });
+
+  it("keeps a request from someone authorized for a DIFFERENT farm", async () => {
+    // The other half of the rule, and the one that makes the test above falsifiable: a blanket
+    // "has any authorization" filter would pass the case above and silently strand a farmer
+    // asking to be set up for her second farm.
+    const phone = "+12065550200";
+    const phoneHash = hashPhone(phone, "test-phone-salt");
+    const contacts = await sql()`
+      insert into contacts (phone_e164, phone_hash) values (${phone}, ${phoneHash})
+      returning id
+    `;
+    const contactId = contacts[0]?.id as string;
+
+    // Authorized for `farmId`, asking about `otherSellerId`.
+    await sql()`
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at, authorized_at)
+      values (${farmId}, ${contactId}, ${new Date(now.getTime() + 41_000)},
+        ${new Date(now.getTime() + 41_000)})
+    `;
+
+    const invitationRows = await sql()`
+      insert into farmer_invitations (seller_id, token_hash, channel,
+        created_by_administrator_id, created_at, expires_at)
+      values (${otherSellerId}, ${randomUUID().replaceAll("-", "").repeat(2)}, 'sms', ${administratorId},
+        ${new Date(now.getTime() + 42_000)},
+        ${new Date(now.getTime() + 42_000 + 7 * 24 * 60 * 60 * 1000)})
+      returning id
+    `;
+    await sql()`
+      insert into farmer_onboarding_requests (contact_hash, requested_at, invitation_id)
+      values (${phoneHash}, ${new Date(now.getTime() + 42_000)},
+        ${invitationRows[0]?.id as string})
+    `;
+
+    const queue = await listOpenFarmerOnboardingRequests(database());
+    expect(
+      queue.some((row) => row.senderMask.endsWith("0200")),
+      "asking about a farm she cannot publish for is a real request",
+    ).toBe(true);
+  });
+
+  it("keeps a request from someone whose access to that farm was revoked", async () => {
+    // A revoked authorization is not access. Reading the row without its `revoked_at` would
+    // drop a farmer VIGA had deliberately cut off and who is now asking to be let back in.
+    const phone = "+12065550201";
+    const phoneHash = hashPhone(phone, "test-phone-salt");
+    const contacts = await sql()`
+      insert into contacts (phone_e164, phone_hash) values (${phone}, ${phoneHash})
+      returning id
+    `;
+    const contactId = contacts[0]?.id as string;
+
+    await sql()`
+      insert into farmer_authorizations (seller_id, contact_id, phone_verified_at,
+        authorized_at, revoked_at)
+      values (${farmId}, ${contactId}, ${new Date(now.getTime() + 51_000)},
+        ${new Date(now.getTime() + 51_000)}, ${new Date(now.getTime() + 52_000)})
+    `;
+
+    const invitationRows = await sql()`
+      insert into farmer_invitations (seller_id, token_hash, channel,
+        created_by_administrator_id, created_at, expires_at)
+      values (${farmId}, ${randomUUID().replaceAll("-", "").repeat(2)}, 'sms', ${administratorId},
+        ${new Date(now.getTime() + 53_000)},
+        ${new Date(now.getTime() + 53_000 + 7 * 24 * 60 * 60 * 1000)})
+      returning id
+    `;
+    await sql()`
+      insert into farmer_onboarding_requests (contact_hash, requested_at, invitation_id)
+      values (${phoneHash}, ${new Date(now.getTime() + 53_000)},
+        ${invitationRows[0]?.id as string})
+    `;
+
+    const queue = await listOpenFarmerOnboardingRequests(database());
+    expect(
+      queue.some((row) => row.senderMask.endsWith("0201")),
+      "a revoked farmer asking again is waiting on a real decision",
+    ).toBe(true);
+  });
 });

@@ -2,6 +2,7 @@ import { headers } from "next/headers";
 import {
   listFarmerAuthorizations,
   listFarmsForApproval,
+  listOpenFarmerOnboardingRequests,
   listStandProvidersForAdministration,
   listStandsForAdministration,
 } from "@farm-friend/db";
@@ -40,11 +41,14 @@ export default async function StandsAndSellersPage() {
   }
 
   const { db } = publicReadContext();
-  const [sellers, stands, providers, authorizations] = await Promise.all([
+  const [sellers, stands, providers, authorizations, openInvites] = await Promise.all([
     listFarmsForApproval(db),
     listStandsForAdministration(db),
     listStandProvidersForAdministration(db),
     listFarmerAuthorizations(db),
+    // Invites moved here from SMS Users (max, 2026-08-19): inviting a farmer is about a stand
+    // or seller joining the roster, which is this screen's subject.
+    listOpenFarmerOnboardingRequests(db),
   ]);
 
   // One read of the arrangements, indexed both ways. The same row appears under its stand on
@@ -111,7 +115,24 @@ export default async function StandsAndSellersPage() {
     // The tab already says where you are; repeating it underneath is chrome, and the intro
     // paragraph said nothing an operator could act on.
     <AdminShell currentPath="/admin/stands">
-      <StandsAndSellers stands={standCards} sellers={sellerCards} />
+      <StandsAndSellers
+        stands={standCards}
+        sellers={sellerCards}
+        invites={{
+          requests: openInvites.map((request) => ({
+            requestId: request.requestId,
+            senderMask: request.senderMask,
+            requestedAt: request.requestedAt.toISOString(),
+            farmId: request.farmId,
+            farmName: request.farmName,
+          })),
+          // Retired sellers are not offered: inviting a farmer to take over a farm VIGA has
+          // taken down would produce a link that onboards someone onto nothing.
+          sellers: sellers
+            .filter((farm) => !farm.retired)
+            .map((farm) => ({ farmId: farm.farmId, name: farm.name })),
+        }}
+      />
     </AdminShell>
   );
 }

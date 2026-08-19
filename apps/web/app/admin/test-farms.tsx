@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { AdminRecoveryError } from "./admin-shell";
+import { AdminRefusal, refusalFromResponse, type AdminRefusalKind } from "./admin-shell";
 
 // F-074's operator surface: which sellers are fake, and which phones may see them.
 //
@@ -33,7 +33,7 @@ export function TestFarms({
   const [phoneRows, setPhoneRows] = useState(phones);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [sessionExpired, setSessionExpired] = useState(false);
+  const [refusal, setRefusal] = useState<AdminRefusalKind | null>(null);
   const [phoneInput, setPhoneInput] = useState("");
 
   const testFarms = farmRows.filter((row) => row.isTestFarm);
@@ -42,12 +42,18 @@ export function TestFarms({
   function begin(key: string) {
     setPending(key);
     setError(null);
-    setSessionExpired(false);
+    setRefusal(null);
   }
 
-  /** One failure path for both lists, so a 403 can never read as an ordinary error. */
-  function handleFailure(status: number, message: string = FAILED) {
-    if (status === 403) setSessionExpired(true);
+  /**
+   * One failure path for both lists, so a refusal can never read as an ordinary error.
+   *
+   * Takes the RESPONSE rather than its status: the two 403s need different next moves and the
+   * status cannot tell them apart — see `refusalFromResponse`.
+   */
+  async function handleFailure(response: Response, message: string = FAILED) {
+    const refused = await refusalFromResponse(response.clone());
+    if (refused !== null) setRefusal(refused);
     else setError(message);
   }
 
@@ -63,7 +69,7 @@ export function TestFarms({
         }),
       });
       if (!response.ok) {
-        handleFailure(response.status);
+        await handleFailure(response);
         return;
       }
       setFarmRows((current) =>
@@ -91,8 +97,8 @@ export function TestFarms({
         // Two failures an operator can actually act on get their own words. Everything else
         // gets the generic message, because guessing at a cause is worse than not saying.
         const body = (await response.json().catch(() => ({}))) as { error?: string };
-        handleFailure(
-          response.status,
+        await handleFailure(
+          response,
           body.error === "invalid_phone"
             ? "That does not look like a phone number. Use a 10-digit US number."
             : response.status === 409
@@ -139,7 +145,7 @@ export function TestFarms({
         body: JSON.stringify({ action: "remove", id }),
       });
       if (!response.ok) {
-        handleFailure(response.status);
+        await handleFailure(response);
         return;
       }
       setPhoneRows((current) => current.filter((row) => row.id !== id));
@@ -157,9 +163,7 @@ export function TestFarms({
           {error}
         </p>
       )}
-      {sessionExpired && (
-        <AdminRecoveryError>Your session expired before the change was saved.</AdminRecoveryError>
-      )}
+      <AdminRefusal refusal={refusal} />
 
       <p className="admin-note">
         A test farm is hidden from the island map and from customer texts. You can see one by

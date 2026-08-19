@@ -840,6 +840,8 @@ export interface AdminFarmRow {
   approvedByEmail: string | null;
   /** F-074 — VIGA marked this farm as fake, so customers never see it. */
   isTestFarm: boolean;
+  /** In the trash — absent from the working roster, restorable from the trash view (F-122). */
+  trashed: boolean;
   /** VIGA took this whole farm down. Its stands are off the map with it. */
   retired: boolean;
   retiredAt: Date | null;
@@ -852,15 +854,35 @@ export interface AdminFarmRow {
  * farm and who approved it, and nothing here needs a contact (Golden Rule #5: the admin
  * surface carries the minimum it can do its job with).
  */
-export async function listFarmsForApproval(db: Db): Promise<AdminFarmRow[]> {
+/**
+ * Which roster to read: the farms an operator works, or the trash (F-122).
+ *
+ * **The two partition the list rather than overlapping.** A trashed farm is absent from the
+ * ordinary roster — that is what trashing MEANS — and present in the trash, which is where its
+ * restore control lives. One parameter rather than a second reader, so the two listings cannot
+ * drift into disagreeing about which farms exist.
+ */
+export interface RosterScope {
+  /** Read the trash instead of the working roster. */
+  trashed?: boolean;
+}
+
+export async function listFarmsForApproval(
+  db: Db,
+  scope: RosterScope = {},
+): Promise<AdminFarmRow[]> {
+  const wantTrashed = scope.trashed === true;
   const rows = await driver(db)`
     select farm.id, farm.name, farm.description, farm.test_seller_at, farm.retired_at,
-      approval.approved_at, administrator.email
+      farm.trashed_at, approval.approved_at, administrator.email
     from sellers as farm
     left join seller_approvals as approval
       on approval.seller_id = farm.id and approval.revoked_at is null
     left join administrators as administrator
       on administrator.id = approval.administrator_id
+    -- The trash and the working roster partition the farms between them. Stated as one
+    -- condition over one column so neither listing can be widened without narrowing the other.
+    where farm.trashed_at is ${wantTrashed ? driver(db)`not null` : driver(db)`null`}
     -- A retired farm is still LISTED here, the same way a retired stand is: this is where an
     -- operator undoes a take-down, so hiding it would strand the only control that reverses it.
     order by (farm.retired_at is not null), farm.name
@@ -879,6 +901,7 @@ export async function listFarmsForApproval(db: Db): Promise<AdminFarmRow[]> {
     // managing the flag has to be able to see which sellers carry it, and this reader is already
     // behind the session guard.
     isTestFarm: row.test_seller_at !== null,
+    trashed: row.trashed_at !== null,
   }));
 }
 
@@ -936,6 +959,13 @@ export interface AdminStandRow {
    * a stand nobody retired, and offering it would appear to do nothing.
    */
   retiredWithFarm: boolean;
+  /** In the trash — absent from the working roster, restorable from the trash view (F-122). */
+  trashed: boolean;
+  /**
+   * In the trash only because its FARM is. The operator's next move differs: this stand has no
+   * trashing of its own to undo, and the control that brings it back is on the farm.
+   */
+  trashedWithFarm: boolean;
   farmBucksAccepted: boolean;
   farmBucksEligible: boolean;
   approved: boolean;
@@ -956,8 +986,26 @@ export interface AdminStandRow {
   }>;
 }
 
-/** Every stand and the operator-relevant facts that describe its current state. */
-export async function listStandsForAdministration(db: Db): Promise<AdminStandRow[]> {
+/**
+ * Every stand and the operator-relevant facts that describe its current state.
+ *
+ * `scope.trashed` reads the TRASH instead of the working roster (F-122). The two partition the
+ * stands between them — a trashed stand is absent here, which is what trashing means, and
+ * present there, which is where its restore control lives.
+ *
+ * **A stand under a trashed FARM is in the trash too**, the same way it is off the map when its
+ * farm is: trashing a farm deliberately never writes each stand's own column, so restoring the
+ * farm puts back exactly the stands it was holding. The condition is therefore the stand's own
+ * trashing OR its farm's, matching how `retired` is already derived below.
+ */
+export async function listStandsForAdministration(
+  db: Db,
+  scope: RosterScope = {},
+): Promise<AdminStandRow[]> {
+  const wantTrashed = scope.trashed === true;
+  const trashCondition = wantTrashed
+    ? "(location.trashed_at is not null or farm.trashed_at is not null)"
+    : "(location.trashed_at is null and farm.trashed_at is null)";
   // `.unsafe` rather than a tagged template, because this query now composes the shared
   // current-inventory join as SQL TEXT. In a tagged template an interpolation becomes a bind
   // PARAMETER, which would send the join clause as a string value and fail at parse — the same
@@ -991,6 +1039,8 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
       location.stocking_days,
       location.is_public,
       location.retired_at,
+      location.trashed_at,
+      farm.trashed_at as farm_trashed_at,
       -- A farm take-down carries its stands down with it WITHOUT writing their own
       -- retired_at (see retireFarm), so "is this stand off the map?" is the farm's state OR
       -- the stand's. Reading only the stand's column would show an operator a live stand
@@ -1092,6 +1142,9 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     */
     left join closure_revisions closure
       on closure.sales_location_id = location.id and closure.is_current
+    -- The trash and the working roster partition the stands between them. Interpolated from
+    -- this function's own literals, never from caller input, so nothing here is injectable.
+    where ${trashCondition}
     -- A retired stand is still LISTED here, deliberately: this queue is where an operator
     -- restores one, and a stand that vanished from the only surface that can bring it back
     -- would make retirement irreversible in practice. Sorted after the live ones so the
@@ -1135,6 +1188,8 @@ export async function listStandsForAdministration(db: Db): Promise<AdminStandRow
     retired: row.retired_at !== null || row.farm_retired_at !== null,
     retiredAt: row.retired_at === null ? null : new Date(row.retired_at as string),
     retiredWithFarm: row.retired_at === null && row.farm_retired_at !== null,
+    trashed: row.trashed_at !== null || row.farm_trashed_at !== null,
+    trashedWithFarm: row.trashed_at === null && row.farm_trashed_at !== null,
     farmBucksAccepted: row.farm_bucks_accepted as boolean,
     farmBucksEligible: row.farm_bucks_eligible as boolean,
     approved: row.approved_at !== null,

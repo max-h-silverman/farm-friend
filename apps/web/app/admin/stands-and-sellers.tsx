@@ -5,6 +5,7 @@ import { ActionMenu, type ActionMenuItem } from "./action-menu";
 import { ClockIcon, PeopleIcon } from "./icons";
 import { useSellerControls } from "./seller-controls";
 import { StandDetails, type AdminStandCard } from "./stand-list";
+import { FarmerQueue, type FarmOption, type PendingRequestRow } from "./farmers/farmer-queue";
 import { SellerParticipation, type ParticipationRow } from "./seller-participation";
 
 /**
@@ -416,13 +417,29 @@ function SellerEntityCard({
   );
 }
 
+/**
+ * Inviting a farmer, and the invitations already out (max, 2026-08-19).
+ *
+ * **On this screen because both are about a stand or seller joining the roster** — the subject
+ * this destination owns. SMS Users is about handsets that have texted us, which is a different
+ * subject that happened to be where the invite form was first built.
+ *
+ * Optional: a caller that carries no invites renders no section rather than an empty one.
+ */
+export interface InvitesPanel {
+  requests: PendingRequestRow[];
+  sellers: FarmOption[];
+}
+
 export function StandsAndSellers({
   stands,
   sellers,
+  invites,
   fetcher = fetch,
 }: {
   stands: StandCard[];
   sellers: SellerCard[];
+  invites?: InvitesPanel;
   fetcher?: typeof fetch;
 }) {
   const [view, setView] = useState<View>("stands");
@@ -477,6 +494,33 @@ export function StandsAndSellers({
 
   return (
     <div className="admin-stands-and-sellers">
+      {/*
+        INVITES, above the roster and shut by default (max, 2026-08-19).
+
+        The roster is what an operator comes here for; an invite is occasional. A section that
+        opened by default would push the list they came to read below the fold on every visit —
+        so it announces itself with a heading and a count, and costs one press when wanted.
+
+        A `<details>` for the same reason the entity cards use one: the browser owns the
+        disclosure, so there is no open-state to hold here and nothing to get out of step.
+      */}
+      {invites !== undefined && (
+        <details className="admin-invites-section" role="group" aria-label="Invites">
+          <summary className="admin-invites-summary">
+            <span className="admin-row-caret-box" aria-hidden="true">
+              <span className="admin-row-caret" />
+            </span>
+            <span className="admin-invites-title">Invites</span>
+            {invites.requests.length > 0 && (
+              <span className="admin-count">{invites.requests.length}</span>
+            )}
+          </summary>
+          <div className="admin-invites-body">
+            <FarmerQueue requests={invites.requests} sellers={invites.sellers} />
+          </div>
+        </details>
+      )}
+
       {/*
         The count sits BESIDE the switch as plain text (max, 2026-08-17). How many rows there
         are is a label for the list, not news — announcing it as a live status made a standing

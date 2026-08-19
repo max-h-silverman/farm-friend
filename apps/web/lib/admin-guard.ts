@@ -54,16 +54,31 @@ export function isTrustedAdminMutationSource(
   return origin === expected;
 }
 
-/** Resolve the caller to a live administrator, or the Response that refuses them. */
+/**
+ * Resolve the caller to a live administrator, or the Response that refuses them.
+ *
+ * **The two refusals NAME THEMSELVES**, because they need different next moves and the screen
+ * cannot tell 403 from 403. A wrong origin means the console is open at the wrong address — the
+ * `*.run.app` host rather than `PUBLIC_BASE_URL`'s custom domain — and no amount of signing in
+ * will fix it. `not_signed_in` is the one a sign-in does fix.
+ *
+ * Measured in production 2026-08-19: both answered a bare `forbidden`, the screen guessed
+ * "session expired", and max signed in three times against a refusal that was never about his
+ * session. A wrong diagnosis is worse than none.
+ *
+ * `publicBaseUrl` is injected so the origin rule can be exercised without reaching for the
+ * process environment, the same way `isTrustedAdminMutationSource` already takes it.
+ */
 export async function requireAdministrator(
   req: Request,
+  publicBaseUrl = process.env.PUBLIC_BASE_URL,
 ): Promise<AdminCaller | Response> {
-  if (!isTrustedAdminMutationSource(req)) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
+  if (!isTrustedAdminMutationSource(req, publicBaseUrl)) {
+    return Response.json({ error: "wrong_origin" }, { status: 403 });
   }
   const administrator = await resolveAdministrator(req);
   if (administrator === null) {
-    return Response.json({ error: "forbidden" }, { status: 403 });
+    return Response.json({ error: "not_signed_in" }, { status: 403 });
   }
   return {
     administratorId: administrator.administratorId,

@@ -29,6 +29,7 @@ export * from "./participants";
 export * from "./review";
 export * from "./scheduled-prompts";
 export * from "./test-farms";
+export * from "./trash";
 export type { Sql } from "./sql";
 
 export interface Db {

@@ -12,7 +12,7 @@ admin.
 **There is one administrator authority at launch.** There are no separate staff or moderator
 levels.
 
-- **administrator** — VIGA. Approves participating farms, resolves flags, reviews stock-out
+- **administrator** — VIGA. Approves participating farms, resolves flags and texted issue
   reports, and handles exceptions the system cannot safely handle. Max is escalation.
 - **farmer** — owns their farm's listings and inventory through a separate farm authorization.
 
@@ -52,9 +52,9 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Stands & Sellers | `/admin/stands` | Two views of the island's farms. **Stands**: each stand, who sells there, and its own details. **Sellers**: each farm, where it sells, who can update it, and everything VIGA decides about it — approve it, edit its name and description, revoke access, send a setup link, take it off the map and put it back, mark it a test farm |
-| SMS Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm; prepare an invitation; decide access requests that arrived by text with no farm attached |
-| Alerts | `/admin/messages` | Everything a person sent us: customer `FLAG` messages with the thread viewer (phones masked), stock-out reports, and questions about VIGA's own records |
+| Stands & Sellers | `/admin/stands` | **Invites** (collapsed at the top): send a new invitation, and see the invitations already out. Then two views of the island's farms. **Stands**: each stand, who sells there, and its own details. **Sellers**: each farm, where it sells, who can update it, and everything VIGA decides about it — approve it, edit its name and description, revoke access, send a setup link, take it off the map and put it back, mark it a test farm |
+| SMS Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm |
+| Alerts | `/admin/messages` | Messages a person sent that need a human to read them: customer `FLAG` messages and texted issue reports, with the thread viewer (phones masked) |
 
 **Three tabs: Stands & Sellers, SMS Users, Alerts** (F-101, max 2026-08-17). **There is no Farms
 tab** — your whole job is viewing and editing stands and sellers and inviting new ones, so approving
@@ -101,7 +101,8 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Seed initial listing data:** run the one-time seed utility per [RUNBOOK.md](RUNBOOK.md). This
   is a greenfield load from reference input, not a migration with provenance. A location that
   cannot be geocoded is an operator task — the system never invents a coordinate.
-- **Invite a farmer — this is where you decide.** On `/admin/users`, choose the farm (or
+- **Invite a farmer — this is where you decide.** Open **Invites** at the top of `/admin/stands`
+  (it starts closed), choose the farm (or
   **New farm** and type its name, which creates it), choose text or email, and enter the
   recipient's address. Farm Friend creates a one-use onboarding link and opens your own text or
   email app with the message ready. Send it from there. The link expires after seven days.
@@ -203,13 +204,13 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
 - **Restore or rotate administrator access:** follow [RUNBOOK.md](RUNBOOK.md). Rotation adds a new
   password-verifier secret version, deploys a new web revision, proves the new password, and revokes
   every old session. There is no second account or add-administrator path.
-- **Watch stock-out reports:** open `/admin/messages` and find **Stock-outs**. The queue shows customer reports per farm and
-  stand, with the item named — whether the report pointed at a published entry, at one of the
-  stand's usual offerings, or carried free text for an item the stand lists neither way. Reports **never** change the map, answers, or ranking, and the surface offers no action
-  that could: the only two are **mark reviewed** and **dismiss**, both of which record that a human
-  looked and change nothing a customer sees. Only the farmer's confirmed revision through the
-  ordinary inventory flow changes publication. If reports pile up for one stand, chase the farmer;
-  do not edit their inventory on their behalf.
+- **Stock-out reports no longer have a screen** (max, 2026-08-19). Customers still report them and
+  the farmer is still texted privately — a report has never changed the map, answers, or ranking,
+  and acting on one is the farmer's job, not VIGA's. What went is VIGA's queue for reading them.
+  **Know the gap this leaves:** a report whose farmer cannot be reached — a stand with no current
+  authorized handset, or one publishing no confirmed inventory — used to be filed "for VIGA
+  review" and now reaches nobody. Eight such reports were open when the screen was removed.
+  If that matters, the reader is still in the code and the screen is a render away.
 - **Resolve a flag:** open `/admin/messages`. A `FLAG` creates a review item. Read the thread, take the
   needed action, then record **resolved** or **dismissed** with a short reason — the reason is
   required, because an audit record that does not say why is not much of one. Both dispositions
@@ -249,8 +250,8 @@ The masking is a **query-level** guarantee, not a rendering convention: `listFla
 application memory and the admin surface never becomes a second reader of the send path's one
 column. `maskPhoneSuffix` **refuses** anything longer than four digits rather than truncating it, so
 a caller that accidentally passes a whole number fails closed instead of leaking. The approval queue
-and the stock-out queue carry no phone material at all — asserted by tests that grep the whole
-serialized response for an E.164 and for any 64-hex run.
+carries no phone material at all — asserted by tests that grep the whole serialized response for an
+E.164 and for any 64-hex run.
 
 ## Embedding the admin on VIGA's website
 

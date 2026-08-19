@@ -608,6 +608,42 @@ export const sellers = pgTable(
       { onDelete: "restrict" },
     ),
 
+    /**
+     * VIGA put this farm in the trash: it leaves the console's list entirely (F-122).
+     *
+     * **A THIRD column rather than a state on `retired_at`**, because trash and off-the-map are
+     * two independent decisions an operator makes for different reasons, and folding them would
+     * make restoring one guess about the other. Off the map is the everyday reversible hide — the
+     * farm is still VIGA's and still in the list, just not shown to customers. Trash means "this
+     * should not be in my list at all", so a trashed farm is reachable only from the Trash view.
+     *
+     * **Reversible, and nothing else** (max, 2026-08-19, revising "off the map, plus a real
+     * delete" the same day). Trashing destroys NOTHING: every revision, report and authorization
+     * stays exactly as it was, which is what lets restore put back the farm that was trashed
+     * rather than an approximation of it. Emptying the trash — the only act that would destroy —
+     * is deliberately not built, because the referencing closure it has to answer is its own
+     * piece of work.
+     *
+     * Public invisibility does NOT read this column. A trashed farm is invisible because
+     * trashing retires it in the same transaction, so `visibleFarms` keeps one rule to state
+     * rather than two to keep in step.
+     */
+    trashedAt: timestamp("trashed_at", { withTimezone: true }),
+    trashedByAdministratorId: uuid("trashed_by_administrator_id").references(
+      (): AnyPgColumn => administrators.id,
+      { onDelete: "restrict" },
+    ),
+    /**
+     * Did TRASHING cause this farm's retirement, or was it already off the map?
+     *
+     * Without this a restore has to guess. A farm VIGA took off the map on Monday and trashed on
+     * Tuesday must come back off the map — that take-down was a separate decision and only
+     * VIGA's own restore reverses it — while a farm that was live until it was trashed must come
+     * back live. The two are indistinguishable from `retired_at` alone, so the fact is recorded
+     * at the moment it is known rather than inferred later from timestamps.
+     */
+    retiredByTrash: boolean("retired_by_trash").notNull().default(false),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -642,6 +678,41 @@ export const sellers = pgTable(
         (${table.retiredAt} is null and ${table.retiredByAdministratorId} is null)
         or (${table.retiredAt} is not null and ${table.retiredByAdministratorId} is not null)
       `,
+    ),
+    /**
+     * The two trash columns move together or not at all — the same full disjunction as the two
+     * CHECKs above, for the same reason: a CHECK *passes* on NULL, so a one-directional test
+     * would admit a farm trashed by nobody.
+     */
+    coherentTrash: check(
+      "sellers_coherent_trash",
+      sql`
+        (${table.trashedAt} is null and ${table.trashedByAdministratorId} is null)
+        or (${table.trashedAt} is not null and ${table.trashedByAdministratorId} is not null)
+      `,
+    ),
+    /**
+     * A trashed farm is always retired too (F-122).
+     *
+     * Trashing retires in the same transaction, which is what lets `visibleFarms` state public
+     * invisibility once over `retired_at` instead of twice. This CHECK is what makes that
+     * one-rule reading safe: without it a future writer could trash without retiring and put a
+     * trashed farm back on the public map, and the only symptom would be on the map itself.
+     */
+    trashedImpliesRetired: check(
+      "sellers_trashed_implies_retired",
+      sql`${table.trashedAt} is null or ${table.retiredAt} is not null`,
+    ),
+    /**
+     * Trashing can only be credited for a retirement that exists (F-122).
+     *
+     * The flag decides whether a restore clears `retired_at`, so a true flag on a live farm
+     * would let a later restore blank a retirement nobody made. Stated as a constraint because
+     * the symptom otherwise appears only on the public map, one act later.
+     */
+    trashRetirementCoherent: check(
+      "sellers_trash_retirement_coherent",
+      sql`${table.retiredByTrash} = false or ${table.retiredAt} is not null`,
     ),
     projectionCoordinates: check(
       "sellers_projection_coordinates_coherent",
@@ -1481,6 +1552,25 @@ export const salesLocations = pgTable(
       { onDelete: "restrict" },
     ),
 
+    /**
+     * VIGA put this stand in the trash: it leaves the console's list entirely (F-122).
+     *
+     * The same mechanism as `sellers.trashed_at`, and its doc comment owns the reasoning — a
+     * third column because trash and off-the-map are independent decisions, reversible because
+     * trashing destroys nothing, and invisible to customers through `retired_at` rather than
+     * through a second public rule.
+     */
+    trashedAt: timestamp("trashed_at", { withTimezone: true }),
+    trashedByAdministratorId: uuid("trashed_by_administrator_id").references(
+      () => administrators.id,
+      { onDelete: "restrict" },
+    ),
+    /**
+     * Did TRASHING cause this stand's retirement? See `sellers.retired_by_trash`, which owns the
+     * reasoning: it is what lets a restore undo only the retirement trashing itself created.
+     */
+    retiredByTrash: boolean("retired_by_trash").notNull().default(false),
+
     farmBucksAccepted: boolean("farm_bucks_accepted").notNull(),
     farmBucksEligible: boolean("farm_bucks_eligible").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1594,6 +1684,31 @@ export const salesLocations = pgTable(
           and ${table.retiredByAdministratorId} is not null
         )
       `,
+    ),
+    /**
+     * The two trash columns move together or not at all — the same full disjunction as
+     * `sales_locations_coherent_retirement`, and for the same reason: a CHECK *passes* on NULL.
+     */
+    coherentTrash: check(
+      "sales_locations_coherent_trash",
+      sql`
+        (${table.trashedAt} is null and ${table.trashedByAdministratorId} is null)
+        or (${table.trashedAt} is not null and ${table.trashedByAdministratorId} is not null)
+      `,
+    ),
+    /**
+     * A trashed stand is always retired too (F-122) — see `sellers_trashed_implies_retired`,
+     * which owns the reasoning. It is what lets every public read keep filtering on
+     * `retired_at` alone instead of learning a second column.
+     */
+    trashedImpliesRetired: check(
+      "sales_locations_trashed_implies_retired",
+      sql`${table.trashedAt} is null or ${table.retiredAt} is not null`,
+    ),
+    /** See `sellers_trash_retirement_coherent`, which owns the reasoning. */
+    trashRetirementCoherent: check(
+      "sales_locations_trash_retirement_coherent",
+      sql`${table.retiredByTrash} = false or ${table.retiredAt} is not null`,
     ),
     /** Every public read filters on this; retired stands are the rare case, so partial. */
     liveIdx: index("sales_locations_live_idx")

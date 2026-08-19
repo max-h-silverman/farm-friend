@@ -15,17 +15,18 @@ function executableSource(relativePath: string): string {
 }
 
 describe("admin routes expose only live browser contracts (B-033)", () => {
-  // Each mutation route paired with the page that actually reads its data. The three message
-  // queues share one page now: "Customer reports", "Stock reports" and the never-linked
-  // /admin/stand-data were three destinations for one kind of work, and a volunteer could not
-  // tell the first two apart by name. The pairing below is what keeps that merge honest — a
-  // route whose reader stops being called on its page fails here.
+  // Each mutation route paired with the page that actually reads its data. A route whose reader
+  // stops being called on its page fails here.
+  //
+  // **The stock-out and stand-data routes are gone entirely** (F-122, max 2026-08-19), not
+  // merely unpaired: Alerts is now the flag queue alone. A stock-out is the farmer's to act on
+  // and is still collected — only VIGA's screen went — while `stand_data_flags` is written by
+  // the seeder and by nothing in the running product. Deleting the routes with their last
+  // callers is what keeps this list honest; leaving them would be guarded surface nobody reaches.
   const serverRenderedQueues = [
     ["apps/web/app/api/admin/sellers/route.ts", "apps/web/app/admin/stands/page.tsx", "listFarmsForApproval"],
     ["apps/web/app/api/admin/farmers/route.ts", "apps/web/app/admin/stands/page.tsx", "listFarmerAuthorizations"],
     ["apps/web/app/api/admin/flags/route.ts", "apps/web/app/admin/messages/page.tsx", "listFlagsForReview"],
-    ["apps/web/app/api/admin/stock-out-reports/route.ts", "apps/web/app/admin/messages/page.tsx", "listStockOutReports"],
-    ["apps/web/app/api/admin/stand-data-flags/route.ts", "apps/web/app/admin/messages/page.tsx", "listStandDataFlags"],
     ["apps/web/app/api/admin/stands/route.ts", "apps/web/app/admin/stands/page.tsx", "listStandsForAdministration"],
   ] as const;
 
