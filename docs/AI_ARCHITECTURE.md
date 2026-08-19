@@ -437,6 +437,25 @@ failed validation while the entire unit suite and every scripted eval were green
 
 A required-group failure **stops and reports**; fixtures are never edited to go green.
 
+**A run reports three outcomes, not two (B-089).** Every seam collapses `provider_error` into its
+ordinary failure outcome *on purpose* — a sender who could not be understood is owed the same honest
+reply either way — so a provider outage once surfaced as ten fixtures returning `{"kind":"unclear"}`,
+indistinguishable from the model getting worse. `createTransportObserver` wraps the provider and
+counts throws out of `generateJson`, the last place the difference still exists; a fixture whose call
+never landed is tallied **`couldNotRun`** — neither pass nor fail — and the run exits **2** reporting
+"N fixtures could not run". Three rules make it trustworthy: a genuine failure always **outranks** an
+outage, so an outage cannot launder a regression into "inconclusive"; an incomplete run is **not** a
+pass, because a gate that proved nothing must not read as one; and a fixture that **passed** through
+a dead provider still passes, because a code-enforced barrier holding against no answer is exactly
+what a containment fixture asserts.
+
+**The classifier's accepted misses are one shared list.** `ADVISORY_CLASSIFIER_CASES`
+(`classifier-baseline.ts`) records genuinely ambiguous phrasings — `what is viga`, `when do you
+open` — so the corpus fixture and the second-person fixture cannot grade the same phrase under two
+policies. They once did, and identical code therefore scored 4/5 or 5/5 run to run. **It is a record
+of what was already measured and accepted, never a place to file a case the model started failing**:
+a fixture edited to match whatever the model currently does has stopped being a guard.
+
 **A fallback is not a verdict.** A seam that cannot reach the provider returns the same `clarification`
 shape it returns when the model legitimately declines, so a fixture accepting *any* clarification
 scores an unreachable model as correct behaviour. Live fixtures therefore name the seam's own fallback
