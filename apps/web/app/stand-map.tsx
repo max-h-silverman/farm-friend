@@ -26,6 +26,7 @@ import {
 } from "../lib/seller-list";
 import {
   markerTipBox,
+  markerTipUnitScale,
   sellerSeasonBadge,
   sellerStandLinks,
   sellerOpenState,
@@ -1370,6 +1371,19 @@ export function StandMap({
   const mapColumnRef = useRef<HTMLDivElement | null>(null);
   const listColumnRef = useRef<HTMLDivElement | null>(null);
   const layoutRef = useRef<HTMLDivElement | null>(null);
+  const islandRef = useRef<SVGSVGElement | null>(null);
+  /*
+    B-088 — THE MAP'S RENDERED SCALE, in real pixels per island unit.
+
+    The tooltip is a `foreignObject`, so everything inside it is measured in viewBox units and
+    shrinks with the drawing. Knowing the actual scale is what lets its geometry counter-scale so
+    the text lands at a fixed size on a phone and a desktop alike.
+
+    `object-fit: contain` under a `max-height` means WIDTH IS NOT ENOUGH — on a tall narrow phone
+    the height is what binds, and the drawing is letterboxed inside the box the element occupies.
+    So the scale is the smaller of the two ratios, which is exactly what `contain` picks.
+  */
+  const [mapScale, setMapScale] = useState(1);
 
   // The moment the filters are evaluated against, captured once per render rather than read
   // inside the predicate. `openNow` computes the real sun for the date, so the answer must
@@ -1428,6 +1442,33 @@ export function StandMap({
     that has three. The arithmetic is in the map's own units: a heading, a row per seller, and
     the padding around them.
   */
+  useEffect(() => {
+    const svg = islandRef.current;
+    if (svg === null) return;
+    const measure = (): void => {
+      const box = svg.getBoundingClientRect();
+      if (box.width === 0 || box.height === 0) return;
+      // `contain` fits by whichever axis runs out first — the same rule the browser applied.
+      setMapScale(
+        Math.min(box.width / ISLAND_VIEWBOX.width, box.height / ISLAND_VIEWBOX.height),
+      );
+    };
+    measure();
+    /*
+      GUARDED, not stubbed in the test setup. `ResizeObserver` is absent in jsdom and in older
+      browsers, and a tooltip that renders at its designed size is a fine outcome there — a
+      hard reference would instead throw during render and take the whole map down. The initial
+      `measure()` above has already run, so the scale is correct for the size the map loads at
+      even when nothing can watch it change.
+    */
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(svg);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+
   const markerTip = useMemo(() => {
     if (!showingSellers || markerTipStandId === null) return undefined;
     const stand = visible.find((entry) => entry.id === markerTipStandId);
@@ -1435,9 +1476,16 @@ export function StandMap({
     if (stand.latitude === undefined || stand.longitude === undefined) return undefined;
 
     const links = standSellerLinks(stand);
+    /*
+      COUNTER-SCALED so the tooltip renders at a fixed REAL size (B-088). Its contents are
+      viewBox units, so a map drawn at 0.39x made "Runs this stand" 6.6 real pixels — text that
+      shrank as the screen did. Spanning more units at a smaller scale cancels that exactly.
+    */
+    const unitScale = markerTipUnitScale(mapScale);
     const size = {
-      width: MARKER_TIP_WIDTH,
-      height: MARKER_TIP_PADDING + MARKER_TIP_ROW * (1 + Math.max(links.length, 1)),
+      width: MARKER_TIP_WIDTH * unitScale,
+      height:
+        (MARKER_TIP_PADDING + MARKER_TIP_ROW * (1 + Math.max(links.length, 1))) * unitScale,
     };
     return {
       stand,
@@ -1451,7 +1499,7 @@ export function StandMap({
         ISLAND_VIEWBOX,
       ),
     };
-  }, [showingSellers, markerTipStandId, visible]);
+  }, [showingSellers, markerTipStandId, visible, mapScale]);
 
   const advancedFilterCount =
     (filters.openNow === true ? 1 : 0) +
@@ -1884,6 +1932,7 @@ export function StandMap({
           <figure className="island" ref={mapRef}>
           <MarkerLegend />
           <svg
+            ref={islandRef}
             viewBox={`0 0 ${ISLAND_VIEWBOX.width} ${ISLAND_VIEWBOX.height}`}
             className="island-svg"
             role="img"

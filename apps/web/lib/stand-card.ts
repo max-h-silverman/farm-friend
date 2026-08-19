@@ -156,6 +156,25 @@ export function standCardSections(
       section = { register: group.register, items: [] };
       sections.push(section);
     }
+    /*
+      B-088 — A RECENCY ON AN ITEM LINE ONLY WHEN IT DISTINGUISHES.
+
+      The per-seller axis is real — sellers publish independently — but printing each seller's
+      phrase unconditionally repeated the section heading verbatim on every row. Measured against
+      production: 33 of 37 public stands have exactly one seller, and three of the remaining four
+      have two sellers who published on the SAME day. Only Plum Forest actually differs.
+
+      So the test is agreement, not seller count: when every seller supporting this item states
+      the same phrase, the heading has already said it and the line stays quiet. A rule keyed on
+      `providers.length > 1` would still print duplicates for Pacific Crest, Tian Tian and
+      Venison Valley.
+
+      `undefined` counts as a value here, deliberately: one seller with a recency and one without
+      DISAGREE, and the one who has it should say so.
+    */
+    const distinctRecencies = new Set(group.providers.map((provider) => provider.cardRecency));
+    const recencyDistinguishes = distinctRecencies.size > 1;
+
     section.items.push({
       itemName: group.itemName,
       providers: group.providers.map((provider) => ({
@@ -175,7 +194,9 @@ export function standCardSections(
         ...(provider.approximation === undefined
           ? {}
           : { approximation: provider.approximation }),
-        ...(provider.cardRecency === undefined ? {} : { recency: provider.cardRecency }),
+        ...(provider.cardRecency === undefined || !recencyDistinguishes
+          ? {}
+          : { recency: provider.cardRecency }),
         ...(provider.stale === undefined ? {} : { stale: provider.stale }),
       })),
     });

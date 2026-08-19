@@ -870,8 +870,38 @@ async function answerResolvedInquiry(
     });
   }
 
+  /*
+    THE CATALOG MUST OFFER EVERY VALUE THE ANSWER COULD RETURN (B-087).
+
+    It used to be built from `candidateStands` (`listPublicStands`) while the answer is filtered
+    from `listings` (`retrieveSmsListings`), and the two do not hold the same rows.
+    `listPublicStands` drops the items of any confirmation past `isConfirmationExpired` — 28 days
+    — because an expired confirmation contributes no dated claim to the map. `retrieveSmsListings`
+    applies no such filter.
+
+    So a stand whose last confirmation was 29 days ago contributed NO catalog value. The model
+    cannot select a value it was never shown, nothing downstream can tell that from "the customer
+    never asked", and the stand became unreachable by name. Not ranked last — INVISIBLE.
+
+    Measured on production 2026-08-18: "who has eggs?" returned one stand while ten were listing
+    eggs. Four were past 28 days (41d, 108d, 109d, 124d) and could never be selected.
+
+    Building the catalog from the SAME rows the answer is filtered from makes the two incapable
+    of disagreeing. Age still governs everything it should — `renderStockAge` words it, `isStale`
+    ranks it, and a four-month-old line reads as four months old — but it no longer decides
+    whether a farmer's stand can be found at all.
+
+    `usualOfferings` still comes from `candidateStands`: standing claims never expire, they are
+    not on `listings`, and a stand that lists eggs as usually carried must stay findable.
+  */
   const catalog = new Map<string, string>();
   const paymentCatalog = new Map<string, string>();
+  for (const listing of listings) {
+    for (const item of listing.items) {
+      const key = item.itemName.trim().toLowerCase();
+      if (key !== "" && !catalog.has(key)) catalog.set(key, item.itemName.trim());
+    }
+  }
   for (const stand of candidateStands) {
     for (const item of [...stand.items, ...stand.usualOfferings]) {
       const key = item.itemName.trim().toLowerCase();
@@ -1113,6 +1143,7 @@ async function answerResolvedInquiry(
     senderHash: input.senderHash,
     occurredAt: input.occurredAt,
     withScope,
+    taskText: input.taskText,
   });
 }
 
@@ -1137,6 +1168,12 @@ async function deliverPage(
     senderHash: string;
     occurredAt: Date;
     withScope: (body: string) => string;
+    /**
+     * The customer's own words, so the renderer can tell an exact answer from a related one
+     * (B-086). Only the FIRST page carries it: a `MORE` page renders from the stored list,
+     * where every entry has already earned its place in the order it was ranked.
+     */
+    taskText: string;
   },
 ): Promise<InquiryOutcome> {
   const { factIds, standCount } = groupFactsByStand(input.facts, deps.clock.now());
@@ -1150,6 +1187,7 @@ async function deliverPage(
     offset: 0,
     total: standCount,
     clock: deps.clock,
+    taskText: input.taskText,
   });
 
   if (page.hasMore) {

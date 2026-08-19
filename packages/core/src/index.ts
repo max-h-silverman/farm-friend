@@ -14,6 +14,7 @@ export * from "./inventory/closure-timing";
 export * from "./inventory/prompt-schedule";
 export * from "./inquiry/retrieval";
 export * from "./inquiry/answer";
+export * from "./inquiry/exactness";
 export * from "./inquiry/paging";
 export * from "./inquiry/stand-name-match";
 export * from "./public/throttle";

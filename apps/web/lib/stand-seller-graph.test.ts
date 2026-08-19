@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   markerTipBox,
+  markerTipUnitScale,
   sellerSeasonBadge,
   sellerOpenState,
   sellerStandLinks,
@@ -395,6 +396,34 @@ describe("whether a seller is open right now", () => {
     */
     const future: GraphStand = { ...kelseys, id: "h", openState: "sold_out_but_open_tomorrow" };
     expect(sellerOpenState(atAll(["h"]), [future])).toBe("unknown");
+  });
+});
+
+describe("the tooltip's counter-scale (B-088)", () => {
+  /*
+    The tooltip lives inside the island SVG, so its font sizes are viewBox units scaled by the
+    map's rendered size. On a 390px phone that put "Runs this stand" at 6.6 real pixels — text
+    that got SMALLER as the screen did. These assert the inverse relationship that fixes it.
+  */
+  it("makes the box wider in island units as the map renders smaller", () => {
+    // A 390px-wide map is 0.39 units-to-pixels, so the box must span ~2.56x the units.
+    expect(markerTipUnitScale(0.39)).toBeCloseTo(2.564, 2);
+    expect(markerTipUnitScale(0.7)).toBeCloseTo(1.428, 2);
+  });
+
+  it("never shrinks the tooltip below its designed size", () => {
+    // A map rendered WIDER than its viewBox would otherwise scale the box down, making the
+    // designed size a ceiling rather than a floor.
+    expect(markerTipUnitScale(1.2)).toBe(1);
+    expect(markerTipUnitScale(1)).toBe(1);
+  });
+
+  it("falls back to the designed size for a scale nothing has measured yet", () => {
+    // First paint, before the ref has a box. A NaN or zero here would produce an Infinity-wide
+    // foreignObject and blank the map.
+    expect(markerTipUnitScale(0)).toBe(1);
+    expect(markerTipUnitScale(Number.NaN)).toBe(1);
+    expect(markerTipUnitScale(-1)).toBe(1);
   });
 });
 
