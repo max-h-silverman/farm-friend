@@ -1075,12 +1075,15 @@ function SellerCard({
   chosen,
   onToggle,
   onGoToSeller,
+  cardRef,
 }: {
   seller: SellerListEntry;
   stands: readonly (FilteredStand & MapViewStand)[];
   chosen: boolean;
   onToggle: () => void;
   onGoToSeller: (sellerId: string) => void;
+  /** Registers this card's element so the map can follow it and a crossing can scroll to it. */
+  cardRef: (node: HTMLLIElement | null) => void;
 }) {
   /*
     WHICH OF HER STANDS IS OPEN ON THIS CARD, if any.
@@ -1117,6 +1120,7 @@ function SellerCard({
 
   return (
     <li
+      ref={cardRef}
       className={chosen ? "stand stand-no-pin stand-selected" : "stand stand-no-pin"}
       /*
         THE WHOLE CARD IS THE TARGET, exactly as it is on a stand card. The name is a small
@@ -1397,6 +1401,14 @@ export function StandMap({
   );
 
   const cardRefs = useRef(new Map<string, HTMLLIElement>());
+  /**
+   * The seller cards, by id — the same device `cardRefs` is for stands.
+   *
+   * Two maps rather than one keyed by a composite: a stand and a seller can share neither key
+   * space nor lifetime (only one list is mounted at a time), and a single map would have to be
+   * cleared on every tab switch to stop a stale node being measured.
+   */
+  const sellerCardRefs = useRef(new Map<string, HTMLLIElement>());
   const mapRef = useRef<HTMLElement | null>(null);
   const mapColumnRef = useRef<HTMLDivElement | null>(null);
   const listColumnRef = useRef<HTMLDivElement | null>(null);
@@ -1573,6 +1585,18 @@ export function StandMap({
    * would push it off screen or open a gap where it was. The phone's answer to the same
    * problem is the detail sheet, which is already built.
    */
+  /*
+    WHICH CARD THE MAP IS FOLLOWING — a stand, or a seller (max, 2026-08-19).
+
+    The effect below was written for stands and keyed on `selectedId`, so crossing to a seller
+    left the map where the stand had put it and the chosen seller's card wherever the list
+    happened to be scrolled. Both lists render the same `li.stand` in the same column, so the
+    behaviour was never stand-specific — only its inputs were. Naming the chosen card once,
+    here, lets one effect serve both lists instead of a second copy of it drifting apart.
+  */
+  const followedCardId = showingSellers ? selectedSellerId : selectedId;
+  const followedCardRefs = showingSellers ? sellerCardRefs : cardRefs;
+
   useEffect(() => {
     const column = mapColumnRef.current;
     if (column === null) return;
@@ -1580,7 +1604,7 @@ export function StandMap({
     // The transform is a wide-screen affordance. On a phone the map must sit where the
     // document put it, so any offset from a previous wide layout is cleared.
     const isWide = window.matchMedia("(min-width: 56rem)").matches;
-    if (!isWide || selectedId === null) {
+    if (!isWide || followedCardId === null) {
       column.style.transform = "";
       return;
     }
@@ -1604,7 +1628,7 @@ export function StandMap({
       return;
     }
 
-    const card = cardRefs.current.get(selectedId);
+    const card = followedCardRefs.current.get(followedCardId);
     const list = listColumnRef.current;
     const map = mapRef.current;
     if (card === undefined || list === null || map === null) return;
@@ -1624,7 +1648,7 @@ export function StandMap({
     });
 
     column.style.transform = offset === 0 ? "" : `translateY(${offset}px)`;
-  }, [selectedId, selectedFrom, listVisible]);
+  }, [followedCardId, followedCardRefs, selectedFrom, listVisible]);
 
   /**
    * Selecting from either surface writes the SAME state — one selection, two renderers.
@@ -1719,15 +1743,61 @@ export function StandMap({
     setMarkerTipStandId((current) => (current === standId ? null : standId));
   }
 
-  /** Show the seller list with `sellerId` chosen — which lights their stands on the map. */
-  function goToSeller(sellerId: string): void {
+  /**
+   * Show the seller list with `sellerId` chosen — which lights their stands on the map.
+   *
+   * `from` says where the choice was made, exactly as `select` takes a source for stands. A
+   * CROSSING replaces the whole list, so the chosen card lands wherever that seller falls in
+   * the seller list and must be brought to the reader; a choice made in the seller list needs
+   * no scroll, because the reader is already looking at the card they pressed.
+   */
+  function goToSeller(sellerId: string, from: "crossing" | "list" = "crossing"): void {
     setListTab("sellers");
     setSelectedSellerId(sellerId);
     setMarkerTipStandId(null);
     // The stand selection belongs to the other list. Left standing it would keep a stand card
     // expanded and a pin haloed underneath a list about somebody else.
     setSelectedId(null);
+    /*
+      BRING THE SELLER'S CARD TO THE READER (max, 2026-08-19).
+
+      A crossing replaces the whole list, so the chosen card lands wherever that seller happens
+      to fall in the seller list — which on a long directory is off screen, and the reader is
+      left looking at an unchanged scroll position wondering what their tap did. The map's own
+      answer is the follow effect above; this is the other half of the same arrival.
+
+      REQUESTED rather than done here, for the reason the effect above states: the card is
+      expanded by this very state change, so measuring it now would measure the collapsed one —
+      or, on a crossing, a node that does not exist yet. The effect runs after the commit.
+    */
+    if (from === "crossing") setPendingSellerScroll(sellerId);
   }
+
+  /**
+   * A seller whose card should be scrolled to once the seller list has rendered it.
+   *
+   * Only a CROSSING sets this. Choosing a seller from the seller list needs no scroll — the
+   * reader is already looking at the card they pressed, and moving the page under a deliberate
+   * tap is the disorientation this exists to prevent.
+   */
+  const [pendingSellerScroll, setPendingSellerScroll] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (pendingSellerScroll === null) return;
+    const card = sellerCardRefs.current.get(pendingSellerScroll);
+    // Cleared even when the card is absent — a seller filtered out of the visible list is not
+    // going to appear, and a request left standing would fire on an unrelated later render.
+    setPendingSellerScroll(null);
+    if (card === undefined) return;
+
+    /*
+      `nearest`, so a card already on screen is left where it is rather than being yanked to the
+      top of the viewport. `smooth` because this movement is the ANSWER to the tap — unlike the
+      phone's map correction, which competes with the sheet animation and is deliberately
+      instant.
+    */
+    card.scrollIntoView({ block: "nearest", behavior: "smooth" });
+  }, [pendingSellerScroll, listVisible]);
 
   const selectedStand =
     selectedId === null
@@ -2222,9 +2292,13 @@ export function StandMap({
                       onToggle={() =>
                         seller.sellerId === selectedSellerId
                           ? setSelectedSellerId(null)
-                          : goToSeller(seller.sellerId)
+                          : goToSeller(seller.sellerId, "list")
                       }
                       onGoToSeller={goToSeller}
+                      cardRef={(node) => {
+                        if (node) sellerCardRefs.current.set(seller.sellerId, node);
+                        else sellerCardRefs.current.delete(seller.sellerId);
+                      }}
                     />
                   ))}
                 </ul>
