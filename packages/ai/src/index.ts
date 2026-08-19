@@ -86,6 +86,7 @@ export * from "./deepinfra";
 export * from "./inventory-seam";
 export * from "./inquiry-seam";
 export * from "./live-eval-policy";
+export * from "./live-eval-variance";
 export * from "./offering-seam";
 export * from "./provider-gate";
 export * from "./transport-observer";

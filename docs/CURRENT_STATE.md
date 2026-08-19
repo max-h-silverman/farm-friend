@@ -94,7 +94,7 @@
 
 ## Verification
 
-- **2,399 unit tests pass across 170 files; 7 corpus-only tests skip**, and integration is
+- **2,418 unit tests pass across 171 files; 7 corpus-only tests skip**, and integration is
   **1,463/1,463 across all 107 files** (both 2026-08-19, on the merged wrap commit).
 - **`npm run test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`.** Without
   it, six `apps/web/lib/farmer-stand.integration.test.ts` cases fail `PUBLIC_BASE_URL is required`.
@@ -105,15 +105,30 @@
 - **Live evals ran clean on 2026-08-19: 39/39** across containment, closure, quality, operation and
   catalog, against `mistralai/Mistral-Small-24B-Instruct-2501` — the model production serves. This
   clears the run owed from B-086/B-087.
-- **`evals:live` is now a trustworthy gate (B-089), with one caveat.** A fixture whose model call
-  never reached the provider is counted `couldNotRun` — neither pass nor fail — and the run exits 2
-  reporting "N fixtures could not run", so an outage no longer reads as a quality regression. A real
-  failure always outranks an outage. **The caveat:** across ~10 runs this session the top-level
-  corpus scored both 51/53 and 53/53 with identical code, so this model flaps beyond the two
-  catalogued baseline cases. **Measure before tuning** — capture N runs, count which fixtures ever
-  miss. Do NOT grow `ADVISORY_CLASSIFIER_CASES` to make a run green; a list used as a pressure valve
-  has stopped being a guard. A threshold ("no more than N baseline misses") is the honest instrument
-  if the corpus cannot hold 53/53.
+- **`evals:live` is a trustworthy gate (B-089).** A fixture whose model call never reached the
+  provider is counted `couldNotRun` — neither pass nor fail — and the run exits 2 reporting "N
+  fixtures could not run", so an outage no longer reads as a quality regression. A real failure
+  always outranks an outage.
+- **The classifier's variance is now measured, and it is narrower than it looked (B-090).** Twenty
+  captured runs on 2026-08-19 against `mistralai/Mistral-Small-24B-Instruct-2501`: **20/20 green,
+  zero FAIL, zero SKIP**, every required group at 100% in every run. Only two fixtures move, and
+  both move **only on the two already-catalogued baseline cases** — no third case ever missed:
+  `"what is viga"` missed **4/20** (corpus 52–53 of 53) and `"when do you open?"` missed **11/20**
+  (second-person 4–5 of 5). Roughly 800 classifications, 15 misses, all two known phrases.
+  **`ADVISORY_CLASSIFIER_CASES` needs no new entry and no threshold** — the corpus holds, so the
+  honest instrument stays the existing pass/fail gate.
+- **The remembered 51/53 and the 3/5 `live-operation` failure did not reproduce, and 3/5 was almost
+  certainly an outage rather than a classifier miss.** Both baseline cases are absorbed by the
+  advisory list, so neither can drop that group below 5/5 — the arithmetic cannot reach 3/5 from
+  classifier misses at all. That run predates B-089's `couldNotRun` labelling, which is exactly what
+  a transport failure looked like before it had a name, and is consistent with four reruns failing
+  to reproduce it.
+- **A passing fixture can still be moving.** The top-level corpus fixture gates on "no *non-baseline*
+  regression", so 51/53 and 53/53 are both green and a PASS/FAIL tally reports it as perfectly
+  stable. `evals/variance.ts` + `packages/ai/src/live-eval-variance.ts` capture every run to its own
+  file and report **score movement separately** from pass/fail. Re-summarise any capture directory
+  without spending money: `npx tsx evals/variance.ts --summarise-only --out <dir>`. Captures for this
+  measurement are kept in `evals/captures/2026-08-19-b090/`.
 - **Every tranche here is sabotage-proved** — each guard has a breakage aimed at it that the suite
   caught. The standing lessons: **assert the absence of the wrong behavior; when a breakage changes
   no test result, ask which other guard answered first; and confirm the sabotage actually applied
