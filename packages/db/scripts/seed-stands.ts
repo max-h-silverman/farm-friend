@@ -320,10 +320,7 @@ function toSeedInput(stand: JoinedStand, usuallySells: readonly string[]): {
           },
     flags,
     ...(farmBucksPolicy !== undefined
-      ? {
-          farmBucksAccepted: farmBucksPolicy.accepted,
-          farmBucksEligible: farmBucksPolicy.eligible,
-        }
+      ? { farmBucksAccepted: farmBucksPolicy.accepted }
       : {}),
   };
 

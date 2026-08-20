@@ -42,11 +42,10 @@ describe("B-032 final proposal and location schema (integration)", () => {
     `;
     const locations = await sql`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type
       ) values (
         ${farmId}, 'farm_stand', 'B-032 Contact Stand', 'America/Los_Angeles',
-        'contact_only', 'by_order', false, false
+        'contact_only', 'by_order'
       ) returning id
     `;
     locationId = locations[0]?.id as string;
@@ -111,12 +110,11 @@ describe("B-032 final proposal and location schema (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, offering_type,
-          public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, offering_type, public_address,
+          public_latitude, public_longitude
         ) values (
-          ${farmId}, 'farm_stand', 'Missing Visitability', 'America/Los_Angeles', 'produce',
-          '1 Explicit Way', 47.4, -122.4, false, false
+          ${farmId}, 'farm_stand', 'Missing Visitability', 'America/Los_Angeles',
+          'produce', '1 Explicit Way', 47.4, -122.4
         )
       `,
     ).rejects.toMatchObject({ code: "23502" });
@@ -126,12 +124,11 @@ describe("B-032 final proposal and location schema (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability,
-          public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, public_address,
+          public_latitude, public_longitude
         ) values (
-          ${farmId}, 'farm_stand', 'Missing Offering Type', 'America/Los_Angeles', 'visitable',
-          '2 Explicit Way', 47.4, -122.4, false, false
+          ${farmId}, 'farm_stand', 'Missing Offering Type', 'America/Los_Angeles',
+          'visitable', '2 Explicit Way', 47.4, -122.4
         )
       `,
     ).rejects.toMatchObject({ code: "23502" });

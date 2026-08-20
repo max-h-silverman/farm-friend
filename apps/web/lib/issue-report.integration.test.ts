@@ -398,11 +398,10 @@ describe("B-091 issue reports reach VIGA only on confirmation (integration)", ()
     const locations = await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       ) values (
-        ${farmId}, 'farm_stand', 'Pinecone', 'America/Los_Angeles', 'visitable', 'produce',
-        '1 Road', 47.44, -122.46, false, false
+        ${farmId}, 'farm_stand', 'Pinecone', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Road', 47.44, -122.46
       ) returning id
     `;
     await client()`

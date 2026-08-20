@@ -86,15 +86,13 @@ describe.skipIf(!databaseUrl)("visitability and offering type (integration)", ()
     return db()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       )
       values (
         ${farmId}, 'farm_stand', ${fields.name}, 'America/Los_Angeles',
         ${fields.visitability}::sales_location_visitability,
-        ${fields.offeringType}::sales_location_offering_type,
-        ${fields.address}, ${fields.latitude}, ${fields.longitude},
-        false, false
+        ${fields.offeringType}::sales_location_offering_type, ${fields.address},
+        ${fields.latitude}, ${fields.longitude}
       )
       returning id, visitability, offering_type, public_address
     `;

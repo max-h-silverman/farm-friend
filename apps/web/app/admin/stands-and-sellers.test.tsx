@@ -149,6 +149,7 @@ function summaryFor(name: string): string {
 /** The stand's own details, which is where its controls (trash included) actually live. */
 const standDetails = {
   standId: "stand-1",
+  farmId: "farm-of-stand-1",
   name: "Misty Hollow Stand",
   farmName: "Misty Hollow Farm",
   status: "On the map",
@@ -980,6 +981,7 @@ describe("a stand card names the stand once", () => {
         ...(stands[1] as StandCard),
         details: {
           standId: "stand-2",
+          farmId: "farm-of-stand-2",
           name: "Harbor Stand",
           farmName: "Fernhorn Farm",
           status: "Visible to customers",
@@ -987,7 +989,7 @@ describe("a stand card names the stand once", () => {
           approved: true,
           retired: false,
           retiredWithFarm: false,
-          farmBucksStatus: "not_eligible",
+          farmBucksStatus: "does_not_accept",
           metadata: {
             name: "Harbor Stand",
             publicAddress: "9 Harbor Rd",

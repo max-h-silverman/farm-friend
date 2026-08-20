@@ -55,13 +55,16 @@ describe("the farmer's listing edit surface", () => {
     expect(page).toContain("standName: listing.standName");
   });
 
-  it("threads VIGA Bucks eligibility and acceptance into every edit form", () => {
+  it("threads VIGA Bucks acceptance into every edit form, and no eligibility flag", () => {
     // The writer changes acceptance, so a form that cannot see the stored value would quietly
     // turn it off on the next unrelated save. Both the bookmarked route and the primary tab
-    // compose `ListingStep` by hand, so both need this exact pair.
+    // compose `ListingStep` by hand, so both need it.
     for (const source of [page, tabbedPage]) {
-      expect(source).toContain("farmBucksEligible: listing.farmBucksEligible");
       expect(source).toContain("farmBucksAccepted: listing.farmBucksAccepted");
+      // F-125 — the eligibility grant is deleted, not merely unset. Asserting its ABSENCE is
+      // what stops it being threaded back in by a future edit; the positive assertion above
+      // cannot notice a second, stale field riding alongside it.
+      expect(source).not.toContain("farmBucksEligible");
     }
   });
 });

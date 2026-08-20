@@ -77,7 +77,7 @@ const sql = postgres(databaseUrl, { max: 1 });
 try {
   await sql.begin(async (tx) => {
     const rows = await tx`
-      select l.id as location_id, l.name, l.farm_bucks_accepted, l.farm_bucks_eligible,
+      select l.id as location_id, l.name, f.farm_bucks_accepted,
              f.id as seller_id, f.description
       from sales_locations l
       join sellers f on f.id = l.own_seller_id
@@ -104,10 +104,15 @@ try {
       const paymentFact = paymentFacts.get(matchStandName(entry.standName));
       const farmBucksAccepted = details.farmBucksAccepted ?? paymentFact?.farmBucksAccepted;
       const shouldFillDescription = row.description === null && details.description !== undefined;
+      /*
+        F-125 — the payment half now fills the SELLER, and only where she still carries the
+        column default. The old trigger was the three-state "never reviewed" pair
+        (eligible=false and accepted=false), which no longer exists: max settled on 2026-08-20
+        that a farm either takes Farm Bucks or does not, and an unanswered farm defaults to
+        accepting. So the only rows worth filling are the ones a source says REFUSE.
+      */
       const shouldFillPayment =
-        row.farm_bucks_eligible === false &&
-        row.farm_bucks_accepted === false &&
-        farmBucksAccepted !== undefined;
+        row.farm_bucks_accepted === true && farmBucksAccepted === false;
 
       if (shouldFillDescription) {
         descriptionsFilled += 1;
@@ -123,10 +128,9 @@ try {
         paymentFactsFilled += 1;
         if (apply) {
           await tx`
-            update sales_locations
-            set farm_bucks_accepted = ${farmBucksAccepted}, farm_bucks_eligible = true
-            where id = ${row.location_id}
-              and farm_bucks_accepted = false and farm_bucks_eligible = false
+            update sellers
+            set farm_bucks_accepted = false
+            where id = ${row.seller_id} and farm_bucks_accepted = true
           `;
         }
       }

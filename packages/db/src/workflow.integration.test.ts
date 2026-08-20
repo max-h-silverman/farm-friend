@@ -227,7 +227,7 @@ describe("authoritative SMS transactions (integration)", () => {
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         outbox_work, consent_transition_watermarks, sms_consents, sender_states,
         stock_out_reports, flags, audit_events, model_runs,
-        seller_approvals, farmer_authorizations, sales_location_payment_methods,
+        seller_approvals, farmer_authorizations, seller_payment_methods,
         seller_links, sales_locations, administrators, sellers, contacts
       restart identity cascade
     `;
@@ -265,11 +265,11 @@ describe("authoritative SMS transactions (integration)", () => {
 
     const locations = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude
       )
-      values (${ids.farm}, 'farm_stand', 'Workflow Stand', 'America/Los_Angeles', 'visitable', 'produce', '9 Stand Way',
-              47.45, -122.46, true, true)
+      values (${ids.farm}, 'farm_stand', 'Workflow Stand', 'America/Los_Angeles',
+        'visitable', 'produce', '9 Stand Way', 47.45, -122.46)
       returning id
     `;
     ids.location = locations[0]?.id as string;

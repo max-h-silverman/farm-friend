@@ -75,7 +75,8 @@ const expectedTables = [
   "provider_inbox_events",
   "sales_location_offerings",
   "sales_location_participants",
-  "sales_location_payment_methods",
+  // F-125 — the host's narrowing of what a seller takes at one stand. Removal only.
+  "sales_location_payment_method_exclusions",
   "sales_locations",
   "scheduled_inventory_prompt_subjects",
   "seller_approvals",
@@ -88,6 +89,8 @@ const expectedTables = [
   // the hash is the only lookup key. Golden Rule #5, applied to a second kind of personal data.
   "seller_emails",
   "seller_links",
+  // F-125 — what a seller takes, stated once for every stand she sells at.
+  "seller_payment_methods",
   // F-114 Phase C.0 — the identity record, renamed from `farms`. One brand: a farm, a bakery, a
   // maker. Phase B's separate `sellers` table merged into this one when the correction removed
   // the `farms` authority root, so there is exactly one identity table, not two.
@@ -405,13 +408,12 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-          public_longitude, farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+          public_latitude, public_longitude
         )
         values (
-          ${storedId("Exact Projection Farm")}, 'farm_stand',
-          'Conflicting Public Location', 'America/Los_Angeles', 'visitable', 'produce',
-          '0 Stand Way', 47.45, -122.46, false, false
+          ${storedId("Exact Projection Farm")}, 'farm_stand', 'Conflicting Public Location',
+          'America/Los_Angeles', 'visitable', 'produce', '0 Stand Way', 47.45, -122.46
         )
       `,
     ).rejects.toThrow();
@@ -419,16 +421,16 @@ describe("clean launch database foundation (integration)", () => {
     const locationRows = await db()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-        public_longitude, farm_bucks_accepted, farm_bucks_eligible
+        public_longitude
       )
       values
         (
           ${storedId("farm")}, 'farm_stand', 'Exact Farm Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Stand Way',
-          47.45, -122.46, true, true
+          47.45, -122.46
         ),
         (
           ${storedId("farm")}, 'farmers_market', 'VIGA Farmers Market', 'America/Los_Angeles',
-          'visitable', 'produce', '2 Market Way', 47.44, -122.45, false, true
+          'visitable', 'produce', '2 Market Way', 47.44, -122.45
         )
       returning id, kind
     `;
@@ -440,40 +442,45 @@ describe("clean launch database foundation (integration)", () => {
     await expect(
       db()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-          public_longitude, farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+          public_latitude, public_longitude
         )
         values (
-          ${storedId("farm")}, 'farm_stand', 'Bad Coordinates', 'America/Los_Angeles', 'visitable', 'produce', '3 Stand Way',
-          91, -122.4, false, false
+          ${storedId("farm")}, 'farm_stand', 'Bad Coordinates', 'America/Los_Angeles', 'visitable',
+          'produce', '3 Stand Way', 91, -122.4
         )
       `,
     ).rejects.toThrow();
-    // Acceptance without eligibility is now ALLOWED (max, 2026-08-10). The CHECK
-    // `sales_locations_farm_bucks_acceptance_requires_eligibility` was dropped in `0037`:
-    // eligibility is VIGA's own record, and gating the farmer's claim on it made the
-    // onboarding toggle unreachable for every new farm, since eligibility lives on a stand
-    // row that does not exist until onboarding saves.
-    await db()`
-      insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-        public_longitude, farm_bucks_accepted, farm_bucks_eligible
-      )
-      values (
-        ${storedId("farm")}, 'farm_stand', 'Accepted Not Yet Eligible', 'America/Los_Angeles', 'visitable', 'produce', '4 Stand Way',
-        47.4, -122.4, true, false
-      )
-    `;
+    /*
+      F-125 — Farm Bucks is not a stand fact at all any more.
+
+      The old three-state model (accepted + eligible) let a stand claim acceptance with no
+      grant behind it, which five production rows actually did. max settled it on 2026-08-20:
+      "there is no 'eligible'. they either take it or they don't." Acceptance moved to the
+      seller and the grant was DELETED rather than moved.
+
+      Asserting the columns are ABSENT is the load-bearing form. A test that merely stopped
+      mentioning them would pass just as well if a future migration put them back, and the
+      whole point is that this fact now has exactly one home.
+    */
     expect(
       await db()`
-        select farm_bucks_accepted, farm_bucks_eligible from sales_locations
-        where name = 'Accepted Not Yet Eligible'
+        select column_name from information_schema.columns
+        where table_schema = 'public' and table_name = 'sales_locations'
+          and column_name like 'farm_bucks%'
       `,
-    ).toEqual([{ farm_bucks_accepted: true, farm_bucks_eligible: false }]);
+    ).toEqual([]);
+    expect(
+      await db()`
+        select column_name, column_default from information_schema.columns
+        where table_schema = 'public' and table_name = 'sellers'
+          and column_name = 'farm_bucks_accepted'
+      `,
+    ).toEqual([{ column_name: "farm_bucks_accepted", column_default: "true" }]);
 
     await db()`
-      insert into sales_location_payment_methods (sales_location_id, method)
-      values (${storedId("location")}, 'cash'), (${storedId("location")}, 'card')
+      insert into seller_payment_methods (seller_id, method)
+      values (${storedId("farm")}, 'cash'), (${storedId("farm")}, 'card')
     `;
     await db()`
       insert into seller_links (seller_id, label, url)
@@ -1044,11 +1051,11 @@ describe("clean launch database foundation (integration)", () => {
     ): Promise<void> {
       const columns = Object.keys(fields);
       const base = `insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible${columns.length ? ", " + columns.map((c) => `"${c}"`).join(", ") : ""}
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+        public_latitude, public_longitude${columns.length ? ", " + columns.map((c) => `"${c}"`).join(", ") : ""}
       ) values (
-        '${storedId("farm")}', 'farm_stand', 'Constraint Probe ${randomUUID()}', 'America/Los_Angeles', 'visitable', 'produce', '9 Probe Way',
-        47.45, -122.46, false, true${columns.length ? ", " + columns.map((_, i) => `$${i + 1}`).join(", ") : ""}
+        '${storedId("farm")}', 'farm_stand', 'Constraint Probe ${randomUUID()}', 'America/Los_Angeles',
+        'visitable', 'produce', '9 Probe Way', 47.45, -122.46${columns.length ? ", " + columns.map((_, i) => `$${i + 1}`).join(", ") : ""}
       )`;
       await db().unsafe(base, Object.values(fields) as never[]);
     }
@@ -1224,11 +1231,11 @@ describe("clean launch database foundation (integration)", () => {
     beforeAll(async () => {
       const rows = await db()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+          public_latitude, public_longitude
         )
-        values (${storedId("farm")}, 'farm_stand', 'Specialty Probe Stand', 'America/Los_Angeles', 'visitable', 'produce', '11 Specialty Way',
-                47.44, -122.47, false, true)
+        values (${storedId("farm")}, 'farm_stand', 'Specialty Probe Stand', 'America/Los_Angeles', 'visitable',
+          'produce', '11 Specialty Way', 47.44, -122.47)
         returning id
       `;
       unconfirmedLocation = rows[0]?.id as string;
@@ -1316,11 +1323,11 @@ describe("clean launch database foundation (integration)", () => {
     beforeAll(async () => {
       const rows = await db()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+          public_latitude, public_longitude
         )
-        values (${storedId("farm")}, 'farm_stand', 'Flag Probe Stand', 'America/Los_Angeles', 'visitable', 'produce', '12 Flag Way',
-                47.43, -122.48, false, true)
+        values (${storedId("farm")}, 'farm_stand', 'Flag Probe Stand', 'America/Los_Angeles', 'visitable',
+          'produce', '12 Flag Way', 47.43, -122.48)
         returning id
       `;
       flagLocation = rows[0]?.id as string;

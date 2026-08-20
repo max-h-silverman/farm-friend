@@ -146,13 +146,11 @@ describe("stand provider facts (integration)", () => {
   }): Promise<string> => {
     const rows = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         public_address, public_latitude, public_longitude
       ) values (
         ${input.ownSellerId}, 'farm_stand', ${input.name}, 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        'Vashon Hwy, Vashon WA', 47.4473, -122.4590
+        'visitable', 'produce', true, 'Vashon Hwy, Vashon WA', 47.4473, -122.4590
       ) returning id
     `;
     const locationId = rows[0]?.id as string;

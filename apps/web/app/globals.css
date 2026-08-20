@@ -6209,6 +6209,31 @@ button.admin-action-danger,
   background: #6b3f8f;
 }
 
+/* B-095 — a seller's VIGA Bucks refusal, shaped like the season badge beside it and carrying
+ * the SAME colour the stand card's poster indicator uses for this fact (--poster-no-viga-bucks
+ * above). One fact, one colour, on both surfaces.
+ *
+ * No `margin-left: auto`: the season badge already claims the free space, and a second badge
+ * claiming it too would push the pair apart instead of letting them sit together. */
+.seller-no-viga-bucks {
+  display: inline-flex;
+  gap: 0.4rem;
+  align-items: center;
+  padding: 0.2rem 0.6rem;
+  border-radius: 0.5rem;
+  font-size: 0.82rem;
+  font-weight: 700;
+  color: #ec641d;
+  background: rgb(236 100 29 / 8%);
+  border: 1px solid rgb(236 100 29 / 35%);
+}
+
+.seller-no-viga-bucks .poster-dot {
+  width: 0.6rem;
+  height: 0.6rem;
+  background: #ec641d;
+}
+
 /* ---- F-118: the crossing between stands and sellers --------------------
 
    THE PIN NUMBER IS THE TOKEN THAT TIES THE THREE SURFACES TOGETHER — the pin

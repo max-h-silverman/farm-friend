@@ -20,6 +20,8 @@ export interface SellerListEntry {
   sellerName: string;
   description?: string;
   ownsAStand: boolean;
+  /** B-095, F-125 — her own VIGA Bucks answer, applying at every stand she sells at. */
+  farmBucksAccepted: boolean;
   sellingAt: SellerListStand[];
 }
 

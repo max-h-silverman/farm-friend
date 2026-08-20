@@ -107,16 +107,13 @@ describe("F-117 host stand choices (integration)", () => {
     }
     const stands = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, retired_at, retired_by_administrator_id,
-        farm_bucks_accepted, farm_bucks_eligible,
-        public_address, public_latitude, public_longitude
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public, retired_at,
+        retired_by_administrator_id, public_address, public_latitude, public_longitude
       ) values (
-        ${sellerId}, 'farm_stand', ${name}, 'America/Los_Angeles',
-        'visitable', 'produce', ${options.isPublic ?? true},
+        ${sellerId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce',
+        ${options.isPublic ?? true},
         ${options.retired === true ? new Date("2026-01-01T00:00:00.000Z") : null},
-        ${options.retired === true ? administratorId : null},
-        false, false, '1 Road', 47.4473, -122.4590
+        ${options.retired === true ? administratorId : null}, '1 Road', 47.4473, -122.4590
       ) returning id
     `;
     return { standId: stands[0]?.id as string, sellerId };
@@ -167,13 +164,11 @@ describe("F-117 host stand choices (integration)", () => {
     */
     const stands = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         public_address, public_latitude, public_longitude
       ) values (
-        null, 'farmers_market', 'Morgan Hill', 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        '9 Market Way', 47.4475, -122.4592
+        null, 'farmers_market', 'Morgan Hill', 'America/Los_Angeles', 'visitable',
+        'produce', true, '9 Market Way', 47.4475, -122.4592
       ) returning id
     `;
 

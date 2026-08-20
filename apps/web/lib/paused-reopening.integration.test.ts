@@ -157,11 +157,10 @@ describe("F-114 C.4 a paused listing is offered re-opening (integration)", () =>
     const locations = await sql`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       ) values (
-        ${sellerId}, 'farm_stand', 'Kelseys Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '1 Kelsey Way', 47.45, -122.46, false, true
+        ${sellerId}, 'farm_stand', 'Kelseys Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Kelsey Way', 47.45, -122.46
       ) returning id
     `;
     standId = locations[0]?.id as string;

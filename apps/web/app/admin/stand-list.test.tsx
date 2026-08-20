@@ -25,6 +25,7 @@ import { StandDetails, type AdminStandCard } from "./stand-list";
 
 const stand: AdminStandCard = {
   standId: "stand-1",
+  farmId: "farm-of-stand-1",
   name: "Venison Valley Stand",
   farmName: "Venison Valley",
   status: "Listed",
@@ -32,7 +33,7 @@ const stand: AdminStandCard = {
   approved: true,
   retired: false,
   retiredWithFarm: false,
-  farmBucksStatus: "not_eligible",
+  farmBucksStatus: "does_not_accept",
   metadata: {
     name: "Venison Valley Stand",
     publicAddress: "1 Wrong Road",

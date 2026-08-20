@@ -194,14 +194,11 @@ describe("seeding VIGA's stands (B-002)", () => {
   it("ACCEPTS a contact_only farm with a full location (F-088)", async () => {
     await client`
       insert into sales_locations
-        (own_seller_id, kind, name, timezone, visitability, offering_type,
-         public_address, public_latitude, public_longitude,
-         is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
+        (own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+         public_latitude, public_longitude, is_public, created_at, updated_at)
       values
-        ((select id from sellers limit 1), 'farm_stand', 'Placed Delivery Farm',
-         'America/Los_Angeles', 'contact_only', 'by_order',
-         '12345 Vashon Highway SW', 47.4471, -122.4594,
-         true, false, false, now(), now())
+        ((select id from sellers limit 1), 'farm_stand', 'Placed Delivery Farm', 'America/Los_Angeles',
+         'contact_only', 'by_order', '12345 Vashon Highway SW', 47.4471, -122.4594, true, now(), now())
     `;
 
     const rows = await client`
@@ -220,14 +217,12 @@ describe("seeding VIGA's stands (B-002)", () => {
       await expect(
         client`
           insert into sales_locations
-            (own_seller_id, kind, name, timezone, visitability, offering_type,
-             public_address, public_latitude, public_longitude,
-             is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
+            (own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+             public_latitude, public_longitude, is_public, created_at, updated_at)
           values
             ((select id from sellers limit 1), 'farm_stand', ${`Half Pinned ${visitability}`},
-             'America/Los_Angeles', ${visitability}, 'produce',
-             '12345 Vashon Highway SW', 47.4471, null,
-             true, false, false, now(), now())
+             'America/Los_Angeles', ${visitability}, 'produce', '12345 Vashon Highway SW', 47.4471, null,
+             true, now(), now())
         `,
       ).rejects.toThrow();
     }
@@ -238,14 +233,11 @@ describe("seeding VIGA's stands (B-002)", () => {
     await expect(
       client`
         insert into sales_locations
-          (own_seller_id, kind, name, timezone, visitability, offering_type,
-           public_address, public_latitude, public_longitude,
-           is_public, farm_bucks_accepted, farm_bucks_eligible, created_at, updated_at)
+          (own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+           public_latitude, public_longitude, is_public, created_at, updated_at)
         values
           ((select id from sellers limit 1), 'farm_stand', 'Unplaced Visitable Stand',
-           'America/Los_Angeles', 'visitable', 'produce',
-           null, null, null,
-           true, false, false, now(), now())
+           'America/Los_Angeles', 'visitable', 'produce', null, null, null, true, now(), now())
       `,
     ).rejects.toThrow();
   });
@@ -384,7 +376,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       const before = await client`
         select
           (select count(*)::integer from seller_links) as links,
-          (select count(*)::integer from sales_location_payment_methods) as payments
+          (select count(*)::integer from seller_payment_methods) as payments
       `;
       expect(before[0]!.links).toBe(0);
 
@@ -401,7 +393,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       const rows = await client`
         select
           (select count(*)::integer from seller_links) as links,
-          (select count(*)::integer from sales_location_payment_methods) as payments,
+          (select count(*)::integer from seller_payment_methods) as payments,
           (select count(*)::integer from sales_location_participants) as hosts
       `;
       expect(rows[0]!.links).toBe(1);
@@ -486,7 +478,7 @@ describe("seeding VIGA's stands (B-002)", () => {
       const rows = await client`
         select
           (select count(*)::integer from seller_links) as links,
-          (select count(*)::integer from sales_location_payment_methods) as payments
+          (select count(*)::integer from seller_payment_methods) as payments
       `;
       expect(rows[0]!.links).toBe(1);
       expect(rows[0]!.payments).toBe(2);

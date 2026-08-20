@@ -74,12 +74,11 @@ describe("web onboarding establishes SMS consent (integration)", () => {
     await sql()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       )
       values (
-        ${farmId}, 'farm_stand', ${`${name} Stand`}, 'America/Los_Angeles', 'visitable',
-        'produce', '1 Vashon Hwy', 47.4, -122.4, false, false
+        ${farmId}, 'farm_stand', ${`${name} Stand`}, 'America/Los_Angeles',
+        'visitable', 'produce', '1 Vashon Hwy', 47.4, -122.4
       )
     `;
     return farmId;

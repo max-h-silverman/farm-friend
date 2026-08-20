@@ -72,11 +72,10 @@ describe("F-078 farm email privacy (integration)", () => {
     await sql()`
       insert into sales_locations
         (own_seller_id, name, kind, timezone, visitability, offering_type,
-         public_address, public_latitude, public_longitude, is_public,
-         farm_bucks_accepted, farm_bucks_eligible)
+         public_address, public_latitude, public_longitude, is_public)
       values
-        (${farmId}, 'Lavender Hill Stand', 'farm_stand', 'America/Los_Angeles', 'visitable',
-         'produce', '12345 Vashon Hwy SW', 47.4496, -122.4609, true, false, false)
+        (${farmId}, 'Lavender Hill Stand', 'farm_stand', 'America/Los_Angeles',
+         'visitable', 'produce', '12345 Vashon Hwy SW', 47.4496, -122.4609, true)
     `;
 
     await sql()`

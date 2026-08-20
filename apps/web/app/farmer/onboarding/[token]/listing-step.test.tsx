@@ -757,7 +757,7 @@ describe("onboarding listing step", () => {
       // The toggle lives on the payment step, so walk there exactly as the sibling tests do.
       await revealField(user, "Cash");
 
-      const payments = screen.getByRole("group", { name: "How can people pay?" });
+      const payments = screen.getByRole("group", { name: /How can people pay you\?/ });
       expect(within(payments).getByRole("checkbox", { name: "VIGA Bucks" })).toBeInTheDocument();
     });
 
@@ -2575,7 +2575,6 @@ describe("onboarding listing step", () => {
         stockingDays: [2, 5],
       },
       description: null,
-      farmBucksEligible: true,
       farmBucksAccepted: false,
     };
 
@@ -2621,16 +2620,36 @@ describe("onboarding listing step", () => {
       expect(posted(fetchMock).farmBucksAccepted).toBe(true);
     });
 
-    it("offers VIGA Bucks to a farm VIGA has NOT marked eligible", async () => {
-      // max, 2026-08-10 — max reported the option missing from onboarding, and this is why:
-      // the control was gated on `defaults.farmBucksEligible`, a VIGA flag stored on the stand
-      // row. A farmer onboarding a new farm has no stand row yet, so the flag could never be
-      // true and the option could never appear for the farmer the form exists for.
+    it("asks payment as a question about HER, not about this stand (F-125)", () => {
+      /*
+        F-125 — she states payment once and it applies at every stand she sells at, so the
+        form must not read as a per-stand question. A farmer onboarding her second stand who
+        is asked "how can people pay?" again will reasonably answer for that stand, and the
+        writer would then replace her seller-wide answer with it.
+
+        The prefill is the other half and is covered by the round-trip test above: her stored
+        methods arrive ticked rather than as an empty box.
+      */
+      renderEdit();
+
+      expect(screen.getByText("How can people pay you?")).toBeInTheDocument();
+      expect(
+        screen.getByText(/applies everywhere you sell/i),
+      ).toBeInTheDocument();
+      expect(screen.queryByText("How can people pay?")).toBeNull();
+    });
+
+    it("offers VIGA Bucks unconditionally, with no eligibility flag to gate it", async () => {
+      // max, 2026-08-10 — the control was once gated on a VIGA eligibility flag stored on the
+      // stand row, so a farmer onboarding a new farm (no stand row yet) could never see it.
+      // F-125 deleted the flag outright rather than moving it (max, 2026-08-20: "there is no
+      // 'eligible'"), so the gate is now unrepresentable rather than merely unset. This keeps
+      // the guarantee the original test bought: the control is always offered.
       render(
         <ListingStep
           credential={{ kind: "stand_link", token: TOKEN }}
           farmName="Test Farm"
-          defaults={{ ...DEFAULTS, farmBucksEligible: false }}
+          defaults={DEFAULTS}
         />,
       );
 
@@ -3585,7 +3604,7 @@ describe("onboarding listing step", () => {
 
       const section = screen.getByRole("group", { name: /what do you usually sell/i });
       expect(section).toHaveClass("farmer-listing-inventory-highlighted");
-      const payments = screen.getByRole("group", { name: "How can people pay?" });
+      const payments = screen.getByRole("group", { name: /How can people pay you\?/ });
       expect(section.compareDocumentPosition(payments) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
       // The question, the way in, and what has been added so far — all inside it.
       expect(section).toContainElement(screen.getByLabelText(/what do you usually sell/i));

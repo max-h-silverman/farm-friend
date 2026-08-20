@@ -26,7 +26,7 @@ import type { Sql } from "./sql";
   belongs to the farmer's listing.
 
   **The columns are named, and the ones left out are left out on purpose.** `is_public`,
-  `farm_bucks_*`, `visitability`, `offering_type` and the twelve structured availability
+  `visitability`, `offering_type` and the twelve structured availability
   columns each have their own writer or their own VIGA control already; a second writer over
   any of them would be two ways to do one thing.
 
@@ -106,13 +106,11 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
     sellerId = sellers[0]?.id as string;
     const stands = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         public_address, address_public, public_latitude, public_longitude, hours_text
       ) values (
-        ${sellerId}, 'farm_stand', 'Hil Farm Stnd', 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        '1 Wrong Road', true, 47.4473, -122.4590, 'Dawn to dusk'
+        ${sellerId}, 'farm_stand', 'Hil Farm Stnd', 'America/Los_Angeles', 'visitable',
+        'produce', true, '1 Wrong Road', true, 47.4473, -122.4590, 'Dawn to dusk'
       ) returning id
     `;
     standId = stands[0]?.id as string;
@@ -121,7 +119,7 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
   async function readStand(): Promise<Record<string, unknown>> {
     const rows = await client()`
       select name, public_address, address_public, public_latitude, public_longitude,
-             hours_text, is_public, visitability, farm_bucks_accepted
+             hours_text, is_public, visitability
       from sales_locations where id = ${standId}
     `;
     return rows[0] as Record<string, unknown>;
@@ -221,9 +219,12 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
     */
     await client()`
       update sales_locations
-      set is_public = true, farm_bucks_accepted = true, visitability = 'visitable'
+      set is_public = true, visitability = 'visitable'
       where id = ${standId}
     `;
+    // Set AGAINST the column default, so a writer that wrongly reset it would flip to true
+    // and fail. Left at the default this would pass without proving anything.
+    await client()`update sellers set farm_bucks_accepted = false where id = ${sellerId}`;
 
     const result = await saveStandMetadata(handle(), {
       standId,
@@ -242,8 +243,15 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
 
     const stand = await readStand();
     expect(stand.is_public).toBe(true);
-    expect(stand.farm_bucks_accepted).toBe(true);
     expect(stand.visitability).toBe("visitable");
+    // F-125 — Farm Bucks left the stand entirely, so the "does not touch what it does not
+    // own" guarantee now points at the SELLER's column. Asserted as a value for the same
+    // reason as the rest: a writer that set it to whatever it was passed would still read
+    // as "not touching" in the source.
+    const seller = await client()`
+      select farm_bucks_accepted from sellers where id = ${sellerId}
+    `;
+    expect(seller[0]!.farm_bucks_accepted).toBe(false);
     // The fields it DOES own still moved, so the assertion above is not passing because the
     // writer did nothing at all.
     expect(stand.address_public).toBe(false);

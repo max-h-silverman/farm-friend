@@ -178,12 +178,11 @@ describe("F-115 one pause, across every provider-liveness surface (integration)"
 
     const locations = await sql`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
+        public_address, public_latitude, public_longitude
       ) values (
         ${hostSellerId}, 'farm_stand', 'Kelseys Stand', 'America/Los_Angeles',
-        'visitable', 'produce', true, '1 Kelsey Way', 47.45, -122.46, false, true
+        'visitable', 'produce', true, '1 Kelsey Way', 47.45, -122.46
       ) returning id
     `;
     hostStandId = locations[0]?.id as string;

@@ -74,12 +74,12 @@ describe("onboarding redemption over an existing current revision (integration)"
       insert into sales_locations (
         own_seller_id, kind, name, public_address, public_latitude, public_longitude,
         season_kind, open_hours_kind, open_days, stocking_cadence, visitability,
-        offering_type, timezone, farm_bucks_accepted, farm_bucks_eligible
+        offering_type, timezone
       )
       values (
         ${farmId}, 'farm_stand', 'Seeded Farm Stand', '1 Vashon Hwy; Vashon, WA 98070',
         47.42, -122.44, 'year_round', 'all_day', '{0,1,2,3,4,5,6}', 'variable',
-        'visitable', 'produce', 'America/Los_Angeles', false, false
+        'visitable', 'produce', 'America/Los_Angeles'
       )
       returning id
     `;

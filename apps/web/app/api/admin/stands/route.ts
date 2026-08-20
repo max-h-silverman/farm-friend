@@ -53,11 +53,43 @@ export async function POST(req: Request): Promise<Response> {
   } catch {
     return Response.json({ error: "invalid_request" }, { status: 400 });
   }
-  const standId = typeof body.standId === "string" ? body.standId : null;
-  if (standId === null) return Response.json({ error: "invalid_request" }, { status: 400 });
-
   const { db, clock } = publicReadContext();
   const occurredAt = clock.now();
+
+  /*
+    F-125 — the Farm Bucks save names a SELLER rather than a stand, so it is handled FIRST and
+    returns before the shared stand guard below. Keying it to the seller is the whole point of
+    the move: a farm at three stands has one answer, and the old per-stand control let those
+    three disagree.
+
+    Ordering it here rather than adding a "unless this is a Farm Bucks call" exception to the
+    guard keeps `standId` a plain non-null string for every branch that follows.
+  */
+  if (body.farmBucksStatus !== undefined) {
+    // Two states. An old client still sending `not_eligible` is refused rather than silently
+    // recorded as a refusal — the grant is deleted, so there is nothing to map it onto.
+    const status = ["accepts", "does_not_accept"].includes(body.farmBucksStatus as string)
+      ? (body.farmBucksStatus as FarmBucksStatus)
+      : null;
+    if (status === null) return Response.json({ error: "invalid_request" }, { status: 400 });
+    const farmBucksSellerId = typeof body.sellerId === "string" ? body.sellerId : null;
+    if (farmBucksSellerId === null) {
+      return Response.json({ error: "invalid_request" }, { status: 400 });
+    }
+
+    const result = await saveFarmBucksStatus(db, {
+      sellerId: farmBucksSellerId,
+      administratorId: caller.administratorId,
+      status,
+      occurredAt,
+    });
+    const httpStatus =
+      result.status === "saved" ? 200 : result.status === "unknown_seller" ? 404 : 403;
+    return Response.json(result, { status: httpStatus });
+  }
+
+  const standId = typeof body.standId === "string" ? body.standId : null;
+  if (standId === null) return Response.json({ error: "invalid_request" }, { status: 400 });
 
   /*
     F-114 Phase C.1 — VIGA's invitation door.
@@ -204,19 +236,7 @@ export async function POST(req: Request): Promise<Response> {
     return Response.json(result, { status: retirementStatusFor(result.status) });
   }
 
-  const status = ["accepts", "does_not_accept", "not_eligible"].includes(body.farmBucksStatus as string)
-    ? body.farmBucksStatus as FarmBucksStatus
-    : null;
-  if (status === null) return Response.json({ error: "invalid_request" }, { status: 400 });
-
-  const result = await saveFarmBucksStatus(db, {
-    standId,
-    administratorId: caller.administratorId,
-    status,
-    occurredAt,
-  });
-  const httpStatus = result.status === "saved" ? 200 : result.status === "unknown_stand" ? 404 : 403;
-  return Response.json(result, { status: httpStatus });
+  return Response.json({ error: "invalid_request" }, { status: 400 });
 }
 
 /**

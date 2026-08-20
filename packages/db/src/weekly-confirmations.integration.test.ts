@@ -61,12 +61,11 @@ describe("F-062 weekly confirmations (integration)", () => {
     const locations = await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       )
       values (
         ${farmId}, 'farm_stand', 'Weekly Quarry Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '1 Weekly Way', 47.4, -122.4, false, false
+        'visitable', 'produce', '1 Weekly Way', 47.4, -122.4
       )
       returning id
     `;

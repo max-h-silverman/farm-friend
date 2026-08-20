@@ -155,13 +155,11 @@ describe("F-114 C.4 per-provider reminder cadence (integration)", () => {
     const mkStand = async (name: string, owner: string | null): Promise<string> => {
       const rows = await sql()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type,
-          is_public, farm_bucks_accepted, farm_bucks_eligible,
+          own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
           public_address, public_latitude, public_longitude
         ) values (
-          ${owner}, 'farm_stand', ${name}, 'America/Los_Angeles',
-          'visitable', 'produce', true, false, false,
-          ${`${name} Road, Vashon WA`}, 47.4473, -122.4590
+          ${owner}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce',
+          true, ${`${name} Road, Vashon WA`}, 47.4473, -122.4590
         ) returning id
       `;
       return rows[0]?.id as string;

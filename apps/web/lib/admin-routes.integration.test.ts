@@ -124,11 +124,10 @@ describe("admin routes (integration)", () => {
     ids.farm = sellers[0]?.id as string;
 
     const locations = await sql()`
-      insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
-        offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible)
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude)
       values (${ids.farm}, 'farm_stand', 'Route Stand', 'America/Los_Angeles', 'visitable',
-        'produce', '7 Route Way', 47.42, -122.43, false, false)
+        'produce', '7 Route Way', 47.42, -122.43)
       returning id
     `;
     ids.stand = locations[0]?.id as string;
@@ -575,9 +574,33 @@ describe("admin routes (integration)", () => {
       expect(live[0]?.n, "no malformed request may retire a stand").toBe(0);
     });
 
-    it("still saves a Farm Bucks decision through the same route", async () => {
+    it("saves a Farm Bucks decision against the SELLER through the same route", async () => {
       // The route carries two different admin acts now. This is the regression guard: adding
       // retirement must not have broken the decision the route already owned.
+      //
+      // F-125 — the decision names a seller, because payment is hers and applies at every
+      // stand she sells at. Set to `false` first so the assertion cannot pass on the column
+      // default.
+      await sql()`update sellers set farm_bucks_accepted = false where id = ${ids.farm as string}`;
+      const token = await sessionFor(ids.administrator as string);
+      const response = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ sellerId: ids.farm, farmBucksStatus: "accepts" }),
+        }),
+      );
+      expect(response.status).toBe(200);
+      const rows = await sql()`
+        select farm_bucks_accepted from sellers where id = ${ids.farm as string}
+      `;
+      expect(rows[0]?.farm_bucks_accepted).toBe(true);
+    });
+
+    it("refuses a Farm Bucks decision that still names only a stand", async () => {
+      // The old contract. A stale client posting `standId` must be REFUSED rather than
+      // silently applied to whichever seller happens to own that stand — guessing the
+      // subject of a payment decision is exactly what F-125 removes.
       const token = await sessionFor(ids.administrator as string);
       const response = await standsRoute.POST(
         request("https://ff.example/api/admin/stands", {
@@ -586,11 +609,21 @@ describe("admin routes (integration)", () => {
           body: JSON.stringify({ standId: ids.stand, farmBucksStatus: "accepts" }),
         }),
       );
-      expect(response.status).toBe(200);
-      const rows = await sql()`
-        select farm_bucks_accepted from sales_locations where id = ${ids.stand as string}
-      `;
-      expect(rows[0]?.farm_bucks_accepted).toBe(true);
+      expect(response.status).toBe(400);
+    });
+
+    it("refuses the retired third state", async () => {
+      // `not_eligible` was VIGA's grant. It is deleted, so a client still sending it is
+      // refused rather than quietly recorded as a refusal — the two are not the same claim.
+      const token = await sessionFor(ids.administrator as string);
+      const response = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ sellerId: ids.farm, farmBucksStatus: "not_eligible" }),
+        }),
+      );
+      expect(response.status).toBe(400);
     });
   });
 
@@ -1021,13 +1054,13 @@ describe("admin routes (integration)", () => {
 
       const locations = await sql()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
-          public_latitude, public_longitude, farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude
         ) values
-          (${farmId}, 'farm_stand', 'North Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 North Rd',
-            47.4, -122.4, false, false),
+          (${farmId}, 'farm_stand', 'North Stand', 'America/Los_Angeles', 'visitable',
+          'produce', '1 North Rd', 47.4, -122.4),
           (${farmId}, 'farm_stand', 'South Stand', 'America/Los_Angeles', 'visitable', 'produce', '2 South Rd',
-            47.41, -122.41, false, false)
+            47.41, -122.41)
         returning id, name
       `;
       const southStandId = locations.find((row) => row.name === "South Stand")?.id as string;

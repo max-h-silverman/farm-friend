@@ -600,11 +600,11 @@ describe("F-067 onboarding listing (integration)", () => {
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
         public_address, public_latitude, public_longitude, hours_text,
-        farm_bucks_accepted, farm_bucks_eligible, retired_at, retired_by_administrator_id
+        retired_at, retired_by_administrator_id
       )
       values (
         ${farmId}, 'farm_stand', 'Retired Stand', 'America/Los_Angeles', 'visitable',
-        'produce', '1 Old Road', 47.44, -122.45, 'Old hours', false, false,
+        'produce', '1 Old Road', 47.44, -122.45, 'Old hours',
         now(), ${administratorId}
       )
       returning id
@@ -614,12 +614,11 @@ describe("F-067 onboarding listing (integration)", () => {
     await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude, hours_text,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude, hours_text
       )
       values (
         ${farmId}, 'farm_stand', 'Live Stand', 'America/Los_Angeles', 'visitable',
-        'produce', '2 New Road', 47.45, -122.46, 'New hours', false, false
+        'produce', '2 New Road', 47.45, -122.46, 'New hours'
       )
     `;
 
@@ -707,11 +706,10 @@ describe("F-067 onboarding listing (integration)", () => {
     });
 
     const methods = await client()`
-      select m.method from sales_location_payment_methods m
-      join sales_locations l on l.id = m.sales_location_id
-      where l.own_seller_id = ${farmId}
+      select m.method from seller_payment_methods m
+      where m.seller_id = ${farmId}
     `;
-    // Compared as a SET: the table's primary key is (location, method) and carries no order,
+    // Compared as a SET: the table's primary key is (seller, method) and carries no order,
     // so asserting a sequence would be asserting the collation rather than the behaviour.
     expect(methods.map((row) => row.method).sort()).toEqual(["Cash", "Venmo"].sort());
   });
@@ -729,9 +727,8 @@ describe("F-067 onboarding listing (integration)", () => {
     });
 
     const methods = await client()`
-      select m.method from sales_location_payment_methods m
-      join sales_locations l on l.id = m.sales_location_id
-      where l.own_seller_id = ${farmId}
+      select m.method from seller_payment_methods m
+      where m.seller_id = ${farmId}
     `;
     expect(methods.map((row) => row.method).sort()).toEqual(
       ["Venmo", "trade for eggs"].sort(),
@@ -749,9 +746,8 @@ describe("F-067 onboarding listing (integration)", () => {
     });
 
     const methods = await client()`
-      select m.method from sales_location_payment_methods m
-      join sales_locations l on l.id = m.sales_location_id
-      where l.own_seller_id = ${farmId}
+      select m.method from seller_payment_methods m
+      where m.seller_id = ${farmId}
     `;
     expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
@@ -779,9 +775,8 @@ describe("F-067 onboarding listing (integration)", () => {
     `;
     expect(items.map((row) => row.display_name)).toEqual(["Eggs"]);
     const methods = await client()`
-      select m.method from sales_location_payment_methods m
-      join sales_locations l on l.id = m.sales_location_id
-      where l.own_seller_id = ${farmId}
+      select m.method from seller_payment_methods m
+      where m.seller_id = ${farmId}
     `;
     expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
@@ -883,9 +878,8 @@ describe("F-067 onboarding listing (integration)", () => {
     expect(droppedRows[0]!.usually_carried).toBe(false);
 
     const methods = await client()`
-      select m.method from sales_location_payment_methods m
-      join sales_locations l on l.id = m.sales_location_id
-      where l.own_seller_id = ${farmId}
+      select m.method from seller_payment_methods m
+      where m.seller_id = ${farmId}
     `;
     expect(methods.map((row) => row.method)).toEqual(["Cash"]);
   });
@@ -1003,11 +997,10 @@ describe("F-067 onboarding listing (integration)", () => {
     const seeded = await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       ) values (
-        ${farmId}, 'farm_stand', 'Seeded Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '1 Old Way', 47.40, -122.40, false, false
+        ${farmId}, 'farm_stand', 'Seeded Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Old Way', 47.40, -122.40
       ) returning id
     `;
     const seededId = seeded[0]?.id as string;
@@ -1033,11 +1026,10 @@ describe("F-067 onboarding listing (integration)", () => {
     const seeded = await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       ) values (
-        ${farmId}, 'farm_stand', 'Eligible Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '1 Old Way', 47.40, -122.40, false, true
+        ${farmId}, 'farm_stand', 'Eligible Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Old Way', 47.40, -122.40
       ) returning id
     `;
     const salesLocationId = seeded[0]!.id as string;
@@ -1051,20 +1043,18 @@ describe("F-067 onboarding listing (integration)", () => {
 
     expect(saved.status).toBe("saved");
     expect(await readStandListing(database(), { salesLocationId })).toMatchObject({
-      farmBucksEligible: true,
       farmBucksAccepted: true,
     });
   });
 
   // max, 2026-08-10 — acceptance is the FARMER'S fact and publishes on their word alone.
   //
-  // It used to require VIGA's `farm_bucks_eligible` first, enforced by a code guard and the
-  // `sales_locations_farm_bucks_acceptance_requires_eligibility` CHECK. That made the
-  // onboarding toggle unreachable for the farm the form exists to onboard: eligibility lives
-  // on a stand row that does not exist until this very save, so a new farmer could never state
-  // it. Both the guard and the CHECK are gone (`0037`).
+  // It used to require VIGA's eligibility grant first, enforced by a code guard and a CHECK,
+  // which made the onboarding toggle unreachable for the farm the form exists to onboard.
+  // Both went in `0037`; F-125 then deleted the grant itself and moved acceptance onto the
+  // SELLER, so there is no longer any per-stand fact for it to be gated by.
   it("lets a farmer state VIGA Bucks acceptance on a brand-new stand", async () => {
-    // The exact case that could not happen before: no stand yet, so no eligibility anywhere.
+    // The exact case that could not happen before: no stand yet, so nothing to gate on.
     const result = await saveOnboardingListing(database(), {
       farmId,
       standName: "Brand New Stand",
@@ -1073,15 +1063,15 @@ describe("F-067 onboarding listing (integration)", () => {
     });
 
     expect(result.status).toBe("saved");
-    const rows = await client()`
-      select id, farm_bucks_accepted, farm_bucks_eligible from sales_locations
-      where own_seller_id = ${farmId}
+    const stands = await client()`
+      select id from sales_locations where own_seller_id = ${farmId}
     `;
-    expect(rows).toHaveLength(1);
-    // The farmer's claim is published...
+    expect(stands).toHaveLength(1);
+    // F-125 — the claim lands on HER, not on the stand she just created.
+    const rows = await client()`
+      select farm_bucks_accepted from sellers where id = ${farmId}
+    `;
     expect(rows[0]!.farm_bucks_accepted).toBe(true);
-    // ...and VIGA's separate decision is untouched by it, still its own unset fact.
-    expect(rows[0]!.farm_bucks_eligible).toBe(false);
   });
 
   it("still records acceptance on a stand VIGA has NOT marked eligible", async () => {
@@ -1091,11 +1081,10 @@ describe("F-067 onboarding listing (integration)", () => {
     const seeded = await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       ) values (
-        ${farmId}, 'farm_stand', 'Unmarked Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '1 Old Way', 47.40, -122.40, false, false
+        ${farmId}, 'farm_stand', 'Unmarked Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Old Way', 47.40, -122.40
       ) returning id
     `;
     const salesLocationId = seeded[0]!.id as string;
@@ -1109,7 +1098,6 @@ describe("F-067 onboarding listing (integration)", () => {
 
     expect(saved.status).toBe("saved");
     expect(await readStandListing(database(), { salesLocationId })).toMatchObject({
-      farmBucksEligible: false,
       farmBucksAccepted: true,
     });
   });

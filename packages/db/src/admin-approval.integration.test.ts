@@ -149,10 +149,10 @@ describe("farm approval and admin sessions (integration)", () => {
     `;
 
     const locations = await sql()`
-      insert into sales_locations (own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-        public_longitude, farm_bucks_accepted, farm_bucks_eligible)
-      values (${ids.farm}, 'farm_stand', 'Unapproved Stand', 'America/Los_Angeles', 'visitable', 'produce', '9 Stand Way', 47.45, -122.46,
-        false, false)
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude)
+      values (${ids.farm}, 'farm_stand', 'Unapproved Stand', 'America/Los_Angeles',
+        'visitable', 'produce', '9 Stand Way', 47.45, -122.46)
       returning id
     `;
     ids.location = locations[0]?.id as string;

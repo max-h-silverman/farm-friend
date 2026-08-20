@@ -146,13 +146,11 @@ describe("per-provider publication (integration)", () => {
 
     const locations = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         public_address, public_latitude, public_longitude
       ) values (
         ${hostSellerId}, 'farm_stand', 'Venison Valley Stand', 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        'Vashon Hwy, Vashon WA', 47.4473, -122.4590
+        'visitable', 'produce', true, 'Vashon Hwy, Vashon WA', 47.4473, -122.4590
       ) returning id
     `;
     standId = locations[0]?.id as string;
@@ -201,13 +199,11 @@ describe("per-provider publication (integration)", () => {
     };
     const guestOwn = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         public_address, public_latitude, public_longitude
       ) values (
         ${guestSellerId}, 'farm_stand', 'Gracies Greens Stand', 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        'Cove Road, Vashon WA', 47.4573, -122.4690
+        'visitable', 'produce', true, 'Cove Road, Vashon WA', 47.4573, -122.4690
       ) returning id
     `;
     guestOwnStandId = guestOwn[0]?.id as string;

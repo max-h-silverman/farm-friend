@@ -1986,6 +1986,7 @@ describe("browsing by seller without leaving the map", () => {
     sellerId: "fernhorn",
     sellerName: "Fernhorn Bakery",
     ownsAStand: false,
+    farmBucksAccepted: false,
     sellingAt: [
       {
         salesLocationId: "morgan-hill",
@@ -2000,6 +2001,7 @@ describe("browsing by seller without leaving the map", () => {
     sellerId: "kelseys",
     sellerName: "Kelseys Farm",
     ownsAStand: true,
+    farmBucksAccepted: true,
     sellingAt: [
       {
         salesLocationId: "kelsey",
@@ -2058,6 +2060,25 @@ describe("browsing by seller without leaving the map", () => {
     // The case the whole seller view exists for: she owns no stand, so the map alone could
     // never have shown her.
     expect(screen.getByText("Fernhorn Bakery")).toBeInTheDocument();
+  });
+
+  it("shows a seller's VIGA Bucks refusal on her card (B-095)", async () => {
+    /*
+      B-095 — the indicator worked in the stands view and was absent in the sellers view,
+      because the fact lived on the STAND and a seller at several stands had no single answer
+      to show. F-125 put it on the seller, so this is a render rather than a derivation.
+
+      Fernhorn is the hosted-only seller: she has no stand and no pin, so this card is the ONLY
+      place a customer can learn she does not take Farm Bucks.
+    */
+    const user = userEvent.setup();
+    renderMap();
+    await user.click(screen.getByRole("tab", { name: "View sellers" }));
+
+    expect(screen.getByText("Does not accept VIGA Bucks")).toBeInTheDocument();
+    // Stated as a count, so a seller who DOES accept cannot be quietly labelled too: the
+    // fixture has three sellers and only Fernhorn refuses.
+    expect(screen.getAllByText("Does not accept VIGA Bucks")).toHaveLength(1);
   });
 
   it("highlights the stands a chosen seller sells at, including a host's", async () => {
@@ -2440,6 +2461,7 @@ describe("crossing between stands and sellers", () => {
     sellerName: "Fernhorn Bakery",
     description: "A wood-fired bakery on the north end.",
     ownsAStand: false,
+    farmBucksAccepted: true,
     sellingAt: [
       {
         salesLocationId: "morgan-hill",
@@ -2460,6 +2482,7 @@ describe("crossing between stands and sellers", () => {
     sellerId: "kelseys",
     sellerName: "Kelseys Farm",
     ownsAStand: true,
+    farmBucksAccepted: true,
     sellingAt: [
       {
         salesLocationId: "kelsey",

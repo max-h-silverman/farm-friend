@@ -209,11 +209,11 @@ ${farmId}, ${locationId},
       `;
       const location = await client()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude
         )
-        values (${ids[`${key}Farm`]}, 'farm_stand', ${`${name} Stand`}, 'America/Los_Angeles', 'visitable', 'produce', '1 Road',
-                47.45, -122.46, false, false)
+        values (${ids[`${key}Farm`]}, 'farm_stand', ${`${name} Stand`}, 'America/Los_Angeles',
+          'visitable', 'produce', '1 Road', 47.45, -122.46)
         returning id
       `;
       ids[`${key}Location`] = location[0]?.id as string;
@@ -321,11 +321,10 @@ ${farmId}, ${locationId},
       const location = await client()`
         insert into sales_locations (
           own_seller_id, kind, name, timezone, visitability, offering_type,
-          public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          public_address, public_latitude, public_longitude
         )
         values (${farmId}, 'farm_stand', ${`Corpus ${key} Stand`}, 'America/Los_Angeles',
-                'visitable', 'produce', '1 Road', 47.45, -122.46, false, false)
+          'visitable', 'produce', '1 Road', 47.45, -122.46)
         returning id`;
       const locationId = location[0]?.id as string;
       locationIds.push(locationId);
@@ -422,10 +421,10 @@ ${farmId}, ${locationId},
     const location = await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude, farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       )
       values (${farmId}, 'farm_stand', 'Solo Expired Stand', 'America/Los_Angeles',
-              'visitable', 'produce', '9 Road', 47.45, -122.46, false, false)
+        'visitable', 'produce', '9 Road', 47.45, -122.46)
       returning id`;
     // 120 days old, and NO usual item to fall back on.
     await publish(
@@ -657,8 +656,8 @@ ${farmId}, ${locationId},
 
   it("selects a payment name once, then code finds every stand that lists it (B-069)", async () => {
     await client()`
-      insert into sales_location_payment_methods (sales_location_id, method)
-      values (${ids.alphaLocation!}, 'Cash'), (${ids.betaLocation!}, 'Cash')
+      insert into seller_payment_methods (seller_id, method)
+      values (${ids.alphaFarm!}, 'Cash'), (${ids.betaFarm!}, 'Cash')
     `;
     const { provider, deps } = inquiryDeps({
       "catalog-match": JSON.stringify({ matches: ["Cash"] }),
@@ -739,7 +738,11 @@ ${farmId}, ${locationId},
   });
 
   it("answers a VIGA Farm Bucks search entirely from the verified stand field (B-069)", async () => {
-    await client()`update sales_locations set farm_bucks_accepted = true, farm_bucks_eligible = true where id = ${ids.alphaLocation!}`;
+    // F-125 — acceptance is the SELLER's. Beta is set explicitly rather than left to the
+    // column's `true` default, or it would also match and the "not Beta" assertion below
+    // would be asserting the wrong thing.
+    await client()`update sellers set farm_bucks_accepted = true where id = ${ids.alphaFarm!}`;
+    await client()`update sellers set farm_bucks_accepted = false where id = ${ids.betaFarm!}`;
     const { provider, deps } = inquiryDeps({});
 
     const result = await answerInquiry(deps, {
@@ -761,7 +764,8 @@ ${farmId}, ${locationId},
   });
 
   it("answers one stand's VIGA Farm Bucks status without a model call (B-069)", async () => {
-    await client()`update sales_locations set name = 'Pinecone Gardens', farm_bucks_accepted = false, farm_bucks_eligible = true where id = ${ids.alphaLocation!}`;
+    await client()`update sales_locations set name = 'Pinecone Gardens' where id = ${ids.alphaLocation!}`;
+    await client()`update sellers set farm_bucks_accepted = false where id = ${ids.alphaFarm!}`;
     const { provider, deps } = inquiryDeps({});
 
     const result = await answerInquiry(deps, {
@@ -784,7 +788,7 @@ ${farmId}, ${locationId},
   it("renders a bare stand-name overview from its public fields (B-069)", async () => {
     await client()`update sales_locations set name = 'Pinecone Gardens', public_address = '123 Forest Road' where id = ${ids.alphaLocation!}`;
     await client()`insert into stand_items (sales_location_id, provider_id, display_name, usually_carried, sort_order) values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Eggs', true, 0)`;
-    await client()`insert into sales_location_payment_methods (sales_location_id, method) values (${ids.alphaLocation!}, 'Cash')`;
+    await client()`insert into seller_payment_methods (seller_id, method) values (${ids.alphaFarm!}, 'Cash')`;
     const { provider, deps } = inquiryDeps({});
 
     const result = await answerInquiry(deps, {
@@ -1146,8 +1150,8 @@ ${farmId}, ${locationId},
       values (${ids.alphaLocation!}, (select id from stand_providers where sales_location_id = ${ids.alphaLocation!} and seller_id = (select own_seller_id from sales_locations where id = ${ids.alphaLocation!})), 'Garlic', true, 0)
     `;
     await client()`
-      insert into sales_location_payment_methods (sales_location_id, method)
-      values (${ids.alphaLocation!}, 'Cash')
+      insert into seller_payment_methods (seller_id, method)
+      values (${ids.alphaFarm!}, 'Cash')
     `;
     await client()`
       update sales_locations

@@ -58,12 +58,11 @@ describe("farmer stand-link request (integration)", () => {
   async function stand(farmId: string, name: string): Promise<string> {
     const rows = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public
       )
       values (
-        ${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'contact_only', 'produce',
-        true, false, false
+        ${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'contact_only',
+        'produce', true
       )
       returning id
     `;

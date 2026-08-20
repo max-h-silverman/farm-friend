@@ -23,8 +23,8 @@
  * VIGA Farm Bucks, spelled the way VIGA spells it.
  *
  * Deliberately NOT in `FARMER_SELECTABLE_PAYMENT_METHODS`: it is a separate boolean fact, not
- * an ordinary payment method. VIGA alone grants eligibility; an eligible farmer may state
- * acceptance through that eligibility-gated control.
+ * an ordinary payment method. Since F-125 it is `sellers.farm_bucks_accepted` — the farmer's
+ * own claim about herself, with no eligibility grant gating it.
  *
  * B-054 — it is RECOGNIZED here but never STORED as a method. It used to be canonicalized into
  * the list "for legacy data", which meant a stand carried the claim in two places and the card
@@ -110,7 +110,7 @@ export function canonicalPaymentMethods(methods: string[]): string[] {
     const canonical = CANONICAL_BY_SPELLING.get(key);
     /*
       B-054 — Farm Bucks is identified, then DROPPED. One fact, one home: it lives in
-      `farm_bucks_accepted`, gated by VIGA's eligibility grant, and the stand card renders it
+      `sellers.farm_bucks_accepted` since F-125, and the stand card renders it
       from that column with its own badge and filter. Storing it here too is what put the
       claim on the card twice.
 
@@ -118,9 +118,9 @@ export function canonicalPaymentMethods(methods: string[]): string[] {
       created the duplicate, the onboarding form's free-text "other payment" box, and any
       future backfill all pass through this function.
 
-      It deliberately does NOT set the boolean. That is VIGA's grant to make; a farmer typing
-      "farm bucks" into a text box must not be able to award themselves an acceptance nobody
-      reviewed. A farmer who says it and is eligible states it through the gated control.
+      It deliberately does NOT set the boolean. The two are different acts: this function
+      canonicalizes a LIST, and acceptance is a separate answer the farmer gives through its
+      own control. Setting it from a text box would make one field quietly write two facts.
     */
     if (canonical === VIGA_FARM_BUCKS) continue;
     // The tail keeps the farmer's own capitalization: this layer knows how "Venmo" is spelled

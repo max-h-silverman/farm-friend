@@ -5,9 +5,9 @@
 // That rule forbids FARM and FOOD vocabulary in behavioural branches — sellers, foods and
 // listings are data that changes as VIGA adds stands and seasons turn, and a branch naming one
 // of them rots. VIGA Bucks is none of those. It is a FIXED PROGRAM OF THE SERVICE, in the same
-// class as MAP or STOP: there is exactly one, it is already a column pair on `sales_locations`
-// (`farm_bucks_accepted` / `farm_bucks_eligible`), and it does not vary per farm. Recognising it
-// here is the same act as recognising a keyword (max, 2026-08-13).
+// class as MAP or STOP: there is exactly one, it is a stored column (`sellers.farm_bucks_accepted`
+// since F-125 moved payment to the seller), and it does not vary per farm. Recognising it here is
+// the same act as recognising a keyword (max, 2026-08-13).
 //
 // WHY CODE RATHER THAN PROMPT. "VIGA" is an organisation name a general model has no context
 // for, so messages containing it drift unpredictably: "does Pinecone take VIGA Bucks?" returned

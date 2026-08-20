@@ -103,11 +103,10 @@ describe("farm retirement (integration)", () => {
       ["bystanderStand", "Bystander Stand", "bystanderFarm"],
     ] as const) {
       const rows = await sql()`
-        insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
-          offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible, is_public)
+        insert into sales_locations (own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude, is_public)
         values (${ids[farmKey] as string}, 'farm_stand', ${name}, 'America/Los_Angeles',
-          'visitable', 'produce', '11 Retire Row', 47.44, -122.45, false, false, true)
+          'visitable', 'produce', '11 Retire Row', 47.44, -122.45, true)
         returning id
       `;
       ids[key] = rows[0]?.id as string;

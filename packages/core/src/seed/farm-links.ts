@@ -183,7 +183,7 @@ export function parseFarmLinks(source: FarmLinkSource): FarmLink[] {
 /**
  * The payment methods we recognize, and the one spelling each is stored as.
  *
- * Normalized because `sales_location_payment_methods_pk` is (location, method): "Cash" and
+ * Normalized because the payment methods primary key carries the method verbatim: "Cash" and
  * "cash" would be two rows for one fact, and the card would print both.
  *
  * VIGA Bucks is deliberately ABSENT. `farm_bucks_accepted` and `parseFarmBucksPolicy` already

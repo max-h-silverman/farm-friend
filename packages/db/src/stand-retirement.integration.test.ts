@@ -129,11 +129,10 @@ describe("stand retirement (integration)", () => {
     `;
 
     const locations = await sql()`
-      insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
-        offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible)
-      values (${ids.farm}, 'farm_stand', 'Retiring Stand', 'America/Los_Angeles', 'visitable',
-        'produce', '11 Retire Row', 47.44, -122.45, false, false)
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude)
+      values (${ids.farm}, 'farm_stand', 'Retiring Stand', 'America/Los_Angeles',
+        'visitable', 'produce', '11 Retire Row', 47.44, -122.45)
       returning id
     `;
     ids.location = locations[0]?.id as string;
@@ -141,11 +140,10 @@ describe("stand retirement (integration)", () => {
     // A SECOND stand on the same farm. Retirement is per-stand, and the only way to prove that
     // is to have a sibling that must survive it untouched.
     const siblings = await sql()`
-      insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
-        offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible)
-      values (${ids.farm}, 'farm_stand', 'Surviving Stand', 'America/Los_Angeles', 'visitable',
-        'produce', '12 Retire Row', 47.43, -122.44, false, false)
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude)
+      values (${ids.farm}, 'farm_stand', 'Surviving Stand', 'America/Los_Angeles',
+        'visitable', 'produce', '12 Retire Row', 47.43, -122.44)
       returning id
     `;
     ids.sibling = siblings[0]?.id as string;

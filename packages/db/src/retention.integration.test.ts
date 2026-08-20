@@ -118,7 +118,7 @@ describe("raw-context retention purge (integration)", () => {
         outbox_work, consent_transition_watermarks, sms_consents, sender_states,
         stock_out_reports, flags, audit_events, model_runs,
         admin_login_failures,
-        seller_approvals, farmer_authorizations, sales_location_payment_methods,
+        seller_approvals, farmer_authorizations, seller_payment_methods,
         seller_links, sales_locations, administrators, sellers, contacts
       restart identity cascade
     `;

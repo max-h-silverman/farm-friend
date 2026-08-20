@@ -157,13 +157,12 @@ describe("F-114 Phase C.1 hosting invitation records, by sabotage (integration)"
 
     const locations = await db`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         public_address, public_latitude, public_longitude
       ) values (
         ${hostSellerId}, 'farm_stand', 'Venison Valley Stand', 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        'Venison Valley Road, Vashon WA', 47.4473, -122.4590
+        'visitable', 'produce', true, 'Venison Valley Road, Vashon WA', 47.4473,
+        -122.4590
       ) returning id
     `;
     standLocationId = locations[0]?.id as string;

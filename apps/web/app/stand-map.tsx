@@ -1180,6 +1180,22 @@ function SellerCard({
                   {season === "year-round" ? "Year-round" : "Thru Nov"}
                 </span>
               )}
+              {/*
+                B-095 — the VIGA Bucks refusal, which the seller view could not show until
+                F-125 made it a fact about HER. Rendered on the refusal only, matching the
+                stand card's poster indicator: "accepts" is the common case and a badge on
+                nearly every card carries no information, while the refusal is what changes
+                whether someone brings vouchers.
+
+                It is NOT derived from her stands — that derivation is the mechanism F-125
+                removed, and rebuilding it here would put it straight back.
+              */}
+              {seller.farmBucksAccepted === false ? (
+                <span className="seller-no-viga-bucks">
+                  <span className="poster-dot" aria-hidden="true" />
+                  Does not accept VIGA Bucks
+                </span>
+              ) : null}
             </div>
           </div>
         </div>

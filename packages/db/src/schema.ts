@@ -644,6 +644,24 @@ export const sellers = pgTable(
      */
     retiredByTrash: boolean("retired_by_trash").notNull().default(false),
 
+    /**
+     * Does this seller take VIGA Farm Bucks? F-125 — it is HERS, not her stand's.
+     *
+     * **There is no eligibility flag** (max, 2026-08-20: "there is no 'eligible'. they either
+     * take it or they don't"). `sales_locations.farm_bucks_eligible` was VIGA's grant, and it
+     * created a three-state model — accepts / refuses / never reviewed — that let five
+     * production stands claim acceptance with no grant at all. Two mechanisms disagreeing about
+     * one fact is exactly what F-125 exists to delete, so the grant is gone rather than moved.
+     *
+     * **`DEFAULT true` is a deliberate product decision, not a convenience** (max, 2026-08-20).
+     * Farm Bucks is near-universal among VIGA farms, so a blank row is nobody ticking a box
+     * rather than a refusal, and the eleven farms carrying no answer at migration time publish
+     * as accepting. The risk was named and accepted: a wrong `true` sends a customer to an
+     * unattended honor-system stand holding vouchers the farmer will not take, with nobody
+     * there to sort it out. If a farmer ever reports that, it is this default and not a defect.
+     */
+    farmBucksAccepted: boolean("farm_bucks_accepted").notNull().default(true),
+
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1571,8 +1589,6 @@ export const salesLocations = pgTable(
      */
     retiredByTrash: boolean("retired_by_trash").notNull().default(false),
 
-    farmBucksAccepted: boolean("farm_bucks_accepted").notNull(),
-    farmBucksEligible: boolean("farm_bucks_eligible").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1652,19 +1668,6 @@ export const salesLocations = pgTable(
         )
       `,
     ),
-    /*
-     * There is deliberately NO constraint tying acceptance to eligibility (max, 2026-08-10).
-     *
-     * `sales_locations_farm_bucks_acceptance_requires_eligibility` was dropped in `0037`.
-     * Gating acceptance on VIGA's eligibility flag meant the onboarding form's toggle could
-     * only render for a farm VIGA had already marked — which is never true of the new farm the
-     * form exists to onboard, because eligibility lives on a stand row that does not exist yet.
-     *
-     * Acceptance is now the farmer's own claim about their own stand, which is what Golden
-     * Rule #1 says published state is. `farmBucksEligible` below still records VIGA's separate
-     * decision and is read by the admin surfaces; it simply no longer constrains the farmer.
-     */
-
     /**
      * F-071 — the two retirement columns move together or not at all.
      *
@@ -2817,24 +2820,84 @@ export const standDataFlags = pgTable(
   }),
 );
 
-export const salesLocationPaymentMethods = pgTable(
-  "sales_location_payment_methods",
+/**
+ * What a seller takes, stated ONCE (F-125).
+ *
+ * This replaced `sales_location_payment_methods`, which put the fact on the stand. Whoever
+ * takes the money decides how they take it, and a seller selling at three stands should say it
+ * once rather than three times — and, under the old shape, could leave the three disagreeing.
+ *
+ * Nothing derives this from her stands. That derivation was the second mechanism F-125 removes,
+ * and a helper that rebuilt it would reintroduce precisely what this change deletes.
+ */
+export const sellerPaymentMethods = pgTable(
+  "seller_payment_methods",
+  {
+    sellerId: uuid("seller_id").notNull(),
+    method: text("method").notNull(),
+  },
+  (table) => ({
+    sellerReference: foreignKey({
+      name: "seller_payment_methods_seller_fk",
+      columns: [table.sellerId],
+      foreignColumns: [sellers.id],
+    }).onDelete("cascade"),
+    pk: primaryKey({
+      name: "seller_payment_methods_pk",
+      columns: [table.sellerId, table.method],
+    }),
+    methodNotBlank: check(
+      "seller_payment_methods_method_not_blank",
+      sql`length(trim(${table.method})) > 0`,
+    ),
+  }),
+);
+
+/**
+ * The stand-level override, and the reason it is shaped as EXCLUSIONS (F-125).
+ *
+ * The motivating case is a hosted seller who cannot take cash at one stand because the host
+ * cannot support it. That is the host constraining what is possible at their location — never a
+ * second independent answer about the seller.
+ *
+ * **Narrowing is structural here, not checked.** A row names a method the host REMOVES; there
+ * is no representation for "this stand adds a method the seller does not take", so adding is
+ * unsayable rather than refused. A guard can be forgotten by the next writer; a missing column
+ * cannot. `resolvePaymentMethods` in `core` is the one place the two are combined.
+ *
+ * **It references the stand and the seller separately, NOT `stand_providers`.** The composite
+ * `(sales_location_id, seller_id)` key used elsewhere is unavailable here: that pair is unique
+ * on `stand_providers` only through a PARTIAL index (`where ended_at is null`), and Postgres
+ * cannot point a foreign key at a partial index. The partial index is right — a seller may hold
+ * an ended row and a live row for the same stand — so the exclusion takes two plain references
+ * instead of forcing a wrong constraint onto the parent. An exclusion naming a pair that never
+ * sold together is inert rather than illegal: `resolvePaymentMethods` only ever sees the rows
+ * for the pair it is resolving.
+ */
+export const salesLocationPaymentMethodExclusions = pgTable(
+  "sales_location_payment_method_exclusions",
   {
     salesLocationId: uuid("sales_location_id").notNull(),
+    sellerId: uuid("seller_id").notNull(),
     method: text("method").notNull(),
   },
   (table) => ({
     salesLocationReference: foreignKey({
-      name: "sales_location_payment_methods_location_fk",
+      name: "sales_location_payment_exclusions_location_fk",
       columns: [table.salesLocationId],
       foreignColumns: [salesLocations.id],
     }).onDelete("cascade"),
+    sellerReference: foreignKey({
+      name: "sales_location_payment_exclusions_seller_fk",
+      columns: [table.sellerId],
+      foreignColumns: [sellers.id],
+    }).onDelete("cascade"),
     pk: primaryKey({
-      name: "sales_location_payment_methods_pk",
-      columns: [table.salesLocationId, table.method],
+      name: "sales_location_payment_method_exclusions_pk",
+      columns: [table.salesLocationId, table.sellerId, table.method],
     }),
     methodNotBlank: check(
-      "sales_location_payment_methods_method_not_blank",
+      "sales_location_payment_method_exclusions_method_not_blank",
       sql`length(trim(${table.method})) > 0`,
     ),
   }),

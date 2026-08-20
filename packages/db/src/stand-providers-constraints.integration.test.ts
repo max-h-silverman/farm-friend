@@ -121,13 +121,11 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
     const mkLocation = async (name: string, owner: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type,
-          is_public, farm_bucks_accepted, farm_bucks_eligible,
+          own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
           public_address, public_latitude, public_longitude
         ) values (
-          ${owner}, 'farm_stand', ${name}, 'America/Los_Angeles',
-          'visitable', 'produce', true, false, false,
-          ${`${name} Road, Vashon WA`}, 47.4473, -122.4590
+          ${owner}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce',
+          true, ${`${name} Road, Vashon WA`}, 47.4473, -122.4590
         ) returning id
       `;
       return rows[0]?.id as string;
@@ -222,13 +220,11 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       const db = client();
       const venue = await db`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type,
-          is_public, farm_bucks_accepted, farm_bucks_eligible,
+          own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
           public_address, public_latitude, public_longitude
         ) values (
-          null, 'farm_stand', 'Venue With No Goods', 'America/Los_Angeles',
-          'visitable', 'produce', true, false, false,
-          'Venue Road, Vashon WA', 47.4473, -122.4590
+          null, 'farm_stand', 'Venue With No Goods', 'America/Los_Angeles', 'visitable',
+          'produce', true, 'Venue Road, Vashon WA', 47.4473, -122.4590
         ) returning id
       `;
       const venueId = venue[0]?.id as string;
@@ -247,13 +243,11 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       await refuses(
         () => db`
           insert into sales_locations (
-            own_seller_id, kind, name, timezone, visitability, offering_type,
-            is_public, farm_bucks_accepted, farm_bucks_eligible,
-            public_address, public_latitude, public_longitude
+            own_seller_id, kind, name, timezone, visitability, offering_type, is_public, public_address,
+            public_latitude, public_longitude
           ) values (
-            ${randomUUID()}, 'farm_stand', 'Phantom Stand', 'America/Los_Angeles',
-            'visitable', 'produce', true, false, false,
-            'Phantom Road, Vashon WA', 47.4473, -122.4590
+            ${randomUUID()}, 'farm_stand', 'Phantom Stand', 'America/Los_Angeles', 'visitable', 'produce',
+            true, 'Phantom Road, Vashon WA', 47.4473, -122.4590
           )
         `,
         { code: FK_VIOLATION },
@@ -872,13 +866,11 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       const seller = await freshSeller("BrandNew");
       const created = await db`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type,
-          is_public, farm_bucks_accepted, farm_bucks_eligible,
+          own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
           public_address, public_latitude, public_longitude
         ) values (
-          ${seller}, 'farm_stand', 'Brand New Stand', 'America/Los_Angeles',
-          'visitable', 'produce', true, false, false,
-          'New Road, Vashon WA', 47.4473, -122.4590
+          ${seller}, 'farm_stand', 'Brand New Stand', 'America/Los_Angeles', 'visitable',
+          'produce', true, 'New Road, Vashon WA', 47.4473, -122.4590
         ) returning id
       `;
       const rows = await db`
@@ -898,13 +890,11 @@ describe("F-114 stand_providers constraints, by sabotage (integration)", () => {
       const db = client();
       const venue = await db`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type,
-          is_public, farm_bucks_accepted, farm_bucks_eligible,
+          own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
           public_address, public_latitude, public_longitude
         ) values (
-          null, 'farm_stand', 'Venue That Grows Up', 'America/Los_Angeles',
-          'visitable', 'produce', true, false, false,
-          'Growup Road, Vashon WA', 47.4473, -122.4590
+          null, 'farm_stand', 'Venue That Grows Up', 'America/Los_Angeles', 'visitable',
+          'produce', true, 'Growup Road, Vashon WA', 47.4473, -122.4590
         ) returning id
       `;
       const venueId = venue[0]?.id as string;

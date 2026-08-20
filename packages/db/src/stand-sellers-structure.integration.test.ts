@@ -84,13 +84,11 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
     // seller share a name, and the card suppresses the seller line entirely.
     const provoStands = await db`
       insert into sales_locations (
-        kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
-        public_address, public_latitude, public_longitude
+        kind, name, timezone, visitability, offering_type, is_public, public_address,
+        public_latitude, public_longitude
       ) values (
-        'farm_stand', 'Provo Farms', 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        'Provo Road, Vashon WA', 47.4473, -122.4590
+        'farm_stand', 'Provo Farms', 'America/Los_Angeles', 'visitable', 'produce',
+        true, 'Provo Road, Vashon WA', 47.4473, -122.4590
       ) returning id
     `;
     provoStandId = provoStands[0]?.id as string;
@@ -104,13 +102,12 @@ describe("F-114 Phase C.1 stand-and-sellers structure (integration)", () => {
     // nothing itself. Its self-pointer stays NULL, and no seller is invented for it.
     const morganStands = await db`
       insert into sales_locations (
-        kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
-        public_address, public_latitude, public_longitude
+        kind, name, timezone, visitability, offering_type, is_public, public_address,
+        public_latitude, public_longitude
       ) values (
         'farm_stand', 'Morgan Hill Community Farm Stand', 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        'Morgan Hill Road, Vashon WA', 47.4102, -122.4788
+        'visitable', 'produce', true, 'Morgan Hill Road, Vashon WA', 47.4102,
+        -122.4788
       ) returning id
     `;
     morganHillStandId = morganStands[0]?.id as string;

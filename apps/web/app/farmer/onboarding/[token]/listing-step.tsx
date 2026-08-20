@@ -504,7 +504,10 @@ export interface ListingDefaults {
    */
   pricesPublic: boolean;
   /** VIGA controls eligibility; the farmer only states whether they accept it. */
-  farmBucksEligible?: boolean;
+  /**
+    * Whether the SELLER takes VIGA Farm Bucks (F-125). Hers, applying at every stand she
+    * sells at — there is no per-stand eligibility grant behind it any more.
+    */
   farmBucksAccepted?: boolean;
   latitude: number | null;
   longitude: number | null;
@@ -2308,9 +2311,19 @@ export function ListingStep({
       />
 
       {/* ── Payment ────────────────────────────────────────────────────────────────────── */}
-      {/* Checkboxes keep payment names consistent while VIGA Bucks saves separately. */}
+      {/*
+        Checkboxes keep payment names consistent while VIGA Bucks saves separately.
+
+        F-125 — this asks about the FARMER, not about this stand. She states it once and it
+        applies everywhere she sells, so the legend says "pay you" and the note says so
+        outright: a farmer setting up her second stand who reads a per-stand question will
+        answer for that stand, and the writer would replace her whole answer with it.
+      */}
       <fieldset className="farmer-listing-payments">
-        <legend>How can people pay?</legend>
+        <legend>How can people pay you?</legend>
+        <p className="farmer-form-note">
+          This applies everywhere you sell, so you only say it once.
+        </p>
         {PAYMENT_OPTIONS.map((method) => (
           <label key={method} className="farmer-listing-choice">
             <input

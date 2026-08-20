@@ -1293,11 +1293,11 @@ describe("inbound routing end to end (integration)", () => {
 
       const location = await client()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude
         )
-        values (${farmId}, 'farm_stand', 'Test Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Test Rd', 47.45, -122.46,
-                false, false)
+        values (${farmId}, 'farm_stand', 'Test Stand', 'America/Los_Angeles', 'visitable',
+          'produce', '1 Test Rd', 47.45, -122.46)
         returning id
       `;
       const contact = await client()`
@@ -1557,11 +1557,12 @@ describe("inbound routing end to end (integration)", () => {
         `;
         const stand = await client()`
           insert into sales_locations (
-            own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-            farm_bucks_accepted, farm_bucks_eligible
+            own_seller_id, kind, name, timezone, visitability, offering_type,
+            public_address, public_latitude, public_longitude
           )
-          values (${farm[0]?.id as string}, 'farm_stand', ${`Paging Stand ${index}`}, 'America/Los_Angeles', 'visitable', 'produce',
-                  ${`${200 + index} Paging Rd`}, 47.45, -122.46, false, false)
+          values (${farm[0]?.id as string}, 'farm_stand', ${`Paging Stand ${index}`},
+            'America/Los_Angeles', 'visitable', 'produce', ${`${200 + index} Paging Rd`},
+            47.45, -122.46)
           returning id
         `;
         const standId = stand[0]?.id as string;

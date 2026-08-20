@@ -18,6 +18,7 @@ import { asStandCards } from "./stand-cards";
 /** A stand with something in every field, so no group is empty by accident. */
 const row: AdminStandRow = {
   standId: "stand-1",
+  farmId: "farm-of-stand-1",
   name: "Plum Forest Farm Stand",
   farmName: "Plum Forest Farm",
   kind: "farm_stand",
@@ -48,7 +49,6 @@ const row: AdminStandRow = {
   trashed: false,
   trashedWithFarm: false,
   farmBucksAccepted: true,
-  farmBucksEligible: true,
   approved: true,
   approvedAt: new Date("2026-05-01T00:00:00Z"),
   publishedAt: new Date("2026-08-16T23:02:11Z"),

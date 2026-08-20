@@ -65,13 +65,12 @@ describe("public seller list (integration)", () => {
   }): Promise<string> => {
     const rows = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, prices_public, farm_bucks_accepted, farm_bucks_eligible,
-        public_address, public_latitude, public_longitude
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
+        prices_public, public_address, public_latitude, public_longitude
       ) values (
         ${input.ownSellerId}, 'farm_stand', ${input.name}, 'America/Los_Angeles',
-        'visitable', 'produce', true, true, false, false,
-        'Vashon Hwy, Vashon WA', 47.4473, -122.4590
+        'visitable', 'produce', true, true, 'Vashon Hwy, Vashon WA', 47.4473,
+        -122.4590
       ) returning id
     `;
     return rows[0]?.id as string;
@@ -188,6 +187,26 @@ describe("public seller list (integration)", () => {
     expect(bakery?.ownsAStand).toBe(false);
   });
 
+  it("carries each seller's VIGA Bucks answer, so the list can show it (B-095, F-125)", async () => {
+    /*
+      B-095 — the seller view had no VIGA Bucks indicator because the fact was not on the
+      seller to show. F-125 moved it, which is what makes this a render rather than a
+      derivation: there is ONE answer per seller, so a seller at three stands cannot show
+      three different ones.
+
+      The bakery is set against the column default so this cannot pass on `DEFAULT true`.
+    */
+    await sql()`update sellers set farm_bucks_accepted = false where id = ${bakerySellerId}`;
+
+    const sellers = await listPublicSellers(database(), { includeTestSellers: false });
+    expect(sellers.find((seller) => seller.sellerId === bakerySellerId)?.farmBucksAccepted)
+      .toBe(false);
+    expect(sellers.find((seller) => seller.sellerId === hostSellerId)?.farmBucksAccepted)
+      .toBe(true);
+
+    await sql()`update sellers set farm_bucks_accepted = true where id = ${bakerySellerId}`;
+  });
+
   it("names every stand a seller is currently selling at", async () => {
     const sellers = await listPublicSellers(database(), { includeTestSellers: false });
     const bakery = sellers.find((seller) => seller.sellerId === bakerySellerId);
@@ -252,13 +271,12 @@ describe("public seller list (integration)", () => {
     const venueId = (
       await sql()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type,
-          is_public, prices_public, farm_bucks_accepted, farm_bucks_eligible,
-          public_address, public_latitude, public_longitude
+          own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
+          prices_public, public_address, public_latitude, public_longitude
         ) values (
           null, 'farm_stand', 'Morgan Hill Community Stand', 'America/Los_Angeles',
-          'visitable', 'produce', true, true, false, false,
-          'Vashon Hwy, Vashon WA', 47.4473, -122.4590
+          'visitable', 'produce', true, true, 'Vashon Hwy, Vashon WA', 47.4473,
+          -122.4590
         ) returning id
       `
     )[0]?.id as string;

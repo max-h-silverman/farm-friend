@@ -37,6 +37,23 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
   question grammar removes the article. Marked INVERT WHEN a second food vocabulary is allowed.
 - **`matchCount` is `rankCandidates`' first key**, ahead of freshness (F-120); `broad` passes a
   constant so a catalog-wide request is not a biggest-listing leaderboard.
+- **Payment belongs to the SELLER, and a stand may only narrow it (F-125).** She states her
+  methods and her VIGA Bucks answer once, on `sellers`, and they apply at every stand she sells
+  at. `sales_location_payment_method_exclusions` lets a host REMOVE a method it cannot support
+  (the motivating case: a hosted seller at a stand with no way to take cash); adding is
+  unrepresentable, not merely refused. `resolvePaymentMethods` in `core` is the one rule, run as
+  a join by the public map and the farmer's edit form. **Nothing derives a seller's answer from
+  her stands** — that derivation is the second mechanism F-125 removed.
+- **There is no VIGA Bucks eligibility** (max, 2026-08-20: *"there is no 'eligible'. they either
+  take it or they don't"*). The grant was deleted rather than moved, and
+  `sellers.farm_bucks_accepted` is `DEFAULT true`: Farm Bucks is near-universal here, so silence
+  is nobody ticking a box rather than a refusal. **The accepted risk** — a wrong `true` sends a
+  customer to an unattended stand holding vouchers the farmer will not take. If a farmer reports
+  that, it is this default and not a defect.
+- **The farmer's edit form reads her UNNARROWED list.** The reader returns what she states and
+  carries the stand's exclusions as a separate read-only field, because the writer replaces her
+  seller-wide rows from the same field — a narrowed prefill would silently drop a method at every
+  other stand she sells at.
 - **The stand card is seller-major (F-119)** — each seller a sub-heading with its own recency.
   Deliberately gives up "each item appears once": two sellers carrying eggs print eggs twice, each
   with that seller's price.
@@ -62,8 +79,12 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
   deployed 2026-08-19. **`main` and production agree.** 63/63 plan assertions, deploy assertions
   and served-card assertions pass; neither revision has an error-level log; the worker's recovery
   pass runs every minute returning 200.
-- Neon `neondb` has **58 applied migrations (`0000`–`0057`)**, each verified by effect rather than
-  by "migrations applied". Production holds **43 sellers / 39 stands**.
+- Neon `neondb` has **58 applied migrations (`0000`–`0057`)** in PRODUCTION, each verified by effect
+  rather than by "migrations applied". Production holds **43 sellers / 39 stands**.
+  **`0058` (F-125) is written and locally verified but NOT applied to production** — it moves payment
+  to the seller and drops `sales_location_payment_methods` plus both `farm_bucks_*` stand columns.
+  Its backfill was dry-run against a copy of the real production rows: 86 payment rows in, 86 out,
+  none stranded, 3 sellers landing on a reviewed refusal and 40 on the accepted default.
 - **The worker mounts `local.email_secret_env`, never `web_secret_env`.** It sends the F-123 flag
   alert and needs the email credentials; it must never hold `ADMIN_PASSWORD_HASH`, the billed
   `GEOCODING_API_KEY`, or F-079's three salts. `plan-assertions.py` enforces this and once refused
@@ -102,8 +123,8 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
 
 ## Verification
 
-- **2,494 unit tests across 175 files** (7 corpus-only skips) and **1,494 integration across all
-  110 files**, both 2026-08-19 after F-124. Typecheck and lint clean. Scripted evals: critical
+- **2,501 unit tests across 176 files** (7 corpus-only skips) and **1,506 integration across all
+  111 files**, both 2026-08-20 after F-125. Typecheck and lint clean. Scripted evals: critical
   11/11, advisory 4/4, adversarial 19/19. The build retains tracked Next config/lint warnings
   (B-008).
 - **`evals:live` is 7/7 containment**, closure 7/7, quality 16/16, operation 6/6, catalog 7/7.
@@ -180,18 +201,6 @@ shipped bundles — **and no pixel and no message has been looked at on a real d
 
 ### Decisions owed by VIGA or max
 
-- **F-125 — payment belongs to the SELLER, with a stand-level override** (max, 2026-08-20), and it
-  is the next tranche. Today both halves live on `sales_locations`: the methods in
-  `sales_location_payment_methods`, and VIGA Bucks as `farm_bucks_accepted` /
-  `farm_bucks_eligible`. Wrong owner — whoever takes the money decides how, and a seller at three
-  stands should state it once. The override **narrows** what she states, for a hosted seller whose
-  host cannot support cash; it never adds. Touches ~20 non-test files plus onboarding and farmer
-  settings, and it is a change to what a model seam is shown, so `evals:live` applies.
-  **B-095 is a symptom of it**, not a separate fix: the map's seller list has no VIGA Bucks
-  indicator because the fact is not on the seller to show. Do not build a derivation rule from her
-  stands — that is the second mechanism F-125 exists to remove.
-  Open sub-question: whether `farm_bucks_eligible` moves too. It is VIGA's grant rather than the
-  farmer's claim, so it is a different authority and should be reasoned about separately.
 - **B-094** — with the approval toggle gone, `revokeFarmApproval` has no production caller, so an
   approval cannot be reversed. Accepted consequence of a decision, not a regression. Revoking the
   farmer's AUTHORIZATION may be the whole answer, in which case the writer and the `not_approved`

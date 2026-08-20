@@ -235,11 +235,11 @@ ${farmerHash}, ${ids.location},
 
     const location = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude
       )
-      values (${ids.farm}, 'farm_stand', 'Provo Stand', 'America/Los_Angeles', 'visitable', 'produce', '123 Vashon Hwy',
-              47.4471, -122.4594, false, false)
+      values (${ids.farm}, 'farm_stand', 'Provo Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '123 Vashon Hwy', 47.4471, -122.4594)
       returning id
     `;
     ids.location = location[0]?.id as string;
@@ -249,6 +249,61 @@ ${farmerHash}, ${ids.location},
       select id from inventory_entries where inventory_revision_id = ${ids.revision}
     `;
     ids.entry = entry[0]?.id as string;
+  });
+
+  describe("payment on the public card (F-125)", () => {
+    /*
+      The end-to-end half of F-125: the map must read the SELLER's answer, narrowed by the
+      stand's override. `seller-payment.integration.test.ts` proves the schema and the rule;
+      this proves the public surface actually runs it, which is the only thing a customer
+      ever sees.
+    */
+    it("shows the seller's methods, minus what this stand cannot support", async () => {
+      await client()`
+        insert into seller_payment_methods (seller_id, method)
+        values (${ids.farm}, 'Cash'), (${ids.farm}, 'Check'), (${ids.farm}, 'Venmo')
+      `;
+
+      const before = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect(
+        before.find((stand) => stand.factId === ids.location)?.paymentMethods,
+      ).toEqual(["Cash", "Check", "Venmo"]);
+
+      // The host cannot handle cash at this location.
+      await client()`
+        insert into sales_location_payment_method_exclusions (sales_location_id, seller_id, method)
+        values (${ids.location}, ${ids.farm}, 'Cash')
+      `;
+
+      const after = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      const card = after.find((stand) => stand.factId === ids.location);
+      expect(card?.paymentMethods).toEqual(["Check", "Venmo"]);
+      // Stated as an absence too: the point of the override is that the customer is NOT told
+      // they can pay a way the stand cannot actually take.
+      expect(card?.paymentMethods).not.toContain("Cash");
+
+      await client()`
+        delete from sales_location_payment_method_exclusions
+        where sales_location_id = ${ids.location} and seller_id = ${ids.farm}
+      `;
+      await client()`delete from seller_payment_methods where seller_id = ${ids.farm}`;
+    });
+
+    it("publishes Farm Bucks from the seller, defaulting to accepted", async () => {
+      // max, 2026-08-20 — there is no eligibility grant and no "not reviewed" state. A farm
+      // nobody has asked publishes as accepting, because Farm Bucks is near-universal here.
+      const stands = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect(
+        stands.find((stand) => stand.factId === ids.location)?.farmBucksAccepted,
+      ).toBe(true);
+
+      await client()`update sellers set farm_bucks_accepted = false where id = ${ids.farm}`;
+      const refused = await listPublicStands({ db: db!, clock: new FixedClock(T0) });
+      expect(
+        refused.find((stand) => stand.factId === ids.location)?.farmBucksAccepted,
+      ).toBe(false);
+      await client()`update sellers set farm_bucks_accepted = true where id = ${ids.farm}`;
+    });
   });
 
   describe("owner-confirmed names of other sellers (F-050)", () => {
@@ -379,11 +434,11 @@ ${farmerHash}, ${ids.location},
       // hides the majority or flattens "confirmed 3 hours ago" into "we have no idea".
       const second = await client()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude
         )
-        values (${ids.farm}, 'farm_stand', 'Unseeded Stand', 'America/Los_Angeles', 'visitable', 'produce', '456 Vashon Hwy',
-                47.4480, -122.4600, false, true)
+        values (${ids.farm}, 'farm_stand', 'Unseeded Stand', 'America/Los_Angeles',
+          'visitable', 'produce', '456 Vashon Hwy', 47.4480, -122.4600)
         returning id
       `;
       const unconfirmedId = second[0]?.id as string;
@@ -515,11 +570,10 @@ ${farmerHash}, ${ids.location},
       const rows = await client()`
         insert into sales_locations (
           own_seller_id, kind, name, timezone, visitability, offering_type,
-          public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          public_address, public_latitude, public_longitude
         )
-        values (${ids.farm}, 'farm_stand', ${name}, 'America/Los_Angeles', 'contact_only', 'by_order',
-                null, null, null, false, false)
+        values (${ids.farm}, 'farm_stand', ${name}, 'America/Los_Angeles', 'contact_only',
+          'by_order', null, null, null)
         returning id
       `;
       return rows[0]?.id as string;
@@ -948,11 +1002,10 @@ ${farmerHash}, ${ids.location},
       const quietLocation = await client()`
         insert into sales_locations (
           own_seller_id, kind, name, timezone, visitability, offering_type,
-          public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          public_address, public_latitude, public_longitude
         )
         values (${quietSellerId}, 'farm_stand', 'Rhubarb Stand', 'America/Los_Angeles',
-                'visitable', 'produce', '9 Vashon Hwy', 47.4, -122.46, false, false)
+          'visitable', 'produce', '9 Vashon Hwy', 47.4, -122.46)
         returning id
       `;
       const quietLocationId = quietLocation[0]?.id as string;
@@ -1495,11 +1548,11 @@ ${farmerHash}, ${ids.location},
       // still sort behind a confirmed one, or the map opens on the least certain listings.
       const second = await client()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude
         )
-        values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', 'America/Los_Angeles', 'visitable', 'produce', '456 Vashon Hwy',
-                47.448, -122.46, false, false)
+        values (${ids.farm}, 'farm_stand', 'Tagged Unconfirmed', 'America/Los_Angeles',
+          'visitable', 'produce', '456 Vashon Hwy', 47.448, -122.46)
         returning id
       `;
       const taggedId = second[0]?.id as string;

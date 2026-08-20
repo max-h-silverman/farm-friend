@@ -181,11 +181,20 @@ but they live on `inventory_prompt_preferences` rather than on the provider row 
 the scheduler's cursor beside them, and a listing's schedule must not be separable from its place
 in that schedule (F-114 C.4).
 
-**Payment is the seller's own fact** — their money, their account — so it belongs to the provider
-like the rest of that list. `sales_location_payment_methods` is still keyed on the stand alone,
-which is correct only while every stand has exactly one seller; it gains the provider dimension
-with the rest of the hosted-seller work. A hosted seller's accepted methods are never inferred from
-the host's list.
+**Payment is the seller's own fact** — their money, their account — so F-125 moved it off the
+stand entirely. `seller_payment_methods` is keyed on the **seller**: she states her methods once
+and they apply at every stand she sells at, where the old stand-keyed table let three stands of
+one farm disagree. A hosted seller's accepted methods are never inferred from the host's list, and
+nothing derives a seller's answer from her stands — that derivation was the second mechanism F-125
+removes.
+
+**A stand may only NARROW what a seller states**, never add
+(`sales_location_payment_method_exclusions`). The motivating case is a hosted seller who cannot
+take cash at one stand because the host cannot support it: that is the host constraining what is
+possible at their location, not a second independent answer about the seller. The direction is
+enforced by the **shape** rather than by a guard — a row names a method the host REMOVES, and there
+is no representation for adding one. `resolvePaymentMethods` in `core` is the single place the two
+are combined; the public map and the farmer's edit form run the same rule as a join.
 
 Two things this does *not* mean. A **shared cash box is the common arrangement** at an unattended
 stand, so a hosted seller taking cash is presumed to use the host's box unless they say otherwise —
@@ -318,9 +327,10 @@ would add a case to every reader and change no public output.
 
 ## Listing facts
 
-**structured public listing facts** — payment methods and VIGA Farm Bucks acceptance or eligibility,
-the farm's own prose description, farmer-selected web/social links, and an optional photo or short
-biography. Direct farmer email addresses and phone numbers never enter the public description.
+**structured public listing facts** — the farm's own prose description, farmer-selected web/social
+links, and an optional photo or short biography. Payment methods and VIGA Farm Bucks acceptance are
+**not** here: F-125 made both the seller's own facts, recorded on `sellers` and narrowed per stand.
+Direct farmer email addresses and phone numbers never enter the public description.
 
 **`farms.description` is farmer-writable.** Every listing door carries it, and the writer distinguishes
 **`undefined`** ("this door states nothing about the prose", leave it) from **`""`** ("the farmer
@@ -337,13 +347,21 @@ vocabulary is forbidden.
 
 **VIGA Farm Bucks remains separate from payment methods** — `canonicalPaymentMethods` recognizes its
 spellings and then **drops** them rather than storing a method row (B-054), so ingest, onboarding's
-free-text box and any backfill are all closed at one seam. It never sets the boolean either: a farmer
-typing "farm bucks" into a text box must not award themselves an acceptance VIGA never reviewed. The
-two columns record two different people's facts: `farm_bucks_accepted` is the **farmer's** claim about
-their own stand, published on their word; `farm_bucks_eligible` is **VIGA's** own decision, set in
-admin. **Neither constrains the other** (max, 2026-08-10) — eligibility lives on a stand row that does
-not exist until onboarding saves, so gating the farmer's claim on it made the toggle unreachable for
-every new farm.
+free-text box and any backfill are all closed at one seam. It never sets the boolean either: one
+field must not quietly write two facts.
+
+**There is no eligibility grant** (max, 2026-08-20: *"there is no 'eligible'. they either take it
+or they don't"*). F-125 deleted `farm_bucks_eligible` rather than moving it, and acceptance became
+`sellers.farm_bucks_accepted` — the farmer's own claim about herself, applying everywhere she
+sells. The old pair was three-state (accepts / refuses / never reviewed) and let five production
+stands claim acceptance with no grant behind it; two mechanisms disagreeing about one fact is what
+F-125 exists to delete.
+
+**The column is `DEFAULT true`, and that is a product decision** (max, 2026-08-20). Farm Bucks is
+near-universal among VIGA farms, so a blank row is nobody ticking a box rather than a refusal, and
+the eleven farms carrying no answer at migration time publish as accepting. The risk was named and
+accepted: a wrong `true` sends a customer to an unattended honor-system stand holding vouchers the
+farmer will not take, with nobody there to sort it out.
 
 **structured availability** (F-035) — season, days of week, time of day, and restocking cadence as
 **queryable columns rather than prose**, so "what is open right now" is a filter and not a text scan.

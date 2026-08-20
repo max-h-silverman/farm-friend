@@ -103,11 +103,11 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     ids.farm = sellers[0]?.id as string;
     const locations = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude
       ) values (
-        ${ids.farm}, 'farm_stand', 'Closure Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Closure Way', 47.44, -122.46,
-        false, false
+        ${ids.farm}, 'farm_stand', 'Closure Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Closure Way', 47.44, -122.46
       ) returning id
     `;
     ids.location = locations[0]?.id as string;
@@ -387,11 +387,11 @@ describe("farmer-confirmed closure lifecycle (integration)", () => {
     const otherSellerId = otherFarms[0]?.id as string;
     const otherLocations = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude
       ) values (
-        ${otherSellerId}, 'farm_stand', 'Binding Stand', 'America/Los_Angeles', 'visitable', 'produce', '2 Closure Way', 47.43, -122.45,
-        false, false
+        ${otherSellerId}, 'farm_stand', 'Binding Stand', 'America/Los_Angeles',
+        'visitable', 'produce', '2 Closure Way', 47.43, -122.45
       ) returning id
     `;
     const otherContacts = await client()`select id from contacts where phone_hash = ${nonOwnerHash}`;

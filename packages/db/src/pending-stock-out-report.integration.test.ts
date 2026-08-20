@@ -76,11 +76,10 @@ describe("the pending stock-out report a clarification leaves behind (integratio
     const locations = await sql()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       ) values (
-        ${sellers[0]?.id as string}, 'farm_stand', 'Alpha Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '1 Road', 47.44, -122.46, false, false
+        ${sellers[0]?.id as string}, 'farm_stand', 'Alpha Stand',
+        'America/Los_Angeles', 'visitable', 'produce', '1 Road', 47.44, -122.46
       )
       returning id
     `;

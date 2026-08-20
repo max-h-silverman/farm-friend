@@ -242,13 +242,13 @@ describe("per-seller freshness differential: SMS retrieval vs readStandProviderF
     `;
     const locations = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, prices_public, farm_bucks_accepted, farm_bucks_eligible,
-        public_address, address_public, public_latitude, public_longitude
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
+        prices_public, public_address, address_public, public_latitude,
+        public_longitude
       ) values (
         ${hostSellerId}, 'farm_stand', 'Host Farm Stand', 'America/Los_Angeles',
-        'visitable', 'produce', true, true, false, false,
-        'Vashon Hwy, Vashon WA', true, 47.4473, -122.4590
+        'visitable', 'produce', true, true, 'Vashon Hwy, Vashon WA', true, 47.4473,
+        -122.4590
       ) returning id
     `;
     standId = locations[0]?.id as string;
@@ -319,13 +319,12 @@ describe("per-seller freshness differential: SMS retrieval vs readStandProviderF
     // a reader that derives anything from the stand's seller has nothing to derive from.
     const venues = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, prices_public, farm_bucks_accepted, farm_bucks_eligible,
-        public_address, address_public, public_latitude, public_longitude
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
+        prices_public, public_address, address_public, public_latitude,
+        public_longitude
       ) values (
-        null, 'farm_stand', 'Morgan Hill Pavilion', 'America/Los_Angeles',
-        'visitable', 'produce', true, true, false, false,
-        'Morgan Hill Rd, Vashon WA', true, 47.4100, -122.4700
+        null, 'farm_stand', 'Morgan Hill Pavilion', 'America/Los_Angeles', 'visitable',
+        'produce', true, true, 'Morgan Hill Rd, Vashon WA', true, 47.4100, -122.4700
       ) returning id
     `;
     venueId = venues[0]?.id as string;

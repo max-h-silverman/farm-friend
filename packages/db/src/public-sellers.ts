@@ -50,6 +50,14 @@ export interface PublicSeller {
    * rather than leaving a hosted-only seller looking like an incomplete record.
    */
   ownsAStand: boolean;
+  /**
+   * Whether this seller takes VIGA Farm Bucks (B-095, F-125).
+   *
+   * A plain seller fact, which is the whole reason the indicator is renderable here: before
+   * F-125 the answer lived on each stand, so a seller at three stands had no single answer to
+   * show and the seller view shipped without one. Nothing derives it from her stands.
+   */
+  farmBucksAccepted: boolean;
   /** Where they are selling now, by stand name. Never empty — see the liveness rule below. */
   sellingAt: PublicSellerStand[];
 }
@@ -85,6 +93,7 @@ export async function listPublicSellers(
         seller.id as seller_id,
         seller.name as seller_name,
         seller.description as description,
+        seller.farm_bucks_accepted as farm_bucks_accepted,
         provider.id as provider_id,
         location.id as sales_location_id,
         location.name as location_name,
@@ -119,6 +128,7 @@ export async function listPublicSellers(
         sellerName: row.seller_name as string,
         ...(description === null ? {} : { description }),
         ownsAStand: false,
+        farmBucksAccepted: row.farm_bucks_accepted === true,
         sellingAt: [],
       };
       bySeller.set(sellerId, seller);

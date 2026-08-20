@@ -67,11 +67,11 @@ describe("scheduled inventory prompt pass (integration)", () => {
     ids.farm = sellers[0]?.id as string;
     const locations = await handle().sql`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-        public_longitude, farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude
       ) values (
-        ${ids.farm}, 'farm_stand', 'Prompt Stand', 'America/Los_Angeles', 'visitable', 'produce',
-        '1 Prompt Way', 47.45, -122.46, false, true
+        ${ids.farm}, 'farm_stand', 'Prompt Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Prompt Way', 47.45, -122.46
       ) returning id
     `;
     ids.location = locations[0]?.id as string;
@@ -196,11 +196,11 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const farmId = farm[0]?.id as string;
     const location = await handle().sql`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-        public_longitude, farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude
       ) values (
-        ${farmId}, 'farm_stand', ${`Dispatch Stand ${suffix}`}, 'America/Los_Angeles', 'visitable', 'produce',
-        ${`${suffix} Dispatch Way`}, 47.45, -122.46, false, true
+        ${farmId}, 'farm_stand', ${`Dispatch Stand ${suffix}`}, 'America/Los_Angeles',
+        'visitable', 'produce', ${`${suffix} Dispatch Way`}, 47.45, -122.46
       ) returning id
     `;
     const salesLocationId = location[0]?.id as string;
@@ -1108,11 +1108,11 @@ describe("scheduled inventory prompt pass (integration)", () => {
     const fixture = await createQueuedFixture({ autoSchedule: false });
     const secondLocation = await handle().sql`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude,
-        public_longitude, farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude
       ) values (
-        ${fixture.farmId}, 'farm_stand', 'Second Due Stand', 'America/Los_Angeles', 'visitable', 'produce',
-        '2 Due Way', 47.45, -122.46, false, true
+        ${fixture.farmId}, 'farm_stand', 'Second Due Stand', 'America/Los_Angeles',
+        'visitable', 'produce', '2 Due Way', 47.45, -122.46
       ) returning id
     `;
     const secondLocationId = secondLocation[0]?.id as string;

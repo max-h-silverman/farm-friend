@@ -14,8 +14,9 @@ describe("public listing source details", () => {
     ).toEqual({
       description:
         "Instagram: instagram.com/peak_moon_nursery\nAccepts VIGA Farm Bucks",
+      // F-125 — acceptance alone. `toEqual` is exact, so this also proves no eligibility
+      // field survives beside it.
       farmBucksAccepted: true,
-      farmBucksEligible: true,
     });
   });
 
@@ -34,9 +35,11 @@ describe("public listing source details", () => {
         standName: "Sweet Alyssum Farm *does not accept VIGA Bucks*",
         sourceText: "Fresh cut flowers",
       }),
-    ).toMatchObject({
+    ).toEqual({
+      description: "Fresh cut flowers",
+      // F-125 — a reviewed REFUSAL still reads as a refusal. `toEqual` rather than
+      // `toMatchObject`: the loose form would pass even if an eligibility field came back.
       farmBucksAccepted: false,
-      farmBucksEligible: true,
     });
   });
 

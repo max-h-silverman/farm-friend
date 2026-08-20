@@ -37,7 +37,8 @@ record is for and the rules that govern it. Look one up when you touch it.
 |---|---|
 | **farms and sales locations** | the farm and its stands; `address_public` / `prices_public`; `retired_at` on both levels; `farms.test_farm_at` |
 | **farmer identity, access, invitation** | contacts and authorization, the farm email roster and verifications, onboarding requests, invitations, standing links, SMS target context, prompt preferences, VIGA approval, administrator and sessions, login-failure budgets |
-| **listing facts** | structured public listing facts, payment methods and Farm Bucks, structured availability |
+| **listing facts** | structured public listing facts, structured availability |
+| **seller payment** (F-125) | what a seller takes and whether she takes Farm Bucks — hers, stated once; a stand may only narrow it |
 | **stand items** (F-066) | the one vocabulary a stand talks about its goods in — the standing and confirmed states, and structured prices |
 | **records of what was said** | stand data flags, inventory revisions and entries, closure revisions, participants, stock-out reports, the SMS inbox, consent, outbox category, open confirmations, scheduled prompt subjects, pending result lists, flags, outbox, audit |
 

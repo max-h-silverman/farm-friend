@@ -64,12 +64,11 @@ describe("F-066 stand items (integration)", () => {
     const locations = await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       )
       values (
-        ${farmId}, 'farm_stand', 'Item Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '1 Item Way', 47.4, -122.4, false, false
+        ${farmId}, 'farm_stand', 'Item Stand', 'America/Los_Angeles', 'visitable',
+        'produce', '1 Item Way', 47.4, -122.4
       )
       returning id
     `;
@@ -77,12 +76,11 @@ describe("F-066 stand items (integration)", () => {
     const others = await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       )
       values (
         ${farmId}, 'farm_stand', 'Other Item Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '2 Item Way', 47.5, -122.5, false, false
+        'visitable', 'produce', '2 Item Way', 47.5, -122.5
       )
       returning id
     `;

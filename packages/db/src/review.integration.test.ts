@@ -127,7 +127,7 @@ describe("operator review queues (integration)", () => {
         inventory_entries, inventory_revisions, inventory_publication_proposals,
         outbox_work, consent_transition_watermarks, sms_consents, sender_states,
         stock_out_reports, flags, audit_events, model_runs,
-        seller_approvals, farmer_authorizations, sales_location_payment_methods,
+        seller_approvals, farmer_authorizations, seller_payment_methods,
         seller_links, sales_locations, administrators, sellers, contacts,
         admin_sessions
       restart identity cascade
@@ -156,12 +156,12 @@ describe("operator review queues (integration)", () => {
 
     const locations = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+        public_latitude, public_longitude
       )
       values (
-        ${id("farm")}, 'farm_stand', 'Provo Farms Stand', 'America/Los_Angeles', 'visitable', 'produce', '1 Vashon Hwy',
-        47.4, -122.4, false, false
+        ${id("farm")}, 'farm_stand', 'Provo Farms Stand', 'America/Los_Angeles', 'visitable', 'produce',
+        '1 Vashon Hwy', 47.4, -122.4
       )
       returning id
     `;

@@ -69,12 +69,11 @@ describe("F-064 ingest guard (integration)", () => {
     await client()`
       insert into sales_locations (
         own_seller_id, kind, name, timezone, visitability, offering_type,
-        public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        public_address, public_latitude, public_longitude
       )
       values (
-        ${sellers[0]?.id as string}, 'farm_stand', 'Guard Stand', 'America/Los_Angeles',
-        'visitable', 'produce', '1 Guard Way', 47.4, -122.4, false, false
+        ${sellers[0]?.id as string}, 'farm_stand', 'Guard Stand',
+        'America/Los_Angeles', 'visitable', 'produce', '1 Guard Way', 47.4, -122.4
       )
     `;
 

@@ -68,13 +68,11 @@ describe("F-101 admin stand providers (integration)", () => {
     const mkStand = async (name: string): Promise<string> => {
       const rows = await db`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type,
-          is_public, farm_bucks_accepted, farm_bucks_eligible,
+          own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
           public_address, public_latitude, public_longitude
         ) values (
-          ${hostSellerId}, 'farm_stand', ${name}, 'America/Los_Angeles',
-          'visitable', 'produce', true, false, false,
-          ${`${name} Road`}, 47.4473, -122.4590
+          ${hostSellerId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable',
+          'produce', true, ${`${name} Road`}, 47.4473, -122.4590
         ) returning id
       `;
       return rows[0]?.id as string;

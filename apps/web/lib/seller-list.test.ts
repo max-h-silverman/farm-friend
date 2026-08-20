@@ -24,6 +24,7 @@ const seller = (overrides: Partial<SellerListEntry> = {}): SellerListEntry => ({
   sellerId: "s-1",
   sellerName: "Fernhorn Bakery",
   ownsAStand: false,
+  farmBucksAccepted: true,
   sellingAt: [
     {
       salesLocationId: "l-1",

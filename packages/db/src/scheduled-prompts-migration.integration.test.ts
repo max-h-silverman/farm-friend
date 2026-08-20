@@ -98,9 +98,8 @@ describe("F-052 forward migration from populated pre-prompt schema (integration)
     expect(await client()`select proposal_id from scheduled_inventory_prompt_subjects`).toHaveLength(0);
     await expect(client()`
       insert into sales_locations (
-        own_seller_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
-      ) values (${farmId}, 'farm_stand', 'Unreviewed Zone', 'visitable', 'produce', '3 Existing Way', 47.46, -122.48, false, false)
+        own_seller_id, kind, name, visitability, offering_type, public_address, public_latitude, public_longitude
+      ) values (${farmId}, 'farm_stand', 'Unreviewed Zone', 'visitable', 'produce', '3 Existing Way', 47.46, -122.48)
     `).rejects.toThrow(/timezone|null value/i);
     expect(
       await client()`select count(*)::integer as count from drizzle.__drizzle_migrations`,

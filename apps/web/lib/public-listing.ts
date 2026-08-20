@@ -402,8 +402,9 @@ export async function listPublicStands(
       l.address_public as address_public,
       l.visitability as visitability,
       l.offering_type as offering_type,
-      l.farm_bucks_accepted as farm_bucks_accepted,
-      l.farm_bucks_eligible as farm_bucks_eligible,
+      -- F-125 -- payment is the SELLER's fact. Read from the stand's owning seller, not the
+      -- stand. A venue has no owning seller, so this is NULL there and prints nothing.
+      f.farm_bucks_accepted as farm_bucks_accepted,
       -- F-043 — F-035's availability columns, read for the first time. Selected on the
       -- location row (grain: one per location), so they neither multiply nor are multiplied
       -- by the inventory join below.
@@ -459,11 +460,24 @@ export async function listPublicStands(
         ),
         '[]'::json
       ) as links,
+      -- F-125 — what the OWNING seller takes, minus anything this stand cannot support.
+      --
+      -- The exclusion join is what makes the override narrow-only: it can remove a method the
+      -- seller states and has no way to add one she does not. resolvePaymentMethods in core
+      -- owns the same rule for callers that hold both lists in memory; this is the set-based
+      -- form of it, kept here so the public map stays a single query rather than a fan-out.
+      -- (No backticks in here: this is a JS template literal and one would end the string.)
       coalesce(
         (
           select array_agg(payment.method order by payment.method asc)
-          from sales_location_payment_methods payment
-          where payment.sales_location_id = l.id
+          from seller_payment_methods payment
+          where payment.seller_id = l.own_seller_id
+            and not exists (
+              select 1 from sales_location_payment_method_exclusions excluded
+              where excluded.sales_location_id = l.id
+                and excluded.seller_id = payment.seller_id
+                and lower(btrim(excluded.method)) = lower(btrim(payment.method))
+            )
         ),
         array[]::text[]
       ) as payment_methods
@@ -680,12 +694,19 @@ export async function listPublicStands(
         ...(row.farm_description !== null && row.farm_description !== undefined
           ? { description: row.farm_description as string }
           : {}),
-        // Older imported rows are `false/false`: that means no eligibility review, not a
-        // customer-facing claim that the stand refuses VIGA Bucks. Only an eligible row has
-        // a reviewed acceptance answer to publish.
-        ...(row.farm_bucks_eligible === true
-          ? { farmBucksAccepted: row.farm_bucks_accepted as boolean }
-          : {}),
+        /*
+          F-125 — two states, not three. There is no eligibility review to gate on any more
+          (max, 2026-08-20: "there is no 'eligible'. they either take it or they don't"), so
+          every seller has an answer and it publishes.
+
+          The NULL guard is for VENUES, not for silence: a venue has no owning seller, so it
+          has nobody's claim to print. A seller who never ticked the box carries the column's
+          `true` default and publishes as accepting, which is the decision, not an accident.
+        */
+        ...(row.farm_bucks_accepted === null ||
+        row.farm_bucks_accepted === undefined
+          ? {}
+          : { farmBucksAccepted: row.farm_bucks_accepted as boolean }),
         /*
           F-088 — the pin and the address text are now separate decisions.
 

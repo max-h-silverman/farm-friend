@@ -141,6 +141,7 @@ describe("the stand list", () => {
         stands={[
           {
             standId: "stand-1",
+            farmId: "farm-of-stand-1",
             name: "North Stand",
             farmName: "Example Farm",
             status: "Public",
@@ -148,7 +149,7 @@ describe("the stand list", () => {
             approved: true,
             retired: false,
             retiredWithFarm: false,
-            farmBucksStatus: "not_eligible",
+            farmBucksStatus: "does_not_accept",
             metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
             sections: [
               {
@@ -189,7 +190,7 @@ describe("the stand list", () => {
     await user.click(screen.getByRole("menuitem", { name: /farm bucks/i }));
 
     expect(screen.getByRole("combobox", { name: "Farm Bucks decision" })).toHaveValue(
-      "not_eligible",
+      "does_not_accept",
     );
   });
 
@@ -201,6 +202,7 @@ describe("the stand list", () => {
       <StandDetails
         stands={[{
           standId: "stand-farm-bucks",
+          farmId: "farm-of-stand-farm-bucks",
           name: "North Stand",
           farmName: "Example Farm",
           status: "Visible to customers",
@@ -208,9 +210,25 @@ describe("the stand list", () => {
           approved: true,
           retired: false,
           retiredWithFarm: false,
-          farmBucksStatus: "not_eligible",
+          farmBucksStatus: "does_not_accept",
           metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
-          sections: [{ title: "Other details", items: [["Farm Bucks", "Not reviewed"]] }],
+          sections: [{ title: "VIGA's record", items: [["Farm Bucks", "Not accepted"]] }],
+        }, {
+          // F-125 — a SECOND stand of the same farm. The decision is the seller's, so this
+          // row has to move with the one the operator actually touched; leaving it behind is
+          // the per-stand disagreement the move deletes.
+          standId: "stand-farm-bucks-south",
+          farmId: "farm-of-stand-farm-bucks",
+          name: "South Stand",
+          farmName: "Example Farm",
+          status: "Visible to customers",
+          openState: "Open now",
+          approved: true,
+          retired: false,
+          retiredWithFarm: false,
+          farmBucksStatus: "does_not_accept",
+          metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
+          sections: [{ title: "VIGA's record", items: [["Farm Bucks", "Not accepted"]] }],
         }]}
       />,
     );
@@ -219,14 +237,18 @@ describe("the stand list", () => {
     await user.click(screen.getByRole("menuitem", { name: /farm bucks/i }));
     await user.selectOptions(screen.getByRole("combobox", { name: "Farm Bucks decision" }), "accepts");
 
+    // F-125 — keyed by the SELLER, so one answer covers every stand she sells at.
     expect(fetcher).toHaveBeenCalledWith(
       "/api/admin/stands",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ standId: "stand-farm-bucks", farmBucksStatus: "accepts" }),
+        body: JSON.stringify({ sellerId: "farm-of-stand-farm-bucks", farmBucksStatus: "accepts" }),
       }),
     );
-    expect(screen.getByText("Accepted")).toBeTruthy();
+    // BOTH stands of the farm now read as accepted — the propagation, asserted as a count so
+    // it cannot pass on the touched row alone.
+    expect(screen.getAllByText("Accepted")).toHaveLength(2);
+    expect(screen.queryByText("Not accepted")).toBeNull();
     expect(screen.queryByRole("button", { name: "Save Farm Bucks decision" })).toBeNull();
   });
 
@@ -242,6 +264,7 @@ describe("the stand list", () => {
       <StandDetails
         stands={[{
           standId: "stand-vocab",
+          farmId: "farm-of-stand-vocab",
           name: "North Stand",
           farmName: "Example Farm",
           status: "Visible to customers",
@@ -249,7 +272,7 @@ describe("the stand list", () => {
           approved: true,
           retired: false,
           retiredWithFarm: false,
-          farmBucksStatus: "not_eligible",
+          farmBucksStatus: "does_not_accept",
           metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
         }]}
@@ -275,6 +298,7 @@ describe("the stand list", () => {
       <StandDetails
         stands={[{
           standId: "stand-retire",
+          farmId: "farm-of-stand-retire",
           name: "North Stand",
           farmName: "Example Farm",
           status: "Visible to customers",
@@ -282,7 +306,7 @@ describe("the stand list", () => {
           approved: true,
           retired: false,
           retiredWithFarm: false,
-          farmBucksStatus: "not_eligible",
+          farmBucksStatus: "does_not_accept",
           metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "123 Farm Lane"]] }],
         }]}
@@ -322,6 +346,7 @@ describe("the stand list", () => {
       <StandDetails
         stands={[{
           standId: "stand-restore",
+          farmId: "farm-of-stand-restore",
           name: "South Stand",
           farmName: "Example Farm",
           status: "Visible to customers",
@@ -329,7 +354,7 @@ describe("the stand list", () => {
           approved: true,
           retired: true,
           retiredWithFarm: false,
-          farmBucksStatus: "not_eligible",
+          farmBucksStatus: "does_not_accept",
           metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "9 Farm Lane"]] }],
         }]}
@@ -359,6 +384,7 @@ describe("the stand list", () => {
       <StandDetails
         stands={[{
           standId: "stand-fail",
+          farmId: "farm-of-stand-fail",
           name: "West Stand",
           farmName: "Example Farm",
           status: "Visible to customers",
@@ -366,7 +392,7 @@ describe("the stand list", () => {
           approved: true,
           retired: false,
           retiredWithFarm: false,
-          farmBucksStatus: "not_eligible",
+          farmBucksStatus: "does_not_accept",
           metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
           sections: [{ title: "Visit", items: [["Address", "3 Farm Lane"]] }],
         }]}
@@ -394,6 +420,7 @@ describe("administrator language", () => {
           stands={[
             {
               standId: "stand-language",
+              farmId: "farm-of-stand-language",
               name: "North Stand",
               farmName: "Example Farm",
               status: "Shown on map",
@@ -401,7 +428,7 @@ describe("administrator language", () => {
               approved: true,
               retired: false,
               retiredWithFarm: false,
-              farmBucksStatus: "not_eligible",
+              farmBucksStatus: "does_not_accept",
               metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
               sections: [{ title: "Visit", items: [["Visit in person", "Yes"]] }],
             },

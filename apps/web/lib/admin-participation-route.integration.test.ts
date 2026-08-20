@@ -115,11 +115,10 @@ describe("F-101 admin participation route (integration)", () => {
     ids.guest = guests[0]?.id as string;
 
     const locations = await sql()`
-      insert into sales_locations (own_seller_id, kind, name, timezone, visitability,
-        offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible)
+      insert into sales_locations (own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude)
       values (${ids.host}, 'farm_stand', 'Shared Stand', 'America/Los_Angeles', 'visitable',
-        'produce', '7 Route Way', 47.42, -122.43, false, false)
+        'produce', '7 Route Way', 47.42, -122.43)
       returning id
     `;
     ids.stand = locations[0]?.id as string;

@@ -111,11 +111,11 @@ describe("SMS result paging end to end (integration)", () => {
       const farm = await client()`insert into sellers (name) values (${name}) returning id`;
       const location = await client()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude
         )
-        values (${farm[0]?.id as string}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce',
-                ${`${10000 + index} SW 220th St`}, 47.45, -122.46, false, false)
+        values (${farm[0]?.id as string}, 'farm_stand', ${name}, 'America/Los_Angeles',
+          'visitable', 'produce', ${`${10000 + index} SW 220th St`}, 47.45, -122.46)
         returning id
       `;
       const locationId = location[0]?.id as string;
@@ -569,8 +569,9 @@ describe("SMS result paging end to end (integration)", () => {
 
   it("MORE replays a payment search through the same pending list", async () => {
     await client()`
-      insert into sales_location_payment_methods (sales_location_id, method)
-      select id, 'Cash' from sales_locations
+      insert into seller_payment_methods (seller_id, method)
+      select distinct own_seller_id, 'Cash' from sales_locations
+      where own_seller_id is not null
     `;
     const provider = new ScriptedProvider({
       "catalog-match": JSON.stringify({ matches: ["Cash"] }),
@@ -736,11 +737,11 @@ describe("SMS result paging end to end (integration)", () => {
     const farm = await client()`insert into sellers (name) values ('Latecomer Farm') returning id`;
     const location = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type,
+        public_address, public_latitude, public_longitude
       )
-      values (${farm[0]?.id as string}, 'farm_stand', 'Latecomer Farm', 'America/Los_Angeles', 'visitable', 'produce', '1 New Rd',
-              47.45, -122.46, false, false)
+      values (${farm[0]?.id as string}, 'farm_stand', 'Latecomer Farm',
+        'America/Los_Angeles', 'visitable', 'produce', '1 New Rd', 47.45, -122.46)
       returning id
     `;
     await client()`

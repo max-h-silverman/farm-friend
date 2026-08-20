@@ -19,7 +19,8 @@ export interface AdminStandCard {
   retired: boolean;
   /** Off the map only because its FARM is down. The control that reverses it is the farm's. */
   retiredWithFarm: boolean;
-  farmBucksStatus: "accepts" | "does_not_accept" | "not_eligible";
+  farmId: string;
+  farmBucksStatus: "accepts" | "does_not_accept";
   /**
    * The stand's own facts, as VALUES rather than as the display strings in `sections` (F-101).
    *
@@ -384,14 +385,8 @@ function StandFacts({
 }
 
 function farmBucksDetail(status: AdminStandCard["farmBucksStatus"]): string {
-  switch (status) {
-    case "accepts":
-      return "Accepted";
-    case "does_not_accept":
-      return "Does not accept";
-    default:
-      return "Not reviewed";
-  }
+  // F-125 — two states. There is no "not reviewed": a farm either takes Farm Bucks or does not.
+  return status === "accepts" ? "Accepted" : "Does not accept";
 }
 
 /**
@@ -459,7 +454,7 @@ export function StandDetails({
    * Without this the control showed the value the operator had just picked whether or not the
    * write landed — indistinguishable from having done nothing.
    */
-  async function saveFarmBucks(standId: string, status: AdminStandCard["farmBucksStatus"]) {
+  async function saveFarmBucks(standId: string, farmId: string, status: AdminStandCard["farmBucksStatus"]) {
     setSaving(standId);
     setNote((current) => {
       const next = { ...current };
@@ -470,11 +465,16 @@ export function StandDetails({
       const response = await fetch("/api/admin/stands", {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: JSON.stringify({ standId, farmBucksStatus: status }),
+        body: JSON.stringify({ sellerId: farmId, farmBucksStatus: status }),
       });
       if (!response.ok) throw new Error("save failed");
-      setRows((current) => current.map((row) => row.standId === standId ? { ...row, farmBucksStatus: status } : row));
-      say(standId, "ok", "Farm Bucks saved.");
+      /*
+        F-125 — the write landed on the SELLER, so every stand of hers now carries the new
+        answer. Updating only the clicked row would leave her other stands on this screen
+        showing the old one until a reload, which is the disagreement the move deletes.
+      */
+      setRows((current) => current.map((row) => row.farmId === farmId ? { ...row, farmBucksStatus: status } : row));
+      say(standId, "ok", "Farm Bucks saved for this farm.");
     } catch {
       say(standId, "bad", "That did not save. Try again.");
     } finally {
@@ -870,7 +870,7 @@ export function StandDetails({
                   aria-label={`Farm Bucks for ${stand.name}`}
                 >
                   <h4>Farm Bucks</h4>
-                  <p className="admin-note">Record this only after VIGA confirms the stand’s Farm Bucks policy.</p>
+                  <p className="admin-note">This is the farm’s answer and applies at every stand it sells at.</p>
                   <label className="admin-field">
                     <select
                       aria-label="Farm Bucks decision"
@@ -878,10 +878,10 @@ export function StandDetails({
                       value={stand.farmBucksStatus}
                       onChange={(event) => void saveFarmBucks(
                         stand.standId,
+                        stand.farmId,
                         event.target.value as AdminStandCard["farmBucksStatus"],
                       )}
                     >
-                      <option value="not_eligible">Not reviewed</option>
                       <option value="accepts">Accepts Farm Bucks</option>
                       <option value="does_not_accept">Does not accept Farm Bucks</option>
                     </select>

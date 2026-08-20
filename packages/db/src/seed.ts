@@ -84,8 +84,8 @@ export interface SeedStandInput {
   openDays?: number[];
   stocking: SeededStocking;
   flags: SeedStandFlag[];
+  /** F-125 — the SELLER's answer. Written to her farm row, not to this stand. */
   farmBucksAccepted?: boolean;
-  farmBucksEligible?: boolean;
   /**
    * The farm's website and social links (F-061), already normalized to absolute URLs.
    *
@@ -505,7 +505,7 @@ async function seedStandsInTransaction(
       insert into sales_locations (
         own_seller_id, kind, name, timezone, public_address, public_latitude, public_longitude,
         visitability, offering_type,
-        hours_text, is_public, farm_bucks_accepted, farm_bucks_eligible,
+        hours_text, is_public,
         season_kind, season_start_month, season_start_day, season_end_month,
         season_end_day, season_names,
         open_hours_kind, open_from_minutes, open_until_minutes, open_days,
@@ -515,7 +515,6 @@ async function seedStandsInTransaction(
         ${stand.place?.latitude ?? null}, ${stand.place?.longitude ?? null},
         ${stand.visitability}, ${stand.offeringType},
         ${stand.hoursText ?? null}, true,
-        ${stand.farmBucksAccepted ?? false}, ${stand.farmBucksEligible ?? false},
         ${season.kind}, ${season.startMonth}, ${season.startDay},
         ${season.endMonth}, ${season.endDay},
         ${season.names as unknown as string[] | null},
@@ -631,14 +630,23 @@ async function writeSideFacts(
     `;
     if (rows.length > 0) added = true;
   }
+  // F-125 — payment belongs to the FARM. A seed row still states it per stand (that is how
+  // VIGA's export is shaped), but it lands on the seller, so two stands of one farm converge
+  // on one answer instead of writing two that can disagree.
   for (const method of stand.paymentMethods ?? []) {
     const rows = await tx`
-      insert into sales_location_payment_methods (sales_location_id, method)
-      values (${locationId}, ${method})
+      insert into seller_payment_methods (seller_id, method)
+      values (${farmId}, ${method})
       on conflict do nothing
-      returning sales_location_id
+      returning seller_id
     `;
     if (rows.length > 0) added = true;
+  }
+  if (stand.farmBucksAccepted !== undefined) {
+    await tx`
+      update sellers set farm_bucks_accepted = ${stand.farmBucksAccepted}
+      where id = ${farmId}
+    `;
   }
 
   // F-064 — host sellers, written as VIGA's statement rather than the farmer's.

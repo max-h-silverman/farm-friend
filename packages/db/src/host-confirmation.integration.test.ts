@@ -105,13 +105,11 @@ describe("F-117 the host's confirmation (integration)", () => {
     `;
     const stands = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         public_address, public_latitude, public_longitude
       ) values (
         ${hostSellerId}, 'farm_stand', 'Kelseys Stand', 'America/Los_Angeles',
-        'visitable', 'produce', true, false, false,
-        '1 Kelsey Road', 47.4473, -122.4590
+        'visitable', 'produce', true, '1 Kelsey Road', 47.4473, -122.4590
       ) returning id
     `;
     hostStandId = stands[0]?.id as string;
@@ -309,13 +307,12 @@ describe("F-117 the host's confirmation (integration)", () => {
     `;
     const otherStands = await client()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, farm_bucks_accepted, farm_bucks_eligible,
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
         public_address, public_latitude, public_longitude
       ) values (
         ${otherHostSellers[0]?.id as string}, 'farm_stand', 'Fernhorn Stand',
-        'America/Los_Angeles', 'visitable', 'produce', true, false, false,
-        '2 Fernhorn Road', 47.4480, -122.4595
+        'America/Los_Angeles', 'visitable', 'produce', true, '2 Fernhorn Road',
+        47.4480, -122.4595
       ) returning id
     `;
     const otherProviders = await client()`

@@ -8,8 +8,8 @@ export interface PublicListingSource {
 
 export interface PublicListingDetails {
   description?: string;
+  /** F-125 — the farm's own answer. The eligibility grant it used to travel with is deleted. */
   farmBucksAccepted?: boolean;
-  farmBucksEligible?: true;
 }
 
 /** Prepare reviewed source prose for the public farm/listing columns. */
@@ -19,11 +19,6 @@ export function publicListingDetails(source: PublicListingSource): PublicListing
 
   return {
     ...(description !== "" ? { description } : {}),
-    ...(policy !== undefined
-      ? {
-          farmBucksAccepted: policy.accepted,
-          farmBucksEligible: policy.eligible,
-        }
-      : {}),
+    ...(policy !== undefined ? { farmBucksAccepted: policy.accepted } : {}),
   };
 }

@@ -155,7 +155,6 @@ export default async function StandPage({
                   // F-092 — same B-037 rule: the writer sets this on every save, so an edit
                   // form that did not carry it would switch a farmer's prices back off.
                   pricesPublic: listing.pricesPublic,
-                  farmBucksEligible: listing.farmBucksEligible,
                   farmBucksAccepted: listing.farmBucksAccepted,
                   latitude: listing.latitude,
                   longitude: listing.longitude,

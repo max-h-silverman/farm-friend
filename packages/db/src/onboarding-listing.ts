@@ -129,8 +129,12 @@ export interface OnboardingListingInput {
   availability?: ListingAvailability;
   paymentMethods: string[];
   /**
-   * Whether an eligible stand accepts VIGA Bucks. Eligibility remains VIGA-controlled; an
-   * ineligible stand is refused before this fact can be stored.
+   * Whether the SELLER takes VIGA Farm Bucks (F-125) — her claim, applying everywhere she
+   * sells. There is no eligibility grant to gate it: max settled on 2026-08-20 that a farm
+   * either takes them or does not.
+   *
+   * Optional, and absent means "this door says nothing", leaving her stored answer alone. It
+   * must never read as a refusal — the same rule the column's `true` default encodes.
    */
   farmBucksAccepted?: boolean;
   /** What they usually sell, in their own words and their own order. */
@@ -315,13 +319,8 @@ export async function saveOnboardingListing(
     const existingId = existing[0]?.id as string | undefined;
 
     // Acceptance is the farmer's own operational fact and publishes on their word (max,
-    // 2026-08-10). It used to require VIGA's `farm_bucks_eligible` first, which made the
-    // onboarding toggle unreachable for exactly the farmer the form exists for: eligibility
-    // is recorded on a stand row that does not exist until this save. The matching CHECK went
-    // in `0037`, so there is no constraint left for this guard to pre-empt either.
-    //
-    // `farm_bucks_eligible` still records VIGA's separate decision for the admin surfaces; it
-    // simply no longer decides what the farmer may state about their own stand.
+    // 2026-08-10), and F-125 made it a fact about HER rather than about this stand. Nothing
+    // gates it: the eligibility grant that once did is deleted, not moved.
 
     const salesLocationId =
       existingId === undefined
@@ -344,7 +343,25 @@ export async function saveOnboardingListing(
       `;
     }
 
-    await writePaymentMethods(tx, salesLocationId, listing.paymentMethods);
+    // F-125 — keyed by the FARM, not the stand. A seller states this once and it applies
+    // everywhere she sells; onboarding her second stand must not ask again or overwrite it
+    // with a fresh answer for one location.
+    if (listing.paymentMethods !== undefined) {
+      await writePaymentMethods(tx, input.farmId, listing.paymentMethods);
+    }
+
+    // Farm Bucks travels with the rest of her payment answer, on the same row and the same
+    // condition: stated → saved, omitted → whatever she already said stands. An absent field
+    // must not be read as a refusal, which is the same rule the column's `true` default
+    // encodes for a seller who has never been asked.
+    if (listing.farmBucksAccepted !== undefined) {
+      await tx`
+        update sellers
+        set farm_bucks_accepted = ${listing.farmBucksAccepted === true},
+            updated_at = ${input.occurredAt.toISOString()}
+        where id = ${input.farmId}
+      `;
+    }
     await writeStandingItems(tx, salesLocationId, listing.items);
 
     /*
@@ -632,7 +649,7 @@ async function insertStand(
       season_end_month, season_end_day, season_names,
       open_hours_kind, open_from_minutes, open_until_minutes, open_days,
       stocking_cadence, stocking_days,
-      is_public, farm_bucks_accepted, farm_bucks_eligible,
+      is_public,
       created_at, updated_at
     ) values (
       ${input.farmId}, 'farm_stand', ${input.standName}, 'America/Los_Angeles',
@@ -646,13 +663,10 @@ async function insertStand(
       ${available.openHoursKind}, ${available.openFromMinutes},
       ${available.openUntilMinutes}, ${available.openDays as number[] | null},
       ${available.stockingCadence}, ${available.stockingDays as number[] | null},
-      -- is_public, then the two VIGA Bucks facts, which are NOT the same fact.
-      --
-      -- Acceptance is the farmer's, taken from the form (max, 2026-08-10); it was hardcoded
-      -- false here, so a farmer creating their stand had their tick silently dropped even
-      -- after the eligibility gate came off. Eligibility stays false: it is VIGA's own
-      -- decision and this door is the farmer's, so nothing here may grant it.
-      true, ${input.listing.farmBucksAccepted === true}, false,
+      -- F-125 — VIGA Bucks is no longer a stand fact at all. It is one boolean on the SELLER,
+      -- written below with the rest of her payment answer, and there is no eligibility grant
+      -- left to withhold here.
+      true,
       ${input.occurredAt.toISOString()}, ${input.occurredAt.toISOString()}
     )
     returning id
@@ -728,7 +742,6 @@ async function updateStand(
         open_days = ${available.openDays as number[] | null},
         stocking_cadence = ${available.stockingCadence},
         stocking_days = ${available.stockingDays as number[] | null},
-        farm_bucks_accepted = coalesce(${input.listing.farmBucksAccepted ?? null}, farm_bucks_accepted),
         is_public = true,
         updated_at = ${input.occurredAt.toISOString()}
     where id = ${input.salesLocationId}
@@ -737,7 +750,7 @@ async function updateStand(
 }
 
 /**
- * Replace the stand's payment methods with what the farmer stated.
+ * Replace the SELLER's payment methods with what the farmer stated (F-125).
  *
  * A full replace rather than an upsert, because removing a method is a thing the farmer must
  * be able to do: an upsert-only write would make "we stopped taking checks" unsayable.
@@ -748,7 +761,7 @@ async function updateStand(
  */
 async function writePaymentMethods(
   tx: Tx,
-  salesLocationId: string,
+  sellerId: string,
   methods: string[],
 ): Promise<void> {
   // Blanks are dropped rather than refused: a stray comma is a farmer typing, and the not-blank
@@ -756,14 +769,16 @@ async function writePaymentMethods(
   // say about which field caused it.
   const stated = canonicalPaymentMethods(methods);
 
+  // F-125 — the SELLER's row set. Delete-then-insert still scopes to one seller, so a farmer
+  // restating her methods replaces her own answer and touches nobody else's.
   await tx`
-    delete from sales_location_payment_methods
-    where sales_location_id = ${salesLocationId}
+    delete from seller_payment_methods
+    where seller_id = ${sellerId}
   `;
   for (const method of stated) {
     await tx`
-      insert into sales_location_payment_methods (sales_location_id, method)
-      values (${salesLocationId}, ${method})
+      insert into seller_payment_methods (seller_id, method)
+      values (${sellerId}, ${method})
       on conflict do nothing
     `;
   }
@@ -933,14 +948,30 @@ export interface StandListing {
    * farmer's prices back off.
    */
   pricesPublic: boolean;
-  /** VIGA controls eligibility; an eligible farmer controls whether they accept it. */
-  farmBucksEligible: boolean;
+  /**
+   * Whether this stand's SELLER takes VIGA Farm Bucks (F-125). Hers, not the stand's, and
+   * there is no eligibility grant gating it any more.
+   */
   farmBucksAccepted: boolean;
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
   availability: ListingAvailability;
+  /**
+   * What the SELLER states she takes (F-125) — her whole answer, not narrowed to this stand.
+   *
+   * The edit form prefills from this and the writer replaces her seller-wide rows from it, so
+   * it has to be her unnarrowed statement or the round trip loses methods at her other stands.
+   * `paymentMethodsExcludedHere` carries the narrowing separately.
+   */
   paymentMethods: string[];
+  /**
+   * What this stand cannot support for her (F-125) — read-only on every farmer-facing door.
+   *
+   * The host owns it, so no farmer form writes it back. Surfaces show the concept ONLY when
+   * this is non-empty: a farmer with no override should never be shown the idea at all.
+   */
+  paymentMethodsExcludedHere: string[];
   /**
    * What the stand usually sells, each with its optional price (F-090).
    *
@@ -1003,18 +1034,31 @@ export async function readStandListing(
     select
       location.name, location.visitability, location.offering_type,
       location.public_address, location.address_public, location.prices_public,
-      location.farm_bucks_eligible, location.farm_bucks_accepted,
+      -- F-125 — hers, read off the farm this stand belongs to.
+      farm.farm_bucks_accepted,
       location.public_latitude, location.public_longitude,
       location.hours_text,
       location.season_kind, location.season_start_month, location.season_start_day,
       location.season_end_month, location.season_end_day, location.season_names,
       location.open_hours_kind, location.open_from_minutes, location.open_until_minutes,
       location.open_days, location.stocking_cadence, location.stocking_days,
+      -- F-125 -- what she STATES, deliberately NOT narrowed by this stand's exclusions.
+      --
+      -- This reader prefills the farmer's own edit form, and the payment writer replaces her
+      -- whole seller-wide row set from the same field. Returning the narrowed list here would
+      -- make the round trip lossy: a farmer opening the form at a stand whose host cannot take
+      -- cash would see cash already unticked, save something unrelated, and silently drop cash
+      -- at every OTHER stand she sells at. The override is the host's fact, not hers, and it
+      -- must never be laundered into her answer by a form save.
+      --
+      -- payment_methods_excluded_here below carries the override separately, for surfaces
+      -- that need to show what actually applies at this stand.
+      -- (No backticks in here: this is a JS template literal and one would end the string.)
       coalesce(
         (
           select array_agg(payment.method order by payment.method)
-          from sales_location_payment_methods as payment
-          where payment.sales_location_id = location.id
+          from seller_payment_methods as payment
+          where payment.seller_id = location.own_seller_id
         ),
         '{}'
       ) as payment_methods,
@@ -1051,6 +1095,16 @@ export async function readStandListing(
         '[]'::jsonb
       ) as items
       , farm.name as farm_name, farm.description as farm_description
+      -- F-125 — the host's narrowing, carried separately so no farmer save can write it back.
+      , coalesce(
+          (
+            select array_agg(excluded.method order by excluded.method)
+            from sales_location_payment_method_exclusions as excluded
+            where excluded.sales_location_id = location.id
+              and excluded.seller_id = location.own_seller_id
+          ),
+          '{}'
+        ) as payment_methods_excluded_here
     from sales_locations as location
     join sellers as farm on farm.id = location.own_seller_id
     where location.id = ${input.salesLocationId}
@@ -1068,7 +1122,6 @@ export async function readStandListing(
     // `=== true` rather than `!== false`, mirroring the column's own opposite default: a stand
     // that predates this column shows no prices until its farmer says otherwise.
     pricesPublic: row.prices_public === true,
-    farmBucksEligible: row.farm_bucks_eligible === true,
     farmBucksAccepted: row.farm_bucks_accepted === true,
     latitude: (row.public_latitude as number | null) ?? null,
     longitude: (row.public_longitude as number | null) ?? null,
@@ -1088,6 +1141,7 @@ export async function readStandListing(
       stockingDays: (row.stocking_days as number[] | null) ?? null,
     },
     paymentMethods: row.payment_methods as string[],
+    paymentMethodsExcludedHere: row.payment_methods_excluded_here as string[],
     items: row.items as StandingItem[],
     description: (row.farm_description as string | null) ?? null,
   };

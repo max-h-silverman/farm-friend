@@ -91,7 +91,6 @@ function denseStand(): SeedStandInput {
     stocking: { cadence: "variable" },
     flags: [],
     farmBucksAccepted: true,
-    farmBucksEligible: true,
   };
 }
 
@@ -132,8 +131,7 @@ function buildStands(count: number): SeedStandInput[] {
       flags: [],
       // Alternated so the poster dots and the VIGA Bucks filter both have something to show.
       farmBucksAccepted: index % 3 !== 0,
-      farmBucksEligible: true,
-    });
+      });
   }
 
   return stands;

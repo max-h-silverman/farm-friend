@@ -137,11 +137,10 @@ export function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdmini
       name: row.name,
       farmName: row.farmName,
       status: row.isPublic ? "Visible to customers" : "Not visible to customers",
-      farmBucksStatus: row.farmBucksAccepted
-        ? "accepts"
-        : row.farmBucksEligible
-          ? "does_not_accept"
-          : "not_eligible",
+      // F-125 — two states. The seller either takes Farm Bucks or does not; the "not
+      // reviewed" third state went with the eligibility grant.
+      farmId: row.farmId,
+      farmBucksStatus: row.farmBucksAccepted ? "accepts" : "does_not_accept",
       openState: OPEN_STATE_LABEL[openState],
       // The stand's own facts as VALUES, for the editor (F-101). `sections` below renders the
       // same facts as sentences for reading; a form cannot prefill from those.
@@ -197,7 +196,7 @@ export function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdmini
           // filed, and Farm Bucks — which this card carries a verb for — was sitting in it.
           title: "VIGA's record",
           items: [
-            ["Farm Bucks", row.farmBucksAccepted ? "Accepted" : row.farmBucksEligible ? "Eligible, not accepted" : "Not eligible"],
+            ["Farm Bucks", row.farmBucksAccepted ? "Accepted" : "Not accepted"],
             ["Approved", row.approved ? row.approvedAt?.toLocaleDateString() ?? "Yes" : "Not yet"],
           ],
         },

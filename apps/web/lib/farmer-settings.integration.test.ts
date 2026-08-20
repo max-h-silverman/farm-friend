@@ -83,11 +83,11 @@ describe("F-051 farmer default stand settings (integration)", () => {
     for (const name of names) {
       const rows = await client()`
         insert into sales_locations (
-          own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-          farm_bucks_accepted, farm_bucks_eligible
+          own_seller_id, kind, name, timezone, visitability, offering_type,
+          public_address, public_latitude, public_longitude
         ) values (
-          ${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable', 'produce',
-          '1 Stand Way', 47.44, -122.46, false, false
+          ${farmId}, 'farm_stand', ${name}, 'America/Los_Angeles', 'visitable',
+          'produce', '1 Stand Way', 47.44, -122.46
         )
         returning id
       `;

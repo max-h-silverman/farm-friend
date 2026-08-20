@@ -26,31 +26,42 @@ function driver(db: Db): Sql {
   return db.sql;
 }
 
-export type FarmBucksStatus = "accepts" | "does_not_accept" | "not_eligible";
+/**
+ * F-125 — two states, because there is no eligibility grant left to withhold.
+ *
+ * max, 2026-08-20: "there is no 'eligible'. they either take it or they don't." The third
+ * state (`not_eligible`) was VIGA's grant, and keeping it would preserve the second mechanism
+ * F-125 exists to delete — it is what let five production stands claim acceptance with no
+ * grant behind it.
+ */
+export type FarmBucksStatus = "accepts" | "does_not_accept";
 
 /**
- * Record VIGA's reviewed payment status for one stand. The existing pair of columns carries
- * all three honest states: eligible + accepted, eligible + not accepted, or not eligible.
+ * Record whether one SELLER takes VIGA Farm Bucks (F-125).
+ *
+ * Keyed by the seller, not the stand: whoever takes the money decides how, and a seller at
+ * three stands states it once. Correcting it here corrects it everywhere she sells, which is
+ * the whole point of the move — the old per-stand control let VIGA leave three stands of one
+ * farm disagreeing about the same fact.
  */
 export async function saveFarmBucksStatus(
   db: Db,
-  input: { standId: string; administratorId: string; status: FarmBucksStatus; occurredAt: Date },
-): Promise<{ status: "saved" | "unknown_stand" | "not_an_administrator" }> {
+  input: { sellerId: string; administratorId: string; status: FarmBucksStatus; occurredAt: Date },
+): Promise<{ status: "saved" | "unknown_seller" | "not_an_administrator" }> {
   return driver(db).begin(async (tx) => {
     const administrator = await tx`
       select id from administrators where id = ${input.administratorId} and revoked_at is null for update
     `;
     if (administrator.length === 0) return { status: "not_an_administrator" as const };
 
-    const stand = await tx`select id from sales_locations where id = ${input.standId} for update`;
-    if (stand.length === 0) return { status: "unknown_stand" as const };
+    const seller = await tx`select id from sellers where id = ${input.sellerId} for update`;
+    if (seller.length === 0) return { status: "unknown_seller" as const };
 
-    const eligible = input.status !== "not_eligible";
-    const accepted = input.status === "accepts";
     await tx`
-      update sales_locations
-      set farm_bucks_eligible = ${eligible}, farm_bucks_accepted = ${accepted}, updated_at = ${input.occurredAt.toISOString()}
-      where id = ${input.standId}
+      update sellers
+      set farm_bucks_accepted = ${input.status === "accepts"},
+          updated_at = ${input.occurredAt.toISOString()}
+      where id = ${input.sellerId}
     `;
     return { status: "saved" as const };
   });
@@ -913,6 +924,11 @@ export async function listFarmsForApproval(
 export interface AdminStandRow {
   standId: string;
   name: string;
+  /**
+   * The owning farm's id (F-125). Carried because payment is the SELLER's fact now, so the
+   * console's Farm Bucks control has to save against her rather than against this stand.
+   */
+  farmId: string;
   farmName: string;
   kind: string;
   timezone: string;
@@ -966,8 +982,8 @@ export interface AdminStandRow {
    * trashing of its own to undo, and the control that brings it back is on the farm.
    */
   trashedWithFarm: boolean;
+  /** F-125 — the SELLER's answer, shown on her stand's card. Two states, no grant. */
   farmBucksAccepted: boolean;
-  farmBucksEligible: boolean;
   approved: boolean;
   approvedAt: Date | null;
   publishedAt: Date | null;
@@ -1046,8 +1062,9 @@ export async function listStandsForAdministration(
       -- the stand's. Reading only the stand's column would show an operator a live stand
       -- under a farm they just took down.
       farm.retired_at as farm_retired_at,
-      location.farm_bucks_accepted,
-      location.farm_bucks_eligible,
+      -- F-125 — read off the owning farm, because payment is hers rather than the stand's.
+      farm.id as farm_id,
+      farm.farm_bucks_accepted,
       approval.approved_at,
       -- The FRESHEST live confirmation at this stand (F-114 C.5), across every seller. The
       -- operator's question is "how current is this stand", and the honest answer is the most
@@ -1156,6 +1173,7 @@ export async function listStandsForAdministration(
   return rows.map((row) => ({
     standId: row.stand_id as string,
     name: row.stand_name as string,
+    farmId: row.farm_id as string,
     farmName: row.farm_name as string,
     kind: row.kind as string,
     timezone: row.timezone as string,
@@ -1191,7 +1209,6 @@ export async function listStandsForAdministration(
     trashed: row.trashed_at !== null || row.farm_trashed_at !== null,
     trashedWithFarm: row.trashed_at === null && row.farm_trashed_at !== null,
     farmBucksAccepted: row.farm_bucks_accepted as boolean,
-    farmBucksEligible: row.farm_bucks_eligible as boolean,
     approved: row.approved_at !== null,
     approvedAt: row.approved_at === null ? null : new Date(row.approved_at as string),
     publishedAt: row.published_at === null ? null : new Date(row.published_at as string),

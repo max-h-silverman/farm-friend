@@ -116,13 +116,13 @@ describe("multi-seller SMS parity (integration)", () => {
 
     const locations = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type,
-        is_public, prices_public, farm_bucks_accepted, farm_bucks_eligible,
-        public_address, address_public, public_latitude, public_longitude
+        own_seller_id, kind, name, timezone, visitability, offering_type, is_public,
+        prices_public, public_address, address_public, public_latitude,
+        public_longitude
       ) values (
         ${hostSellerId}, 'farm_stand', 'Venison Valley Stand', 'America/Los_Angeles',
-        'visitable', 'produce', true, true, false, false,
-        'Vashon Hwy, Vashon WA', true, 47.4473, -122.4590
+        'visitable', 'produce', true, true, 'Vashon Hwy, Vashon WA', true, 47.4473,
+        -122.4590
       ) returning id
     `;
     standId = locations[0]?.id as string;

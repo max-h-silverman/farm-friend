@@ -121,12 +121,12 @@ describe("public-string safety at the shared publication boundary (integration)"
     const farmId = farm[0]?.id as string;
     const location = await sql()`
       insert into sales_locations (
-        own_seller_id, kind, name, timezone, visitability, offering_type, public_address, public_latitude, public_longitude,
-        farm_bucks_accepted, farm_bucks_eligible
+        own_seller_id, kind, name, timezone, visitability, offering_type, public_address,
+        public_latitude, public_longitude
       )
       values (
-        ${farmId}, 'farm_stand', ${`Safety Stand ${randomUUID()}`}, 'America/Los_Angeles', 'visitable', 'produce', '1 Test Road',
-        47.44, -122.46, false, false
+        ${farmId}, 'farm_stand', ${`Safety Stand ${randomUUID()}`}, 'America/Los_Angeles', 'visitable',
+        'produce', '1 Test Road', 47.44, -122.46
       )
       returning id
     `;
