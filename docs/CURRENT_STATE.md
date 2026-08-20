@@ -37,9 +37,6 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
   question grammar removes the article. Marked INVERT WHEN a second food vocabulary is allowed.
 - **`matchCount` is `rankCandidates`' first key**, ahead of freshness (F-120); `broad` passes a
   constant so a catalog-wide request is not a biggest-listing leaderboard.
-- **B-095 closed with F-125.** The map's seller list carries `farmBucksAccepted` and renders the
-  refusal as a badge beside the season one. It is a RENDER, not a derivation — the whole reason
-  it was blocked is that a seller at several stands had no single answer until payment moved.
 - **Payment belongs to the SELLER, and a stand may only narrow it (F-125).** She states her
   methods and her VIGA Bucks answer once, on `sellers`, and they apply at every stand she sells
   at. `sales_location_payment_method_exclusions` lets a host REMOVE a method it cannot support
@@ -53,10 +50,10 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
   is nobody ticking a box rather than a refusal. **The accepted risk** — a wrong `true` sends a
   customer to an unattended stand holding vouchers the farmer will not take. If a farmer reports
   that, it is this default and not a defect.
-- **The farmer's edit form reads her UNNARROWED list.** The reader returns what she states and
-  carries the stand's exclusions as a separate read-only field, because the writer replaces her
-  seller-wide rows from the same field — a narrowed prefill would silently drop a method at every
-  other stand she sells at.
+- **The farmer's edit form reads her UNNARROWED list**, with the stand's exclusions carried as a
+  separate read-only field. The writer replaces her seller-wide rows from that same field, so a
+  narrowed prefill would drop a method at every other stand she sells at. The map's seller list
+  renders her answer directly (B-095).
 - **The stand card is seller-major (F-119)** — each seller a sub-heading with its own recency.
   Deliberately gives up "each item appears once": two sellers carrying eggs print eggs twice, each
   with that seller's price.
@@ -80,18 +77,14 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
 - Serving **`farm-friend-web-00092-xxn`** / **`farm-friend-worker-00087-ccz`**, digest
   `sha256:245e6a1bf3dc9170b8ca7cfcdeba52dd8383516477c073ca1c02d194f9155751`, built from `92fadf1`,
   deployed 2026-08-20. **`main` and production agree.** 63/63 plan assertions and deploy assertions
-  pass; neither revision has an error-level log.
-  **F-125 is verified on the wire**: `/api/public/stands` returns 33 stands, 25 carrying payment
-  methods, exactly 3 refusing Farm Bucks; the served map page carries 69 `farmBucksAccepted`
-  values, the B-095 refusal badge, and **zero** occurrences of the deleted `farmBucksEligible`.
+  pass; neither revision has an error-level log. F-125 verified on the wire (33 stands, 3 refusing
+  Farm Bucks, no `farmBucksEligible` in the served bundle).
 - Neon `neondb` has **59 applied migrations (`0000`–`0058`)**, each verified by effect rather than
   by "migrations applied". Production holds **43 sellers / 39 stands**.
-  **`0058` (F-125) is applied**, verified by effect and matching its dry run exactly: 86 payment
-  rows carried to `seller_payment_methods`, none stranded, 3 sellers on a reviewed refusal and 40
-  on the accepted default; `sales_location_payment_methods` and both `farm_bucks_*` stand columns
-  are gone. The pre-migration state was snapshotted to
-  `~/farm-friend-backups/f125-pre-migration-backup-20260820T121702.json`, beside the earlier Neon
-  dumps — **one machine only**, so it is a convenience rather than a durable backup.
+  **`0058` (F-125) is applied**: 86 payment rows carried to `seller_payment_methods`,
+  `sales_location_payment_methods` and both `farm_bucks_*` stand columns dropped. Pre-migration
+  snapshot at `~/farm-friend-backups/f125-pre-migration-backup-20260820T121702.json` — one machine
+  only, a convenience rather than a durable backup.
 - **The worker mounts `local.email_secret_env`, never `web_secret_env`.** It sends the F-123 flag
   alert and needs the email credentials; it must never hold `ADMIN_PASSWORD_HASH`, the billed
   `GEOCODING_API_KEY`, or F-079's three salts. `plan-assertions.py` enforces this and once refused
@@ -208,6 +201,13 @@ shipped bundles — **and no pixel and no message has been looked at on a real d
 
 ### Decisions owed by VIGA or max
 
+- **B-096 — the console refuses every write when embedded at `vigavashon.org/admin`** (max,
+  2026-08-20), and it is the next tranche. `isTrustedAdminMutationSource` admits exactly one
+  origin (`PUBLIC_BASE_URL`), so a framed console sends `Origin: https://vigavashon.org` and every
+  mutation 403s before a handler runs. **The guard is working as designed** — this is not the
+  2026-08-19 labelling defect — so the decision is whether the console may be embedded at all:
+  allow a second trusted origin, link out instead of framing, or serve it same-origin. The framing
+  policy (`frame-ancestors`) has to agree with whichever wins, or one of them is decorative.
 - **B-094** — with the approval toggle gone, `revokeFarmApproval` has no production caller, so an
   approval cannot be reversed. Accepted consequence of a decision, not a regression. Revoking the
   farmer's AUTHORIZATION may be the whole answer, in which case the writer and the `not_approved`

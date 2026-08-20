@@ -92,6 +92,15 @@ badge, and **zero** occurrences of `farmBucksEligible`. No error-level logs on e
 **Not verified:** nothing seen in a browser — the standing pre-go-live gap, and this tranche adds
 the seller badge and the reworded payment question to it.
 
+### Filed on the way out: B-096
+
+max reported the embedded console at `vigavashon.org/admin` refusing every save with the
+wrong-address message. Located before filing: `isTrustedAdminMutationSource` admits exactly one
+origin, so a framed console sends `Origin: https://vigavashon.org` and 403s before any handler
+runs. **The guard and the copy are both working as designed** — this is not a regression of the
+2026-08-19 labelling fix — which makes it a product decision (may the console be embedded?) rather
+than a plumbing bug, and the item records the three options with their consequences.
+
 ---
 
 ## 2026-08-19 — Two model inventions fixed in code, the Trash gets a screen, and the deploy gate refuses the plan
