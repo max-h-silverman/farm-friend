@@ -5,13 +5,141 @@ that aren't obvious from the diff, and what was verified/owed. The **live snapsh
 true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is the *why behind
 past changes*.
 
-This file keeps recent entries; older entries rotate into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 100. A log too large to open
+This file keeps the newest ~15 entries; older entries rotate into
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 112. A log too large to open
 mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-19 (latest) — The console loses three screens, production gains an alert, and a fix ships broken
+## 2026-08-19 (latest) — Two model inventions fixed in code, the Trash gets a screen, and the deploy gate refuses the plan
+
+One session, two backlog items plus a deploy that found a defect nobody had noticed. Unit **2,494
+across 175 files** (7 corpus skips), integration **1,494 across 110 files**, typecheck and lint
+clean, `evals:live` **7/7 containment** with every group green. Everything merged to `main` and
+**DEPLOYED** — `web-00091-dvz` / `worker-00086-n95`, digest `sha256:3057ac40…`, migration `0057`
+applied (Neon at 58).
+
+### B-092 — the model invents, so code decides
+
+A farmer whose stand listed Kale texted "We have kale" and the confirmation came back listing Kale
+twice, the second as `- Kale (1)`.
+
+**Reproduced live before fixing, and it was worse than reported.** Eight runs through the real seam:
+**8 of 8** returned Kale as an *addition* despite `currentEntries` naming it, and **6 of 8** invented
+a quantity — `12` three times, `1` three times. The report anticipated only the `1`. The `12` is the
+dangerous one: it publishes a specific false claim about how much a farmer has, where `1` is merely
+unreadable. Not variance to be tuned away — the seam note already forbids both behaviours
+("additions are items not currently listed", "never invented ones") and the model ignores both.
+That is the Golden Rule #6 argument for settling it deterministically.
+
+- `applyInventoryEdits` merges an addition onto a surviving entry sharing its `standItemKey`, which
+  **moved from `db` to `core`** so the draft path and `stand_items_one_per_location_name` cannot
+  disagree about what "same item" means. The surviving entry keeps its id and published position;
+  the addition's stated details merge over it, because "plenty of bok choy at $3" about a listed
+  item is a real update. A removed entry is not a merge target.
+- `validateInterpretation` drops a quantity from a message that states none, sitting beside the
+  existing unauthorized-removal guard and justified the same way.
+
+**The quantity guard was wrong on its first shape, and the live mirror fixture caught it.** It
+checked whether the message stated *that number*; the real model read "6 dozen eggs today" as
+`quantity: 72` — correct arithmetic over the farmer's own words — and the guard threw it away. The
+rule is **PRESENCE, never the value**: reading "6 dozen" as 72 or as 6 is interpretation, which the
+model owns; manufacturing a number from a message with none is invention, which it does not. Code
+re-deriving the reading would be a second interpreter. A price's digits are excluded, so
+"kale, $3" still states no quantity — that case was caught by a unit test after the rewrite.
+
+Three new **containment** fixtures (not quality) drive real model output through both guards to the
+rendered draft, because these must hold whatever the brain returns.
+
+### The public contact address
+
+Every user-facing mention became `farmfriend@vigavashon.org` (max): the HELP guide for both
+audiences, the farmer onboarding start page, VIGA's three Squarespace copy blocks. Measured that the
+longer address costs no SMS segment — 175 chars customer / 167 farmer against a 306-septet budget.
+
+**The carrier-registered HELP body is the one exception and stays `board@`** — it is transcribed
+character-for-character from live Telnyx console state, so the console changes first. Filed as
+**B-093**; a sender texting HELP today reads both addresses in one exchange.
+
+### F-124 — the Trash gets a screen, and the console loses two controls
+
+Four decisions from max: the Trash is a **shut section below the roster** (mirroring Invites above
+it, not a fourth tab); **Farm Bucks stays**; **pause/resume stays**; and the chips collapse to
+**one summary carrying two facts** — `Open now · 2 sellers`, `Live · 2 stands`. That last one
+replaced a chip row *plus* a separate amber attention line: two parallel mechanisms describing one
+record became one. A stand nobody sells at reads `0 sellers`, so the problem states itself.
+`Unclaimed` replaces `Live` rather than joining it.
+
+**A defect this work introduced was caught by its own test and never shipped:**
+`retirementStatusFor` had no `trashed` case, so the writer succeeded while the route answered
+**409** — a stand genuinely trashed while the screen reported a conflict.
+
+Approval and test-farm marking are gone from the console **and the routes**; the integration suite
+asserts the *server* refuses all four actions, because a button that merely disappeared while the
+endpoint kept working is not a removal. `test-farms.tsx` was dead surface kept alive only by its own
+test — both deleted.
+
+**Rendering the screen and reading its markup found what tests did not**: a copy error
+("Everything these kept"). Tests assert what you thought to assert; looking at the output does not.
+
+### The deploy plan was REFUSED, and the gate was right
+
+`plan-assertions.py` failed **7 checks** on the first plan. F-123 had needed the worker to send the
+flag alert and gave it credentials by mounting the whole of `local.web_secret_env` — which also
+handed a mail-sending process `ADMIN_PASSWORD_HASH`, the **billed** `GEOCODING_API_KEY`, and
+F-079's three salts.
+
+The two `worker never mounts GMAIL_OAUTH_*` assertions were the other half of the same mistake:
+F-123 inverted the *sender address* check and left these standing, so the plan was **internally
+contradictory** — the worker told where to send from and forbidden the credential to send with. It
+sat on `main` undeployed until the first plan refused it.
+
+`local.email_secret_env` now holds exactly the email credentials and both services mount it;
+everything web-only stays in `web_secret_env`. The two assertions became "only when the web service
+does too", which catches asymmetry the old check could not distinguish from the real violation.
+`SMTP_PASSWORD` stays unconditionally forbidden — it is the alternative provider, and one service
+holding a credential for a provider it is not using means the two disagree about which is
+configured. Sabotage-proved both directions.
+
+**What the old assertions protected was not abandoned** — it moved up a level into
+`email_secret_env`, and the five unconditional checks still enforce it.
+
+### F-123 verified by effect in production
+
+Not by the deploy's report. Both pre-existing flags were claimed and alerted **within seconds** of
+the new revision starting (`alerted_at` 05:52:05 and 05:52:06), and **a second recovery pass left
+both timestamps byte-identical** — the once-only claim holds under a real re-run, not just under
+test contention. Two emails reached `farmfriend@vigavashon.org`; both flags were already
+dismissed/resolved, expected for a first pass over a backlog.
+
+The migration was verified by effect too, not by "migrations applied": 57 → 58, `flags.alerted_at`
+present as nullable `timestamptz`, row counts untouched. The target was fingerprinted first
+(`neondb`, 43 sellers / 39 stands) so a mistyped string would have failed loudly.
+
+### B-078, characterised further
+
+Integration flapped repeatedly on unchanged trees: `4 failed | 106 passed` files, then
+`8 failed | 102 passed` naming an **entirely different set**, while **all 1,494 tests passed both
+times**. A single named failure (`latency.integration.test.ts`) passed in isolation and across two
+reruns. The signature is now well established: **file-level failures with no failing test, moving
+between runs.** The standing rule holds — a *named* failing test is real until shown otherwise; a
+failure that moves on an unchanged tree is the harness.
+
+### Filed rather than left silent
+
+- **B-093** — the carrier HELP body still names `board@`; Telnyx console changes first.
+- **B-094** — removing the approval toggle left `revokeFarmApproval` with **no production caller**,
+  so an approval can no longer be reversed. The accepted consequence of max's decision, not a
+  regression. The writer is kept deliberately: deleting it would leave the `not_approved` branch
+  permanently unreachable.
+- **B-095** — the "does not take VIGA Bucks" indicator is missing from the map's seller list
+  (max, found by use). `seller-list.ts` has no reference to it at all. The real question is what
+  the indicator *means* for a seller who sells at several stands with different answers.
+
+**Owed:** a browser pass at phone width on F-124's summary line and Trash section. The markup was
+rendered and read in jsdom; no pixel has been looked at.
+
+## 2026-08-19 — The console loses three screens, production gains an alert, and a fix ships broken
 
 Four tranches across one long session. Unit **2,468 across 176 files** (7 corpus skips), integration
 **1,489 across 110 files**, typecheck and lint clean. **Two production deploys** (`web-00089-vz7`,
@@ -1472,809 +1600,6 @@ was closed. Merged to `main` as **`e2c79c9`** (PR #125), and **re-verified on th
 surface**; the deployment itself is still owed, and `0042`/`0043`/`0044` remain unapplied — all
 Max's call.
 
-## 2026-08-15 — The invitation is the one we already had (F-114 Phase C.1, invitation)
-
-C.1's behavior half: a stand owner or VIGA names a seller and gets a one-use link to forward. The
-invited seller opens it, fills the same onboarding form a stand owner fills, and texts a bare
-`START` — at which point they are authorized for their own seller and the relationship goes live.
-**No approval queue, no second form, no VIGA step.** Integration is **1124/1124 across 77 of 77
-files**, up from 1077/1077 across 73.
-
-**The hosting invitation IS the farmer invitation, and that is the whole design.** §there is no
-second permission system had already cut C.1's access grants on the ground that the permission
-following acceptance is an ordinary authorization. The same argument applies one level up:
-`farmer_invitations` already names a seller, holds the handset a redemption must arrive from,
-carries the SMS agreement, and on `START` mints the authorization and the approval in one
-transaction. That is invitation and acceptance, built and in production. The only thing it could
-not say is *which* relationship the redemption accepts — one nullable column. A `hosting_invitations`
-table with its own token, expiry, redemption path and consent story would have been a second
-mechanism doing one mechanism's job, with every rule restated and kept in step by hand.
-
-**Max narrowed the design five times mid-session, and every answer removed work.** He interrupted
-with *"let's make sure the invite/adding/onboarding is very simple and not overly gated"*, which
-killed the approval queue I was about to build. Then, in order: VIGA does not have to okay it — the
-invitation IS the approval, exactly as F-067 made it for the ordinary farmer. Onboarding happens
-**always**, even for a seller Farm Friend already knows, *"because details may vary"* — which is
-better than either option I offered, since it collapses two paths into one parameterized path
-rather than doubling them. The host forwards the link; Farm Friend never texts a number nobody gave
-us. VIGA is the approver on record whenever VIGA issues the link — not the owner "on whose behalf" a
-coordinator typed. And nothing is public until the seller finishes, which `pending` already gives
-for free because every public reader excludes it.
-
-**The vouch waits on the invitation, and that is forced rather than chosen.**
-`stand_providers_hosting_lifecycle_coherent` refuses an approval on a `pending` row — rightly, since
-approving a relationship nobody has accepted would publish a seller who never agreed to be there.
-So `invited_by_authorization_id` sits on the invitation and is applied at acceptance, which is
-exactly what `pending_stock` and `pending_prompt_cadence` already do for facts that cannot legally
-exist until the authorization does. Kelsey's vouch becomes `approval_source = 'host'`; VIGA's
-becomes `'viga'` naming nobody.
-
-**One CHECK is deliberately not a biconditional**, against the grain of every rule beside it. The
-schema's standing reason for biconditionals is that a CHECK passes on NULL and both directions are
-real failures. Here only one is: a provider bound with no seller would redeem into the "nothing to
-authorize" branch and silently accept nothing, while a seller named with no provider is what all 39
-production invitations look like. Sabotaging it *as* a biconditional made the fixture unwritable —
-the honour-system door needs a seller and no provider — which is the clearest possible proof the
-one-directional form is correct.
-
-**Acceptance runs inside the redemption transaction**, gated on the authorization exactly as the
-held stock publication beside it. The invitation is spent by that redemption, so a crash between the
-two would strand the farmer holding a dead link with nothing reporting why — F-067's silent dead
-end, reintroduced one step later. `host_may_update_stock` is untouched and stays off: acceptance
-never grants more than it says.
-
-**Twenty-two sabotages, each caught by the case aimed at it** — across the two record suites, the
-invite writer, the acceptance path, and the admin route. Two are worth keeping:
-
-- **A sabotage that caught nothing, and what it exposed.** Removing the admin route's
-  exactly-one-seller check changed no test result, because the *writer's* refusal produced the same
-  400. The guard was unfalsifiable, so it was deleted rather than kept — and the rule proved where
-  it actually lives, where breaking it fails three cases across two suites. Two places stating one
-  rule is what the zen desk forbids; an assertion that cannot fail is what the verification
-  discipline forbids. The same edit fixed both.
-- **A sabotage script that produced malformed SQL read as a real signal.** Dropping the issuer CHECK
-  appeared to collapse the whole suite at setup, which looked like a strong catch. It was a broken
-  `python` splice emitting `syntax error at end of input`. Redone properly, the same sabotage failed
-  three cases honestly. A sabotage that fails for the wrong reason proves nothing about the
-  constraint.
-
-**The `0044` snapshot was repaired by measurement, not by hand** — the trap CURRENT_STATE.md already
-documents, hit again because `0044` is hand-written. A database built from all 45 migrations,
-introspected, its all-zero id replaced with a real UUID and `prevId` chained to `0043`. Then the
-part worth recording: probing `drizzle-kit generate` against the repaired snapshot emitted **16.7KB
-of constraint churn**, which looked alarming until the same probe was run against `HEAD` in a
-throwaway worktree and emitted **15.9KB of the same churn**. The drift is pre-existing — introspected
-names differ from `schema.ts` names across the whole schema — and the delta between the two probes
-is exactly this migration's three new objects. Measuring the baseline is what turned "my repair is
-broken" into "this predates me".
-
-**One flake, filed rather than tuned around (B-078).** A full integration run reported `Test Files 1
-failed | 76 passed` while all 1124 tests passed — a suite-level failure with no failing test named.
-Re-run was 77/77 and both heavy candidate files were green in isolation, so it reads as database
-contention under parallel load. The file name was lost to a `grep` for summary lines, which is the
-whole reason it is filed: the run that hides this is the one reporting a passing test count beside a
-failed file.
-
-**No live eval was owed**, checked rather than assumed: every new column was located across
-non-test source and appears only in the db package, migrations, and build output. The search was
-proved against a known-present term first, after an initial `grep` for `provider_id` in the two seam
-files returned zero — an empty result that would have "confirmed" the right answer for the wrong
-reason.
-
-Squash-merged as `70b6e1b` (PR #124); merged `main` re-verified at 1124/1124 across 77 files.
-**`0044` joins `0042` and `0043` unapplied to production**, and all three remain Max's call —
-nothing this session is deployed.
-
 ---
 
-## 2026-08-15 — Two records, and three quiet defects the migration walked into (F-114 Phase C.1)
-
-C.1 was scoped down to **records only** — the authorization's stand arm and the host stock right,
-with `0043_authorization_arms` and its constraints. Invitation, per-provider publication, the
-seller list, and the item-first cards are the sub-phases that follow, each writing against the
-shape this settles. Max chose the stopping point at the top of the session; the phase order's own
-discipline argues for it, since each phase wants its constraints and readers before the next
-begins. Integration is now **1077/1077 across 73 of 73 files**.
-
-**An authorization names a seller OR a stand, and the stand arm has exactly one job.** A venue like
-Morgan Hill sells nothing of its own, so its hours, closure, description, and roster can be reached
-through no seller authorization — there is no seller to name. It is deliberately not a second
-permission system: "stand owner" stays *derived* through the self-pointer and is never stored. The
-nine composite keys onto `(authorization, seller)` are untouched, and a stand-armed row has NULL
-there, so it satisfies none of them. That is the correct reading, not an oversight — a person
-managing a venue is not thereby authorized for anyone's goods.
-
-**The host stock right is off by default, and that default is the product decision.** Whether a
-hosted seller's stock may be updated by the stand's own authorized phones lives on the
-`stand_providers` row, because it is a property of the relationship rather than of the stand or the
-role. The baker who drops off at dawn wants it; Zoe at Venison Valley does not. An invitation that
-silently conferred it would make acceptance mean more than it says, which the hosting lifecycle
-already forbids — so `false` both as the column default and as the backfill for every existing row.
-
-**Six sabotages, six caught by the case aimed at each.** Both halves of the one-arm biconditional
-(admitting "neither", then admitting "both"), a stand index made non-unique, the stock right
-defaulting to `true`, the CHECK added `NOT VALID`, and a migration quietly moving a live
-authorization onto the stand arm. The last one needed two attempts and the failed one was
-informative: moving an authorization that *carried* dependent facts failed inside the composite
-keys, so the suite errored in `beforeAll` rather than proving the assertion. Re-aiming it at the
-revoked authorization — which carries nothing — let the UPDATE succeed and the identity assertion
-catch it, which is what was actually being tested.
-
-**Three pre-existing defects surfaced on the way through, none of them mine to introduce.**
-
-- `multi-seller-migration` selected its pre-migration set as *"everything that is not `0042`"*. That
-  is correct only while `0042` is the newest file in the repo: `0043` was swept into the
-  pre-migration set and applied against a schema that had not yet renamed `farm_id`. **Every future
-  migration would have broken this file the same way.** Both files now compare by order
-  (`name < "0043_"`), which is stable.
-- `schema.ts` named two constraints that `0042` had renamed —
-  `farmer_authorizations_id_farm_unique` and `…_one_active_contact_per_farm`. Harmless to apply,
-  and dangerous to *generate*: the next generated migration would have proposed dropping and
-  recreating the target of nine composite foreign keys. Found because a sabotage case asserted the
-  constraint *name* and Postgres reported a different one.
-- **The `0042` snapshot never received the `farm`→`seller` column renames**, across sixteen tables,
-  so `drizzle-kit generate` stopped and interrogated rather than diffing. `migration-metadata.test.ts`
-  (GL-006) exists precisely to catch this and is what failed. It was repaired by building a real
-  database from all 43 migrations and **introspecting** it into `0043_snapshot.json` — a measured
-  picture rather than a hand-edited one, which is what that test's own comment warns against. A
-  generation trial afterwards produced only foreign-key noise and zero structural changes.
-
-**`closure_revisions` deliberately stays seller-rooted.** Its `owner_seller_id`,
-`owner_authorization_id`, and `owner_approval_id` are all NOT NULL and route through the
-self-pointer, so a venue still cannot record a closure at all. That is a real gap and it is filed
-(B-077) rather than half-fixed: it needs the closure *writer* to grow a stand arm, and widening the
-column alone would leave a nullable column no code can produce.
-
-Verified: integration 1077/1077, unit 2063 passing (7 corpus skips), typecheck, lint, and scripted
-evals 11/11 · 4/4 · 19/19. **No live eval was owed** — checked rather than assumed: the four seam
-files receive no authorization data at all, and the only matches for the term are comments saying
-so. `0043` is **not** applied to production.
-
-## 2026-08-15 — The last four files, and one column name (F-114 Phase C.0)
-
-Closed out C.0's remaining four integration files and merged PR #122. Integration is now
-**1057/1057 across 71 of 71 files**.
-
-**The undefined read was a sixth site, not a mystery.** The previous session left
-`scheduled-prompts.integration.test.ts` failing on an undefined `own_seller_id` with the cause
-unfound, having verified the column returns a value when queried directly. It did — the column was
-never the problem. `apps/web/lib/scheduled-prompts.ts` *selects* `own_seller_id` and then *reads*
-`location.owner_seller_id`, three times. The previous session's own note records finding five such
-sites in production code and fixing them; this was a sixth it missed, in the worker pass rather than
-the db package.
-
-What actually found it was refusing to keep reading source. The stack pointed at
-`transactions.ts:1323`, which is a red herring — that is the *second* failure in the file, and the
-first one, 45 lines further down the log, named the real site with its bind parameters attached
-(`[uuid, undefined, hash]`). Reading the whole captured log rather than its tail was the entire
-diagnosis. A probe against a real migrated database confirmed the column was fine before any fix
-was written, which is what ruled out every schema theory in one step.
-
-**The three historical suites were rewritten, not repaired — and the rewrite is where the value
-was.** Each asserted Phase B's native brand slot, a concept C.0 deleted. Repairing them would have
-produced tests that pass without proving anything.
-
-- `stand-providers-constraints` now proves the *replacement*: `seller_id` NOT NULL refuses the
-  sellerless row (23502, not a partial unique index), no sellerless row exists anywhere including
-  the ones the migration wrote, no `%native%` index survives, the self-pointer is nullable and a
-  venue gets **zero** fabricated providers, and `create_own_seller_provider` fires on insert, on a
-  later self-pointer change, and idempotently on a no-op save. The availability and note cases each
-  attack their own real relationship rather than reaching for the sellerless row as a cheap insert.
-- `multi-seller-migration` and `stand-items-backfill` both populated their fixtures in the **current**
-  vocabulary while deliberately stopping at an **earlier** schema — `sellers` and `own_seller_id`
-  against a database that still had `farms` and `owner_farm_id`. The C.0 sweep renamed them along
-  with everything else, which is exactly wrong for a historical migration test: it would prove the
-  migration against its own output. Both are now written in the vocabulary of the schema they
-  actually populate, and `multi-seller-migration` gained assertions that the rename preserved every
-  id and that no constraint or index still carries the old names.
-- `stand-items-backfill` stops before `0020` and then applies everything through `0042`, so it now
-  also asserts that the rows `0020` wrote survive being re-rooted onto per-seller providers
-  twenty-two migrations later. Nothing was checking that span.
-
-**Six deliberate breakages, six caught.** `seller_id` made nullable; the trigger narrowed to
-INSERT-only; the self-pointer backfill replaced with a no-op; the provider backfill filtered to
-exclude retired stands; the constraint-rename sweep neutered; the `stand_items` attribution
-filtered to usually-carried. Two of them killed the migration outright rather than failing an
-assertion, which is the honest outcome — a retired stand's revision has no provider to point at,
-exactly as that fixture's comment predicts.
-
-**A defect measured and deliberately not fixed.** `sellers_name_not_blank` admits a name made of
-tabs and newlines: `trim()` with no second argument strips spaces only. It is the renamed
-`farms_name_not_blank` and C.0 changed nothing but its name, and **seventeen** `*_not_blank` CHECKs
-in the schema share the flaw — one already-correct exception, `stand_providers_public_note_not_blank`,
-was written properly during Phase B after a tab-and-newline note got through. Fixing one of
-seventeen would leave two behaviours for one rule, so the suite asserts the *measured* truth in two
-cases (empty and space-only refused; tab-and-newline admitted, marked INVERT WHEN FIXED) and
-**B-076** files the sweep. The test now states what the database does rather than what a constraint
-name implies.
-
-**Merged.** Max approved push and merge; PR #122 is merged and `main` carries C.0. Still not
-deployed, and `0042` is still not applied to production — both remain his call.
-
-## 2026-08-15 — The seller root (F-114 Phase C.0)
-
-Started as C.1 (hosted-seller invitation) and became something else within the first hour. Asked how
-a hosted bakery's phone gets authorized when `farmer_authorizations` requires a farm, Max answered
-that farmers *are* sellers — bakers, flower growers, popsicle makers — and that "farmer" was never
-the root. That is a re-rooting of the product's core identity record, so C.1 was set aside and this
-became **Phase C.0**, a hard gate before it.
-
-**The model, arrived at by correction rather than design.** Four exchanges each killed something I
-had just built or proposed:
-
-1. I asked whether to split `sellers` from `farms` or rename. **The corpus answered**: all 38 stands
-   have an owner farm whose name is byte-identical to the stand's, and no farm owns two. The split
-   carries no information — it exists only because `owner_farm_id` was `NOT NULL`.
-2. So I proposed merging stand and brand into one record. **Max rejected it**: Morgan Hill Community
-   Stand *is* a brand — a venue with real identity that sells nothing itself. Merging would have
-   destroyed that. Two records, and the correction records this as a rejected draft so the reasoning
-   does not look tempting again.
-3. I concluded from "no phone has ever been authorized for Morgan Hill" that no stand-manager role
-   exists and VIGA maintains it by hand forever. **That read a transitional state as permanent** —
-   the migration is unfinished, and Morgan Hill *will* have managers. Same error §customer behavior
-   already warns about with the 18 stands publishing no confirmed inventory.
-4. On Tian Tian's shared payment box I moved payment to the stand. **Wrong**: payment acceptance is
-   the seller's own fact — their money, their account — and even the box may not be shared. But a
-   shared box *is* the common arrangement, so it is the default rather than an exception to record.
-
-**What the structure became.** A stand has a name, metadata, and nested sellers. `farms` is renamed
-to `sellers` (renamed, never split — every id survives, so all 16 keys onto it stay valid);
-`owner_farm_id` becomes `own_seller_id`, the **self-pointer** naming which nested seller IS the
-stand, NULL for a venue. The **native brand slot is gone**: `seller_id` is `NOT NULL`, because NULL
-only ever meant "the stand itself" while `farms` was the root. Public suppression follows the
-pointer, never a name match — which is what keeps `Hill Farm` hosted at `Hill Farm Stand` credited
-and a renamed farm suppressed, the two failures §customer behavior named when it rejected matching.
-
-**Migration `0042` was replaced, not migrated past.** No database anywhere had applied it —
-production ledger 42 rows (`0000`–`0041`), every local database at most 40. Migrating onto the
-native-slot model and straight off it would put 38 live stands through two reshapes to reach a state
-they can reach in one.
-
-**Five defects the populated-schema test caught that an empty one would not have**: a composite FK
-created before its unique target; six keys rooted on the column being dropped; two map-projection
-triggers depending on it; 25 constraints and 13 indexes left asserting `farm_*` names on renamed
-`seller_*` tables (renaming a table renames neither); and eight backfill joins still matching the
-removed native slot.
-
-**Typecheck passed while 63 files were broken.** Drizzle infers column types from `schema.ts`, so
-identifier renames propagate invisibly — but raw SQL in tagged templates is just text. A fully green
-`npm run typecheck` across three workspaces meant nothing. The sweep that followed also exposed
-defects the rename did not cause: `readNativeProviderId` still looked up `seller_id is null`;
-**five production sites selected `own_seller_id` and read `.owner_seller_id`**, so every
-authorization lookup silently failed; and two history-immutability triggers still named the dropped
-column.
-
-**One trigger removed, a different one added.** Phase B created a native provider for every stand.
-C.0 cannot: a stand may legitimately have no seller of its own, and the trigger would have to invent
-one. The replacement fires only when a stand *names* its own seller, so a venue gets nothing
-fabricated — proved by inserting a venue and asserting zero providers.
-
-**Verified.** 2,063 unit tests, typecheck, lint, and scripted evals (11/11 critical, 4/4 advisory,
-19/19 adversarial) all pass. Integration is **979/1046 across 67 of 71 files**, up from 423 when the
-sweep began. The migration applies to a populated pre-`0042` schema, is idempotent, and every added
-constraint is sabotage-proved: both projection guards fire in both directions, wrong-seller pairings
-are refused, a null seller is refused, an incoherent lifecycle is refused, a pending invitation is
-admitted. No live eval run is owed — C.0 changed no seam projection, schema, or output contract.
-
-**Owed.** Four integration files. Three (`stand-providers-constraints`, `multi-seller-migration`,
-`stand-items-backfill`) assert the native brand slot and need rewriting rather than repair.
-`apps/web/lib/scheduled-prompts.integration.test.ts` fails its whole fixture on an undefined
-`own_seller_id` read whose cause I did not find — the column returns a value when queried directly,
-so the next session should measure inside the running fixture rather than infer from source, per the
-standing rule about what to do when rendering contradicts source that reads correctly.
-
-**PR #122 is open and deliberately unmerged.** Max held it rather than putting four known-failing
-integration files on `main`, which has no CI to flag them. Not deployed, and `0042` is still not
-applied to production — both remain his call.
-
-## 2026-08-15 — Records and constraints for multi-seller stands (F-114 Phase B)
-
-Phase B of the multi-seller refactor: the record layer. `sellers` and `stand_providers` now exist,
-and a provider dimension runs through inventory revisions, usual items, proposals, farmer links,
-prompt preferences, scheduled prompts, and SMS targeting. **Every current output is unchanged** —
-every write goes to the stand's native slot, which is the stand behaving exactly as it always did.
-Hosted-seller *behavior* is Phase C and is deliberately not built.
-
-**One record, not two, and the native slot is a brand.** `seller_id IS NULL` means the stand selling
-under its own name. The contract settled this and Phase B confirmed why it matters at the writer
-level too: one nullable column means one constraint set covers both kinds, and the twelve read sites
-Phase A consolidated stayed one seam instead of two.
-
-**The count correction, and the two keys that did NOT move.** The contract said nine composite
-foreign keys route authority through `(sales_locations.id, owner_farm_id)`. There are **eight** — the
-"ninth" double-counted `farmer_target_contexts_selected_location_owner_fk`, citing its
-`foreignColumns` line in the original list and its declaration line again as the ninth. Of the eight,
-**six re-rooted**. Max decided the other two stay on the stand: `closure_revisions` carries
-stand-level closure, which is owner-only and overrides every provider — a fact about the *place*, not
-about any seller — and `sales_location_participants` is explicitly *retired* as display-only history
-by contract item 5, so a provider reference is one the migration is forbidden to populate. Re-rooting
-either would have made the record assert something false.
-
-**The migration is where the real defects were, and only a populated database found them.**
-
-1. `drizzle-kit generate` emitted `ADD COLUMN … NOT NULL` with no default and no backfill for all
-   eight columns. That **passes on an empty database and fails instantly on a real one** (23502).
-   Against the production corpus — 37 stands with inventory, usual items, links, preferences and
-   proposals — that is every one of those tables. Rewritten to add nullable, backfill, then
-   `SET NOT NULL`, so the constraint is proved by the data rather than asserted ahead of it.
-2. `inventory_revisions_guard_history` refused the backfill outright. That trigger permits exactly
-   ONE transition — superseding a current revision — and raises on everything else. It is a Golden
-   Rule #1 protection and was not weakened: the migration disables it for that single statement,
-   re-enables it immediately, and then **widens it to cover `provider_id`**, so the new column is as
-   immutable as the columns beside it from that point on. Attributing an existing revision to the
-   provider that already published it is not a rewrite of history; nothing published changes.
-3. Nothing created a native provider for a *newly* created stand — only for the ones that existed at
-   migration time. Rather than patching the two writers that create stands and leaving every future
-   writer to remember, the guarantee went into the database as an `AFTER INSERT` trigger. A stand
-   with no native slot can hold no inventory and no usual items at all, and the failure would surface
-   far from its cause. The number of writers that must remember this is now zero.
-4. `stand_providers_location_fk` had to become `cascade`, not `restrict` — deleting a stand was
-   blocked by its own native slot, which broke the existing "a removed location cascades its stale
-   targeting context" behavior. The native slot has no existence apart from its stand. This is not a
-   weakening of the hosted-seller guarantee: VIGA *retires* stands rather than deleting them, so
-   what protects a hosted seller's history is that the stand row is never deleted at all.
-
-**A defect caught while threading the writers.** `saveOnboardingListing` clears standing claims
-before rewriting them, and that clear was scoped to the *stand*. Left alone, it would have silently
-dropped every hosted seller's usual items each time the host saved their own listing. It is now
-scoped to the provider.
-
-**The schema vocabulary forbids the word "provenance."** `schema.integration.test.ts` scans the
-schema text, the index file, `0000`, and the snapshot for a list of banned concepts, and a constraint
-*name* trips it as readily as a column. `stand_providers_approval_provenance_coherent` became
-`stand_providers_approval_source_coherent`, matching the existing `source` vocabulary. The camelCase
-key `sourceProvenance` survives only because the pattern is `\bprovenance\b`.
-
-**The pending-change defect is fixed** (contract item 6). The one-open-proposal index was keyed on
-`sender_hash` alone, so the limit on pending SMS changes was per *person*, not per target — someone
-affiliated with sellers at two stands who texted an update for one was locked out of the other until
-they replied. Now `(sender_hash, sales_location_id, provider_id)`. The regression test was written
-first and watched fail.
-
-**Invalidation (contract item 8) did not exist at all.** Closure was read at send time and nothing
-was ever invalidated, so a provider paused after a prompt went out could still have a live
-confirmation token in someone's phone; answering YES would publish for a listing no longer public.
-`invalidateProviderWork` is ONE function with an optional `providerId` — omitted means the stand
-closed and every provider is invalidated — rather than two near-duplicates. It closes only `open`
-proposals and suppresses only `queued` outbox rows, which is what makes it idempotent, leaves an
-answer the farmer already gave intact, and never marks an already-sent message suppressed. This is
-the guarantee the Phase C re-open confirmation will rest on.
-
-**Phase A paid for itself immediately.** Changing `readCurrentRevisionRef` to take a provider turned
-every stand-scoped read site into a compile error in exactly the five files the enumeration named.
-Without it, those sites would have kept returning stand-wide rows — correct-looking and wrong.
-
-Verified: 1,037 integration tests across 70 files, 2,063 unit tests (7 corpus-only skips), typecheck,
-lint, and scripted evals (critical 11/11, advisory 4/4, adversarial 19/19). **36 sabotage cases**
-assert the exact row each new index and CHECK refuses, and **seven deliberate breakages were each
-caught** by the suite aimed at them: a non-partial native-slot index (the NULL-distinct trap), a
-one-directional `reminder_coherent`, a dropped `coalesce` on the empty day array, one-current keyed
-on the stand, `stand_items` keyed on the stand, invalidation ignoring the provider, and invalidation
-rewriting an answered proposal. The migration is verified against a **populated** copy of the
-pre-`0042` schema with 11 assertions on exact row effects — including a retired stand that still owns
-revisions and a never-published stand — plus a re-run proving it is a no-op. No live-model eval was
-owed: no seam projection, schema, or output contract changed.
-
-Merged as PR #121 (`0ed60cb`). **Max chose merge-only at the wrap: no database change was applied.**
-`0042` rewrites rows in VIGA's real farmer data and is irreversible, so the apply is his to run.
-
-Owed: **`0042` is unapplied in production and must land BEFORE the merged code runs.** Every writer
-now supplies `provider_id`, so against the un-migrated schema they fail immediately. Merging changed
-nothing about the live service, which still serves the 2026-08-14 revisions.
-
-## 2026-08-14 — One reader for "what's in stock here" (B-074, F-114 Phase A)
-
-Phase A of the multi-seller refactor: consolidate the hand-written current-inventory reads behind one
-seam, proving output unchanged, before any provider record exists. The contract's own sequencing
-rationale is the point — after Phase B the reader must return per-provider rows, and a site still
-carrying its own `sales_location_id`-only SQL would keep returning stand-wide rows. Correct-looking
-output that is wrong, on the map and in SMS, with no error anywhere. Consolidating first turns that
-class of defect into one compile-time change.
-
-**The enumeration was the deliverable, and it corrected the contract twice.** The old figure of 26
-was already known bad; the replacement is **12 sites**, listed by file and line in the contract. But
-the contract's "nine files" framing was *also* incomplete — it named `apps/web/lib/scheduled-prompts.ts`
-and missed `packages/db/src/scheduled-prompts.ts`, which runs the same read on the farmer's
-cadence-save path. Searching the nine named files would never have found it; the list came from
-sweeping every production reference to `inventory_revisions` and `inventory_entries` across the repo.
-Five categories of deliberate exclusion are recorded too (closure reads, writers, the seeder, a
-by-id lookup in `review.ts`, and one type-guard false positive in `stand-form.tsx`), so a later
-reader does not re-add them believing they were missed.
-
-Second correction: the contract said sites 10–12 read under `for update`. **Only one does**
-(`farmer.ts:621`, the B-070 supersede). The other three run inside a writer's transaction but read
-the revision unlocked. So `readCurrentRevisionRef` takes `lock` as a **required** argument — a
-default that took it would put row locks on read paths, one that dropped it would silently undo
-B-070 — and the test measures the lock with a second session's `for update … nowait` rather than
-trusting the argument.
-
-**Three shapes, not one.** The twelve sites ask one question three ways, and a single row type would
-make every caller carry columns it does not use. The three corpus-wide surfaces (customer SMS
-retrieval, the public map, the VIGA admin roster) compose a SQL **fragment** into their own larger
-statements — they select stand, farm, closure, offering and payment facts in one round trip, and a
-per-stand call would multiply queries by the corpus and change the ordering each depends on.
-`visibleFarms` is the existing precedent for exactly this shape, adopted for exactly this reason.
-The stand-scoped sites get a row reader; the writers get the revision identity alone.
-
-**Two traps this pass hit, both worth not rediscovering.** `listStandsForAdministration` was a
-**tagged template**, where an interpolation becomes a bind *parameter* — composing the shared join
-sent the clause as a string value and failed with `syntax error at or near "$1"`. It moved to
-`.unsafe()`, matching `listClaimableFarms`; the statement carries no parameters of its own, so
-nothing became injectable. And the roster's `currentItems` column had **one** assertion in the entire
-suite: `currentItems: []` on a never-published stand — green whatever the column returned, including
-returning nothing for every farm in the corpus. That is the precise shape of a test that cannot fail,
-and it was guarding both admin refresh surfaces (the farms page and `/api/admin/stands`).
-`admin-roster-inventory.integration.test.ts` now asserts populated values.
-
-**The availability intersection lives at this seam, deliberately.** The contract requires it computed
-once, because two surfaces computing it separately is the map-and-SMS disagreement the refactor
-exists to end. Its rule is one-directional: a stand that is not open overrides every provider, but an
-open stand does not make a provider open. `unknown` **permits** rather than closes — 5 of 34
-production stands state no season and 12 state no hours, and treating silence as "closed" is the
-certainty-manufacturing this product exists to avoid. In Phase A every call passes no provider and
-gets the stand's own answer, which is a tested identity rather than a placeholder.
-
-One deliberate behavior change, strictly narrowing: entries order `sort_order asc, id asc`
-everywhere. Two sites already did; two ordered by `sort_order` alone, which is not a total order
-because nothing makes `sort_order` unique per revision.
-
-Every new test was sabotaged and confirmed able to fail — including the tagged-template revert, which
-is how that trap was proven real rather than theoretical. Verified: typecheck, lint, production web
-build, scripted evals (11/11 critical, 4/4 advisory, 19/19 adversarial), 2,063 unit tests, 981
-integration tests across 66 files. Live model evals were **not** run and are not owed: the `inquiry.ts`
-diff is its import and its join, with no projection, prompt, or output contract touched. No migration.
-Nothing deployed — Phase A is code-only and rides the next deploy.
-
-This branch also carries the multi-seller contract itself (`eca6c24`, previously only on
-`f-114-multi-seller-architecture`), so merging brings the reviewed contract to main alongside the
-Phase A implementation of it.
-
----
-
-## 2026-08-14 — A custom domain for every public link, and an SPF record that had been failing all along
-
-max got DNS access to `vigavashon.org` and asked what, beyond a CNAME for the map, was worth adding.
-The question turned out to be scoped too narrowly in two directions.
-
-**The reputation problem was never map-only.** `PUBLIC_BASE_URL` is one value feeding the entire web
-service, and enumerating what SMS actually emits found three of four links on the raw `*.run.app`
-host: the onboarding invitation, the standing farmer link, and the contact card. Only the `Map:` line
-was already on VIGA's domain — which is why nobody had reported *that* one being blocked. Two of the
-three wrap a 64-character random token, and an unfamiliar host around an opaque token is the shape
-carrier filters penalise; VIGA's 10DLC campaign is registered against `vigavashon.org`, so an
-unrelated host is a campaign mismatch too. So this was never a `map.` subdomain — it is one hostname
-for the whole service, and `farmfriend.vigavashon.org` is what it became.
-
-max twice proposed something shorter on SMS-length grounds — `ff.vigavashon.org`, then a separately
-registered `frmfnd.us` for about $7/yr. **Measuring settled it**: the tokens are 32 random bytes as
-hex, so the longest link runs 130 characters on the old host and 116 on the new one. Every option is
-multi-segment regardless, and no hostname choice moves a segment boundary. The 8 characters `ff.`
-would save are noise against a 64-character token, and a brand-new vowel-dropped domain on a cheap
-TLD reintroduces exactly the unfamiliarity being fixed — domain age is what reputation systems score,
-and a subdomain borrows the parent's. The lever, if length ever matters, is the token, not the host.
-
-**The DNS dump surfaced a live bug nobody was looking for.** `vigavashon.org` publishes Google
-Workspace MX records, and its SPF record was
-`v=spf1 include:spf.mandrillapp.com include:sendgrid.net ~all` — Google absent entirely. Every message
-Farm Friend sent as `board@` had been failing SPF; DKIM was present and often carried it, which is
-precisely the half-configured shape that looks fine. Fixed, and a monitor-only `_dmarc` added (there
-was none). This is likely part of VIGA's separate newsletter-deliverability complaint, and worth
-knowing that the domain may publish only ONE `v=spf1` record — a second one for a newsletter provider
-would break Farm Friend's mail too, so those senders must merge into the single record.
-
-**Verification notes worth keeping.** The Squarespace panel accepts DNS edits while showing "you're
-using custom nameservers", so saving there proves nothing — `dig` against both NS1 and Squarespace
-nameservers confirmed they serve identical records. Google Search Console had no `vigavashon.org`
-property under `board@`, so the existing `google-site-verification` TXT belongs to some other account;
-the GCP account self-verified as a Domain property instead. And **the domain mapping reported
-`Ready: True` about six minutes before TLS actually served** — a request in that window fails
-certificate verification, which inside an iframe is a silent blank. Polled the real request until it
-returned 200 before telling max to touch the embed.
-
-Shipped as configuration only: same image digest, new revisions `web-00082-2pl` /
-`worker-00077-rxp`. Internal Cloud Tasks/Scheduler traffic stays on `*.run.app`, which also keeps
-already-texted links working. The new plan assertion (61/61) fails a mapping created without the
-`PUBLIC_BASE_URL` cutover — the one shape that would apply green while every SMS still sent the
-blocked host; proven by sabotaging three configurations.
-
-`public_host` is in **tracked** `production.tfvars`, not the gitignored `terraform.tfvars`. Setting it
-in the latter would have left it on one machine, and the next apply from another checkout would
-destroy the mapping and revert the fix while reporting success — the same failure that created
-`production.tfvars`.
-
-Filed as **F-113**. It was worked most of the session under the label "B-072", which is a *different*
-open bug (classifier scoping); the ID was corrected across the commits, infra comments, docs, and the
-branch before merge.
-
-**Open:** the antivirus verdict itself is unconfirmed — nothing re-tested against Webroot, and
-reputation systems hold stale verdicts. Whether carrier filtering ever affected the SMS links was
-never measured, so that half is reasoned, not observed. No SMS built from the new host has been read
-on a handset.
-
----
-
-## 2026-08-14 — The first real farmer onboarded, and two silent failures came with them
-
-Provo Farms completed onboarding, texted `VIGA`, sent stock updates — and appeared nowhere. Their pin
-was on the map, admin showed "current stock", and nothing anywhere reported a problem. Two separate
-defects, both invisible by construction.
-
-**B-070 — the redemption could never commit, and the retry hid it forever.** VIGA had seeded Provo's
-stand months earlier, so a current inventory revision already existed.
-`publishPendingStockIn` inserted the farmer's held onboarding stock without retiring the incumbent,
-`inventory_revisions_one_current_per_location` refused it, and the whole transaction rolled back —
-authorization, approval, consent and stock together. That throw landed in `runInboundPass`'s bare
-`catch {}`, which logged nothing; inbound events are ordered per sender and the claim only lapses, so
-the message was reclaimed every minute since 08-13 while the cron returned 200. The three texts behind
-it never processed. **The seeded shape is the ordinary one at launch** — every farm VIGA imported from
-the existing map carries a `viga` revision before its farmer ever texts.
-
-Adding the log line was what found the *second* half: `farmer_invitations_valid_redemption`
-(`redeemed_at >= created_at`). `order by created_at desc limit 1` selected the newest unredeemed
-invitation for the handset regardless of when it existed, and Provo had a second onboarding pass
-created 12.5 hours *after* the text they were actually answering. Bounded the query to
-`created_at <= occurredAt`; the later invitation is deferred, not skipped.
-
-Deployed, then verified by effect rather than by a 200: the stuck event moved `processing` →
-`processed`, an authorization appeared, and all four queued messages drained in order. No repair rows
-were written — the fix let production replay the farmer's own message.
-
-**B-071 — the matcher was editing farmers' listings.** With Provo finally live, the map showed six
-confirmed items and the SMS answer showed four. `stand_lookup` has no `broad` operation, so a
-product-less question about one stand had nowhere correct to land and fell into `inventory` — the one
-stand-scoped operation that calls the catalog matcher. Measured on Provo's real eleven-value catalog,
-`what's in stock at provo?` dropped a confirmed item in **3 of 8 live runs**; against the island-wide
-200-value catalog it returned 58 arbitrary values once and `invalid_output` twice. Nothing downstream
-could catch it: a dropped value is indistinguishable from one the customer never asked about.
-
-The fix put the guarantee where code can hold it. A product-less stand question is `overview`, which
-already meant "names one stand without requesting a narrower fact" and renders the whole listing from
-code with no seam call (13/13 live). A stand-scoped `inventory` question now answers the yes/no **and**
-the full listing, both code-rendered — the matcher only decides which item the verdict is about, still
-re-validated against the stand's catalog. Max's rule: a broad question about a specific stand must not
-let the model edit that stand's listing.
-
-Two false starts worth recording. Narrowing the matcher's values for a resolved stand was **redundant**
-— `candidateStands` already collapses to the resolved stand, so the catalog was never island-wide on
-that path; the change was reverted. And prompt wording was the wrong lever twice: making the classifier
-ignore a named stand fixed the operation but lost `stand_lookup`, answering island-wide instead. Only
-sharpening `overview` vs `inventory` moved all thirteen cases without collateral damage.
-
-Then two copy corrections from the handset: the offerings line now subtracts confirmed items (Provo
-repeated all six verbatim under "Usually sells", burying the two that added information), and a
-single-stand answer carries no map link — the link helps a customer choose among stands, and this
-answer is already about the one they named.
-
-Verified: 2,036 unit, 958 integration across 64 files, typecheck, lint, scripted evals 11/11 + 19/19,
-live evals 5/5 operation and 7/7 catalog. Every new test was sabotage-checked; one early test passed
-against unmodified code and was rewritten rather than trusted. Three production deploys this session
-(web `00077`/`00078`/`00079`), each with 60/60 plan assertions and deploy/served-card assertions.
-
-Not addressed: the classifier sometimes returns `search_stands` where `stand_lookup` fits ("any
-tomatoes at provo?"). It answers island-wide rather than wrongly — a quality gap, recorded in B-071.
-
-## 2026-08-13 — B-068/B-069 shipped: classification cannot see the catalog it is classifying
-
-The inquiry pipeline now enforces the distinction the prompt could not: the first model call sees
-only the sender's message and fixes a strict route-specific operation. Only inventory and payment
-then expose a deduplicated catalog to one generic value matcher. An empty match is a valid result;
-provider/schema failure remains a separate failure. Code validates every returned value, expands it
-to all supporting stands, retains both confirmed and usual evidence, and owns ordering and paging.
-
-That closes the cucumber defect structurally. Forest Garden's 24-day cucumber confirmation can no
-longer be omitted because a model preferred its usual-offering voice; matching `Cucumber` restores
-every supporting fact and renders the confirmed one as `Last seen`. It also removes the expensive
-stand-by-stand fact-selection call from broad, hours, location, overview, and clarification answers.
-
-The boundary is measured independently from matching: broad/inventory 13/13, other operations 7/7,
-second-person 5/5, VIGA/domain 5/5, and catalog 7/7. The full top-level corpus remains 52/53 with only
-the pre-existing `what is viga` miss; any new miss fails the gate. `when do you open?` is a system
-inquiry, while `do you have eggs?` remains stand inventory and VIGA Bucks keeps its deterministic path.
-
-Verified before release: 2,036 unit tests, 953 integration tests, typecheck, lint, production build,
-scripted evals, and the paid live suites. PR #115 merged as `a636cbe`; web `00076-nn4` and worker
-`00071-m2q` serve the same immutable digest with no migration. Plan assertions passed 60/60, deploy
-and served-card assertions passed, and neither revision logged an error. Handset confirmation of
-B-068/B-069 remains part of the pre-go-live pass.
-
-## 2026-08-13 — Phase 2 shipped, and the first two handset messages found two more bugs
-
-F-111 Phase 2: the classifier is wired, both legacy seams are deleted, and it is **deployed**
-(`b187b7e`, PR #114, web `00075-bfw` / worker `00070-7rw`). Then two SMS messages from a real
-handset surfaced three problems, none of them a Phase 2 regression.
-
-**The rewiring, and what moved.** `handleFreeText` now runs: deterministic routing steps 1–10
-(untouched, body-only) → the open stock-out clarification, **now offered to any sender** rather
-than customers only → authority read from `farmer_authorizations` and deliberately *not* passed to
-the model → one classifier call → a switch over six categories. Routing step 11's
-pre-classification stand binding is deleted; a stand resolves only inside the arms that need one.
-
-**The `inventory_report` access fork is the whole B-053 story, now in code.** Customer → report;
-farmer holding the resolved stand (or naming none, which means their own listing) → the publish
-path; farmer without access → report. The classifier returns the *same category* in all three
-cases — there is no enum value meaning "this sender may publish", so a hostile classifier cannot
-reach a publish path. The swap test asserts that across three categories.
-
-**Phase 2b, and why the obvious rules lost.** A distinctive-word score must now cover **at least
-half** a stand's distinctive words. Measured against the real corpus plus the two live stands the
-F-106/B-065 cases name — 14/14 required cases, where three plausible alternatives each failed:
-requiring two matched words breaks `barts` (Bart's Cart has exactly two distinctive words); keeping
-a score of 1 when the word is corpus-*unique* does nothing at all, because `open` **is** unique to
-one stand; and a minimum word length costs nine more real partials at 5 characters or breaks
-`barts` at 6. **Accepted cost (max):** 33 single-word partials of longer names stop resolving —
-`morgan` no longer reaches Morgan Hill — and those senders are asked which stand instead.
-
-**A test that could not fail, caught by sabotage.** The new split rule carries the house
-"no food vocabulary in the source" assertion. The first version stripped comments *before*
-searching the remainder, so it passed with `eggs` planted in the file — the strip removed the very
-text the assertion looked for. The fixed version anchors to executable code only, first proving the
-extraction sees the code at all, and now passes on a comment and fails on a branch.
-
-**Then the handset, and the correction worth carrying.** Two messages, three findings:
-
-- **B-067 (fixed, data-only).** `eggs?` returned Morgan Hill with its entire nine-item offerings
-  list printed as one run-on item. One `stand_items` row held all nine names as a 115-character
-  string. **Measured before writing: exactly one row in the corpus had that shape** — no other row
-  contains a comma — so this was a guarded repair, not a parser. Where a split part already existed
-  but sat uncarried (`duck eggs`, `flowers`), max chose to promote rather than skip, so the stand
-  shows nine rather than seven.
-- **B-068 (open).** `cucumber` returned Forest Garden as `May have: cucumbers`, but that stand has
-  Cucumbers as a **published entry** confirmed 24 days earlier, which B-062/B-063 says must read
-  `Last seen (24d ago):`. The entry was never retrieved — a retrieval question, not a rendering one.
-- **B-069 (open), and my wrong first answer.** Replies took close to a minute. I suggested
-  fast-tracking the classifier; **that was wrong, and measuring afterward showed why.** Three
-  serial calls, wildly unequal: the classifier emits ~5 tokens, while grounded fact selection emits
-  ~18 per selected stand at ~30 tokens/sec — the call B-049 already raised the timeout to 90s for.
-  Phase 2 added a small call in front of a large slow one. The lever is selection, not the
-  classifier, and the item says so explicitly so the next session doesn't chase it.
-
-**Deliberately not manufactured: a provider failure in production.** Every practical lever (revoking
-the key, pointing at a dead host) is a real outage for every sender on VIGA's own account. The
-outage reply is proven by an integration test forcing `{ok: false}`, sabotage-verified against the
-`unclear` string; seeing it on a handset needs a preview service with a bad endpoint.
-
-**Owed:** 11 of 13 handset cases are unrun, including both defects Phase 2 was built to close.
-Neither has been confirmed on a real phone.
-
----
-
-## 2026-08-13 — Two bugs turned out to be one taxonomy, and the harness lied about the score
-
-Max reported two SMS misroutes from his own handset: "where's the farm stand map?" got the generic
-"I did not catch which item or farm you meant", and "which stands are open right now?" got "Thanks
-for letting us know. What was sold out?"
-
-**Neither was a classifier failure, and that was the whole finding.** The map question classified
-correctly (`farm_stand_question`, 8/8 against the live model) and then died in *inquiry
-interpretation*, because the only thing the customer path can look up is a product. The second
-never reached a classifier at all: routing step 11 resolves a stand from **every** farmer message
-before classifying anything, and the tier-2 scorer awards one point per distinctive word — so
-**"Open Gate Lamb and Grazing" contributes the word `open`**. Measured against the real 34-stand
-corpus, five ordinary phrasings all bind to that farm, including "when do you open".
-
-The shared cause: name-matching used as an *intent* signal, run against the whole message before
-intent is known. "Another stand's name appears here" and "this is a report about that stand" are
-different claims, and the code treated them as one. `GENERIC_NAME_WORDS` cannot help — the word is
-generic in *English*, not in the stand corpus, and any future "Fresh …" or "Sunny …" stand
-reintroduces it for a different word.
-
-**What got built (Phase 1 of `docs/plans/REQUEST_CLASSIFICATION_REFACTOR.md`): one first-pass
-classifier, six categories, one enum.** It is implemented, measured and **not yet wired** —
-`apps/web` still runs both legacy seams. Phase 2 is the rewiring.
-
-**`inventory_report` merges what were two arms, and the merge was forced by measurement.** With
-`stock_out_report` and `inventory_update` split by sender, "no eggs left at Pinecone Gardens" from a
-farmer handset classified as *their own update* 3/3 — B-053 reintroduced by taxonomy. Max's call:
-both are one intent (someone asserting a listing needs updating), and **who may act on it is an
-access question decided downstream in code**, not a language question. The classifier now cannot
-express authority at all, which is strictly stronger than a prompt-level split.
-
-**The harness score was not reachable in production, and chasing it cost most of the session.** A
-direct HTTP probe scored the settled instruction 141/141; the real seam reproduced 41/47. The probe
-had no system message, no `response_format`, and different prompt framing. Of the six differences:
-two were *our expectations being wrong* (in an SMS thread with the service, "you" means the service —
-"when do you open" and "are you a robot" are `system_inquiry`), one was a field that helped only the
-harness (`systemName`, ablated out and its removal *improved* the baseline), and one needed code. The
-lesson now in the fixture header: **measure against the path production actually uses.**
-
-**Two things the roster taught us.** Max proposed passing the ~34 stand names as classification
-context — safe, since a one-enum output cannot leak a roster, and my safety objection was wrong.
-Measurement killed it instead: **94%→85% and 87%→63%, on two different taxonomies.** With the roster
-present, bare stand names returned `unclear` every run, as though the model checked the list and
-bailed rather than reading the sentence. Excluding it also means the classifier cannot drift as VIGA
-adds or removes farms.
-
-**Prompt framing became a per-seam property, not a workaround.** "Extraction" had been baked into
-shared plumbing that then had to carry a non-extraction task — `Input (JSON): … Output
-requirements:` buries a classification, and the system message told every seam to "omit" fields that
-a single required enum has no concept of. `ModelSafeContext` now carries an optional `framing`
-declared **by the projection**, never inferred by the adapter from a seam name. Existing seams are
-pinned byte-for-byte, user *and* system message.
-
-**Two code-owned fast paths, both earned by failed prompt attempts.** "who takes viga bucks?" stably
-returned `system_inquiry` — VIGA is an organisation name a general model has no context for. Two
-instruction rewrites each fixed the target case *and regressed another*, because a prompt rule
-mentioning payment gets applied to any message containing the payment word regardless of what is
-asked. So: a **generic acceptance matcher** (subject + acceptance verb + object, no payment or
-organisation vocabulary — "who takes bottle caps" fires), and a **VIGA Bucks domain resolver**
-claiming four shapes and nothing else. The resolver is justified against the no-hard-coded-vocabulary
-rule: that rule forbids *farm and food* vocabulary, which changes as stands and seasons turn; VIGA
-Bucks is a fixed program of the service, already a column pair, in the same class as `MAP`.
-
-**The resolver's `unclear` arm is the subtlest thing here.** "no viga bucks left" is grammatically
-identical to "no eggs left", and the instruction explicitly teaches that shape as `inventory_report`
-— a rule needed for real stock-out reports. The model returned `inventory_report` *correctly
-applying a rule we gave it*; it simply lacks the domain fact that VIGA Bucks are not stand
-inventory. Max's call: the application holds that fact, so the override belongs in code. Narrowing
-the instruction instead would have endangered "no eggs left", a core path.
-
-**Verified:** 2088 unit tests, 945 integration tests (62 files, against local Postgres — the
-`DATABASE_URL` in Secret Manager is **production Neon**, and this suite creates and drops databases
-per file, so it must never point there), typecheck, lint, scripted evals 44/44, live classifier
-fixture **52/53**. Key tests sabotage-verified. The one known miss is `what is viga` →
-`search_stands`: bare `VIGA` is deliberately *not* the concept the resolver matches, and widening it
-to the organisation name would claim a large vaguely-bounded family for one case.
-
-**Owed, and the reason Phase 2 is not optional:** the stand-matcher's score-of-1 defect is still
-live. Moving classification first removes the common case; the scoring bar itself is unfixed.
-
----
-
-## 2026-08-13 — The farm was removed everywhere except where it counted
-
-VIGA admin reported "farm removal isn't working". Checked both halves as asked: **stand removal
-(F-071) was correct on every surface; farm removal (F-100) worked on none that a customer sees.**
-
-The writer was never the problem. `retireFarm` sets `farms.retired_at` and writes its audit event
-exactly as designed. The whole defect was on the read side, and it came from a *correct* design
-decision that only got built halfway.
-
-A farm take-down deliberately never writes each stand's own `retired_at` — that is what lets a
-restore return exactly the stands the farm was holding down while a stand retired on its own stays
-retired. Right call, unchanged. But **nothing downstream implemented the other half of that
-contract.** Every public reader filtered `sales_locations.retired_at` — the stand's column, which a
-farm take-down never touches. So a removed farm stayed on the map, stayed reachable by text, stayed
-in the public signup pickers, and its farmer could still publish new inventory to it. The admin
-console was the only surface that agreed with the operator, because `listStandsForAdministration`
-is the one reader that joined `farms.retired_at`.
-
-**Why the suite was green, and this is the part worth keeping.** F-100's load-bearing test asserts
-"every stand under the farm goes down" — and checks it through the admin reader. So the test passed,
-`DATA_RECORDS.md` stated the rule as settled fact ("readers treat a stand under a retired farm as
-off the map"), and the operator's own screen confirmed it. Three independent-looking confirmations,
-all downstream of the same single reader, none of them evidence about a customer. The requirement
-was written down, asserted, and never built. That failure class is now in DEVELOPMENT.md §gotchas:
-*a test that asserts through the admin reader proves nothing about what customers see* — the admin
-screen is the one most likely to read the column you just wrote and least likely to catch the ones
-that don't.
-
-**The fix is one seam plus one gate.** `visibleFarms` already existed for exactly this reason — four
-surfaces compose it rather than hand-writing the rule, because four copies is four chances to miss
-one. It stated only the test-farm clause; it now states both reasons a farm is absent, and the map,
-both SMS retrieval queries and both public pickers inherited the fix for free. The retirement clause
-is **unconditional**, unlike the test-farm one: `?hidden=true` and a listed sender hash make a viewer
-deliberate about *fake* farms, which hold no real data, and neither is authority to see a real farm
-VIGA removed. Publication needed its own locked check inside `confirmInventoryPublication` beside the
-approval it belongs with — it is a transactional read, not a filter — returning a new `farm_retired`
-status. The routing fallback already replies on any non-published status, so the farmer gets the same
-clarification the `stand_retired` path produced; no SMS branch changed.
-
-No schema change, no migration, no model or seam touched.
-
-Four new tests, each written failing and confirmed to reproduce the reported defect first: a removed
-farm leaves the map AND the SMS answer, with the model scripted **hostile** so grounding is proven
-rather than assumed; restore returns it to both; a stand retired on its own stays down after its farm
-is restored; publication is refused once the farm is removed and works again after restore. Both
-fixes were then sabotaged and the tests caught each — neutering the retirement clause failed two
-public-surface tests, neutering the publication gate failed the publication test.
-
-Also folded in: the admin user-list pills and filter now read **Farmer / Regular user** instead of
-"Farmer access / No access yet", which implied a pending step that does not exist, with the access
-pill right-aligned to its column. Pre-existing uncommitted work, covered by its own test.
-
-**Verified:** typecheck, lint, 1,960 unit, 945 integration. **Deployed** the same day — web
-`00074-4hk`, worker `00069-bp6`, digest `sha256:f1f40aae…` from `main` `3f89523`, plan assertions
-60/60 with the image digest as the only delta, no migration owed. `/api/public/stands` returned 34
-stands and 35 under `?hidden=true` right after, so both branches of the predicate are live and
-neither over-excludes. **Owed:** the console check — remove a test farm, confirm it leaves the map
-and the text answers, put it back. Filed as B-066.
+**Older entries** (2026-08-13 and earlier) live in [SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md). Rotated 2026-08-19: the 12 entries from 2026-08-13 to 2026-08-15 moved there to keep this file out of the cold-start path.

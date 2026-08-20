@@ -199,14 +199,17 @@ bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
   stand's coordinate.
 - **Admin:** sign-in → **single-level** VIGA administration across three surfaces (F-100, restructured
   by F-101): **Stands & Sellers** (`/admin/stands` — one destination holding two views: stands with
-  who sells there, sellers with where they sell; approval, farm details, who can update it, setup
-  links, taking a farm or stand down, and pause/resume/Remove per arrangement), **SMS Users**
-  (everyone who has texted, inviting a farmer, deciding access requests), and **Alerts** (flags,
-  stock-out reports, questions about VIGA's own records). `/admin` redirects to `/admin/stands`.
+  who sells there, sellers with where they sell; farm details, who can update it, setup links,
+  taking a farm or stand down, moving one to the **trash** and restoring it from the collapsed
+  Trash section, and pause/resume/Remove per arrangement), **SMS Users** (everyone who has texted,
+  inviting a farmer, deciding access requests), and **Alerts** — **the flag queue alone** since
+  F-122; stock-outs and "questions about our records" are gone with their routes.
+  `/admin` redirects to `/admin/stands`. **Approval and test-farm marking are not admin surfaces**
+  (F-124): onboarding redemption approves, and the routes refuse both actions.
   **There is no Farms tab** — VIGA's job is view and edit stands and sellers, so acts about a farm
   live inside that farm's card rather than on a screen of their own. See ADMIN_OPERATIONS.md.
-  `POST /api/admin/stands` carries the per-stand acts: Farm Bucks, retire/restore, and — since
-  F-114 Phase C.1 — `invite_seller`, which mints a one-use link inviting a seller to sell at that
+  `POST /api/admin/stands` carries the per-stand acts: Farm Bucks, retire/restore,
+  `trash`/`restore_from_trash` (F-124), and — since F-114 Phase C.1 — `invite_seller`, which mints a one-use link inviting a seller to sell at that
   stand and answers with the complete onboarding URL, **shown once**. Its button lives inside each
   stand's card, and is absent for a stand that is off the map.
   `POST /api/admin/participation` (F-101) pauses, resumes or ends one seller's participation at one

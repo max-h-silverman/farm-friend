@@ -137,6 +137,31 @@ variation.
 The general verification lessons are in `~/.claude/CLAUDE.md` §Verification. These are the local ones,
 with the guard that protects each.
 
+- **A model's seam note is not a guarantee, and measuring says how far from one it is.** The
+  inventory seam note forbids adding an item the stand already lists and forbids inventing
+  details. Measured against the real model: **8 of 8** runs added an already-listed item and
+  **6 of 8** invented a quantity. Not variance — the instruction simply does not hold. Before
+  building a guard on top of a prompt rule, run the seam ~8 times and count. If it fails at that
+  rate, the rule belongs in code (Golden Rule #6), and if it holds you have a baseline. Guard:
+  the three B-092 `live-containment` fixtures, which assert the CODE result rather than the
+  model's output.
+- **A guard against model invention must test PRESENCE, not the value.** B-092's quantity guard
+  first checked whether the message stated *that number*; the model read "6 dozen eggs today" as
+  `72` — correct arithmetic over the farmer's own words — and the guard threw it away. Code
+  re-deriving the model's reading is a second interpreter and will disagree with the first. The
+  answerable question is whether the farmer's message contained the KIND of fact at all. Guard:
+  the live mirror fixture, which is what caught it; a unit test alone would have codified the bug.
+- **A writer's success status must appear in the caller's status table.** `retirementStatusFor`
+  had no case for the trash writer's `trashed`, so it fell to the 409 default: the stand was
+  genuinely trashed while the screen was told the act conflicted. **Every new writer outcome needs
+  a case added wherever its status is mapped** — a `default` branch turns a new success into a
+  plausible-looking failure. Guard: the F-124 route test asserts the STATUS, not just the effect.
+- **An assertion suite can contradict itself when a feature half-changes.** F-123 gave the worker
+  the flag-alert email: it inverted "the worker is given no email configuration" but left "the
+  worker never mounts GMAIL_OAUTH_*" standing — telling the worker where to send from while
+  forbidding the credential to send with. Nothing caught it until the first `tofu plan`, because
+  no test runs the assertions against a plan. **When you invert one assertion, grep the suite for
+  every other assertion naming the same subsystem** and check they still agree with each other.
 - **`db:migrate` can skip a migration silently.** Drizzle applies only when `created_at <
   folderMillis` — equal counts as done, so a journal timestamp older than the newest applied one is
   skipped with a success message. Guard: `packages/core/src/migration-ordering.test.ts`.

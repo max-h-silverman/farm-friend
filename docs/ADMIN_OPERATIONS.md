@@ -12,8 +12,9 @@ admin.
 **There is one administrator authority at launch.** There are no separate staff or moderator
 levels.
 
-- **administrator** — VIGA. Approves participating farms, resolves flags and texted issue
-  reports, and handles exceptions the system cannot safely handle. Max is escalation.
+- **administrator** — VIGA. Resolves flags and texted issue reports, keeps the roster correct, and
+  handles exceptions the system cannot safely handle. Max is escalation. (Approving a farm is no
+  longer a task: onboarding approves a farm when its farmer redeems her setup link.)
 - **farmer** — owns their farm's listings and inventory through a separate farm authorization.
 
 Every admin page and mutation route enforces a **server-side authorization check** against durable
@@ -41,7 +42,7 @@ Failed attempts are limited by both a coarse client network and an account-wide 
 
 **An administrator is never a farmer.** A live administrator session resolves directly to its
 administrator row. Farmer authority is separate and always requires a live farm authorization
-(Golden Rule #1). VIGA approves *whether* a farm may publish; the farmer alone owns *what* it
+(Golden Rule #1). Approval gates *whether* a farm may publish; the farmer alone owns *what* it
 publishes.
 
 **Routine inventory maintenance is not a VIGA responsibility.** If operators find themselves doing
@@ -52,7 +53,7 @@ daily data entry, the product has failed its north star.
 | Surface | Path | What the administrator does |
 |---|---|---|
 | Sign-in | `/admin/login` | Sign into the fixed VIGA account with its password. Public and unauthenticated; every refusal is identical |
-| Stands & Sellers | `/admin/stands` | **Invites** (collapsed at the top): send a new invitation, and see the invitations already out. Then two views of the island's farms. **Stands**: each stand, who sells there, and its own details. **Sellers**: each farm, where it sells, who can update it, and everything VIGA decides about it — approve it, edit its name and description, revoke access, send a setup link, take it off the map and put it back, mark it a test farm |
+| Stands & Sellers | `/admin/stands` | **Invites** (collapsed at the top): send a new invitation, and see the invitations already out. Then two views of the island's farms. **Stands**: each stand, who sells there, and its own details. **Sellers**: each farm, where it sells, who can update it, and everything VIGA decides about it — edit its name and description, revoke access, send a setup link, take it off the map and put it back, move it to the trash. **Trash** (collapsed at the bottom): what has been trashed, and one press to put any of it back |
 | SMS Users | `/admin/users` | Everyone who has texted Farm Friend and whether they can publish for a farm |
 | Alerts | `/admin/messages` | Messages a person sent that need a human to read them: customer `FLAG` messages and texted issue reports, with the thread viewer (phones masked) |
 
@@ -149,12 +150,11 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   its stands said they had and when. Its farmer also stops being able to publish updates to it,
   the same way removing a single stand works. Press **Put this farm back** to undo it. A stand you
   had already taken off the map on its own stays off when the farm comes back.
-- **Rehearse against the real site with a test farm (F-074):** open the farm on the **Sellers** view and
-  press **Mark as test farm**.
-  Marking a farm as a test farm makes it **absent** — from the map, from `/api/public/stands`,
-  from customer text answers, and from the farm list at `/farmer/start`. It is not a listing with
-  a warning on it; islanders simply never see it. Unmark it to put it back. Both directions are
-  recorded against you.
+- **Rehearse against the real site with a test farm (F-074).** A test farm is **absent** — from the
+  map, from `/api/public/stands`, from customer text answers, and from the farm list at
+  `/farmer/start`. It is not a listing with a warning on it; islanders simply never see it.
+  **Marking and unmarking a farm is no longer a console control** (2026-08-19) — ask max, who runs
+  it directly against the database. `Josie's Farm` is marked today, deliberately.
   **To see test farms yourself**, add `?hidden=true` to the map address, or add your mobile
   number under **Phones that can see test farms** and text Farm Friend normally.
   **Two things to be clear about before you use this.** First, `?hidden=true` is **not a
@@ -167,6 +167,11 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   **A test farm can still be set up through `/farmer/start`** even though it is not in the
   dropdown, which is deliberate: walking a farmer's whole journey is the thing a test farm exists
   for. Name test farms so they read as fake — that name is the only marker anywhere.
+- **Move a stand or farm to the trash.** Open it and press **Move to trash**, then confirm. It
+  leaves your list and customers stop seeing it. **Nothing is deleted** — every listing, update and
+  report is kept. Open **Trash** at the bottom of Stands & Sellers and press **Put back** to
+  restore it exactly as it was. Use the trash for a record that should not be in your list at all;
+  use **Take off the map** for one that is still yours but should not be shown right now.
 - **Set a farmer up by hand:** open `/admin/users`. Anyone whose request needs a person is
   waiting at the top, shown by the last four digits of their number — an invitation naming no
   farm, or one whose agreement was never ticked. (A third source, someone texting with no
@@ -188,19 +193,16 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   cannot text for one, or whom you are setting up in person. **The link is shown once and never
   again** — copy it before navigating away. Replacing a link revokes the previous one, which is
   exactly what you want after a lost phone.
-- **Approve a farm:** open `/admin`, verify the farm is real, is a VIGA participant, and that the
-  person who completed onboarding is authorized to act for it, then approve. What approval gates is
-  whether the **farmer may publish an update** — an unapproved farm's confirmation is refused, so it
-  is a **hard prerequisite** for a farmer publishing anything, not a formality. It is *not* what
-  makes a stand visible: a stand VIGA seeded is already on the map whether or not its farm is
-  approved, so approving one changes nothing a customer sees today and everything about whether its
-  farmer can correct it tomorrow. **A farm invited by name is already approved** by the invitation
-  you sent, recorded against you; this screen is for the farms that arrived any other way, so an
-  **empty queue is the normal state** rather than a sign something failed.
-  The 35 farms seeded from VIGA's own listings were approved in bulk on 2026-08-05, recorded against
-  the board account — VIGA had already decided they participate by putting them on the map. Approval and revocation both
-  record which administrator acted and when, in `farm_approvals` and the audit trail. Revoking
-  blocks the *next* publication; it does not retract what is already published.
+- **Approving a farm is no longer something you do** (2026-08-19). Approval still exists and is
+  still a **hard prerequisite** for a farmer publishing anything — an unapproved farm's
+  confirmation is refused — but it is now granted automatically when a farmer redeems her setup
+  link, so there is no queue and no button. It was never what makes a stand visible: a stand VIGA
+  seeded is on the map whether or not its farm is approved.
+  The 35 farms seeded from VIGA's own listings were approved in bulk on 2026-08-05; every farm
+  since is approved by its own onboarding. **With the control gone, an approval also cannot be
+  revoked from the console.** If you need to stop a farmer publishing, revoke her **access** on the
+  seller's card instead — that stops the handset, which is the thing actually doing the publishing.
+  Tell max if you hit a case that needs more than that.
 - **Restore or rotate administrator access:** follow [RUNBOOK.md](RUNBOOK.md). Rotation adds a new
   password-verifier secret version, deploys a new web revision, proves the new password, and revokes
   every old session. There is no second account or add-administrator path.

@@ -127,7 +127,9 @@ deliberately, to answer "why was this decided" or dig into a past defect — nev
 
 ## Commands
 
-- `npm test` · `npm run test:integration` · `npm run typecheck` · `npm run lint` · `npm run evals`
+- `npm test` · **`npm run test:integration:local`** · `npm run typecheck` · `npm run lint` · `npm run evals`
+  (the plain `test:integration` needs `PUBLIC_BASE_URL` exported as well as `DATABASE_URL`; the
+  `:local` form is the one to run)
 - `npm run evals:live` — the REAL model through the real seams. Required for any change to a seam's
   projection, schema, or output contract.
 - Migrations / seeding / offerings / deploy: docs/RUNBOOK.md (deploy only when asked).
