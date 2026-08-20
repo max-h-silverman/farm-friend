@@ -1,3 +1,4 @@
+import { standItemKey } from "./item-key";
 import type { Clock } from "../clock";
 import {
   projectClosure,
@@ -197,6 +198,79 @@ function messageNamesEntry(taskText: string, itemName: string): boolean {
 }
 
 /**
+ * The number-words a farmer actually writes. Presence only — never a value.
+ *
+ * NOT a vocabulary the model reasons over and NOT policy. Nothing about produce, farms or
+ * listings appears here; this is a list of English words that mean "a number was stated".
+ */
+const QUANTITY_WORDS: ReadonlySet<string> = new Set([
+  "a",
+  "an",
+  "one",
+  "two",
+  "three",
+  "four",
+  "five",
+  "six",
+  "seven",
+  "eight",
+  "nine",
+  "ten",
+  "eleven",
+  "twelve",
+  "dozen",
+  "couple",
+  "pair",
+  "few",
+  "half",
+  "several",
+  "hundred",
+]);
+
+/**
+ * Did the farmer's message state any quantity at all? (B-092)
+ *
+ * FOUND LIVE (max, 2026-08-19). "We have kale" — a message carrying no number anywhere —
+ * produced `quantity: 12` in three of eight runs against the real model and `quantity: 1` in
+ * three more. The `1` renders as the unreadable `- Kale (1)` max reported; the `12` is worse,
+ * because it publishes a specific false claim about how much a farmer has.
+ *
+ * Exactly the class of defect an unauthorized removal is, and settled the same way: the
+ * message is the authority, code holds both it and the output, and a number from a message
+ * that contains no numbers is not a fact. The seam note already says "include only details the
+ * message states, never invented ones" and the model ignores it — Golden Rule #6.
+ *
+ * **PRESENCE, never the value.** An earlier shape checked whether the message stated THAT
+ * number and was wrong against the real model, which read "6 dozen eggs today" as
+ * `quantity: 72` — correct arithmetic over the farmer's own words that the guard then threw
+ * away. The live mirror fixture caught it. Code cannot re-derive the model's reading without
+ * becoming a second interpreter, and it does not need to: the distinction that matters is
+ * between a message with numbers in it and a message with none. Reading "6 dozen" as 72 or as
+ * 6 is interpretation, which the model owns; manufacturing a number from a message that has
+ * none is invention, which it does not.
+ */
+function messageStatesAnyQuantity(taskText: string): boolean {
+  // A number carrying a currency symbol is a PRICE, and price is its own field. "kale by the
+  // bunch, $3" states no quantity, and counting its 3 would re-admit exactly the invented
+  // number this guard exists to drop.
+  const withoutPrices = taskText.toLowerCase().replace(/[$£€]\s*\d[\d.,]*/g, " ");
+  const words = withoutPrices.match(/[a-z]+|\d/g) ?? [];
+  return words.some((word) => /\d/.test(word) || QUANTITY_WORDS.has(word));
+}
+
+/** Strip a quantity the message never stated, keeping every detail it did. */
+function withoutInventedQuantity<T extends { quantity?: unknown }>(
+  item: T,
+  taskText: string | undefined,
+): T {
+  if (taskText === undefined) return item;
+  if (typeof item.quantity !== "number") return item;
+  if (messageStatesAnyQuantity(taskText)) return item;
+  const { quantity: _invented, ...rest } = item;
+  return rest as T;
+}
+
+/**
  * Validate untrusted interpreter output before anything acts on it: the shape must be
  * one of the permitted outcomes, carry no extra consequential fields, and every selected
  * entry ID must belong to the base snapshot.
@@ -377,8 +451,12 @@ export function validateInterpretation(
     ok: true,
     value: {
       kind: "edits",
-      additions: additions as ProposedAddition[],
-      changes: changes as ProposedChange[],
+      additions: (additions as ProposedAddition[]).map((addition) =>
+        withoutInventedQuantity(addition, taskText),
+      ),
+      changes: (changes as ProposedChange[]).map((change) =>
+        withoutInventedQuantity(change, taskText),
+      ),
       removals: authorizedRemovals,
       ...(closure?.ok ? { closure: closure.value } : {}),
     },
@@ -503,7 +581,35 @@ export function applyInventoryEdits(
     entries.push(change ? withoutNullish({ ...entry, ...change }) : entry);
   }
 
+  // B-092. An addition naming an item the stand ALREADY lists reaffirms that item; it does
+  // not create a second row. Found live: "We have kale" against a stand listing Kale came
+  // back as an addition in 8 of 8 runs against the real model, and the farmer read a
+  // confirmation showing Kale twice. The seam note already tells the model "additions are
+  // items not currently listed" and the model ignores it, so the guarantee is code's.
+  //
+  // `standItemKey` is the arbiter — the same rule `stand_items_one_per_location_name`
+  // applies, so the draft and the database cannot disagree about what "same item" means.
+  // The surviving entry keeps its entryId and its published position; the addition's stated
+  // details are merged over it, because "plenty of bok choy at $3" about a listed item is a
+  // real update. A removed entry is NOT a merge target: the message deleted it, so an
+  // addition of that name is genuinely new.
+  const indexByItemKey = new Map<string, number>();
+  entries.forEach((entry, index) => {
+    indexByItemKey.set(standItemKey(entry.itemName), index);
+  });
+
   for (const addition of interpretation.additions) {
+    const existing = indexByItemKey.get(standItemKey(addition.itemName));
+    if (existing !== undefined) {
+      const target = entries[existing]!;
+      entries[existing] = withoutNullish({
+        ...target,
+        ...addition,
+        // The farmer's published spelling wins: VIGA's listing is not restyled by an SMS.
+        itemName: target.itemName,
+      } as SnapshotEntry);
+      continue;
+    }
     const entryId = issueDraftEntryId();
     if (entryId === "" || known.has(entryId)) {
       throw new InventoryEditError("draft entry id must be non-empty and unique");
@@ -512,6 +618,7 @@ export function applyInventoryEdits(
     entries.push(
       withoutNullish({ entryId, ...addition } as SnapshotEntry),
     );
+    indexByItemKey.set(standItemKey(addition.itemName), entries.length - 1);
   }
 
   return { entries, baseRevisionId, isFirstPublication, removedItemNames };

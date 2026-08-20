@@ -321,6 +321,339 @@ describe("inventory proposal — patch-like edits over a complete snapshot", () 
     expect(rendered).toContain("Strawberry preserves");
   });
 
+
+  /*
+    B-092 — an addition naming an item the stand already lists.
+
+    FOUND LIVE (max, 2026-08-19). Josie's Farm listed Eggs, Kale and Tomatoes; the farmer
+    texted "We have kale" and the confirmation came back listing Kale TWICE. Reproduced
+    against the real model 8 runs out of 8: every single one returned Kale as an ADDITION
+    despite `currentEntries` naming it, so this is not variance to be tuned away.
+
+    The seam note already says "additions are items not currently listed" and the model
+    ignores it, which is the argument for settling it here — Golden Rule #6. Code holds the
+    base snapshot and the addition's name, so it can answer "same item" with certainty.
+
+    The arbiter is `standItemKey`, the same rule `stand_items_one_per_location_name` applies
+    in the database. Two places must not disagree about what "same item" means.
+  */
+  describe("an addition naming an already-listed item reaffirms it, never duplicates it", () => {
+    it("merges the addition onto the surviving entry instead of appending a second row", () => {
+      const proposed = applyInventoryEdits(
+        published,
+        {
+          kind: "edits",
+          additions: [{ itemName: "Potatoes" }],
+          changes: [],
+          removals: [],
+        },
+        issueDraftId,
+      );
+
+      // One Potatoes, keeping its published entry ID and its published position.
+      expect(proposed.entries).toEqual([
+        { entryId: "e-potato", itemName: "Potatoes", approximation: "plentiful" },
+        { entryId: "e-bok", itemName: "Bok choy", approximation: "limited" },
+        { entryId: "e-jam", itemName: "Strawberry preserves", priceText: "$8" },
+      ]);
+    });
+
+    it("matches on case and surrounding whitespace only, exactly as the database does", () => {
+      const proposed = applyInventoryEdits(
+        published,
+        {
+          kind: "edits",
+          additions: [{ itemName: "  bOK CHOY \t" }],
+          changes: [],
+          removals: [],
+        },
+        issueDraftId,
+      );
+
+      expect(proposed.entries).toHaveLength(3);
+      // The farmer's published spelling wins — VIGA's listing is not restyled by an SMS.
+      expect(proposed.entries[1]).toEqual({
+        entryId: "e-bok",
+        itemName: "Bok choy",
+        approximation: "limited",
+      });
+    });
+
+    it("lets the addition's stated details update the entry it reaffirms", () => {
+      // "we have plenty of bok choy at $3" about an item already listed is a real update,
+      // not a no-op. The merge is what carries it.
+      const proposed = applyInventoryEdits(
+        published,
+        {
+          kind: "edits",
+          additions: [{ itemName: "Bok choy", priceText: "$3" }],
+          changes: [],
+          removals: [],
+        },
+        issueDraftId,
+      );
+
+      expect(proposed.entries[1]).toEqual({
+        entryId: "e-bok",
+        itemName: "Bok choy",
+        approximation: "limited",
+        priceText: "$3",
+      });
+    });
+
+    it("still appends an addition that genuinely is not listed", () => {
+      // The mirror. A merge that swallowed real additions would be its own defect.
+      const proposed = applyInventoryEdits(
+        published,
+        {
+          kind: "edits",
+          additions: [{ itemName: "Green beans" }],
+          changes: [],
+          removals: [],
+        },
+        issueDraftId,
+      );
+
+      expect(proposed.entries).toHaveLength(4);
+      expect(proposed.entries[3]).toEqual({
+        entryId: "draft_test",
+        itemName: "Green beans",
+      });
+    });
+
+    it("does not reaffirm an entry the same message is removing", () => {
+      // Removal wins: the entry is gone, so an addition of that name is a genuinely new
+      // item and must take a fresh draft entry rather than resurrect the removed row.
+      const proposed = applyInventoryEdits(
+        published,
+        {
+          kind: "edits",
+          additions: [{ itemName: "Potatoes", priceText: "$4" }],
+          changes: [],
+          removals: [{ entryId: "e-potato" }],
+        },
+        issueDraftId,
+      );
+
+      expect(proposed.entries.map((e) => e.itemName)).toEqual([
+        "Bok choy",
+        "Strawberry preserves",
+        "Potatoes",
+      ]);
+      expect(proposed.entries[2]).toEqual({
+        entryId: "draft_test",
+        itemName: "Potatoes",
+        priceText: "$4",
+      });
+    });
+
+    it("collapses two additions of the same item to one entry", () => {
+      // Nothing in the snapshot to merge onto, so the first addition creates the entry and
+      // the second must find it. Without this the same duplicate reaches a first listing.
+      const ids = ["draft_a", "draft_b"];
+      const proposed = applyInventoryEdits(
+        null,
+        {
+          kind: "edits",
+          additions: [{ itemName: "Kale" }, { itemName: "kale", priceText: "$2" }],
+          changes: [],
+          removals: [],
+        },
+        () => ids.shift() ?? "exhausted",
+      );
+
+      expect(proposed.entries).toEqual([
+        { entryId: "draft_a", itemName: "Kale", priceText: "$2" },
+      ]);
+    });
+  });
+
+  /*
+    B-092, second defect — a quantity the farmer's message never stated.
+
+    "We have kale" carries no number, and the real model supplied one in 6 of 8 runs:
+    `12` three times and `1` three times. `12` is the dangerous one — it publishes a
+    specific false claim about a farmer's stand; `1` is merely unreadable as "Kale (1)".
+
+    Same class as the unauthorized removal above, and settled the same way: the message is
+    the authority, code holds both it and the output, and a number the farmer did not type
+    is not a fact. Dropped rather than refused, for the same reason — everything the farmer
+    genuinely said still publishes.
+  */
+  describe("a quantity absent from the farmer's message is not a fact", () => {
+    it("drops an invented quantity from an addition", () => {
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [{ itemName: "Kale", quantity: 12 }],
+          changes: [],
+          removals: [],
+        },
+        published,
+        "We have kale",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.additions).toEqual([{ itemName: "Kale" }]);
+    });
+
+    it("drops an invented quantity from a change", () => {
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [],
+          changes: [{ entryId: "e-potato", quantity: 1 }],
+          removals: [],
+        },
+        published,
+        "still got potatoes",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.changes).toEqual([{ entryId: "e-potato" }]);
+    });
+
+    it("keeps a quantity the message states as digits", () => {
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [{ itemName: "Eggs", quantity: 6, unit: "dozen" }],
+          changes: [],
+          removals: [],
+        },
+        published,
+        "6 dozen eggs today",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.additions).toEqual([
+        { itemName: "Eggs", quantity: 6, unit: "dozen" },
+      ]);
+    });
+
+    it("keeps a quantity the model derived by arithmetic from the farmer's words", () => {
+      // FOUND BY THE LIVE MIRROR FIXTURE (2026-08-19). The real model read "6 dozen eggs
+      // today" as quantity 72 — correct arithmetic over the farmer's own words — and an
+      // earlier guard that checked whether the message stated THAT NUMBER threw it away.
+      //
+      // The guard asks about PRESENCE, never the value. Reading "6 dozen" as 72 or as 6 is
+      // interpretation, which the model owns; code re-deriving it would be a second
+      // interpreter. What code can settle with certainty is whether the message contained a
+      // number at all.
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [{ itemName: "Eggs", quantity: 72, unit: "dozen" }],
+          changes: [],
+          removals: [],
+        },
+        published,
+        "6 dozen eggs today",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.additions[0]?.quantity).toBe(72);
+    });
+
+    it("does not let a price's digits authorize a quantity", () => {
+      // The other half of presence-only: "$3" is a PRICE, and price is its own field. Without
+      // excluding it, a message stating no quantity would carry a number and re-admit exactly
+      // the invention this guard drops.
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [{ itemName: "Kale", quantity: 3, priceText: "$3" }],
+          changes: [],
+          removals: [],
+        },
+        published,
+        "kale, $3",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.additions).toEqual([{ itemName: "Kale", priceText: "$3" }]);
+    });
+
+    it("keeps a quantity the message states as a word the model converted", () => {
+      // The seam note tells the model to write "a dozen" as 12, and that is a reading of
+      // the farmer's own words rather than an invention. A guard that dropped it would
+      // break the documented path.
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [{ itemName: "Eggs", quantity: 12, unit: "eggs" }],
+          changes: [],
+          removals: [],
+        },
+        published,
+        "a dozen eggs",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.additions[0]?.quantity).toBe(12);
+    });
+
+    it("keeps the unit and price when only the quantity is invented", () => {
+      // Dropping the whole detail set would lose facts the farmer did state.
+      const validated = validateInterpretation(
+        {
+          kind: "edits",
+          additions: [{ itemName: "Kale", quantity: 1, unit: "bunch", priceText: "$3" }],
+          changes: [],
+          removals: [],
+        },
+        published,
+        "kale by the bunch, $3",
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      expect(validated.value.additions).toEqual([
+        { itemName: "Kale", unit: "bunch", priceText: "$3" },
+      ]);
+    });
+
+    it("leaves the structured direct editor's quantities alone", () => {
+      // A farmer typing 4 into a web form has stated it as plainly as a farmer texting it.
+      // There is no message to check, so the guard must not reach this path at all.
+      const validated = validateStructuredInventoryEdit(
+        {
+          kind: "edits",
+          additions: [{ itemName: "Kale", quantity: 4 }],
+          changes: [],
+          removals: [],
+        },
+        published,
+      );
+
+      expect(validated.ok).toBe(true);
+      if (!validated.ok) return;
+      if (validated.value.kind !== "edits") throw new Error("expected edits");
+      // The VALUE, not just the verdict: the guard drops silently rather than refusing, so
+      // an `ok: true` assertion alone cannot see a quantity going missing.
+      //
+      // The exemption is doubly held and this test pins the OUTCOME rather than either
+      // mechanism: `withoutInventedQuantity` no-ops on an absent `taskText`, AND
+      // `validateStructuredInventoryEdit` returns the candidate it was given rather than the
+      // validator's rewritten value. Breaking either one alone leaves this green, which is
+      // the point — a farmer typing 4 into a form has stated it, whichever path carries it.
+      expect(validated.value.additions).toEqual([{ itemName: "Kale", quantity: 4 }]);
+    });
+  });
+
   it("says nothing about removals when nothing is being removed", () => {
     const proposed = applyInventoryEdits(
       published,

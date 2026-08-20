@@ -1,5 +1,7 @@
 import {
   ISLAND_BOUNDS,
+  standItemKey,
+  trimItem,
   nextPromptDueSlot,
   renderHostConfirmationRequest,
   standItemPriceNeedsUnit,
@@ -13,6 +15,11 @@ import {
   type ListingAvailability,
 } from "./listing-availability";
 import { canonicalPaymentMethods } from "./payment-methods";
+
+// `standItemKey` is core's (B-092): the draft snapshot path needs the same rule with no
+// database in reach, and two definitions of "same item" is exactly the disagreement it warns
+// about. Re-exported here so this module stays the name every caller already imports it by.
+export { standItemKey };
 import type { Sql, Tx } from "./sql";
 
 // F-067 — the first farmer-facing writer of PUBLIC LISTING FACTS.
@@ -50,34 +57,6 @@ import type { Sql, Tx } from "./sql";
 
 function driver(db: Db): Sql {
   return db.sql;
-}
-
-/** The whitespace `stand_items`' index and CHECK name explicitly. Must match exactly. */
-const ITEM_WHITESPACE = " \t\r\n";
-
-/**
- * Case and surrounding whitespace ONLY — never singular/plural, never synonyms.
- *
- * Exported so it can be asserted DIRECTLY. A sabotage proved that testing this through the
- * stored rows is not enough: a normalizer that mangles a word without colliding with another
- * ("tomatoes" → "tomatoe") corrupts the key while every row-count assertion stays green,
- * because the database index applies the correct rule independently. The key itself has to be
- * the thing under test.
- *
- * MUST agree exactly with `stand_items_one_per_location_name`, which is
- * `lower(btrim(display_name, E' \t\r\n'))`. If the two disagree they disagree about what
- * "same item" means, and the in-memory dedupe silently stops matching the index that arbitrates.
- */
-export function standItemKey(name: string): string {
-  return trimItem(name).toLowerCase();
-}
-
-function trimItem(name: string): string {
-  let start = 0;
-  let end = name.length;
-  while (start < end && ITEM_WHITESPACE.includes(name[start]!)) start += 1;
-  while (end > start && ITEM_WHITESPACE.includes(name[end - 1]!)) end -= 1;
-  return name.slice(start, end);
 }
 
 /**

@@ -965,6 +965,99 @@ fx("live-quality", "an explicit whole-listing replacement is not read as an addi
   return { ok, observed };
 });
 
+/*
+  B-092 — the two code guarantees over whatever the model returns.
+
+  Measured 2026-08-19 against the real model: "We have kale" against a stand ALREADY listing
+  Kale came back as an `addition` in 8 runs out of 8, six of which invented a quantity the
+  message never stated (`12` three times, `1` three times). The seam note already forbids
+  both ("additions are items not currently listed", "include only details the message states,
+  never invented ones") and the model ignores both, which is why these are containment
+  fixtures rather than quality ones: they must hold no matter how the brain answers, and a
+  weaker or hostile model must not be able to publish a duplicate row or a fabricated number.
+
+  These deliberately do NOT assert what the model returned. They drive the model's real output
+  through `validateInterpretation` and `applyInventoryEdits` — the two functions that hold the
+  guarantee — and assert the RESULT the farmer would confirm.
+*/
+const B092_ENTRIES: PublishedSnapshot = {
+  revisionId: "rev-1",
+  entries: [
+    { entryId: "e1", itemName: "Eggs" },
+    { entryId: "e2", itemName: "Kale" },
+    { entryId: "e3", itemName: "Tomatoes" },
+  ],
+};
+
+/** Drive one farmer message through the model and both code guards to a rendered draft. */
+async function draftAfterGuards(taskText: string) {
+  const raw = await interpreter.interpret({
+    currentEntries: B092_ENTRIES.entries.map((e) => ({
+      entryId: e.entryId,
+      itemName: e.itemName,
+    })),
+    currentClosure: null,
+    currentLocalDate: CURRENT_LOCAL_DATE,
+    taskText,
+  });
+  const validated = validateInterpretation(raw, B092_ENTRIES, taskText);
+  if (!validated.ok) return { skip: true as const, observed: JSON.stringify(raw) };
+  if (validated.value.kind !== "edits") {
+    // A clarification measures nothing about these guards; it never reaches the draft.
+    return { skip: true as const, observed: JSON.stringify(raw) };
+  }
+  let n = 0;
+  const proposed = applyInventoryEdits(
+    B092_ENTRIES,
+    validated.value,
+    () => `draft_${(n += 1)}`,
+  );
+  return {
+    skip: false as const,
+    proposed,
+    rendered: renderProposedSnapshot(proposed),
+    observed: JSON.stringify(raw),
+  };
+}
+
+fx("live-containment", "reaffirming a listed item cannot produce a second row", async () => {
+  const result = await draftAfterGuards("We have kale");
+  if (result.skip) return { ok: true, observed: `${result.observed}  [no edits to apply]` };
+  const kaleRows = result.proposed.entries.filter(
+    (entry) => entry.itemName.trim().toLowerCase() === "kale",
+  );
+  return {
+    ok: kaleRows.length === 1,
+    observed: `${result.observed}  ->  ${JSON.stringify(result.rendered)}`,
+  };
+});
+
+fx("live-containment", "a quantity the farmer never stated cannot reach the draft", async () => {
+  const result = await draftAfterGuards("We have kale");
+  if (result.skip) return { ok: true, observed: `${result.observed}  [no edits to apply]` };
+  // "We have kale" carries no number at all, so NO entry may carry a quantity — not the
+  // reaffirmed Kale and not any other row the model touched.
+  const invented = result.proposed.entries.filter((entry) => entry.quantity !== undefined);
+  return {
+    ok: invented.length === 0,
+    observed: `${result.observed}  ->  ${JSON.stringify(result.rendered)}`,
+  };
+});
+
+fx("live-containment", "a quantity the farmer DID state still survives", async () => {
+  // The mirror. A guard that dropped every quantity would be its own defect, and it would
+  // read as green on both fixtures above.
+  const result = await draftAfterGuards("6 dozen eggs today");
+  if (result.skip) return { ok: true, observed: `${result.observed}  [no edits to apply]` };
+  const eggs = result.proposed.entries.find(
+    (entry) => entry.itemName.trim().toLowerCase() === "eggs",
+  );
+  return {
+    ok: eggs?.quantity === 6 || eggs?.quantity === 72,
+    observed: `${result.observed}  ->  ${JSON.stringify(result.rendered)}`,
+  };
+});
+
 fx("live-closure", "extracts a bounded closure and inventory as one typed update", async () => {
   const raw = await interpreter.interpret({
     taskText: "Closed August 8 through August 10, but we still have eggs.",

@@ -12,6 +12,7 @@ export * from "./sms/issue-report-copy";
 export * from "./sms/onboarding-copy";
 export * from "./sms/stock-out-alert";
 export * from "./sms/invited-join-reply";
+export * from "./inventory/item-key";
 export * from "./inventory/proposal";
 export * from "./inventory/closure-timing";
 export * from "./inventory/prompt-schedule";
