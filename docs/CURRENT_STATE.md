@@ -14,15 +14,14 @@
   carrier-registered keywords (`STOP` + synonyms, `JOIN`/`START`/`VIGA`, `HELP`/`INFO`) pass by
   construction. Everything else gates, **`MAP` included**, so no model runs for an unconsented
   sender. `MAP` therefore lost its delayed-event exemption: a stale `MAP` now fails closed.
-- **HELP answers with two messages, and issue reports reach VIGA (B-091 — merged, NOT deployed and
-  migrations NOT applied).** The carrier-registered help body is followed by a code-rendered guide naming the
+- **HELP answers with two messages, and issue reports reach VIGA (B-091 — deployed).** The carrier-registered help body is followed by a code-rendered guide naming the
   keywords the sender can actually use; farmers and customers get different lists. The classifier
   gained an `issue_report` category that FILES NOTHING — the report is parked, the sender confirms,
   and code writes the flag into the same queue `FLAG` fills. `YES <email>` optionally leaves a reply
   address on that flag. Result pages now name the `MAP` keyword instead of carrying a URL, and the
   header reads `Results 4-6 of 12`.
 - **An addition naming an item the stand already lists reaffirms it, and an invented quantity is
-  dropped (B-092 — merged, NOT deployed).** Both are code guarantees over model output, because
+  dropped (B-092 — deployed).** Both are code guarantees over model output, because
   the seam note forbids both behaviours and the real model ignores both. Measured before fixing:
   "We have kale" against a stand listing Kale returned an ADDITION in 8 of 8 runs, six inventing
   a quantity (`12` x3, `1` x3). `applyInventoryEdits` merges on `standItemKey` — moved from `db`
@@ -77,20 +76,31 @@
 
 ## Deployment and migrations
 
-- Serving **`farm-friend-web-00090-qwk`** / **`farm-friend-worker-00085-ths`**, digest
-  `sha256:b5fe5f9e3a8378a40d675a4b71994f150340ace3da1c805d1ef7b4b708016ae5`, built from `3f3530f`.
-  Deployed 2026-08-19 (B-090, B-091, and F-122 so far). **`main` is AHEAD of production, and
-  further ahead than it was**: F-123, the farmer-link SMS copy, **B-092** and **the
-  `farmfriend@` contact address** are merged and undeployed, **F-124 is committed on
-  `f-124-trash-view` and unmerged**, and migration `0057` is unapplied (max chose merge-only and
-  reconfirmed "keep building" on 2026-08-19). **No flag alert email can send until that deploy
-  runs**, and **production still duplicates a listed item on a farmer's confirmation draft** —
-  B-092 is fixed in code that is not yet serving. Plan was
-  0 add / 2 change / 0 destroy — only the image digest moved; 61/61 plan assertions, deploy
-  assertions and served-card assertions all passed. **Verified live by effect**, not by the
-  deploy's own report: both removed admin routes answer 404, and the two 403s now name themselves
-  (`wrong_origin` from the `run.app` host, `not_signed_in` on the custom domain), and the shipped
-  admin bundle carries the new copy with no `clone()` left in it.
+- Serving **`farm-friend-web-00091-dvz`** / **`farm-friend-worker-00086-n95`**, digest
+  `sha256:3057ac40ed9e1bb708f3a734e7019463d20bc4138ad7c189dd4154b3622f3267`, built from `eb1ab86`.
+  Deployed 2026-08-19 — F-123, the farmer-link SMS copy, B-092, the `farmfriend@` contact address
+  and F-124. **`main` and production agree**, except for the infra fix below which was committed
+  after the apply that contained it. 63/63 plan assertions, deploy assertions and served-card
+  assertions all pass; neither revision has an error-level log.
+- **The deploy plan was REFUSED the first time, and the gate was right.** F-123 gave the worker
+  the flag-alert email by mounting the whole of `local.web_secret_env`, which also handed it
+  `ADMIN_PASSWORD_HASH`, the billed `GEOCODING_API_KEY` and F-079's three salts — seven
+  credentials a mail-sending process has no use for. `local.email_secret_env` now holds exactly
+  the email credentials and both services mount that. The two `worker never mounts GMAIL_OAUTH_*`
+  assertions were the other half: F-123 inverted the sender-address check and left these
+  standing, so the plan was internally contradictory — the worker told where to send from and
+  forbidden the credential to send with. They are now "only when the web service does too",
+  which catches asymmetry; `SMTP_PASSWORD` stays unconditionally forbidden as the alternative
+  provider. **It sat on `main` undeployed until the first plan refused it.**
+- **`0057` is applied. Neon `neondb` has 58 migrations**, verified by effect: `flags.alerted_at`
+  present as nullable `timestamptz`, seller/stand counts unchanged by the DDL (43 sellers /
+  39 stands — one more of each than the last snapshot recorded, from real activity).
+- **F-123 is verified by effect IN PRODUCTION, not by its own report.** Both pre-existing flags
+  were claimed and alerted within seconds of the new revision starting
+  (`alerted_at` 05:52:05 and 05:52:06), and **a second recovery pass left both timestamps
+  byte-identical** — the once-only claim holds under a real re-run, not just under test
+  contention. Two emails reached `farmfriend@vigavashon.org`; both flags were already
+  dismissed/resolved, which is expected for the first pass over a backlog and will not recur.
 - **A refusal reader that takes a `Response` is a trap, and the tests could not see it.** The
   first shape read the body itself; every caller had already parsed it, so each reached for
   `clone()` — which THROWS on a consumed body, landing in the caller's catch and printing the
@@ -101,11 +111,7 @@
   pass runs every minute returning 200. **F-119 verified in the shipped assets**: `items-cards`,
   `item-card-price`, `item-card-name` and `seller-block-heading` present in both the JS and CSS
   bundles, and the old `items-nested` / `item-sellers` absent.
-- **`0057` is written and locally verified but NOT applied and NOT deployed** (F-123): it adds
-  `flags.alerted_at`, the marker that makes a flag alert send exactly once. Its journal `when` was
-  repaired to follow `0056` — the generator stamped a wall-clock time sorting BEFORE it, which
-  would have skipped it silently while the runner printed "migrations applied".
-- Neon `neondb` has **57 applied migrations (`0000`–`0056`)**, applied 2026-08-19 and **verified by
+- Neon `neondb` has **58 applied migrations (`0000`–`0057`)**, applied 2026-08-19 and **verified by
   effect**: all six trash columns, all six trash CHECKs, `pending_issue_reports`, and both
   `flags.reporter_email*` columns present; 42 sellers / 38 stands unchanged. `0054` adds
   `pending_issue_reports`, `0055` adds `flags.reporter_email` / `reporter_email_hash`, `0056` adds
@@ -217,8 +223,7 @@
 
 ## Open before go-live
 
-- **VIGA is emailed when a flag arrives (F-123) — merged, NOT deployed, migration `0057`
-  unapplied.** One email to `farmfriend@vigavashon.org` per new `FLAG` or texted issue report,
+- **VIGA is emailed when a flag arrives (F-123) — DEPLOYED and verified by effect.** One email to `farmfriend@vigavashon.org` per new `FLAG` or texted issue report,
   sent from the cron pass so a slow mail server can never delay the SMS webhook's answer to the
   carrier. The email carries the masked sender and a console link — never the number, the hash, or
   the message text. Once-only is the database's: `update … where alerted_at is null returning …`
@@ -252,8 +257,7 @@
     `Live · 2 stands` — replacing the chip row and the separate amber attention line, so two
     parallel mechanisms describing one record became one. `Unclaimed` replaces `Live` rather than
     joining it, and the page-level attention line is gone because approval was all it counted.
-- **The Trash view and F-122's remaining removals are done (F-124 — committed on
-  `f-124-trash-view`, NOT merged and NOT deployed).** `Move to trash` on both card kinds behind a
+- **The Trash view and F-122's remaining removals are done (F-124 — merged and DEPLOYED).** `Move to trash` on both card kinds behind a
   confirmation that says what happens AND that it is reversible; a `Trash` section below the
   roster, shut with a count, mirroring how Invites sits above it (max chose this over a fourth
   tab). Restore is one press with no confirmation, and a FAILED restore keeps the row and says so
