@@ -21,6 +21,22 @@
   and code writes the flag into the same queue `FLAG` fills. `YES <email>` optionally leaves a reply
   address on that flag. Result pages now name the `MAP` keyword instead of carrying a URL, and the
   header reads `Results 4-6 of 12`.
+- **An addition naming an item the stand already lists reaffirms it, and an invented quantity is
+  dropped (B-092 — merged, NOT deployed).** Both are code guarantees over model output, because
+  the seam note forbids both behaviours and the real model ignores both. Measured before fixing:
+  "We have kale" against a stand listing Kale returned an ADDITION in 8 of 8 runs, six inventing
+  a quantity (`12` x3, `1` x3). `applyInventoryEdits` merges on `standItemKey` — moved from `db`
+  to `core` so the draft path and the database index cannot disagree about "same item".
+  `validateInterpretation` drops a quantity from a message stating none. **The quantity rule is
+  PRESENCE, never the value**: the first shape checked for THAT number and threw away the real
+  model's `72` for "6 dozen eggs today", caught by the live mirror fixture. A price's digits do
+  not count.
+- **The public contact address is `farmfriend@vigavashon.org`** (max, 2026-08-19), in the HELP
+  guide for both audiences, the farmer onboarding start page and VIGA's three Squarespace copy
+  blocks. **The carrier-registered HELP body still names `board@`** — it is transcribed
+  character-for-character from live Telnyx console state, so the console changes first (B-093).
+  The administrator login identity, the SMTP relay account and the `administrators_fixed_identity`
+  CHECK all deliberately stay `board@`.
 - **A stand answering the whole request outranks one answering part of it (F-120).** `matchCount` is
   `rankCandidates`' first key, ahead of freshness. `broad` passes a constant, so a catalog-wide
   request is not a biggest-listing leaderboard.
@@ -63,9 +79,13 @@
 
 - Serving **`farm-friend-web-00090-qwk`** / **`farm-friend-worker-00085-ths`**, digest
   `sha256:b5fe5f9e3a8378a40d675a4b71994f150340ace3da1c805d1ef7b4b708016ae5`, built from `3f3530f`.
-  Deployed 2026-08-19 (B-090, B-091, and F-122 so far). **`main` is AHEAD of production again**:
-  F-123 and the farmer-link SMS copy are merged and undeployed, and migration `0057` is unapplied
-  (max chose merge-only, 2026-08-19). **No flag alert email can send until that deploy runs.** Plan was
+  Deployed 2026-08-19 (B-090, B-091, and F-122 so far). **`main` is AHEAD of production, and
+  further ahead than it was**: F-123, the farmer-link SMS copy, **B-092** and **the
+  `farmfriend@` contact address** are merged and undeployed, **F-124 is committed on
+  `f-124-trash-view` and unmerged**, and migration `0057` is unapplied (max chose merge-only and
+  reconfirmed "keep building" on 2026-08-19). **No flag alert email can send until that deploy
+  runs**, and **production still duplicates a listed item on a farmer's confirmation draft** —
+  B-092 is fixed in code that is not yet serving. Plan was
   0 add / 2 change / 0 destroy — only the image digest moved; 61/61 plan assertions, deploy
   assertions and served-card assertions all passed. **Verified live by effect**, not by the
   deploy's own report: both removed admin routes answer 404, and the two 403s now name themselves
@@ -123,10 +143,13 @@
 
 ## Verification
 
-- **2,468 unit tests pass across 176 files; 7 corpus-only tests skip**, and integration is
-  **1,489/1,489 across all 110 files** (both 2026-08-19, after F-123). Typecheck and lint clean.
-  `evals:live` was NOT re-run and is not owed: no seam projection, schema, or output contract
-  changed this session.
+- **2,494 unit tests pass across 175 files; 7 corpus-only tests skip**, and integration is
+  **1,494/1,494 across all 110 files** (both 2026-08-19, after F-124). Typecheck and lint clean.
+- **`evals:live` was re-run for B-092 and is 7/7 containment** with every group green — closure
+  7/7, quality 16/16, operation 6/6, catalog 7/7. Three of those containment fixtures are new:
+  they drive REAL model output through `validateInterpretation` and `applyInventoryEdits` to the
+  rendered draft, so they measure the code guarantee rather than the brain. On the passing run the
+  model returned `quantity: 12` for "We have kale" and code stripped it.
 - **`evals:live` is green INCLUDING the new category** — containment 4/4, closure 7/7, quality 16/16,
   operation 6/6, catalog 7/7. The sixth operation fixture is new for B-091 and pairs each issue
   report against a stock-out that must not move; a set of issue reports alone would pass for a model
@@ -164,11 +187,14 @@
   Seventeen `*_not_blank` CHECKs share it. The suite asserts that measured truth in two cases
   rather than the constraint's name; **B-076** files the sweep, and the admitting case is marked
   INVERT WHEN FIXED.
-- **B-078 recurred and is confirmed environmental** (2026-08-19). A run reported `2 failed | 108
-  passed` files while every one of its 1,489 TESTS passed and the process exited 0 — a file-level
-  failure with no failing test. An immediate rerun on the identical tree was 110/110, exit 0.
-  Two runs, same commit, different file counts: the defect is the harness under parallel load, not
-  the code. Still unidentified by NAME — the summary carried no file names either time.
+- **B-078 recurred repeatedly and is confirmed environmental** (2026-08-19, twice). During F-124
+  the same tree produced `4 failed | 106 passed` files, then `8 failed | 102 passed` naming an
+  ENTIRELY DIFFERENT set — while all **1,494 TESTS passed both times**. Five further runs on that
+  identical tree were clean, and a single named failure in one of them
+  (`interpretation.integration.test.ts`) did not reproduce across the next three. The signature is
+  now well characterised: **file-level failures with no failing test, moving between runs.**
+  The standing rule holds — a NAMED failing test is a real defect until shown otherwise, and a
+  failure that moves between runs on an unchanged tree is the harness.
 
 ## Standing facts a cold start needs
 
@@ -205,23 +231,50 @@
   and two new assertions fail an apply that leaves `FLAG_ALERT_EMAIL` empty or the two services
   disagreeing about it. `flag_alert_email` lives in tracked `production.tfvars` for the same
   reason `public_host` does.
-- **The admin console strip-down is IN PROGRESS (F-122**, merged to `main` and DEPLOYED
-  2026-08-19). Landed so far:
+- **The admin console strip-down is COMPLETE across F-122 + F-124.** F-122 is merged to `main`
+  and DEPLOYED 2026-08-19; F-124 finished the rest and is committed but unmerged. What the two
+  landed between them:
   - **The trash**, replacing the "real delete" max first asked for — he revised it to trash the
     same day (2026-08-19). A trashed stand or seller leaves the roster and is restorable;
     **nothing destroys anything**, and "empty the trash" is deliberately not built because the
     referencing closure it must answer is its own item. `trashed_at` + `retired_by_trash` on both
-    tables, migration `0056`, four hand-appended CHECKs. **No trash VIEW is built yet** — the
-    writers and the scoped list readers exist, the screen does not.
+    tables, migration `0056`, four hand-appended CHECKs. **The screen now exists (F-124).**
   - **Alerts is the flag queue alone.** Stock-outs and "Questions about our records" are gone
     with their components and their two API routes. `stand_data_flags` is written only by the
     SEEDER, so that queue was never a product surface.
   - **Invites** moved to a collapsed section atop Stands & Sellers; "Waiting for your decision"
     is now "Open invites".
-  - Approval and test-farm marking are **decided for removal** (max, 2026-08-19) but **not yet
-    removed**. Both are safe to remove: onboarding redemption auto-approves, so the only
-    unapproved farm is one VIGA explicitly revoked — and with the toggle gone nobody can revoke.
-  - Still to decide: the Farm Bucks decision, pause/resume, and the state chips.
+  - Approval and test-farm marking are **removed (F-124)**, from the console AND from the
+    routes — the integration suite asserts the server refuses all four actions, because a button
+    that merely disappeared while the endpoint kept working is not a removal.
+  - Farm Bucks and pause/resume **stay** (max, 2026-08-19, each decided on its own). The chips
+    **collapsed to one summary per card** carrying two facts — `Open now · 2 sellers`,
+    `Live · 2 stands` — replacing the chip row and the separate amber attention line, so two
+    parallel mechanisms describing one record became one. `Unclaimed` replaces `Live` rather than
+    joining it, and the page-level attention line is gone because approval was all it counted.
+- **The Trash view and F-122's remaining removals are done (F-124 — committed on
+  `f-124-trash-view`, NOT merged and NOT deployed).** `Move to trash` on both card kinds behind a
+  confirmation that says what happens AND that it is reversible; a `Trash` section below the
+  roster, shut with a count, mirroring how Invites sits above it (max chose this over a fourth
+  tab). Restore is one press with no confirmation, and a FAILED restore keeps the row and says so
+  — a row that vanished would tell the operator it worked. `restoreStandFromTrash` /
+  `restoreFarmFromTrash` complete the named doors. Both routes gained `trash` /
+  `restore_from_trash` rather than routes of their own.
+  **A defect this work introduced was caught by its own test and never shipped:**
+  `retirementStatusFor` had no `trashed` case, so the writer succeeded while the route answered
+  409 — a stand genuinely trashed while the screen reported a conflict.
+  **`test-farms.tsx` was dead surface kept alive only by its own test**; both are deleted.
+  **Owed:** a browser pass at phone width on the new summary line and the Trash section. The
+  markup was rendered and read in jsdom — which is how a copy error was found — but no pixel of
+  either has been looked at.
+- **Removing the approval toggle left `revokeFarmApproval` with no production caller (B-094).**
+  Measured, not assumed: the only remaining references are two integration tests and one doc
+  comment. Publication still refuses with `not_approved` and onboarding still auto-approves, so
+  the gate works and every farm passes it — what no longer exists is any way to make a farm STOP
+  passing it. **This is the accepted consequence of max's decision, not a regression.** The writer
+  is deliberately kept, because deleting it would leave the `not_approved` branch permanently
+  unreachable. The nearest live control is revoking the farmer's AUTHORIZATION on the seller card,
+  which may be the whole answer.
 - **A stock-out report whose farmer cannot be reached now reaches nobody.** `stockout.ts` files
   those "for VIGA review" and VIGA's queue was removed (max chose "keep collecting, drop the
   screen", 2026-08-19). Eight were open at removal. `listStockOutReports` is kept and marked with
@@ -273,6 +326,14 @@
   top-level corpus is 52/53 with only this pre-existing miss; the gate fails on any NEW miss rather
   than treating that baseline as a regression. Add real misroutes to the corpus; do not tune around
   this advisory fixture without production evidence.
+- **The carrier-registered HELP body still names `board@vigavashon.org` (B-093).** Every other
+  user-facing mention became `farmfriend@`, so a sender who texts HELP today reads BOTH addresses
+  in one exchange — the carrier's body says `board@`, the code-rendered guide that follows says
+  `farmfriend@`. Low severity: `board@` is a real monitored VIGA mailbox, so nobody is stranded.
+  The order is fixed and cannot be shortcut: change the Telnyx console first, then transcribe the
+  result into `docs/TELNYX_10DLC_FIELD_VALUES.txt` and `REGISTERED_HELP_AUTO_RESPONSE` together.
+  Editing the constant alone would make our source disagree with what the carrier sends, which is
+  the drift the character-for-character pin exists to prevent.
 - Provider-failure copy is integration-tested only. A real outage test belongs on an isolated preview
   service, never VIGA's production model account.
 - **The F-121 consent gate is unexercised on a real handset.** It ships verified by integration
