@@ -50,3 +50,10 @@ mount_email_verification = true
 # provider; Terraform holds no credential for that zone. Domain ownership is verified in Google
 # Search Console by the account that runs the apply.
 public_host = "farmfriend.vigavashon.org"
+
+# F-123 — where a new FLAG or texted issue report is emailed (max, 2026-08-19).
+#
+# In THIS file rather than the gitignored `terraform.tfvars`, for the same reason `public_host`
+# is: an apply from another checkout that omitted it would silently stop every alert while
+# reporting success, and nothing would notice until a flag went unread.
+flag_alert_email = "farmfriend@vigavashon.org"

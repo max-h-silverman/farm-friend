@@ -470,13 +470,24 @@ def main() -> int:
           "@" in (web_env.get(sender_env) or ""),
           f"{sender_env}={web_env.get(sender_env)} — the sender must be configuration, "
           "never a default compiled into the application")
-    check("the worker is given no email configuration",
-          not any(key.startswith(("SMTP_", "GMAIL_", "EMAIL_PROVIDER")) for key in worker_env),
-          # Single-quoted inside the expression on purpose: reusing the OUTER quote character
-          # here needs Python 3.12+, and this file ran under 3.10 for a month as a SyntaxError
-          # that only surfaced when someone actually ran the assertions.
-          f"worker carries {sorted(k for k in worker_env if k.startswith(('SMTP_', 'GMAIL_', 'EMAIL_PROVIDER')))} — the worker "
-          "sends no email and must not be configured as though it could")
+    # INVERTED for F-123 (2026-08-19). This asserted "the worker is given no email
+    # configuration", which was true while nothing scheduled sent mail. The worker now sends the
+    # flag alert, so the OLD assertion would have to fail for the feature to work — and an
+    # unconfigured worker is this feature's quietest failure: the pass finds no email
+    # configured, sends nothing, claims nothing, and reports success forever.
+    check("the worker is told its sender address, because it sends the flag alert",
+          "@" in (worker_env.get(sender_env) or ""),
+          f"worker {sender_env}={worker_env.get(sender_env)} — the worker sends F-123 flag "
+          "alerts and cannot do so without the email provider configuration")
+    # The recipient is configuration on BOTH services, so neither can drift into a different
+    # answer about where an alert goes.
+    check("both services agree where flag alerts go",
+          web_env.get("FLAG_ALERT_EMAIL") == worker_env.get("FLAG_ALERT_EMAIL"),
+          f"web={web_env.get('FLAG_ALERT_EMAIL')} worker={worker_env.get('FLAG_ALERT_EMAIL')}")
+    check("the flag alert recipient is configured",
+          "@" in (worker_env.get("FLAG_ALERT_EMAIL") or ""),
+          f"FLAG_ALERT_EMAIL={worker_env.get('FLAG_ALERT_EMAIL')} — an empty recipient makes "
+          "every flag alert a silent no-op")
 
     print("\nSecret rotation reaches containers")
     # B-021. Cloud Run resolves `version = "latest"` at CONTAINER START, so adding a secret

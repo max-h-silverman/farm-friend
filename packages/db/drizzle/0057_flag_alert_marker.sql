@@ -1,0 +1,1 @@
+ALTER TABLE "flags" ADD COLUMN "alerted_at" timestamp with time zone;

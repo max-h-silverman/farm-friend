@@ -400,6 +400,13 @@
       "when": 1788150422000,
       "tag": "0056_trash_stands_and_sellers",
       "breakpoints": true
+    },
+    {
+      "idx": 57,
+      "version": "7",
+      "when": 1788150423000,
+      "tag": "0057_flag_alert_marker",
+      "breakpoints": true
     }
   ]
 }

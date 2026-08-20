@@ -127,6 +127,7 @@ Copy `.env.example` to the gitignored `.env`. Configuration is validated in
 | Variable | Contract |
 |---|---|
 | `DATABASE_URL` | Postgres/Neon connection |
+| `FLAG_ALERT_EMAIL` | Where a new `FLAG` or issue report is emailed (F-123). Empty = no alerts, and the pass claims nothing. Both services carry it; the WORKER is the one that sends |
 | `PHONE_HASH_SALT` | Required lookup-key input; **never rotate** |
 | `DEPLOYMENT_ROLE` | `web` (default) or `worker`; invalid values fail startup. The web role refuses `/api/internal/*` |
 | `CLOUD_TASKS_*` | Five variables, all or none. Omit all for local scheduled-pass-only operation |

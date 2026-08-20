@@ -211,6 +211,12 @@ it, and the next purge pass clears that thread's expired bodies — proven end t
   authorized handset, or one publishing no confirmed inventory — used to be filed "for VIGA
   review" and now reaches nobody. Eight such reports were open when the screen was removed.
   If that matters, the reader is still in the code and the screen is a render away.
+- **You are emailed when a flag arrives (F-123).** `farmfriend@vigavashon.org` gets one email per
+  new `FLAG` or texted issue report, within about a minute. The email says what kind of message
+  arrived, the sender's masked number, and when — **never the message itself**, which is
+  short-lived and is read in the console. Nobody has to watch the queue for something to appear.
+  The address is configuration (`flag_alert_email` in `infra/production.tfvars`), so changing it
+  is an apply rather than a code change.
 - **Resolve a flag:** open `/admin/messages`. A `FLAG` creates a review item. Read the thread, take the
   needed action, then record **resolved** or **dismissed** with a short reason — the reason is
   required, because an audit record that does not say why is not much of one. Both dispositions

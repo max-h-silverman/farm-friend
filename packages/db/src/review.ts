@@ -119,6 +119,104 @@ export async function listFlagsForReview(
   }));
 }
 
+/**
+ * One flag VIGA needs to be emailed about (F-123).
+ *
+ * **The minimum that lets a coordinator decide whether to open the console**, and nothing more.
+ * No `contact_hash`, no number, no message body — the mask is what an operator reads and the
+ * body is short-lived by retention policy (Golden Rule #5). An alert says WHAT arrived and
+ * WHEN; the console is where it is read.
+ */
+export interface FlagAlertRow {
+  flagId: string;
+  /** The last four digits, masked in SQL. Never the number. */
+  senderMask: string;
+  reasonCode: string;
+  createdAt: Date;
+}
+
+/**
+ * Take the flags that still owe VIGA an email, marking them claimed in the same statement.
+ *
+ * **The `update … where alerted_at is null returning …` IS the once-only guarantee.** A read
+ * followed by a later write is exactly the race that emails one flag twice: several concurrent
+ * passes would all observe "unalerted" and each send. Here the second update matches no row.
+ *
+ * **The claim is PROVISIONAL.** `alerted_at` is set to a claim time here, and the caller commits
+ * it with `markFlagAlerted` only once the mail server accepts. A send that fails must release the
+ * flag — see the caller — because an alert lost to one hiccup is the failure this feature exists
+ * to prevent.
+ *
+ * `limit` bounds one pass so a backlog cannot turn a scheduled minute into an unbounded mail run.
+ */
+export async function claimFlagsToAlert(
+  db: Db,
+  input: { limit: number },
+): Promise<FlagAlertRow[]> {
+  const rows = await driver(db)`
+    update flags
+    set alerted_at = now()
+    where id in (
+      select id from flags
+      where alerted_at is null
+      order by created_at asc, id asc
+      limit ${input.limit}
+      -- Skips a row another pass holds rather than waiting behind it: the alert is not worth
+      -- blocking a scheduled pass, and the row it skipped is already being sent by that pass.
+      for update skip locked
+    )
+    returning id, contact_hash, reason_code, created_at
+  `;
+  if (rows.length === 0) return [];
+
+  // Masked in a SECOND statement rather than joined into the update, because `update … returning`
+  // cannot read a joined table. The hash never leaves this function.
+  const hashes = rows.map((row) => row.contact_hash as string);
+  const contacts = await driver(db)`
+    select phone_hash, right(phone_e164, 4) as last_four
+    from contacts where phone_hash = any(${hashes})
+  `;
+  const lastFour = new Map(
+    contacts.map((row) => [row.phone_hash as string, row.last_four as string]),
+  );
+
+  return rows.map((row) => ({
+    flagId: row.id as string,
+    senderMask: maskPhoneSuffix(lastFour.get(row.contact_hash as string) ?? null),
+    reasonCode: row.reason_code as string,
+    createdAt: new Date(row.created_at as string),
+  }));
+}
+
+/**
+ * Commit the claim: this flag's email was accepted by the mail server.
+ *
+ * Separate from the claim so a failed send can release the flag instead. The timestamp moves
+ * from the claim time to the accepted time, which is the fact worth keeping.
+ */
+export async function markFlagAlerted(
+  db: Db,
+  input: { flagId: string; occurredAt: Date },
+): Promise<void> {
+  await driver(db)`
+    update flags set alerted_at = ${input.occurredAt.toISOString()}
+    where id = ${input.flagId}
+  `;
+}
+
+/**
+ * Release a claim whose send failed, so the next pass tries again.
+ *
+ * Named rather than left to the caller writing `null`: "this alert is still owed" is a decision
+ * with a reason, and a bare column write somewhere else would not carry it.
+ */
+export async function releaseFlagAlertClaim(
+  db: Db,
+  input: { flagId: string },
+): Promise<void> {
+  await driver(db)`update flags set alerted_at = null where id = ${input.flagId}`;
+}
+
 export interface DisposeFlagInput {
   flagId: string;
   administratorId: string;
