@@ -6,12 +6,95 @@ true/unfinished now lives in [CURRENT_STATE.md](CURRENT_STATE.md); this file is 
 past changes*.
 
 This file keeps the newest ~15 entries; older entries rotate into
-[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 112. A log too large to open
+[SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md), which now holds 114. A log too large to open
 mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-19 (latest) — Two model inventions fixed in code, the Trash gets a screen, and the deploy gate refuses the plan
+## 2026-08-20 (latest) — Payment becomes a fact about the seller, and an eligibility grant gets deleted rather than moved
+
+F-125 plus B-095, merged to `main` and **DEPLOYED** — `web-00092-xxn` / `worker-00087-ccz`, digest
+`sha256:245e6a1b…`, migration `0058` applied (Neon at 59). Unit **2,503 across 176 files**,
+integration **1,507 across 111 files**, typecheck and lint clean, scripted evals 34/34 and
+`evals:live` 43/43 against the real model.
+
+### The shape of the fix
+
+Payment lived on the stand in two places — `sales_location_payment_methods` and the
+`farm_bucks_*` column pair — so a seller at three stands stated it three times and could leave
+the three disagreeing. It is hers now: `seller_payment_methods` keyed on the seller, plus
+`sales_location_payment_method_exclusions` for the case that motivated the override, a hosted
+seller whose host cannot take cash.
+
+**The override narrows by SHAPE, not by a guard.** The table names removals, so "this stand adds a
+method she does not take" has no representation. That is the difference between a rule code checks
+and one the data model makes impossible, and it is why the test asserts the resolved answer is
+always a subset rather than asserting that adding is refused.
+
+### The decision that made it smaller
+
+max, asked whether `farm_bucks_eligible` should move too: *"there is no 'eligible'. they either
+take it or they don't."* So the grant was **deleted rather than moved**. It had made the old model
+three-state — accepts / refuses / never reviewed — which is exactly how five production stands came
+to claim acceptance with no grant behind them.
+
+That collapsed a follow-up question: what should the eleven farms with no answer publish? max chose
+**accepting**, on the ground that Farm Bucks is near-universal among VIGA farms, so silence is
+nobody ticking a box. **The risk was named and accepted**: a wrong `true` sends a customer to an
+unattended honor-system stand holding vouchers the farmer will not take. If a farmer reports that,
+it is this default and not a defect.
+
+### What inspecting production first was worth
+
+The item warned that a shared stand whose two sellers disagree is a decision rather than a lift.
+Measured before writing the migration, it was not: all four shared stands carried only the HOST's
+payment statement, the two multi-stand sellers had no statement of their own, and every stand had
+an owning seller. The migration was a lift after all — but the same inspection found the thing the
+item had *not* anticipated, the five accepted-without-grant rows, which is what turned the
+eligibility question from theoretical into concrete.
+
+### Three defects the tests would not have caught, and how each surfaced
+
+- **The generator dropped the data.** `drizzle-kit` emitted create-then-drop with no backfill —
+  86 production payment rows destroyed — and stamped a journal `when` sorting *before* its
+  predecessor, the documented trap that skips a migration while printing "migrations applied".
+  Both repaired by hand.
+- **`updateStand` still wrote a dropped column.** Typecheck said zero errors, because these are raw
+  SQL strings; only running the integration suite found it. Eleven tests failed on one stale line.
+- **A lossy round trip I introduced myself.** The reader initially returned her *narrowed* list
+  while the writer replaced her *seller-wide* rows from the same field — so a farmer editing at a
+  stand with an exclusion would silently drop that method everywhere else. Caught by reading the
+  round trip, not by a failing test. The reader now returns what she states, with the override
+  carried separately and read-only.
+
+### Sabotage found a real hole
+
+Removing the seller match from the exclusion join left **every test green**, because no second
+seller sold at the host's stand. A host's restriction on one seller would have leaked onto every
+co-seller at that stand — telling customers a farm refuses cash it actually takes, invisibly to the
+host, whose own card still read correctly. A co-seller case now pins it, and re-sabotage fails.
+
+### B-095 closed as a consequence
+
+The map's seller list had no VIGA Bucks indicator because the fact was not on the seller to show.
+Once payment moved it became a render rather than a derivation — one answer per seller, so a seller
+at several stands cannot show three different ones. Fernhorn Bakery, hosted-only, has no pin and no
+card, so the seller list is the only place that fact can reach a customer at all.
+
+### Verified
+
+Migration dry-run against a copy of the real production rows before it was written, then verified
+by effect after applying: 86 rows in, 86 out, none stranded, 3 sellers on a reviewed refusal and 40
+on the accepted default — matching the dry run exactly. On the wire afterwards: 33 stands, 25 with
+payment methods, 3 refusing; the served map page carries 69 `farmBucksAccepted` values, the B-095
+badge, and **zero** occurrences of `farmBucksEligible`. No error-level logs on either revision.
+
+**Not verified:** nothing seen in a browser — the standing pre-go-live gap, and this tranche adds
+the seller badge and the reworded payment question to it.
+
+---
+
+## 2026-08-19 — Two model inventions fixed in code, the Trash gets a screen, and the deploy gate refuses the plan
 
 One session, two backlog items plus a deploy that found a defect nobody had noticed. Unit **2,494
 across 175 files** (7 corpus skips), integration **1,494 across 110 files**, typecheck and lint
@@ -1461,167 +1544,3 @@ appears nowhere in the AI package, with the search proved against a known-presen
 live eval run owed.
 
 ---
-
-## 2026-08-15 — Everything the records were built for (F-114 Phase C.2, writes + closure)
-
-Two tranches, merged as **`214aeb2`** (PR #126). Zoe can now state Gracie's Greens' stock at
-Kelsey's stand without touching Kelsey's listing, and Morgan Hill can shut its gate. Integration is
-**1208/1208 across 84 of 84 files**, up from 1133/1133 across 77; unit is unchanged at 2,074 with
-the 7 corpus skips. Re-verified on the merged base, not only on the branch.
-
-**The last place the one-seller-per-stand assumption survived was a foreign key.** `0042` gave
-`inventory_revisions` a composite key onto `(sales_locations.id, own_seller_id)`, which reads
-plainly as *every revision's seller is the stand's own seller*. True of 38 of 38 stands when it was
-written, and it forbids hosted publication **at the database** — no writer could have reached
-around it. It was correct at the time: C.0 had just re-rooted identity onto sellers and every stand
-still had exactly one. `0045` replaces it with `(provider_id, seller_id)`, which is what it was
-reaching for and stronger: whose goods these are is decided by the RELATIONSHIP, never by who owns
-the roof. Worth recording because nothing in the phase plan predicted it — it surfaced only when a
-hosted publication test failed against a constraint nobody had reason to re-read.
-
-**One deliberate loosening, named rather than buried.** `inventory_revisions_authorization_farm_fk`
-bound the publisher's authorization to the seller being published, which refuses exactly the write
-§the Venison Valley case permits: a host stating a hosted seller's stock under that seller's own
-opt-in. It becomes a plain authorization reference. The database *cannot* answer who may publish
-for whom — the answer is two LIVE facts, the relationship's `host_may_update_stock` and the
-authorization's revocation, and a static key sees neither. `approval_farm_fk` was deliberately NOT
-widened: VIGA's approval is a fact about the seller, never about who typed the update.
-
-**`host_may_update_stock` gained its first reader**, which is the point of the tranche. C.1 left it
-a column with a constraint and no consumer — the "data present with no consumer is invisible" trap,
-shipped knowingly. `resolveProviderWriteAuthority` is now the one place that answers *may this
-phone write this provider's stock, and under which authorization?*, with three ways to say yes
-enumerated once rather than at each writer.
-
-**Closure needed a second seam, not a flag on the first.** A stand shutdown overrides every
-provider and renders nothing itemized, so it is not any seller's stock — and at a venue there is no
-provider to ask about at all. `resolveStandWriteAuthority` answers "may this phone state a fact
-about this PLACE?" The writers now resolve each proposal section against the authority it needs.
-Merging the two questions would have produced a call returning "authorized for no provider", which
-every caller would then have had to interpret.
-
-**B-077 closed, and its shape mattered.** `closure_revisions` demanded a seller in three NOT NULL
-columns, so Morgan Hill could hold none of them. Closure now takes two arms mirroring the
-authorization's own: a venue names no seller and no seller-approval, because approval gates whether
-a SELLER may be public and a venue sells nothing. `owner_authorization_id` stays NOT NULL in both —
-the stand arm drops the seller, never the person. **The arm is decided by the STAND, not chosen by
-the writer** (`closure_revisions_guard_arm`, a trigger because the rule reads another table);
-without that, the venue's arm would be an escape hatch letting any stand's owner publish a closure
-with no approval behind it.
-
-**`0046` also widened `inventory_publication_proposals.provider_id`**, which was not anticipated.
-That column binds a confirmation token to the listing the farmer was shown, and a venue's closure
-has no listing. Naming one of its hosted sellers' would bind the token to goods the closure is not
-about — and let that seller's `YES` publish the venue's shutter. A CHECK confines NULL to exactly
-the closure-only case.
-
-**Four defects found on the way**, each closed with a case aimed at it: the revise path moved
-`sales_location_id` without `provider_id`, so a retargeted proposal would be confirmed against a
-listing the farmer never read; a pre-existing constraint test filed the host's seller on the hosted
-provider's row, a shape admissible only because nothing checked it; the confirmation locked only
-"the acting authorization", silently leaving the other unlocked in exactly the mixed proposal where
-they differ; and the seller-retirement gate would have reported `farm_retired` for a venue, because
-`rows[0]?.retired_at !== null` is TRUE on an empty result.
-
-**The standing lesson from 22 sabotages: a guard is unfalsifiable until a case exists where it is
-the ONLY thing that could refuse.** All six escapes were that same failure, in six disguises.
-The seller-arm preference had no case constructing a phone holding both arms. The provider/stand
-agreement check was tested with an actor already refused earlier for a different reason. The
-closure insert's stand-owner columns and the confirmation's stand-authority resolution both needed
-a MIXED proposal at an ordinary stand, where the two authorities finally differ — at a venue both
-are `(null, null)` and at a single-seller stand they are the same row. The arm trigger needed an
-UPDATE that swaps the arm, because a valid supersede passes whether or not the trigger sees updates
-at all. And a `NOT VALID` foreign key sailed through a violating-insert probe, because `NOT VALID`
-still refuses new rows and skips only the existing ones — the assertion had to move to
-`convalidated`, the fact that actually differs. **This generalizes past sabotage: when a breakage
-changes no test result, the first question is whether some *other* guard is answering first.**
-
-**Two migrations owed production, taking the queue to five.** `0045` then `0046`, after `0042`,
-`0043`, `0044`, in that order. Neither was generated — both are constraint-only work `drizzle-kit`
-does not emit. The snapshots were produced the way C.1 repaired its own: introspect a throwaway
-database built from every migration, then renumber the generated snapshot and drop the spurious
-journal entry and `.sql` the generator writes alongside it. **Running `drizzle-kit generate`
-against `schema.ts` directly still produces a destructive drop-and-recreate** — the drift C.1
-recorded is not gone, only routed around.
-
-## 2026-08-15 — Two doors, and the door that was already open (F-114 Phase C.1, doors)
-
-C.1's invitation mechanism was merged and green, and nobody could reach it. VIGA's endpoint had no
-button; the stand owner had no door at all. Both now have a person's way in. Integration is
-**1133/1133 across 77 of 77 files**, up from 1124/1124; unit is 2,074 up from 2,063.
-
-**The stand owner's authority was already recorded — it just had no surface.** `resolveFarmerLink`
-joins `location.own_seller_id = link.owner_seller_id = auth.seller_id`, so a token that resolves at
-all belongs to a phone authorized for the seller its stand names as itself. That is precisely what
-§there is no second permission system means by "stand owner": derived through the self-pointer,
-never stored. So the door reads no new column, invents no role, and adds no gate — it hands
-`inviteSellerToStand` the authorization the token already resolved, and the writer re-reads it under
-lock. `invited_by_authorization_id` is the vouch, which is what makes acceptance record
-`approval_source = 'host'`.
-
-**The SMS half needed no keyword, and that is the session's main judgment call.** The brief asked
-for a door Kelsey can reach "from her phone or from her stand settings page", and the obvious
-reading is a new farmer keyword. It is the wrong build. `LINK` and `SETTINGS` both already text the
-farmer that page, so the phone door exists; a keyword would have to invent a free-text grammar for
-a name that becomes a *public brand*, then find a way to text a 64-hex link back for the host to
-forward. That is a second mechanism for a door that already opens, and every one of Max's five C.1
-decisions removed a step rather than adding one. Recorded here because the absence of a keyword is
-the kind of thing a later session re-proposes without knowing it was considered.
-
-**A name, never a seller id, on the farmer's door.** VIGA's door can name an existing seller because
-a coordinator is looking at the roster. Offering that to the farmer would mean handing this surface
-a list of every seller on the island — exactly the projection `resolveFarmerLink` exists to keep
-narrow. So the farmer types the name of the person on their table, and VIGA resolves an existing
-identity, which is the same human step §the 11 hosted names already requires and the reason code
-never matches a name to an identity.
-
-**A seller name is public text, and nothing was checking it.** §suppression follows a pointer credits
-every hosted seller on the stand's public card, so a name minted at either door reaches the island's
-only guide. `saveSalesLocationParticipants` has held that boundary for the display-only names since
-F-084; the real ones had no guard at all, and the farmer's door was about to let untrusted input
-type one. `validatePublicStrings` now guards `inviteSellerToStand` — one place, both doors, the same
-code-owned refusal copy — answered before the transaction opens so a refusal leaves no seller behind.
-An *existing* seller is deliberately not re-validated: its name is already public, and refusing it
-would block an invitation over a row the call did not write. This was a live gap, not a hypothetical:
-`Gracies Greens 206-555-0199` was accepted and published before the guard.
-
-**An invitation is not a setting, and a sabotage proved the test didn't know that.** Everything else
-on the settings panel writes what *changed* when the farmer presses Save; this mints a link that
-exists exactly once, so it has its own press. Asserting that Invite posts once says nothing about
-what Save does — and a `save()` that also invited went unnoticed until the tab-committed path
-(F-098's `registerSave`, where the panel renders no button of its own and the listing form's press
-reaches `save` directly, bypassing the disabled state) got a case of its own. **The escaped sabotage
-is the most useful thing that happened this session**: it is the exact failure mode the discipline
-exists to catch, and it escaped because the test asserted the presence of the right behavior rather
-than the absence of the wrong one.
-
-**The blast radius genuinely widened, and is written down rather than buried.** A leaked farmer link
-can now create a seller row and a `pending` relationship at its own stand. It still authorizes
-nobody — acceptance needs the invited seller's own handset and a bare `START` — and `pending` is
-excluded by every public reader, so the worst a leak achieves is an unaccepted invitation VIGA can
-revoke. That bound is asserted beside F-040's five, not assumed.
-
-**Both doors now answer with the complete onboarding URL, shown once**, matching `create_invite`.
-VIGA's previously returned a bare token, which would have made an operator assemble a URL by hand;
-neither door echoes the raw token beside the link, because a second spelling of one credential is a
-second thing to leak.
-
-**Process note worth recording:** the first hour of this session was edited directly on `main`,
-against CLAUDE.md's standing rule. Nothing was committed there and the work moved cleanly to
-`f-114-phase-c1-invite-doors`, but the branch should be claimed at step 2 of *working a task*, not
-remembered at commit time. Twice during sabotage cleanup a `git checkout <file>` was used to undo a
-deliberate breakage and reverted uncommitted session work with it — restoring from a scratchpad copy
-each time. Sabotage should be undone from the backup that was taken for it, never from HEAD, while
-the work is uncommitted.
-
-Verified: unit 2,074 pass / 7 skip, integration 1133/1133 across 77/77, typecheck, lint, web build,
-scripted evals 11/11 + 4/4 + 19/19. **No seam projection, schema, or output contract changed, so no
-live eval run is owed.** Twelve sabotage cases, each caught by the case aimed at it once the escape
-was closed. Merged to `main` as **`e2c79c9`** (PR #125), and **re-verified on the merged base**:
-2,074 / 7 skip and 1133/1133 across 77/77. This change carries **no migration and no deploy-only
-surface**; the deployment itself is still owed, and `0042`/`0043`/`0044` remain unapplied — all
-Max's call.
-
----
-
-**Older entries** (2026-08-13 and earlier) live in [SESSION_LOG_ARCHIVE.md](SESSION_LOG_ARCHIVE.md). Rotated 2026-08-19: the 12 entries from 2026-08-13 to 2026-08-15 moved there to keep this file out of the cold-start path.

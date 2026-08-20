@@ -77,17 +77,21 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
 
 ## Deployment and migrations
 
-- Serving **`farm-friend-web-00091-dvz`** / **`farm-friend-worker-00086-n95`**, digest
-  `sha256:3057ac40ed9e1bb708f3a734e7019463d20bc4138ad7c189dd4154b3622f3267`, built from `eb1ab86`,
-  deployed 2026-08-19. **`main` and production agree.** 63/63 plan assertions, deploy assertions
-  and served-card assertions pass; neither revision has an error-level log; the worker's recovery
-  pass runs every minute returning 200.
-- Neon `neondb` has **58 applied migrations (`0000`–`0057`)** in PRODUCTION, each verified by effect
-  rather than by "migrations applied". Production holds **43 sellers / 39 stands**.
-  **`0058` (F-125) is written and locally verified but NOT applied to production** — it moves payment
-  to the seller and drops `sales_location_payment_methods` plus both `farm_bucks_*` stand columns.
-  Its backfill was dry-run against a copy of the real production rows: 86 payment rows in, 86 out,
-  none stranded, 3 sellers landing on a reviewed refusal and 40 on the accepted default.
+- Serving **`farm-friend-web-00092-xxn`** / **`farm-friend-worker-00087-ccz`**, digest
+  `sha256:245e6a1bf3dc9170b8ca7cfcdeba52dd8383516477c073ca1c02d194f9155751`, built from `92fadf1`,
+  deployed 2026-08-20. **`main` and production agree.** 63/63 plan assertions and deploy assertions
+  pass; neither revision has an error-level log.
+  **F-125 is verified on the wire**: `/api/public/stands` returns 33 stands, 25 carrying payment
+  methods, exactly 3 refusing Farm Bucks; the served map page carries 69 `farmBucksAccepted`
+  values, the B-095 refusal badge, and **zero** occurrences of the deleted `farmBucksEligible`.
+- Neon `neondb` has **59 applied migrations (`0000`–`0058`)**, each verified by effect rather than
+  by "migrations applied". Production holds **43 sellers / 39 stands**.
+  **`0058` (F-125) is applied**, verified by effect and matching its dry run exactly: 86 payment
+  rows carried to `seller_payment_methods`, none stranded, 3 sellers on a reviewed refusal and 40
+  on the accepted default; `sales_location_payment_methods` and both `farm_bucks_*` stand columns
+  are gone. The pre-migration state was snapshotted to
+  `~/farm-friend-backups/f125-pre-migration-backup-20260820T121702.json`, beside the earlier Neon
+  dumps — **one machine only**, so it is a convenience rather than a durable backup.
 - **The worker mounts `local.email_secret_env`, never `web_secret_env`.** It sends the F-123 flag
   alert and needs the email credentials; it must never hold `ADMIN_PASSWORD_HASH`, the billed
   `GEOCODING_API_KEY`, or F-079's three salts. `plan-assertions.py` enforces this and once refused
