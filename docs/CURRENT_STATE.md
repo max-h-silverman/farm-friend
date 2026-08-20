@@ -37,6 +37,9 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
   question grammar removes the article. Marked INVERT WHEN a second food vocabulary is allowed.
 - **`matchCount` is `rankCandidates`' first key**, ahead of freshness (F-120); `broad` passes a
   constant so a catalog-wide request is not a biggest-listing leaderboard.
+- **B-095 closed with F-125.** The map's seller list carries `farmBucksAccepted` and renders the
+  refusal as a badge beside the season one. It is a RENDER, not a derivation — the whole reason
+  it was blocked is that a seller at several stands had no single answer until payment moved.
 - **Payment belongs to the SELLER, and a stand may only narrow it (F-125).** She states her
   methods and her VIGA Bucks answer once, on `sellers`, and they apply at every stand she sells
   at. `sales_location_payment_method_exclusions` lets a host REMOVE a method it cannot support
