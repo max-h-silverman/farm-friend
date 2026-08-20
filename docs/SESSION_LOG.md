@@ -139,6 +139,28 @@ failure that moves on an unchanged tree is the harness.
 **Owed:** a browser pass at phone width on F-124's summary line and Trash section. The markup was
 rendered and read in jsdom; no pixel has been looked at.
 
+### At wrap: payment turns out to be modelled on the wrong thing
+
+max reported the "does not take VIGA Bucks" indicator missing from the map's seller list
+(**B-095**). Locating it raised the design question — what should it say for a seller selling at
+several stands that disagree? — and his answer moved the ground: **payment is a fact about the
+SELLER**, and more than VIGA Bucks. All of it. With a **stand-level override that only NARROWS**,
+for a hosted seller whose host cannot support cash.
+
+Filed as **F-125**. Today both halves live on `sales_locations` — the methods in
+`sales_location_payment_methods`, VIGA Bucks as `farm_bucks_accepted` / `farm_bucks_eligible` —
+which asks a farmer the same question once per stand and lets her answers disagree. It touches ~20
+non-test files plus the two doors where a farmer actually states it: onboarding's listing step and
+the farmer settings screen. A seller onboarding her second stand is asked again today; a seller at
+three stands has to change it three times.
+
+B-095 is now a **symptom** of it, kept as its own item only because it is the customer-facing edge
+that proves F-125 got all the way out rather than stopping at the schema. **Do not derive a
+seller's answer from her stands** — that is the second mechanism F-125 exists to remove.
+
+Left open deliberately: whether `farm_bucks_eligible` moves too. It is VIGA's grant rather than the
+farmer's claim, so it is a different authority and gets reasoned about separately, not swept along.
+
 ## 2026-08-19 — The console loses three screens, production gains an alert, and a fix ships broken
 
 Four tranches across one long session. Unit **2,468 across 176 files** (7 corpus skips), integration

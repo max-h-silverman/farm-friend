@@ -180,8 +180,18 @@ shipped bundles — **and no pixel and no message has been looked at on a real d
 
 ### Decisions owed by VIGA or max
 
-- **B-095** — what the "does not take VIGA Bucks" indicator MEANS for a seller selling at several
-  stands with different answers. `seller-list.ts` carries no such indicator today.
+- **F-125 — payment belongs to the SELLER, with a stand-level override** (max, 2026-08-20), and it
+  is the next tranche. Today both halves live on `sales_locations`: the methods in
+  `sales_location_payment_methods`, and VIGA Bucks as `farm_bucks_accepted` /
+  `farm_bucks_eligible`. Wrong owner — whoever takes the money decides how, and a seller at three
+  stands should state it once. The override **narrows** what she states, for a hosted seller whose
+  host cannot support cash; it never adds. Touches ~20 non-test files plus onboarding and farmer
+  settings, and it is a change to what a model seam is shown, so `evals:live` applies.
+  **B-095 is a symptom of it**, not a separate fix: the map's seller list has no VIGA Bucks
+  indicator because the fact is not on the seller to show. Do not build a derivation rule from her
+  stands — that is the second mechanism F-125 exists to remove.
+  Open sub-question: whether `farm_bucks_eligible` moves too. It is VIGA's grant rather than the
+  farmer's claim, so it is a different authority and should be reasoned about separately.
 - **B-094** — with the approval toggle gone, `revokeFarmApproval` has no production caller, so an
   approval cannot be reversed. Accepted consequence of a decision, not a regression. Revoking the
   farmer's AUTHORIZATION may be the whole answer, in which case the writer and the `not_approved`
