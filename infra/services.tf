@@ -62,6 +62,11 @@ locals {
     # a new revision, which re-resolves every secret. See `variables.tf` for the B-021 outage
     # this comes from.
     ROTATION_APPLIED_AT = var.rotation_applied_at
+
+    # F-123 — where a new FLAG or issue report is emailed. Configuration rather than a literal
+    # in code: VIGA's operator address is theirs to change without a code deploy. Empty makes
+    # the alert pass a no-op, which is the supported "email not configured" deployment.
+    FLAG_ALERT_EMAIL = var.flag_alert_email
   }
 
   # PUBLIC_BASE_URL — BOTH services need it, and it is always the PUBLIC service's URL.
@@ -334,8 +339,35 @@ resource "google_cloud_run_v2_service" "worker" {
         }
       }
 
+      # F-123 — the WORKER sends the flag alert, so it needs the same email configuration the
+      # web service has. It previously had none: the alert pass would have found email
+      # unconfigured and silently sent nothing, which is the quietest possible failure for a
+      # safety notice. `local.web_env` is the provider block, named for the service that needed
+      # it first rather than for the only service allowed to have it.
+      dynamic "env" {
+        for_each = local.web_env
+        content {
+          name  = env.key
+          value = env.value
+        }
+      }
+
       dynamic "env" {
         for_each = local.shared_secret_env
+        content {
+          name = env.key
+          value_source {
+            secret_key_ref {
+              secret  = env.value
+              version = "latest"
+            }
+          }
+        }
+      }
+
+      # The email credentials themselves, for the same reason.
+      dynamic "env" {
+        for_each = local.web_secret_env
         content {
           name = env.key
           value_source {

@@ -401,3 +401,15 @@ variable "mount_email_verification" {
   type        = bool
   default     = false
 }
+
+variable "flag_alert_email" {
+  description = <<-EOT
+    Where a new `FLAG` or texted issue report is emailed (F-123).
+
+    Configuration rather than a literal in code: VIGA's operator address is theirs to change
+    without a code deploy. Empty is a supported deployment — the alert pass becomes a no-op and
+    claims nothing, rather than failing the scheduled run.
+  EOT
+  type        = string
+  default     = ""
+}

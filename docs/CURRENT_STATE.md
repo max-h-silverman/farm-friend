@@ -63,7 +63,9 @@
 
 - Serving **`farm-friend-web-00090-qwk`** / **`farm-friend-worker-00085-ths`**, digest
   `sha256:b5fe5f9e3a8378a40d675a4b71994f150340ace3da1c805d1ef7b4b708016ae5`, built from `3f3530f`.
-  Deployed 2026-08-19 (B-090, B-091, and F-122 so far). **Production matches `main`.** Plan was
+  Deployed 2026-08-19 (B-090, B-091, and F-122 so far). **`main` is AHEAD of production again**:
+  F-123 and the farmer-link SMS copy are merged and undeployed, and migration `0057` is unapplied
+  (max chose merge-only, 2026-08-19). **No flag alert email can send until that deploy runs.** Plan was
   0 add / 2 change / 0 destroy — only the image digest moved; 61/61 plan assertions, deploy
   assertions and served-card assertions all passed. **Verified live by effect**, not by the
   deploy's own report: both removed admin routes answer 404, and the two 403s now name themselves
@@ -79,6 +81,10 @@
   pass runs every minute returning 200. **F-119 verified in the shipped assets**: `items-cards`,
   `item-card-price`, `item-card-name` and `seller-block-heading` present in both the JS and CSS
   bundles, and the old `items-nested` / `item-sellers` absent.
+- **`0057` is written and locally verified but NOT applied and NOT deployed** (F-123): it adds
+  `flags.alerted_at`, the marker that makes a flag alert send exactly once. Its journal `when` was
+  repaired to follow `0056` — the generator stamped a wall-clock time sorting BEFORE it, which
+  would have skipped it silently while the runner printed "migrations applied".
 - Neon `neondb` has **57 applied migrations (`0000`–`0056`)**, applied 2026-08-19 and **verified by
   effect**: all six trash columns, all six trash CHECKs, `pending_issue_reports`, and both
   `flags.reporter_email*` columns present; 42 sellers / 38 stands unchanged. `0054` adds
@@ -117,8 +123,10 @@
 
 ## Verification
 
-- **2,439 unit tests pass across 173 files; 7 corpus-only tests skip**, and integration is
-  **1,473/1,473 across all 108 files** (both 2026-08-19, after B-091). Typecheck and lint clean.
+- **2,468 unit tests pass across 176 files; 7 corpus-only tests skip**, and integration is
+  **1,489/1,489 across all 110 files** (both 2026-08-19, after F-123). Typecheck and lint clean.
+  `evals:live` was NOT re-run and is not owed: no seam projection, schema, or output contract
+  changed this session.
 - **`evals:live` is green INCLUDING the new category** — containment 4/4, closure 7/7, quality 16/16,
   operation 6/6, catalog 7/7. The sixth operation fixture is new for B-091 and pairs each issue
   report against a stock-out that must not move; a set of issue reports alone would pass for a model
@@ -156,9 +164,11 @@
   Seventeen `*_not_blank` CHECKs share it. The suite asserts that measured truth in two cases
   rather than the constraint's name; **B-076** files the sweep, and the admitting case is marked
   INVERT WHEN FIXED.
-- **One integration file failed intermittently under full-suite parallel load** (B-078). **Not seen
-  again** across several clean full runs since. Capture the full run to a file the next time it
-  does; the file name was lost to a summary grep last time.
+- **B-078 recurred and is confirmed environmental** (2026-08-19). A run reported `2 failed | 108
+  passed` files while every one of its 1,489 TESTS passed and the process exited 0 — a file-level
+  failure with no failing test. An immediate rerun on the identical tree was 110/110, exit 0.
+  Two runs, same commit, different file counts: the defect is the harness under parallel load, not
+  the code. Still unidentified by NAME — the summary carried no file names either time.
 
 ## Standing facts a cold start needs
 
@@ -181,8 +191,22 @@
 
 ## Open before go-live
 
-- **The admin console strip-down is IN PROGRESS (F-122**, branch `f-122-admin-console`, merged
-  merged to `main` and DEPLOYED 2026-08-19). Landed so far:
+- **VIGA is emailed when a flag arrives (F-123) — merged, NOT deployed, migration `0057`
+  unapplied.** One email to `farmfriend@vigavashon.org` per new `FLAG` or texted issue report,
+  sent from the cron pass so a slow mail server can never delay the SMS webhook's answer to the
+  carrier. The email carries the masked sender and a console link — never the number, the hash, or
+  the message text. Once-only is the database's: `update … where alerted_at is null returning …`
+  claims and returns in one statement, proven under six-way contention (the read-then-write
+  sabotage produces four duplicate emails). A definitive rejection releases the claim to retry; an
+  **ambiguous** one does not, because the relay may already have sent it.
+  **The worker had NO email configuration** and would have found email unconfigured and sent
+  nothing — the quietest possible failure for a safety notice. It now carries the provider config
+  and credentials, the plan assertion `the worker is given no email configuration` is INVERTED,
+  and two new assertions fail an apply that leaves `FLAG_ALERT_EMAIL` empty or the two services
+  disagreeing about it. `flag_alert_email` lives in tracked `production.tfvars` for the same
+  reason `public_host` does.
+- **The admin console strip-down is IN PROGRESS (F-122**, merged to `main` and DEPLOYED
+  2026-08-19). Landed so far:
   - **The trash**, replacing the "real delete" max first asked for — he revised it to trash the
     same day (2026-08-19). A trashed stand or seller leaves the roster and is restorable;
     **nothing destroys anything**, and "empty the trash" is deliberately not built because the
@@ -207,10 +231,6 @@
   her, with `mayPause` riding each listing from the seam's own arm so no control is offered that
   the seam would refuse. **VIGA's pause now asks first** (2026-08-18); resume is not gated, because
   it puts something back.
-- **VIGA's stock-out queue is the only destination for reports at the 18 stands publishing no
-  confirmed inventory** — decided and accepted (max, 2026-08-16), not an open question. Those stands
-  are texted today and will not be once C.3 deploys; it resolves as they start confirming inventory.
-  Worth VIGA knowing their queue carries those reports in the meantime.
 - Finish physical-handset checks: farmer onboarding/consent, contact card, paged SMS, administrator
   and settings flows, F-105 stand details at phone width, Squarespace embeds, and `?hidden=true`.
   Every texted link now carries `farmfriend.vigavashon.org` and none has been read on a handset.
@@ -241,7 +261,11 @@
   laptop. It is billed per call, so a leaked copy is directly spendable. Restricting it by **API**
   is the safe half; an IP restriction needs Cloud Run's egress answered first, and a wrong one
   takes down the only path to creating a visitable stand.
-- **B-066 owes one console check:** remove a test farm, confirm map/SMS disappearance, then restore.
+- **B-066's check is half done.** Marking `Josie's Farm` a test farm (2026-08-19, through the real
+  `setTestFarm` writer) was verified by effect: absent from `/api/public/stands`, present with
+  `?hidden=true`. The RESTORE half — unmark and confirm it returns — has not been run, and Josie's
+  Farm is a live listing with one authorized handset **deliberately hidden from customers** (max,
+  2026-08-19, confirmed at wrap) — not an accident to be undone by whoever notices it next.
 - **F-111 Phase 2 handset pass is 2/13.** Remaining cases cover STOP/START, HELP, named-stand inquiry
   and report, farmer own/other-stand reports, both VIGA Bucks shapes, map, a partial stand name,
   open-today, and the unclear reply.

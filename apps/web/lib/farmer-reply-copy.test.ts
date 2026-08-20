@@ -91,8 +91,14 @@ describe("farmer reply copy (F-096)", () => {
   it("finds the reply bodies it claims to be checking", () => {
     // The positive control. A source assertion that matches nothing passes vacuously forever;
     // this proves the extraction actually sees the lines the next test rules on.
+    //
+    // The link warning moved OUT of this file on 2026-08-19: the `LINK` reply and the targeted
+    // settings/listing message carried two hand-written copies of one sentence, and they now
+    // share `renderFarmerLinkBody`. This control follows the anchor rather than being relaxed —
+    // it looks for the renderer CALL that replaced the inline literal, so the test still fails
+    // if the body it rules on stops being there.
     expect(bodyLines.length).toBeGreaterThanOrEqual(3);
-    expect(bodyLines.some((line) => line.includes("don't share it"))).toBe(true);
+    expect(bodyLines.some((line) => line.includes("renderFarmerLinkBody"))).toBe(true);
     expect(bodyLines.some((line) => line.includes("what you have out there"))).toBe(true);
   });
 

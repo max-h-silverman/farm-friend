@@ -4043,6 +4043,23 @@ export const flags = pgTable(
       "disposed_by_administrator_id",
     ).references(() => administrators.id, { onDelete: "restrict" }),
     disposedAt: timestamp("disposed_at", { withTimezone: true }),
+    /**
+     * When VIGA was emailed that this flag arrived (F-123), or null if not yet.
+     *
+     * **The marker IS the once-only guarantee.** It is claimed in the same statement that
+     * selects the flag to send — `update … where alerted_at is null returning …` — so two
+     * concurrent cron passes cannot both send for one flag: the second update matches no row.
+     * A preceding read plus a later write would be exactly the race that produces two emails.
+     *
+     * Written only after the send is ACCEPTED, so a failed send leaves it null and the next
+     * pass retries. That ordering costs a possible duplicate if the process dies between the
+     * mail server accepting and this committing — the right trade for an alert, where a repeat
+     * is noise and a miss is a safety flag nobody reads.
+     *
+     * Not the SMS outbox, deliberately: that table is keyed by `recipient_hash` (a phone hash)
+     * and carries SMS message categories. An email to a fixed operator address is neither.
+     */
+    alertedAt: timestamp("alerted_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

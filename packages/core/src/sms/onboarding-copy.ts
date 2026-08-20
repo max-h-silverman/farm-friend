@@ -265,23 +265,47 @@ export function contactCardUrl(publicBaseUrl: string): string {
 }
 
 /**
+ * What every message carrying a farmer's standing link says about it.
+ *
+ * **States the CAPABILITY, not the ownership** (max, 2026-08-19, replacing "This link is just
+ * for you - please don't share it."). The old line asked for a promise; this states the fact a
+ * farmer needs in order to decide whether forwarding it is safe — and it stays true of a link
+ * that has already been shared, where "just for you" quietly stopped being.
+ *
+ * One constant because two messages carry this link, and two hand-written copies of one
+ * sentence is two places for it to drift. It already had.
+ */
+export const FARMER_LINK_WARNING = "Anyone with this link can update the listing.";
+
+/**
+ * A link message: an opening line, the link set apart, then what the link can do.
+ *
+ * **A blank line above and below the URL** (max, 2026-08-19). The link is the one thing the
+ * farmer taps, and prose pressed against it on both sides is what makes it hard to find on a
+ * phone. F-096 had already given it its own line; this gives it room.
+ *
+ * **No STOP footer** (F-096): these answer a text the farmer sent seconds ago, where the
+ * compliance boilerplate is noise on a message they triggered themselves.
+ *
+ * One renderer for both the `LINK` reply and the targeted settings/listing message, so the
+ * shape and the warning cannot drift apart again.
+ */
+export function renderFarmerLinkBody(opening: string, link: string): string {
+  return [opening, "", link, "", FARMER_LINK_WARNING].join("\n");
+}
+
+/**
  * The message carrying a farmer's standing link.
  *
  * **Says nothing about expiry, because there is none.** max chose a link that works until it
  * is revoked, so a promise of a window would be false — and would teach farmers to
- * re-request links they do not need. What it does say is that the link is theirs, which is
- * the honest warning for a credential with no password behind it.
- *
- * **The link is on its own line, and there is no STOP footer** (F-096). This answers a `LINK`
- * the farmer sent seconds ago — a reply-shaped message, where the footer is noise — and the URL
- * is the one thing on the screen they need to tap.
+ * re-request links they do not need.
  */
 export function renderFarmerLinkMessage(link: string): string {
-  return [
+  return renderFarmerLinkBody(
     "VIGA Farm Friend: here is your page for updating your stand.",
     link,
-    "This link is just for you - please don't share it.",
-  ].join("\n");
+  );
 }
 
 /**

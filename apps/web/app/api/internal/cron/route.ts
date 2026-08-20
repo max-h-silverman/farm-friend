@@ -11,6 +11,10 @@ import {
 } from "../../../../lib/workers";
 import { runScheduledPromptPass } from "../../../../lib/scheduled-prompts";
 
+import { claimFlagsToAlert, markFlagAlerted, releaseFlagAlertClaim } from "@farm-friend/db";
+import { createEmailSender } from "@farm-friend/core";
+import { runFlagAlertPass } from "../../../../lib/flag-alert-pass";
+import { resolveEmailDelivery } from "../../../../lib/email-delivery";
 // The scheduled worker trigger (F-023, docs/RUNBOOK.md §"Scheduled work").
 //
 // ONE internal route runs every scheduled pass: inbound routing, F-052 inventory prompting,
@@ -98,8 +102,38 @@ async function runScheduledWork(): Promise<Response> {
     clock: context.clock,
   });
 
+  /*
+    F-123 — tell VIGA a flag arrived.
+
+    Here rather than at the moment the flag is written: that happens inside the SMS webhook,
+    which must answer the carrier fast, and a slow mail server there would delay a farmer's
+    reply. Last in the pass because it is the only work whose latency nobody is waiting on.
+
+    Email unconfigured is a supported deployment (F-078), so `send: null` makes this a no-op
+    that claims nothing rather than an error that fails the whole scheduled pass.
+  */
+  const emailDelivery = resolveEmailDelivery(process.env);
+  const alerts = await runFlagAlertPass({
+    db: context.db,
+    clock: context.clock,
+    recipient: process.env.FLAG_ALERT_EMAIL,
+    consoleUrl: `${context.config.publicBaseUrl}/admin/messages`,
+    claim: claimFlagsToAlert,
+    markAlerted: markFlagAlerted,
+    releaseClaim: releaseFlagAlertClaim,
+    send: emailDelivery.available
+      ? (() => {
+          const send = createEmailSender({
+            config: emailDelivery.config,
+            transport: emailDelivery.transport,
+          });
+          return (input) => send(input);
+        })()
+      : null,
+  });
+
   return Response.json(
-    { inbound, prompts, outbound, delivery, retention },
+    { inbound, prompts, outbound, delivery, retention, alerts },
     { status: 200 },
   );
 }

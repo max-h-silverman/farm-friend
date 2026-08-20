@@ -140,6 +140,22 @@ with the guard that protects each.
 - **`db:migrate` can skip a migration silently.** Drizzle applies only when `created_at <
   folderMillis` — equal counts as done, so a journal timestamp older than the newest applied one is
   skipped with a success message. Guard: `packages/core/src/migration-ordering.test.ts`.
+- **A helper that takes a single-use resource invites every caller to misuse it.**
+  `refusalFromResponse` took a `Response` and read the body itself. Every caller had already parsed
+  that body for its own payload, so each reached for `clone()` — and `clone()` **throws** on a
+  consumed body ("Body has already been consumed"). The throw landed in each caller's catch, which
+  printed the generic failure message, so the whole feature shipped to production and never ran
+  once. Unit tests stayed green because they exercised the reader alone, never the caller's real
+  sequence. **Change the shape, not the call order**: it now takes the status and the already-parsed
+  payload, which a drained stream cannot be passed to. Guard:
+  `apps/web/app/admin/admin-refusal.test.tsx`, which drives the real screen's failure path and
+  reproduces the symptom when the old shape is restored.
+- **An assertion can be pinning the OLD truth, and inverting it is the fix.** `plan-assertions.py`
+  asserted "the worker is given no email configuration" — correct while nothing scheduled sent mail.
+  When the worker gained the F-123 flag alert, that assertion had to FAIL for the feature to work,
+  and an unconfigured worker is that feature's quietest failure: the pass finds no email, sends
+  nothing, claims nothing, and reports success forever. Invert the assertion to state the new
+  requirement rather than deleting it; a removed assertion protects nothing.
 - **One fact stated as BOTH config and constant drifts silently.** The public map URL lived in
   `PUBLIC_MAP_URL` (deployed config, answering `MAP`) *and* in a core constant customer copy embeds
   (the paged answer's `Map:` line). Nothing compared them, so changing one sent two different links

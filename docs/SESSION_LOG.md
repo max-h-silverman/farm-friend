@@ -11,7 +11,93 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-19 (latest) — HELP learns to be useful, and a customer can tell VIGA something is wrong
+## 2026-08-19 (latest) — The console loses three screens, production gains an alert, and a fix ships broken
+
+Four tranches across one long session. Unit **2,468 across 176 files** (7 corpus skips), integration
+**1,489 across 110 files**, typecheck and lint clean. **Two production deploys** (`web-00089-vz7`,
+then `web-00090-qwk`) plus three migrations applied to Neon. F-122 and its follow-up are merged and
+live; **F-123 is merged and NOT deployed**, migration `0057` unapplied — max chose merge-only.
+
+**Delete became trash, because max changed the requirement mid-build.** He had chosen "off the map,
+plus a real delete" that morning; asked again after I measured what a hard DELETE actually hits — a
+`RESTRICT` closure of eleven tables directly and nine more through `stand_providers` — he revised it
+to trash. So a trashed stand or seller leaves the roster and comes back, and **nothing in the console
+destroys anything**. "Empty the trash" is deliberately unbuilt: it is where that whole closure has to
+be answered, and that is its own piece of work.
+
+Trash is a THIRD state rather than a rename of retirement, and two constraints are what make it
+safe to read. `trashed_implies_retired` lets public invisibility stay ONE rule over `retired_at`, so
+no public read learns a second column; `retired_by_trash` records that trashing CAUSED the
+retirement, so a restore undoes only what it created and a stand VIGA had separately taken off the
+map stays off. Without that second column a restore has to guess, and it would guess wrong for
+exactly the stand somebody deliberately hid. Sabotage-proved three ways: trash-without-retire fails
+7 tests, restore-ignoring-the-flag fails precisely the 2 independence tests, roster-not-excluding
+fails 1.
+
+**"Questions about our records" was a seeding artifact, and measuring said so.** max did not know
+what it was; `stand_data_flags` turns out to be written only by the seeder, for ambiguous
+availability text in the original VIGA spreadsheet — four rows in production, all resolved, from the
+initial load. Nothing in the running product creates one. Stock-outs left too, but on different
+reasoning: a stock-out is a signal about a listing that the FARMER acts on, so customers still
+report them and farmers are still texted, and only VIGA's screen went. **The gap that leaves is
+recorded rather than glossed**: a report whose farmer cannot be reached was filed "for VIGA review"
+and now reaches nobody — eight were open at removal. `listStockOutReports` is kept and carries the
+reason, so restoring the screen is a render rather than a rewrite.
+
+**Two production bugs came from reading the logs, and the code reading was wrong both times.**
+max's stuck "Waiting for your decision" row: I reasoned from the settle-on-redeem path and was
+wrong. Production said the authorization predated the request by a day, so the settle path had
+already run and nothing would ever close that row. The queue was asking "is this ticket unsettled?"
+when the operator's question is "does this person still need access?" — now answered from the
+authorization, scoped to the same farm and to live access, which fixes the rows already stuck as
+well as the ones to come.
+
+His "session expired" on Prepare invite was not a session at all. He was on the `*.run.app` host,
+`PUBLIC_BASE_URL` is the custom domain, so the origin check refused every write — and **both** 403s
+answered a bare `forbidden`, so six screens each guessed the one cause they knew. He signed in three
+times against a refusal that had nothing to do with his session. The refusals now name themselves.
+
+**Then that fix shipped and never ran once — the sharpest lesson of the session.**
+`refusalFromResponse` took a `Response` and read the body itself. Every caller had already parsed
+that body for its own payload, so each reached for `clone()`, and **`clone()` throws on a consumed
+body**. The throw landed in each caller's catch, which sets the generic message. max reported it
+minutes after the deploy. The unit tests were green throughout, because they exercised the reader
+alone and never the caller's real sequence. The fix is the SIGNATURE — status plus already-parsed
+payload, so a drained stream cannot be passed — and the new test drives the actual screen's failure
+path, reproducing the exact symptom when the old shape is restored. **A helper that takes a
+single-use resource invites every caller to misuse it; changing the shape beats a rule about call
+order.**
+
+**F-123 would have shipped silently broken for an infrastructure reason no test could see.** The
+worker sends the flag alert, and the worker had NO email configuration — the pass would have found
+email unconfigured, sent nothing, claimed nothing, and reported success forever. The plan assertion
+`the worker is given no email configuration` was asserting the OLD truth, so it is inverted rather
+than deleted, and two new assertions fail an apply that leaves the recipient empty or the two
+services disagreeing about it. Typecheck caught a second one: `EmailDispatchOutcome` distinguishes
+an **ambiguous** send from a definitive rejection, and my first draft retried both — which would
+have mailed VIGA the same alert every minute for as long as the relay stayed ambiguous.
+
+**B-078 is now characterised.** A run reported `2 failed | 108 passed` FILES while all 1,489 of its
+TESTS passed and the process exited 0; an immediate rerun on the identical tree was 110/110. Two
+runs, same commit, different file counts — the harness under parallel load, not the code. Still
+unnamed: the summary carried no file names either time, which is the same thing that defeated the
+last attempt.
+
+**Smaller decisions.** `Josie's Farm` is marked a test farm through the real writer and verified by
+effect (absent from the public map, present with `?hidden=true`) — a live listing with one
+authorized handset, deliberately hidden, confirmed at wrap. The farmer link SMS now says what the
+link CAN DO ("Anyone with this link can update the listing.") rather than asking for a promise, with
+the URL set apart by blank lines; measured at 213 characters against 216 before, so still 2 segments.
+That change also folded two hand-written copies of one sentence into one renderer — they had already
+drifted — and `farmer-reply-copy.test.ts`'s positive control caught its own anchor going stale,
+which is exactly what a positive control is for.
+
+**Owed:** F-123's deploy and migration `0057`; the Trash VIEW (the writers exist, the screen does
+not); F-122's remaining removals — approval, test-farm, Farm Bucks, pause/resume, the state chips.
+
+---
+
+## 2026-08-19 — HELP learns to be useful, and a customer can tell VIGA something is wrong
 
 One tranche, `b-091-help-pagination-admin-ux`. Unit **2,439 across 173 files** (7 corpus skips),
 integration **1,473 across 108 files**, typecheck, lint, scripted evals 11/11 · 4/4 · 19/19, and
