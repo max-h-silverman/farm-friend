@@ -278,6 +278,33 @@ describe("farmer onboarding copy", () => {
     expect(body).toContain(link);
   });
 
+  it("warns what the link CAN DO rather than who it belongs to", () => {
+    /*
+      max, 2026-08-19: "This link is just for you - please don't share it." became "Anyone with
+      this link can update the listing."
+
+      The old line asked for a promise; the new one states the capability, which is the fact a
+      farmer needs to decide whether forwarding it is safe. It is also true of a link that HAS
+      been shared, where "just for you" has quietly stopped being true.
+    */
+    const link = "https://farmfriend.example/stand/" + "c".repeat(64);
+    const body = renderFarmerLinkMessage(link);
+    expect(body).toContain("Anyone with this link can update the listing.");
+    expect(body).not.toContain("just for you");
+    expect(body).not.toMatch(/don't share/i);
+  });
+
+  it("sets the link apart with a blank line above and below it", () => {
+    // max, 2026-08-19. The link is the one thing the farmer taps, and prose pressed against it
+    // on both sides is what makes it hard to find on a phone.
+    const link = "https://farmfriend.example/stand/" + "d".repeat(64);
+    const lines = renderFarmerLinkMessage(link).split("\n");
+    const index = lines.findIndex((line) => line.includes(link));
+    expect(index).toBeGreaterThan(0);
+    expect(lines[index - 1], "a blank line above the link").toBe("");
+    expect(lines[index + 1], "a blank line below the link").toBe("");
+  });
+
   it("puts the link on its own line in every message that carries one", () => {
     // F-096. A URL run together with prose and a footer is the least readable thing we send,
     // and it is the thing the farmer most needs to tap. `paging.ts` already established the

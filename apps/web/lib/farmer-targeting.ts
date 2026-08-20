@@ -16,6 +16,7 @@ import {
 } from "@farm-friend/db";
 import type { RoutedReply } from "./routing";
 
+import { renderFarmerLinkBody } from "@farm-friend/core";
 export interface FarmerTargetHandlerDeps {
   db: Db;
   /** Configured origin only; never request headers. */
@@ -125,10 +126,15 @@ async function finishPurpose(
   return {
     status: "issued",
     replies: [{
-      // The URL on its own line and no footer (F-096) — the link is the one thing the farmer
-      // needs to tap, and it used to sit mid-sentence between prose and compliance boilerplate.
-      // "Keep it to yourself" is the honest warning for a link with no password behind it.
-      body: `VIGA Farm Friend: ${action}\n${url}\nThis link is just for you - please don't share it.`,
+      /*
+        THE SHARED RENDERER, not a second hand-written copy (max, 2026-08-19). This message and
+        the `LINK` reply carry the same credential and had two transcriptions of one sentence
+        between them — the duplication the zen desk forbids, and it had already drifted.
+
+        `renderFarmerLinkBody` owns the shape (F-096's own line, now with a blank line above and
+        below) and the warning, so a change to either reaches both messages.
+      */
+      body: renderFarmerLinkBody(`VIGA Farm Friend: ${action}`, url),
       category: "inventory_prompt",
       logicalKey: `farmer-${purpose}-${input.providerEventId}`,
     }],
