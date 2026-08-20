@@ -55,7 +55,7 @@ Example messages:
 - VIGA Farm Friend: A customer reported Provo Farms may be out of kale. Reply with your current
   farm-stand items to update the map, or STOP to unsubscribe.
 
-For questions, contact board@vigavashon.org.
+For questions, contact farmfriend@vigavashon.org.
 
 ## Squarespace Page: Privacy
 
@@ -108,7 +108,7 @@ request help by replying HELP or INFO.
 
 ## Contact
 
-Questions about this policy can be sent to board@vigavashon.org.
+Questions about this policy can be sent to farmfriend@vigavashon.org.
 
 ## Squarespace Page: Terms
 
@@ -153,7 +153,7 @@ mobile carrier recognizes to resume messaging.
 
 ## Help
 
-For help, reply HELP or INFO. You can also contact board@vigavashon.org.
+For help, reply HELP or INFO. You can also contact farmfriend@vigavashon.org.
 
 ## Supported Commands
 

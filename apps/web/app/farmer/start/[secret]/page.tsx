@@ -48,7 +48,7 @@ export default async function SecretFarmerStartPage({
 
       <p className="farmer-onboarding-note farmer-start-help">
         If you don&rsquo;t see your farm listed, email{" "}
-        <a href="mailto:board@vigavashon.org">board@vigavashon.org</a> for help.
+        <a href="mailto:farmfriend@vigavashon.org">farmfriend@vigavashon.org</a> for help.
       </p>
     </main>
   );

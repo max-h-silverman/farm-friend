@@ -33,11 +33,15 @@
  * address today and VIGA may split them later (max, 2026-08-19). When that happens the
  * change is a value here — not a hunt through copy working out which mention of `board@`
  * meant which reader.
+ *
+ * `farmfriend@` rather than `board@` (max, 2026-08-19): the address a member of the public is
+ * given is the product's own, not VIGA's board mailbox. The administrator login identity is a
+ * separate fact and deliberately stays `board@`.
  */
-export const VIGA_CUSTOMER_CONTACT = "board@vigavashon.org";
+export const VIGA_CUSTOMER_CONTACT = "farmfriend@vigavashon.org";
 
 /** Where a farmer's question goes. One address with the above today; see that constant. */
-export const VIGA_FARMER_CONTACT = "board@vigavashon.org";
+export const VIGA_FARMER_CONTACT = "farmfriend@vigavashon.org";
 
 export type HelpAudience = "customer" | "farmer";
 
