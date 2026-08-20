@@ -76,7 +76,7 @@ database. Admin reads both regardless — support work needs them.
 
 `address_public` governs the address **TEXT, never the pin**.
 
-**`retired_at` is VIGA taking a stand down, and it is the only "delete" there is** (F-071). A retired
+**`retired_at` is VIGA taking a stand down** (F-071). A retired
 location leaves every public surface and refuses publication, but keeps every revision it published —
 the answer to "what did this stand say it had, and when" is exactly what the record exists to hold
 (Golden Rule #1). Erasure is not an alternative that was rejected on taste: nearly every reference to
@@ -95,6 +95,27 @@ unavailable there too. It deliberately **does not write each stand's own `retire
 a stand under a retired farm as off the map — "is this stand served?" is the farm's state OR the
 stand's — but the stand's column stays untouched, so restoring the farm returns exactly the stands it
 was holding down while a stand retired on its own stays retired.
+
+**`trashed_at` is a THIRD state, not a rename of either** (F-122, max 2026-08-19 — revising "off the
+map, plus a real delete" the same day). Off the map is the everyday reversible hide: the record is
+still VIGA's, still in the roster, just not shown to customers. Trash means "this should not be in my
+list at all", so a trashed stand or seller leaves the roster entirely and is reachable only from the
+trash. **Trashing destroys nothing** — every revision, report and authorization survives it, which is
+what lets a restore put back the record rather than an approximation of it. Emptying the trash is
+deliberately not built: it is where the whole `on delete restrict` closure has to be answered.
+
+Two CHECKs make it safe to read. **`trashed_implies_retired`** lets public invisibility stay ONE rule
+over `retired_at`, so no public read has to learn a second column; without it a future writer could
+trash without retiring and put a trashed record back on the map, with the only symptom on the map
+itself. **`retired_by_trash`** records that trashing CAUSED the retirement, so a restore undoes only
+what it created — a record VIGA had separately taken off the map comes back still off it, because
+two independent decisions must not silently undo each other. `trash_retirement_coherent` refuses that
+flag on a record that is not retired, since the flag decides whether a restore clears `retired_at`.
+
+**`flags.alerted_at` is the flag-alert marker** (F-123): when VIGA was emailed that a `FLAG` or issue
+report arrived, or null if not yet. It is claimed in the same statement that selects the flag to send
+— `update … where alerted_at is null returning …` — which is what stops two concurrent scheduled
+passes both emailing one flag. A preceding read plus a later write is exactly that race.
 
 **That OR is enforced in two places, and both are load-bearing** (B-066, which found it enforced in
 neither). Read surfaces get it from `visibleFarms`, the fragment the map, both SMS retrieval queries
