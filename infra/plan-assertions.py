@@ -379,8 +379,31 @@ def main() -> int:
     # `mount_smtp_password` can never quietly hand it over.
     check("the worker never mounts SMTP_PASSWORD",
           "SMTP_PASSWORD" not in secret_names(worker))
+    # INVERTED for F-123, and only found when F-124's deploy planned (2026-08-19).
+    #
+    # These asserted "the worker never mounts <the Gmail credential>", which was true while the
+    # worker sent no email. F-123 made the worker send the flag alert and inverted the SENDER
+    # ADDRESS check below, but left these two — so the plan was internally contradictory: the
+    # worker was told where to send from and forbidden the credential to send with. It sat on
+    # `main` undeployed until the first plan refused it.
+    #
+    # **What the old assertion protected is NOT abandoned.** It kept the worker's credential set
+    # to what the worker's own job needs, and that rule now lives one level up, in
+    # `local.email_secret_env`: the worker mounts exactly the email credentials and nothing else.
+    # The unconditional checks above — ADMIN_PASSWORD_HASH, GEOCODING_API_KEY, SMTP_PASSWORD —
+    # are what still enforce it, and they are the ones that caught the over-broad mount.
+    #
+    # SMTP_PASSWORD stays forbidden and is NOT inverted, because it is the alternative provider:
+    # exactly one of the two email arms is ever mounted, and mounting both would mean a service
+    # holding a credential for a provider it is not using.
     for _name in ("GMAIL_OAUTH_CLIENT_SECRET", "GMAIL_OAUTH_REFRESH_TOKEN"):
-        check(f"the worker never mounts {_name}", _name not in secret_names(worker))
+        _worker_has = _name in secret_names(worker)
+        _web_has = _name in secret_names(web)
+        check(f"the worker mounts {_name} only when the web service does too",
+              _worker_has == _web_has,
+              f"worker={_worker_has} web={_web_has} — both services send with the same "
+              "provider, so one holding a credential the other lacks means they disagree "
+              "about which provider is configured")
     check("Gmail delivery has no SMTP configuration",
           email_delivery_configuration_is_exclusive(web_env, secret_names(web)),
           "Gmail delivery must not mount or configure SMTP")

@@ -136,15 +136,28 @@ locals {
   # geocoding, because this credential authenticates as VIGA's board mailbox rather than
   # metering a billed API — so the worker holding it would put full send-as authority in a
   # process that has no use for it.
-  web_secret_env = merge(local.shared_secret_env, {
-    ADMIN_PASSWORD_HASH = google_secret_manager_secret.protected["admin-password-hash"].secret_id
-    }, var.mount_geocoding_key ? {
-    GEOCODING_API_KEY = google_secret_manager_secret.protected["geocoding-api-key"].secret_id
-    } : {}, var.mount_smtp_password && !var.mount_gmail_delivery ? {
+  # THE EMAIL SENDING CREDENTIALS, and nothing else.
+  #
+  # Its own local because BOTH services need exactly these and neither may have the rest
+  # (F-123 gave the worker the flag alert to send; F-124's deploy found the mistake). The
+  # worker previously reached them by mounting the whole of `web_secret_env`, which also handed
+  # it `ADMIN_PASSWORD_HASH`, the billed `GEOCODING_API_KEY` and F-079's three salts — seven
+  # credentials a process that only sends mail has no use for. `plan-assertions.py` refused that
+  # plan by name, which is the entire reason those seven checks are unconditional.
+  #
+  # So the rule this local encodes: a credential shared with the worker is one the worker's own
+  # job requires. Anything web-only stays in `web_secret_env` below and never appears here.
+  email_secret_env = merge(var.mount_smtp_password && !var.mount_gmail_delivery ? {
     SMTP_PASSWORD = google_secret_manager_secret.protected["smtp-password"].secret_id
     } : {}, var.mount_gmail_delivery ? {
     GMAIL_OAUTH_CLIENT_SECRET = google_secret_manager_secret.protected["gmail-oauth-client-secret"].secret_id
     GMAIL_OAUTH_REFRESH_TOKEN = google_secret_manager_secret.protected["gmail-oauth-refresh-token"].secret_id
+  } : {})
+
+  web_secret_env = merge(local.shared_secret_env, local.email_secret_env, {
+    ADMIN_PASSWORD_HASH = google_secret_manager_secret.protected["admin-password-hash"].secret_id
+    }, var.mount_geocoding_key ? {
+    GEOCODING_API_KEY = google_secret_manager_secret.protected["geocoding-api-key"].secret_id
     } : {}, var.mount_email_verification ? {
     # F-079's three, mounted TOGETHER behind one flag because they are one feature and a
     # partial mount is a worse state than none: the salts are required by the verify routes, so
@@ -365,9 +378,11 @@ resource "google_cloud_run_v2_service" "worker" {
         }
       }
 
-      # The email credentials themselves, for the same reason.
+      # The email credentials themselves, for the same reason — and ONLY those. Mounting
+      # `web_secret_env` here would also hand the worker the admin password hash, the billed
+      # geocoding key and F-079's three salts; `plan-assertions.py` refuses such a plan by name.
       dynamic "env" {
-        for_each = local.web_secret_env
+        for_each = local.email_secret_env
         content {
           name = env.key
           value_source {
