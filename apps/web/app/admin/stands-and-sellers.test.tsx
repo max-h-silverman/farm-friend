@@ -139,6 +139,59 @@ function renderPage() {
   return render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
 }
 
+/** The one-line summary on a card's closed row: its live state and its count. */
+function summaryFor(name: string): string {
+  const row = screen.getByRole("group", { name }).querySelector(".admin-row-summary");
+  if (row === null) throw new Error(`no summary on the card for ${name}`);
+  return row.textContent ?? "";
+}
+
+/** The stand's own details, which is where its controls (trash included) actually live. */
+const standDetails = {
+  standId: "stand-1",
+  name: "Misty Hollow Stand",
+  farmName: "Misty Hollow Farm",
+  status: "On the map",
+  openState: "Open now",
+  approved: true,
+  retired: false,
+  retiredWithFarm: false,
+  farmBucksStatus: "accepts" as const,
+  metadata: {
+    name: "Misty Hollow Stand",
+    publicAddress: null,
+    addressPublic: false,
+    latitude: null,
+    longitude: null,
+    hoursText: null,
+  },
+  sections: [],
+};
+
+/** A stand and a seller that are in the trash, for the Trash section's own suite. */
+const trashedStands: StandCard[] = [
+  {
+    standId: "stand-trashed",
+    name: "Old Roadside Stand",
+    farmName: "Misty Hollow Farm",
+    approved: true,
+    retired: true,
+    providers: [],
+  },
+];
+
+const trashedSellers: SellerCard[] = [
+  {
+    farmId: "seller-trashed",
+    name: "Departed Farm",
+    approved: true,
+    retired: true,
+    isTestFarm: false,
+    providers: [],
+    access: [],
+  },
+];
+
 /*
   Invites live HERE now (max, 2026-08-19), collapsed at the top of Stands & Sellers.
 
@@ -264,13 +317,40 @@ describe("the lists are entities, not states", () => {
     expect(screen.getByTestId("entity-count")).toHaveTextContent(/2 sellers/i);
   });
 
-  it("says how much work is waiting without opening a card", async () => {
-    // Approval is work waiting on VIGA, so it is still counted. Having no owner is NOT —
-    // see the unclaimed suite below.
+  it("summarises each row as its live state and how many sell there", async () => {
+    /*
+      F-124 (max, 2026-08-19). ONE summary per card carrying two facts, replacing both the
+      chip row and the separate amber attention line — two parallel mechanisms describing the
+      same record become one.
+
+      A stand nobody sells at reads `0 sellers`, which is the problem stating itself. That is
+      why there is no second label competing for the same space.
+    */
+    renderPage();
+    expect(summaryFor("Misty Hollow Stand")).toMatch(/2 sellers/);
+    expect(summaryFor("Harbor Stand")).toMatch(/1 seller\b/);
+
+    await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
+    // Fernhorn sells at two stands; the seller's count is the other side of the same relation.
+    expect(summaryFor("Fernhorn Farm")).toMatch(/2 stands/);
+    expect(summaryFor("Misty Hollow Farm")).toMatch(/1 stand\b/);
+  });
+
+  it("counts nobody as zero rather than staying silent", async () => {
     render(<StandsAndSellers stands={[]} sellers={unapproved} fetcher={vi.fn()} />);
     await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
 
-    expect(screen.getByRole("status")).toHaveTextContent(/1 waiting for approval/i);
+    expect(summaryFor("Sprout Farm")).toMatch(/0 stands/);
+  });
+
+  it("says a record is off the map instead of its count", async () => {
+    // A retired record's live state is the whole answer: how many sell there describes a
+    // listing nobody is being shown.
+    render(<StandsAndSellers stands={[]} sellers={retiredSeller} fetcher={vi.fn()} />);
+    await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
+
+    expect(summaryFor("Gone Farm")).toMatch(/off the map/i);
+    expect(summaryFor("Gone Farm")).not.toMatch(/\d+ stands?/);
   });
 });
 
@@ -350,10 +430,12 @@ describe("a seller shows where she sells", () => {
       .find((entry) => entry.textContent?.includes("Fernhorn Farm"));
     expect(row).toHaveTextContent(/unclaimed/i);
 
-    // And it is a plain state chip, never the amber "this needs you" one.
-    const chip = within(row as HTMLElement).getByText(/unclaimed/i).closest(".admin-chip");
-    expect(chip).not.toBeNull();
-    expect((chip as HTMLElement).className).not.toContain("admin-chip--attention");
+    // It REPLACES "Live" in the one summary rather than sitting beside it: a farm nobody can
+    // publish for is not live in any useful sense (F-124).
+    expect(summaryFor("Fernhorn Farm")).toMatch(/unclaimed/i);
+    expect(summaryFor("Fernhorn Farm")).not.toMatch(/live/i);
+    // A farm somebody CAN publish for is the mirror, so "Unclaimed" is not simply always shown.
+    expect(summaryFor("Misty Hollow Farm")).toMatch(/live/i);
 
     // Nothing above the rows says anything about it — no count, no alert.
     expect(screen.queryByRole("status")).toBeNull();
@@ -375,6 +457,12 @@ async function openSeller(name: string): Promise<HTMLElement> {
   return screen.getByRole("group", { name: new RegExp(name, "i") });
 }
 
+/** The same, on the stands view, which is the one the screen opens on. */
+async function openStand(name: string): Promise<HTMLElement> {
+  await userEvent.click(screen.getByText(name));
+  return screen.getByRole("group", { name: new RegExp(name, "i") });
+}
+
 /**
  * Reach one of the card's verbs the way an operator does: open the Actions menu, choose the
  * item. Every verb moved behind that one door, so a test that still pressed a bare button
@@ -389,32 +477,52 @@ function ok(payload: unknown = {}) {
   return vi.fn().mockResolvedValue(new Response(JSON.stringify(payload), { status: 200 }));
 }
 
-describe("approving a seller", () => {
-  it("approves through the sellers route", async () => {
-    const fetcher = ok();
-    render(<StandsAndSellers stands={stands} sellers={unapproved} fetcher={fetcher} />);
+/*
+  F-124 — approval and test-farm marking are GONE from the console (max, 2026-08-19).
 
-    const card = await openSeller("Sprout Farm");
-    await choose(card, /^approve$/i);
+  Approval is safe to remove because onboarding redemption auto-approves, so the only
+  unapproved farm is one VIGA explicitly revoked — and with no toggle, nobody can revoke.
+  Publication still refuses with `not_approved`, so the gate itself is untouched.
 
-    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe("/api/admin/sellers");
-    expect(JSON.parse(init.body as string)).toMatchObject({
-      farmId: "seller-sprout",
-      action: "approve",
-    });
-    expect(await within(card).findByText(/can publish updates/i)).toBeInTheDocument();
+  Test-farm marking becomes a script-only operation, which max was told and accepted.
+
+  Asserted as the ABSENCE of the controls, and the route suite separately asserts the server
+  stopped honouring the actions. A button that merely disappeared while the endpoint kept
+  working would not be a removal.
+*/
+describe("approval and test-farm marking are gone", () => {
+  it("offers no approval control, on an approved seller or an unapproved one", async () => {
+    for (const roster of [sellers, unapproved]) {
+      const { unmount } = render(
+        <StandsAndSellers stands={stands} sellers={roster} fetcher={vi.fn()} />,
+      );
+      const card = await openSeller(roster[0]?.name as string);
+      await userEvent.click(within(card).getByRole("button", { name: /^actions$/i }));
+      const items = within(card)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent ?? "");
+      expect(items.join(" | ")).not.toMatch(/approv/i);
+      unmount();
+    }
   });
 
-  it("removes approval from an approved seller", async () => {
-    const fetcher = ok();
-    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
-
+  it("offers no test-farm control", async () => {
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={vi.fn()} />);
     const card = await openSeller("Misty Hollow Farm");
-    await choose(card, /remove approval/i);
+    await userEvent.click(within(card).getByRole("button", { name: /^actions$/i }));
+    const items = within(card)
+      .getAllByRole("menuitem")
+      .map((item) => item.textContent ?? "");
+    expect(items.join(" | ")).not.toMatch(/test farm/i);
+  });
 
-    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toMatchObject({ action: "revoke" });
+  it("never says a seller is waiting for approval", async () => {
+    // The summary line and the card body both used to carry it. An operator cannot act on
+    // approval any more, so naming it would describe work nobody can do.
+    render(<StandsAndSellers stands={[]} sellers={unapproved} fetcher={vi.fn()} />);
+    await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
+
+    expect(screen.queryByText(/waiting for approval/i)).not.toBeInTheDocument();
   });
 });
 
@@ -451,6 +559,224 @@ describe("taking a seller off the map", () => {
 
     const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
     expect(JSON.parse(init.body as string)).toMatchObject({ action: "restore" });
+  });
+});
+
+/*
+  F-124 — the trash, and the section that restores from it.
+
+  Trash and off-the-map are two decisions, not two names for one. Off the map is the everyday
+  reversible hide: the record is still VIGA's, still in the roster, just not shown to customers.
+  Trash means "this should not be in my list at all", so a trashed record leaves the roster
+  entirely and is reachable only here.
+
+  **Nothing here destroys anything.** Every revision, report and authorization survives a
+  trashing untouched, which is exactly what lets a restore put back the record rather than an
+  approximation of it. "Empty the trash" is deliberately not built.
+*/
+describe("moving a stand or seller to the trash", () => {
+  it("asks before trashing, and sends nothing until confirmed", async () => {
+    const fetcher = vi.fn();
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+    await choose(card, /move to trash/i);
+
+    expect(fetcher).not.toHaveBeenCalled();
+    // The confirmation says what happens AND that it is reversible — the second half is what
+    // makes the control safe to reach for.
+    const prompt = within(card).getByText(/leaves your list/i);
+    expect(prompt).toBeInTheDocument();
+    expect(within(card).getByText(/put it back|restore/i)).toBeInTheDocument();
+  });
+
+  it("trashes a seller once confirmed", async () => {
+    const fetcher = ok();
+    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
+
+    const card = await openSeller("Misty Hollow Farm");
+    await choose(card, /move to trash/i);
+    await userEvent.click(within(card).getByRole("button", { name: /^move to trash$/i }));
+
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/admin/sellers");
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      farmId: "seller-misty",
+      action: "trash",
+    });
+  });
+
+  it("trashes a stand through the stands route", async () => {
+    /*
+      The stand card's controls live in `StandDetails`, which reaches the network through the
+      global `fetch` rather than the injected fetcher this screen threads to the seller cards.
+      Stubbing the global is what drives the REAL control instead of a second copy of it — and
+      the wire is the assertion, because that is what a refactor can silently break while the
+      button still renders.
+    */
+    const fetcher = ok();
+    const original = globalThis.fetch;
+    globalThis.fetch = fetcher as unknown as typeof fetch;
+    try {
+      render(
+        <StandsAndSellers
+          stands={[{ ...(stands[0] as StandCard), details: standDetails }]}
+          sellers={sellers}
+          fetcher={vi.fn()}
+        />,
+      );
+
+      const card = await openStand("Misty Hollow Stand");
+      await userEvent.click(
+        within(card).getByRole("button", { name: /more for Misty Hollow Stand/i }),
+      );
+      await userEvent.click(within(card).getByRole("menuitem", { name: /move to trash/i }));
+      await userEvent.click(within(card).getByRole("button", { name: /^move to trash$/i }));
+
+      const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+      expect(url).toBe("/api/admin/stands");
+      expect(JSON.parse(init.body as string)).toMatchObject({
+        standId: "stand-1",
+        action: "trash",
+      });
+    } finally {
+      globalThis.fetch = original;
+    }
+  });
+});
+
+describe("the Trash section", () => {
+  function renderWithTrash(fetcher = vi.fn()) {
+    return render(
+      <StandsAndSellers
+        stands={stands}
+        sellers={sellers}
+        trash={{ stands: trashedStands, sellers: trashedSellers }}
+        fetcher={fetcher}
+      />,
+    );
+  }
+
+  it("sits below the roster and stays shut until asked", () => {
+    renderWithTrash();
+    const trash = screen.getByRole("group", { name: /^trash$/i });
+    expect(trash).not.toHaveAttribute("open");
+
+    // Below the roster, where Invites sits above it: the trash is where an operator goes to
+    // undo something, not what they came to read.
+    const switcher = screen.getByTestId("entity-count");
+    expect(
+      switcher.compareDocumentPosition(trash) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("counts what is in it without being opened", () => {
+    renderWithTrash();
+    // One stand and one seller. An operator should not have to open the section to learn
+    // whether anything is in there.
+    expect(within(screen.getByRole("group", { name: /^trash$/i })).getByText("2")).toBeInTheDocument();
+  });
+
+  it("renders nothing at all when the trash is empty", () => {
+    render(
+      <StandsAndSellers
+        stands={stands}
+        sellers={sellers}
+        trash={{ stands: [], sellers: [] }}
+        fetcher={vi.fn()}
+      />,
+    );
+    expect(screen.queryByRole("group", { name: /^trash$/i })).not.toBeInTheDocument();
+  });
+
+  it("lists both trashed stands and trashed sellers once opened", async () => {
+    renderWithTrash();
+    await userEvent.click(screen.getByText(/^trash$/i));
+
+    const trash = screen.getByRole("group", { name: /^trash$/i });
+    expect(within(trash).getByText("Old Roadside Stand")).toBeInTheDocument();
+    expect(within(trash).getByText("Departed Farm")).toBeInTheDocument();
+  });
+
+  it("keeps a trashed record out of the roster it left", async () => {
+    // The two partition the records between them. A trashed stand appearing in both would
+    // mean trashing had not actually removed it from the operator's list.
+    renderWithTrash();
+    expect(screen.getByTestId("entity-count")).toHaveTextContent(/2 stands/i);
+
+    await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
+    expect(screen.getByTestId("entity-count")).toHaveTextContent(/2 sellers/i);
+    expect(screen.queryByRole("group", { name: "Departed Farm" })).not.toBeInTheDocument();
+  });
+
+  it("restores a stand with one press, no confirmation", async () => {
+    // Restoring puts something BACK. Refusing to make it easy only strands the operator, and
+    // the mistake it undoes is the one trashing just made (the same rule as un-retiring).
+    const fetcher = ok();
+    renderWithTrash(fetcher);
+    await userEvent.click(screen.getByText(/^trash$/i));
+
+    const trash = screen.getByRole("group", { name: /^trash$/i });
+    await userEvent.click(
+      within(trash).getByRole("button", { name: /put back.*Old Roadside Stand/i }),
+    );
+
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/admin/stands");
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      standId: "stand-trashed",
+      action: "restore_from_trash",
+    });
+  });
+
+  it("restores a seller through the sellers route", async () => {
+    const fetcher = ok();
+    renderWithTrash(fetcher);
+    await userEvent.click(screen.getByText(/^trash$/i));
+
+    const trash = screen.getByRole("group", { name: /^trash$/i });
+    await userEvent.click(
+      within(trash).getByRole("button", { name: /put back.*Departed Farm/i }),
+    );
+
+    const [url, init] = fetcher.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe("/api/admin/sellers");
+    expect(JSON.parse(init.body as string)).toMatchObject({
+      farmId: "seller-trashed",
+      action: "restore_from_trash",
+    });
+  });
+
+  it("takes a restored record out of the trash without a reload", async () => {
+    const fetcher = ok();
+    renderWithTrash(fetcher);
+    await userEvent.click(screen.getByText(/^trash$/i));
+
+    const trash = screen.getByRole("group", { name: /^trash$/i });
+    await userEvent.click(
+      within(trash).getByRole("button", { name: /put back.*Departed Farm/i }),
+    );
+
+    expect(await within(trash).findByText(/back in your list/i)).toBeInTheDocument();
+    expect(within(trash).queryByText("Departed Farm")).not.toBeInTheDocument();
+  });
+
+  it("says so plainly when a restore fails, and keeps the row", async () => {
+    // The row staying is the point: a disappeared row would tell the operator the restore
+    // worked. Fails loudly rather than silently (Golden Rule: fail loudly).
+    const fetcher = vi
+      .fn()
+      .mockResolvedValue(new Response(JSON.stringify({ status: "not_trashed" }), { status: 409 }));
+    renderWithTrash(fetcher);
+    await userEvent.click(screen.getByText(/^trash$/i));
+
+    const trash = screen.getByRole("group", { name: /^trash$/i });
+    await userEvent.click(
+      within(trash).getByRole("button", { name: /put back.*Departed Farm/i }),
+    );
+
+    expect(await within(trash).findByText(/did not go through|could not/i)).toBeInTheDocument();
+    expect(within(trash).getByText("Departed Farm")).toBeInTheDocument();
   });
 });
 
@@ -496,19 +822,6 @@ describe("the setup link is offered only where it solves something", () => {
     // The operator must not be left thinking the old link can be recovered — it cannot, and
     // the copy has to say so rather than letting them assume otherwise.
     expect(within(card).getByText(/cannot be looked up/i)).toBeInTheDocument();
-  });
-});
-
-describe("test farms", () => {
-  it("marks a seller as a test farm", async () => {
-    const fetcher = ok();
-    render(<StandsAndSellers stands={stands} sellers={sellers} fetcher={fetcher} />);
-
-    const card = await openSeller("Misty Hollow Farm");
-    await choose(card, /mark as a test farm/i);
-
-    const [, init] = fetcher.mock.calls[0] as [string, RequestInit];
-    expect(JSON.parse(init.body as string)).toMatchObject({ action: "mark_test" });
   });
 });
 
@@ -601,24 +914,23 @@ describe("the card's actions live in one menu", () => {
 
     for (const label of [
       /edit details/i,
-      /^approve$|remove approval/i,
       /setup link/i,
-      /test farm/i,
       /take off the map/i,
+      /move to trash/i,
     ]) {
       expect(within(card).getByRole("menuitem", { name: label })).toBeInTheDocument();
     }
   });
 
-  it("keeps a state chip a fact, never a button", async () => {
+  it("keeps the summary a fact, never a button", async () => {
     render(<StandsAndSellers stands={stands} sellers={unapproved} fetcher={vi.fn()} />);
     await userEvent.click(screen.getByRole("tab", { name: /sellers/i }));
 
-    // The chip says what is true of the record. The operator acts through the menu, so a chip
-    // that could be pressed would be a second, undiscoverable way to do the same thing.
+    // The summary says what is true of the record. The operator acts through the menu, so a
+    // pressable summary would be a second, undiscoverable way to do the same thing.
     const card = screen.getByRole("group", { name: /sprout farm/i });
-    const chip = within(card).getByText(/waiting for approval/i);
-    expect(chip.closest("button")).toBeNull();
+    const summary = within(card).getByText(/unclaimed/i);
+    expect(summary.closest("button")).toBeNull();
   });
 });
 

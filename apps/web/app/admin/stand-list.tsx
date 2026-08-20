@@ -3,10 +3,10 @@
 import { useState } from "react";
 import { copyText } from "../../lib/copy-text";
 import { ActionMenu } from "./action-menu";
-import { CheckIcon, ClockIcon, LinkIcon, PencilIcon, PeopleIcon, StandIcon, UnpinIcon } from "./icons";
+import { CheckIcon, ClockIcon, LinkIcon, PencilIcon, PeopleIcon, StandIcon, TrashIcon, UnpinIcon } from "./icons";
 
 /** Which of a stand's three surfaces is open, or none. One at a time, by construction. */
-type StandPanel = "details" | "farm-bucks" | "invite" | "retire" | null;
+type StandPanel = "details" | "farm-bucks" | "invite" | "retire" | "trash" | null;
 
 export interface AdminStandCard {
   standId: string;
@@ -489,6 +489,44 @@ export function StandDetails({
    * operator who believes a stand is off the map while it is still being served is worse off
    * than one who sees an error.
    */
+  /**
+   * Move a stand to the trash: out of VIGA's list entirely, restorable from the Trash section
+   * (F-124).
+   *
+   * The row is updated from the SERVER's answer for the same reason `setRetired` is, and it
+   * stays on screen carrying the note rather than removing itself — the list is the server's,
+   * and a card that vanished on its own would make a refused trash look like a successful one.
+   */
+  async function moveToTrash(standId: string, standName: string) {
+    setSaving(standId);
+    setNote((current) => {
+      const next = { ...current };
+      delete next[standId];
+      return next;
+    });
+    try {
+      const response = await fetch("/api/admin/stands", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ standId, action: "trash" }),
+      });
+      if (!response.ok) throw new Error("save failed");
+      setRows((current) =>
+        current.map((row) => (row.standId === standId ? { ...row, retired: true } : row)),
+      );
+      say(
+        standId,
+        "ok",
+        `${standName} is in the trash. Reload to update the list, or put it back from Trash.`,
+      );
+    } catch {
+      say(standId, "bad", "That stand was not moved to the trash. Try again.");
+    } finally {
+      showPanel(standId, null);
+      setSaving(null);
+    }
+  }
+
   async function setRetired(standId: string, retired: boolean) {
     setSaving(standId);
     setNote((current) => {
@@ -710,6 +748,19 @@ export function StandDetails({
                           danger: true,
                           onSelect: () => showPanel(stand.standId, "retire"),
                         },
+                  /*
+                    LAST, after the map controls: trash takes the stand out of VIGA's list
+                    altogether, where "off the map" only stops customers seeing it. Offered
+                    whatever the stand's map state, because a stand VIGA has already taken
+                    down is exactly the one they are most likely to want out of the list.
+                  */
+                  {
+                    key: "trash",
+                    label: "Move to trash",
+                    icon: <TrashIcon />,
+                    danger: true,
+                    onSelect: () => showPanel(stand.standId, "trash"),
+                  },
                 ]}
               />
             </div>
@@ -730,6 +781,40 @@ export function StandDetails({
                 sections={stand.sections}
                 farmBucks={farmBucksDetail(stand.farmBucksStatus)}
               />
+
+              {panel === "trash" && (
+                <div
+                  className="admin-confirm"
+                  role="group"
+                  aria-label={`Move ${stand.name} to trash`}
+                >
+                  {/* Says what happens AND that it is reversible — see the seller card's own
+                      trash confirmation for why the second half is not optional. */}
+                  <p>
+                    {stand.name} leaves your list and customers stop seeing it. Nothing is
+                    deleted — every listing, update and report is kept, and you can put it back
+                    from Trash.
+                  </p>
+                  <div className="admin-confirm-actions">
+                    <button
+                      className="admin-action-danger"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void moveToTrash(stand.standId, stand.name)}
+                    >
+                      {busy ? "Saving…" : "Move to trash"}
+                    </button>
+                    <button
+                      className="admin-action-secondary"
+                      type="button"
+                      disabled={busy}
+                      onClick={() => showPanel(stand.standId, null)}
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {panel === "retire" && (
                 <div

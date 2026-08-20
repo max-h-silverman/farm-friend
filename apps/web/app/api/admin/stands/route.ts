@@ -1,7 +1,9 @@
 import {
   inviteSellerToStand,
   restoreStand,
+  restoreStandFromTrash,
   retireStand,
+  trashStand,
   saveFarmBucksStatus,
   saveStandMetadata,
   type FarmBucksStatus,
@@ -162,8 +164,16 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   if (body.action !== undefined) {
+    // Trash joins retirement here rather than taking a route of its own, for the reason the
+    // sellers route already states: both are VIGA recording a decision about one stand, and a
+    // second route would be a second place to remember the session guard (F-124).
     const action =
-      body.action === "retire" || body.action === "restore" ? body.action : null;
+      body.action === "retire" ||
+      body.action === "restore" ||
+      body.action === "trash" ||
+      body.action === "restore_from_trash"
+        ? body.action
+        : null;
     if (action === null) {
       return Response.json({ error: "invalid_request" }, { status: 400 });
     }
@@ -174,11 +184,23 @@ export async function POST(req: Request): Promise<Response> {
             administratorId: caller.administratorId,
             occurredAt,
           })
-        : await restoreStand(db, {
-            salesLocationId: standId,
-            administratorId: caller.administratorId,
-            occurredAt,
-          });
+        : action === "restore"
+          ? await restoreStand(db, {
+              salesLocationId: standId,
+              administratorId: caller.administratorId,
+              occurredAt,
+            })
+          : action === "trash"
+            ? await trashStand(db, {
+                salesLocationId: standId,
+                administratorId: caller.administratorId,
+                occurredAt,
+              })
+            : await restoreStandFromTrash(db, {
+                salesLocationId: standId,
+                administratorId: caller.administratorId,
+                occurredAt,
+              });
     return Response.json(result, { status: retirementStatusFor(result.status) });
   }
 
@@ -230,13 +252,24 @@ function invitationStatusFor(status: string): number {
 
 function retirementStatusFor(status: string): number {
   switch (status) {
+    // `trashed` sits with them deliberately: it is the trash writer's success, and without
+    // its own case it fell to the 409 default — a stand genuinely trashed while the screen was
+    // told the act conflicted (caught by the F-124 route test, never shipped).
     case "retired":
     case "restored":
+    case "trashed":
       return 200;
+    // `unknown_subject` is the trash writer's name for the same fact `unknown_stand` names:
+    // no such record. One table answers for both so a caller cannot get 404 from one act and
+    // 409 from the other for the identical cause (F-124).
     case "unknown_stand":
+    case "unknown_subject":
       return 404;
+
     case "not_an_administrator":
       return 403;
+    // `already_trashed` / `not_trashed` fall to 409 with `already_retired` / `not_retired`,
+    // and for the same reason: the caller's decision was NOT recorded, so 200 would lie.
     default:
       return 409;
   }

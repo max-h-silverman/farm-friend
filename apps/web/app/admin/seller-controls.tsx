@@ -3,15 +3,22 @@
 import { useState } from "react";
 import { copyText } from "../../lib/copy-text";
 import type { ActionMenuItem } from "./action-menu";
-import { CheckIcon, FlaskIcon, LinkIcon, PencilIcon, UnpinIcon } from "./icons";
+import { LinkIcon, PencilIcon, TrashIcon, UnpinIcon } from "./icons";
 
 /**
  * Everything VIGA does *about* a seller, on the seller's own card.
  *
  * These controls used to live on a Farms screen. F-101 removed that screen: VIGA's job is to
- * view and edit stands and sellers (max, 2026-08-17), so approving a farm, taking it off the
- * map, correcting its name, marking it a test farm and minting its setup link are all things an
- * operator does *while looking at the seller* — not destinations of their own.
+ * view and edit stands and sellers (max, 2026-08-17), so correcting a farm's name, taking it
+ * off the map, moving it to the trash and minting its setup link are all things an operator
+ * does *while looking at the seller* — not destinations of their own.
+ *
+ * **Approval and test-farm marking are gone** (F-124, max 2026-08-19). Onboarding redemption
+ * auto-approves, so the only unapproved farm was one VIGA had explicitly revoked — and with the
+ * toggle gone nobody can revoke. Publication still refuses with `not_approved`, so the gate
+ * itself is untouched; what went is the console's ability to reach it. Marking a test farm
+ * becomes a script-only operation, which max was told and accepted. Both writers still exist
+ * and both are still called from elsewhere; the route no longer honours either action.
  *
  * **The verbs are a menu, the results are the card.** The card header owns the one way in; this
  * hook supplies the items and owns everything that happens after one is chosen — the editor,
@@ -50,7 +57,14 @@ export function useSellerControls({
   const [row, setRow] = useState(seller);
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
-  const [confirmingRetire, setConfirmingRetire] = useState(false);
+  /**
+   * WHICH destructive-looking act is being confirmed, or null.
+   *
+   * One state rather than a boolean per act: retiring and trashing ask the same question in the
+   * same place, and a second `confirmingTrash` boolean would make "both open at once" a state
+   * the panel had to rule out rather than one it cannot represent.
+   */
+  const [confirming, setConfirming] = useState<"retire" | "trash" | null>(null);
   const [editing, setEditing] = useState<{ name: string; description: string } | null>(null);
   /**
    * A freshly minted setup link, held only in this hook's state and only until the operator
@@ -85,21 +99,9 @@ export function useSellerControls({
     }
   }
 
-  async function setApproved(approved: boolean) {
-    const payload = await post({ farmId: row.farmId, action: approved ? "approve" : "revoke" });
-    if (payload === null) return;
-    setRow((current) => ({ ...current, approved }));
-    setNote({
-      kind: "ok",
-      text: approved
-        ? "Approved. This farmer can publish updates."
-        : "Approval removed. This farmer can no longer publish updates.",
-    });
-  }
-
   async function setRetired(retired: boolean) {
     const payload = await post({ farmId: row.farmId, action: retired ? "retire" : "restore" });
-    setConfirmingRetire(false);
+    setConfirming(null);
     if (payload === null) return;
     setRow((current) => ({ ...current, retired }));
     setNote({
@@ -110,18 +112,22 @@ export function useSellerControls({
     });
   }
 
-  async function setTestFarm(isTestFarm: boolean) {
-    const payload = await post({
-      farmId: row.farmId,
-      action: isTestFarm ? "mark_test" : "unmark_test",
-    });
+  /**
+   * Move this seller to the trash: out of VIGA's list entirely, and restorable from the Trash
+   * section (F-124).
+   *
+   * The row stays on screen carrying the outcome note rather than vanishing. The list this card
+   * sits in is the server's, and a card that removed itself would be claiming an authority it
+   * does not have — a refused trash would look identical to a successful one.
+   */
+  async function moveToTrash() {
+    const payload = await post({ farmId: row.farmId, action: "trash" });
+    setConfirming(null);
     if (payload === null) return;
-    setRow((current) => ({ ...current, isTestFarm }));
+    setRow((current) => ({ ...current, retired: true }));
     setNote({
       kind: "ok",
-      text: isTestFarm
-        ? "Marked as a test farm. Customers will not see it."
-        : "No longer a test farm. Customers can see it.",
+      text: `${row.name} is in the trash. Reload to update the list, or put it back from Trash.`,
     });
   }
 
@@ -189,15 +195,9 @@ export function useSellerControls({
       label: "Edit details",
       icon: <PencilIcon />,
       onSelect: () => {
-        setConfirmingRetire(false);
+        setConfirming(null);
         setEditing({ name: row.name, description: row.description ?? "" });
       },
-    },
-    {
-      key: "approve",
-      label: row.approved ? "Remove approval" : "Approve",
-      icon: <CheckIcon />,
-      onSelect: () => void setApproved(!row.approved),
     },
     canUpdate
       ? null
@@ -207,12 +207,6 @@ export function useSellerControls({
           icon: <LinkIcon />,
           onSelect: () => void createSetupLink(),
         },
-    {
-      key: "test-farm",
-      label: row.isTestFarm ? "No longer a test farm" : "Mark as a test farm",
-      icon: <FlaskIcon />,
-      onSelect: () => void setTestFarm(!row.isTestFarm),
-    },
     row.retired
       ? // One click back, no confirmation: restoring is reversible and refusing to make it
         // easy only strands the operator (F-071).
@@ -229,14 +223,26 @@ export function useSellerControls({
           danger: true,
           onSelect: () => {
             setEditing(null);
-            setConfirmingRetire(true);
+            setConfirming("retire");
           },
         },
+    // LAST, and after the map controls: trash is the one that takes the record out of VIGA's
+    // list altogether, so it sits below the everyday reversible hide rather than beside it.
+    {
+      key: "trash",
+      label: "Move to trash",
+      icon: <TrashIcon />,
+      danger: true,
+      onSelect: () => {
+        setEditing(null);
+        setConfirming("trash");
+      },
+    },
   ];
 
   const panel = (
     <div className="admin-seller-controls">
-      {confirmingRetire && (
+      {confirming === "retire" && (
         <div className="admin-confirm" role="group" aria-label={`Take ${row.name} off the map`}>
           <p>Customers no longer see this farm or its stands. Everything it published is kept.</p>
           <div className="admin-confirm-actions">
@@ -251,7 +257,38 @@ export function useSellerControls({
             <button
               type="button"
               className="admin-action-secondary"
-              onClick={() => setConfirmingRetire(false)}
+              onClick={() => setConfirming(null)}
+            >
+              Keep
+            </button>
+          </div>
+        </div>
+      )}
+
+      {confirming === "trash" && (
+        <div className="admin-confirm" role="group" aria-label={`Move ${row.name} to trash`}>
+          {/*
+            Says what happens AND that it is reversible. The second half is what makes the
+            control safe to reach for — an operator who believes this destroys the farm's
+            history will not use it, and will ask VIGA for a database repair instead.
+          */}
+          <p>
+            This farm leaves your list and customers stop seeing it. Nothing is deleted — every
+            listing, update and report is kept, and you can put it back from Trash.
+          </p>
+          <div className="admin-confirm-actions">
+            <button
+              type="button"
+              className="admin-action-danger"
+              disabled={busy}
+              onClick={() => void moveToTrash()}
+            >
+              Move to trash
+            </button>
+            <button
+              type="button"
+              className="admin-action-secondary"
+              onClick={() => setConfirming(null)}
             >
               Keep
             </button>

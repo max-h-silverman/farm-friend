@@ -10,8 +10,10 @@ import {
   listFarmsForApproval,
   listStandsForAdministration,
   restoreFarm,
+  restoreFarmFromTrash,
   restoreFromTrash,
   restoreStand,
+  restoreStandFromTrash,
   retireStand,
   trashFarm,
   trashStand,
@@ -362,6 +364,43 @@ describe("the trash (integration)", () => {
       administratorId: ids.administrator as string,
       occurredAt: at(12),
     });
+  });
+
+  it("names a door for restoring each subject, matching the trashing doors", async () => {
+    // F-124. `trashStand`/`trashFarm` existed without their restore counterparts, so every
+    // caller putting a record BACK had to name the subject as a string — the exact mistake
+    // the named doors exist to make impossible. The screen restores far more often than a
+    // test does, and it must not be the place that gets it wrong at a distance.
+    await trashStand(handle(), {
+      salesLocationId: ids.standB as string,
+      administratorId: ids.administrator as string,
+      occurredAt: at(30),
+    });
+    const stand = await restoreStandFromTrash(handle(), {
+      salesLocationId: ids.standB as string,
+      administratorId: ids.administrator as string,
+      occurredAt: at(31),
+    });
+    expect(stand.status).toBe("restored");
+    expect(
+      (await sql()`select trashed_at from sales_locations where id = ${ids.standB as string}`)[0]
+        ?.trashed_at,
+    ).toBeNull();
+
+    await trashFarm(handle(), {
+      farmId: ids.farm as string,
+      administratorId: ids.administrator as string,
+      occurredAt: at(32),
+    });
+    const farm = await restoreFarmFromTrash(handle(), {
+      farmId: ids.farm as string,
+      administratorId: ids.administrator as string,
+      occurredAt: at(33),
+    });
+    expect(farm.status).toBe("restored");
+    expect(
+      (await sql()`select trashed_at from sellers where id = ${ids.farm as string}`)[0]?.trashed_at,
+    ).toBeNull();
   });
 
   it("refuses to trash the same record twice, keeping the first timestamp", async () => {

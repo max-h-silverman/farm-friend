@@ -280,58 +280,63 @@ describe("admin routes (integration)", () => {
     });
   });
 
-  describe("approval through the route", () => {
-    it("approves and revokes, recording the SESSION's administrator not the body's", async () => {
+  describe("decisions about a farm through the route", () => {
+    it("no longer offers approval or test-farm marking (F-124)", async () => {
+      /*
+        The controls were removed from the console (max, 2026-08-19), and this asserts the
+        SERVER stopped offering them rather than the button merely disappearing — a route that
+        still honoured `approve` would leave the capability reachable by anyone who could form
+        a request, which is not what "removed" means.
+
+        Both writers still exist and are still called: `approveFarm` by onboarding redemption,
+        `setTestFarm` by scripts. Only this door is shut.
+      */
       const token = await sessionFor(ids.administrator as string);
-      const impostorId = randomUUID();
+      const before = await sql()`
+        select
+          (select count(*)::int from seller_approvals) as approvals,
+          (select count(*)::int from sellers where test_seller_at is not null) as test_farms
+      `;
 
-      const approve = await farmsRoute.POST(
-        request("https://ff.example/api/admin/sellers", {
-          method: "POST",
-          token,
-          // A caller naming someone else must not be able to act as them.
-          body: JSON.stringify({
-            farmId: ids.farm,
-            action: "approve",
-            administratorId: impostorId,
+      for (const action of ["approve", "revoke", "mark_test", "unmark_test"]) {
+        const response = await farmsRoute.POST(
+          request("https://ff.example/api/admin/sellers", {
+            method: "POST",
+            token,
+            body: JSON.stringify({ farmId: ids.farm, action }),
           }),
-        }),
-      );
-      expect(approve.status).toBe(200);
+        );
+        expect(response.status, action).toBe(400);
+      }
 
-      const rows = await sql()`
-        select administrator_id from seller_approvals
-        where seller_id = ${ids.farm as string} and revoked_at is null
-      `;
-      expect(rows).toHaveLength(1);
-      expect(rows[0]?.administrator_id).toBe(ids.administrator);
-      expect(rows[0]?.administrator_id).not.toBe(impostorId);
-
-      const revoke = await farmsRoute.POST(
-        request("https://ff.example/api/admin/sellers", {
-          method: "POST",
-          token,
-          body: JSON.stringify({ farmId: ids.farm, action: "revoke" }),
-        }),
-      );
-      expect(revoke.status).toBe(200);
       const after = await sql()`
-        select id from seller_approvals
-        where seller_id = ${ids.farm as string} and revoked_at is null
+        select
+          (select count(*)::int from seller_approvals) as approvals,
+          (select count(*)::int from sellers where test_seller_at is not null) as test_farms
       `;
-      expect(after).toHaveLength(0);
+      expect(after[0]?.approvals, "a removed action must not still approve").toBe(
+        before[0]?.approvals,
+      );
+      expect(after[0]?.test_farms, "a removed action must not still mark a test farm").toBe(
+        before[0]?.test_farms,
+      );
     });
 
-    it("rejects a malformed or unknown request without touching approval state", async () => {
+    it("rejects a malformed or unknown request without touching the farm", async () => {
       const token = await sessionFor(ids.administrator as string);
-      const before = await sql()`select count(*)::int as n from seller_approvals`;
+      const before = await sql()`
+        select name, retired_at, trashed_at from sellers where id = ${ids.farm as string}
+      `;
 
       for (const body of [
         {},
         { farmId: ids.farm },
-        { action: "approve" },
+        { action: "retire" },
         { farmId: ids.farm, action: "delete" },
-        { farmId: 42, action: "approve" },
+        { farmId: 42, action: "retire" },
+        // `save_details` is the one action carrying a payload, and a missing one is the
+        // caller's bug rather than a state conflict.
+        { farmId: ids.farm, action: "save_details" },
       ]) {
         const response = await farmsRoute.POST(
           request("https://ff.example/api/admin/sellers", {
@@ -347,15 +352,16 @@ describe("admin routes (integration)", () => {
         request("https://ff.example/api/admin/sellers", {
           method: "POST",
           token,
-          body: JSON.stringify({ farmId: randomUUID(), action: "approve" }),
+          body: JSON.stringify({ farmId: randomUUID(), action: "retire" }),
         }),
       );
       expect(unknownFarm.status).toBe(404);
 
-      const after = await sql()`select count(*)::int as n from seller_approvals`;
-      expect(after[0]?.n).toBe(before[0]?.n);
+      const after = await sql()`
+        select name, retired_at, trashed_at from sellers where id = ${ids.farm as string}
+      `;
+      expect(after[0]).toEqual(before[0]);
     });
-
   });
 
   describe("stand retirement through the route (F-071)", () => {
@@ -397,6 +403,141 @@ describe("admin routes (integration)", () => {
         select retired_at from sales_locations where id = ${ids.stand as string}
       `;
       expect(after[0]?.retired_at).toBeNull();
+    });
+
+    it("trashes and restores a stand through the same guarded route (F-124)", async () => {
+      const token = await sessionFor(ids.administrator as string);
+      const impostorId = randomUUID();
+
+      // Start from a stand that is ON the map, whatever the tests before this one left behind.
+      // `retired_by_trash` is the fact under test, and it only means anything when trashing is
+      // what caused the retirement — so the starting state has to be stated, not inherited.
+      await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ standId: ids.stand, action: "restore" }),
+        }),
+      );
+
+      const trash = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          // Same rule as retirement: the acting administrator is the SESSION's.
+          body: JSON.stringify({
+            standId: ids.stand,
+            action: "trash",
+            administratorId: impostorId,
+          }),
+        }),
+      );
+      expect(trash.status).toBe(200);
+
+      const trashed = await sql()`
+        select trashed_at, trashed_by_administrator_id, retired_at, retired_by_trash
+        from sales_locations where id = ${ids.stand as string}
+      `;
+      expect(trashed[0]?.trashed_at).not.toBeNull();
+      expect(trashed[0]?.trashed_by_administrator_id).toBe(ids.administrator);
+      expect(trashed[0]?.trashed_by_administrator_id).not.toBe(impostorId);
+      // Trashing retires in the same transaction, and records that it caused the retirement.
+      expect(trashed[0]?.retired_at).not.toBeNull();
+      expect(trashed[0]?.retired_by_trash).toBe(true);
+
+      // A second trash is a conflict the screen can report, never a silent no-op.
+      const again = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ standId: ids.stand, action: "trash" }),
+        }),
+      );
+      expect(again.status).toBe(409);
+
+      const restore = await standsRoute.POST(
+        request("https://ff.example/api/admin/stands", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ standId: ids.stand, action: "restore_from_trash" }),
+        }),
+      );
+      expect(restore.status).toBe(200);
+
+      const after = await sql()`
+        select trashed_at, retired_at, retired_by_trash
+        from sales_locations where id = ${ids.stand as string}
+      `;
+      expect(after[0]?.trashed_at).toBeNull();
+      // The restore undoes the retirement it created, so the stand is back on the map.
+      expect(after[0]?.retired_at).toBeNull();
+      expect(after[0]?.retired_by_trash).toBe(false);
+    });
+
+    it("trashes and restores a farm through the same guarded route (F-124)", async () => {
+      const token = await sessionFor(ids.administrator as string);
+
+      const trash = await farmsRoute.POST(
+        request("https://ff.example/api/admin/sellers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ farmId: ids.farm, action: "trash" }),
+        }),
+      );
+      expect(trash.status).toBe(200);
+      expect(
+        (await sql()`select trashed_at from sellers where id = ${ids.farm as string}`)[0]
+          ?.trashed_at,
+      ).not.toBeNull();
+
+      const restore = await farmsRoute.POST(
+        request("https://ff.example/api/admin/sellers", {
+          method: "POST",
+          token,
+          body: JSON.stringify({ farmId: ids.farm, action: "restore_from_trash" }),
+        }),
+      );
+      expect(restore.status).toBe(200);
+      expect(
+        (await sql()`select trashed_at from sellers where id = ${ids.farm as string}`)[0]
+          ?.trashed_at,
+      ).toBeNull();
+    });
+
+    it("refuses an unauthenticated trash on either route (F-124)", async () => {
+      // Trashing takes a record out of VIGA's roster, so an unguarded handler here is the
+      // power to empty the console. Named explicitly rather than trusted to the sweep above.
+      for (const [route, url, body] of [
+        [standsRoute, "https://ff.example/api/admin/stands", { standId: ids.stand, action: "trash" }],
+        [farmsRoute, "https://ff.example/api/admin/sellers", { farmId: ids.farm, action: "trash" }],
+      ] as const) {
+        const response = await route.POST(
+          request(url, { method: "POST", body: JSON.stringify(body) }),
+        );
+        expect(response.status, url).toBe(403);
+      }
+
+      const trashed = await sql()`
+        select
+          (select count(*)::int from sales_locations where trashed_at is not null) as stands,
+          (select count(*)::int from sellers where trashed_at is not null) as farms
+      `;
+      expect(trashed[0]?.stands, "no unauthenticated request may trash a stand").toBe(0);
+      expect(trashed[0]?.farms, "no unauthenticated request may trash a farm").toBe(0);
+    });
+
+    // The two tests above each restore what they trashed, so nothing here leaves a record in
+    // the trash for a later test to count. This asserts that rather than trusting it: the
+    // malformed-request tests below count rows, and a leaked trashing would fail them for a
+    // reason that has nothing to do with what they test.
+    it("leaves nothing in the trash for the tests that follow", async () => {
+      const left = await sql()`
+        select
+          (select count(*)::int from sales_locations where trashed_at is not null) as stands,
+          (select count(*)::int from sellers where trashed_at is not null) as farms
+      `;
+      expect(left[0]?.stands).toBe(0);
+      expect(left[0]?.farms).toBe(0);
     });
 
     it("rejects a malformed or unknown request without retiring anything", async () => {

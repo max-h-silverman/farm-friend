@@ -41,15 +41,21 @@ export default async function StandsAndSellersPage() {
   }
 
   const { db } = publicReadContext();
-  const [sellers, stands, providers, authorizations, openInvites] = await Promise.all([
-    listFarmsForApproval(db),
-    listStandsForAdministration(db),
-    listStandProvidersForAdministration(db),
-    listFarmerAuthorizations(db),
-    // Invites moved here from SMS Users (max, 2026-08-19): inviting a farmer is about a stand
-    // or seller joining the roster, which is this screen's subject.
-    listOpenFarmerOnboardingRequests(db),
-  ]);
+  const [sellers, stands, providers, authorizations, openInvites, trashedSellers, trashedStands] =
+    await Promise.all([
+      listFarmsForApproval(db),
+      listStandsForAdministration(db),
+      listStandProvidersForAdministration(db),
+      listFarmerAuthorizations(db),
+      // Invites moved here from SMS Users (max, 2026-08-19): inviting a farmer is about a stand
+      // or seller joining the roster, which is this screen's subject.
+      listOpenFarmerOnboardingRequests(db),
+      // The TRASH (F-124), read through the SAME readers with `scope.trashed`. The two scopes
+      // partition the records between them, so one reader per subject cannot drift into
+      // disagreeing about which records exist.
+      listFarmsForApproval(db, { trashed: true }),
+      listStandsForAdministration(db, { trashed: true }),
+    ]);
 
   // One read of the arrangements, indexed both ways. The same row appears under its stand on
   // one view and under its seller on the other — it is one relationship seen from two sides,
@@ -131,6 +137,32 @@ export default async function StandsAndSellersPage() {
           sellers: sellers
             .filter((farm) => !farm.retired)
             .map((farm) => ({ farmId: farm.farmId, name: farm.name })),
+        }}
+        /*
+          The trash carries only what its rows need: a name and the identity to restore. It
+          deliberately does NOT get arrangements, authorizations or stand details — a trashed
+          record is not being worked on, it is being put back, and building the full card for
+          it would hand this section data it has no use for (Golden Rule #5).
+        */
+        trash={{
+          stands: trashedStands.map((stand) => ({
+            standId: stand.standId,
+            name: stand.name,
+            farmName: stand.farmName,
+            approved: stand.approved,
+            retired: stand.retired,
+            providers: [],
+          })),
+          sellers: trashedSellers.map((farm) => ({
+            farmId: farm.farmId,
+            name: farm.name,
+            approved: farm.approved,
+            retired: farm.retired,
+            description: farm.description,
+            isTestFarm: farm.isTestFarm,
+            providers: [],
+            access: [],
+          })),
         }}
       />
     </AdminShell>

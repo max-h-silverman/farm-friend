@@ -1156,6 +1156,63 @@ body {
   padding: 0 1rem 1rem;
 }
 
+/*
+  THE TRASH — the same collapsed band as Invites, below the roster rather than above it
+  (F-124, max 2026-08-19). Invites starts something; the trash undoes something. Sharing the
+  band's vocabulary is deliberate: two occasional sections that look and open alike.
+*/
+.admin-trash-section {
+  margin-top: 1rem;
+  border: 1px solid var(--line);
+  border-radius: 0.5rem;
+  background: var(--admin-cream);
+}
+
+.admin-trash-section[open] > .admin-invites-summary .admin-row-caret {
+  transform: rotate(90deg);
+}
+
+/* Says nothing is deleted. The copy is load-bearing, not decoration: an operator who believes
+   trashing destroys a farm's history will ask for a database repair instead of using it. */
+.admin-trash-note {
+  margin: 0 0 0.75rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.admin-trash-rows {
+  display: grid;
+  gap: 0.25rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.admin-trash-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  /* 48px, like every other row an operator taps on a phone. */
+  min-height: 48px;
+  padding: 0.5rem 0;
+  border-bottom: 1px solid var(--line);
+}
+
+.admin-trash-row:last-child {
+  border-bottom: none;
+}
+
+@media (max-width: 34rem) {
+  /* The button drops below the name rather than squeezing it: "Put back <name>" is a long
+     label by design, and a name truncated to fit it would defeat the point of the row. */
+  .admin-trash-row {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 0.4rem;
+  }
+}
+
 .admin-farm-card {
   display: block;
   padding: 0;
@@ -1243,22 +1300,16 @@ body {
   overflow-wrap: anywhere;
 }
 
-.admin-row-states {
-  display: flex;
-  flex-wrap: wrap;
-  justify-content: flex-end;
-  gap: 0.35rem;
-}
-
-.admin-attention-summary {
-  margin: 0 0 1rem;
-  padding: 0.6rem 0.8rem;
-  color: #7a4a00;
-  background: #fdf1d6;
-  border: 1px solid var(--admin-yellow);
-  border-radius: 10px;
+/* ONE summary per row (F-124): the record's live state, then its count. Replaced a wrapping
+   row of chips plus a separate amber attention chip — one line of quiet text instead of a
+   cluster of competing badges. Right-aligned so thirty of them form a readable column. */
+.admin-row-summary {
+  justify-self: end;
+  text-align: right;
+  color: var(--muted);
   font-size: 0.9rem;
-  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
 }
 
 @media (max-width: 34rem) {
@@ -1274,9 +1325,10 @@ body {
     display: none;
   }
 
-  .admin-row-states {
+  .admin-row-summary {
     grid-column: 3;
-    justify-content: flex-start;
+    justify-self: start;
+    text-align: left;
   }
 
 }

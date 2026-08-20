@@ -31,16 +31,21 @@ describe("the admin desk", () => {
     expect(landing).not.toContain("Needs attention");
   });
 
-  it("counts pending work on the tab that owns it", () => {
-    // The counts did not disappear with the desk; they moved above the rows they describe.
-    // F-101 — they live in the component that renders the rows, not in the server page, so a
-    // filtered list and its summary cannot disagree. Asserted where they now are.
+  it("keeps a standing state out of an alert line", () => {
+    /*
+      F-124 — the page-level attention line is GONE. It counted one thing, farms waiting for
+      approval, and approval was removed from the console (max, 2026-08-19), so the line had
+      nothing left to say. Each card now carries one summary of its own state instead.
+
+      What SURVIVES from the rule this test was written for (max, 2026-08-17): having no owner
+      is a STATE, not work waiting. Most farms start unclaimed, so counting it as an alert made
+      the line permanent furniture and trained the operator to skip the real alert beside it.
+      That rule is now proved BEHAVIOURALLY by stands-and-sellers.test.tsx, which renders an
+      unclaimed farm and asserts no `role="status"` appears. This assertion is the source-level
+      guard that the alert line does not come back carrying it.
+    */
     const view = page("apps/web/app/admin/stands-and-sellers.tsx");
-    expect(view).toContain("waiting for approval");
-    expect(view).toContain("admin-attention-summary");
-    // max, 2026-08-17 — having no owner is a STATE, not work waiting. It must not reappear in
-    // the alert line: most farms start unclaimed, so counting it there made the line permanent
-    // furniture and trained the operator to skip the real alert beside it.
+    expect(view).not.toContain("admin-attention-summary");
     expect(view).not.toContain("nobody who can update");
   });
 

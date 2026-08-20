@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { ActionMenu, type ActionMenuItem } from "./action-menu";
-import { ClockIcon, PeopleIcon } from "./icons";
+import { PeopleIcon } from "./icons";
 import { useSellerControls } from "./seller-controls";
 import { StandDetails, type AdminStandCard } from "./stand-list";
 import { FarmerQueue, type FarmOption, type PendingRequestRow } from "./farmers/farmer-queue";
@@ -67,61 +67,53 @@ export interface SellerCard {
 
 type View = "stands" | "sellers";
 
-/**
- * What this stand or seller needs from an operator right now, or null when it needs nothing.
- * Shown on the collapsed summary so a long list can be scanned without opening every card —
- * "which of these needs me?" is the question an operator arrives with.
- */
-function standAttention(stand: StandCard): string | null {
-  if (stand.retired) return null;
-  if (!stand.approved) return "Waiting for approval";
-  if (stand.providers.length === 0) return "Nobody sells here";
-  if (stand.providers.every((row) => row.lifecycleState === "paused")) return "Nothing on sale";
-  return null;
+/*
+  ONE summary per card, carrying two facts (max, 2026-08-19): the record's live state, then how
+  many are on the other side of its relationship — `Open now · 2 sellers` on a stand,
+  `Live · 2 stands` on a seller.
+
+  This replaced a row of neutral chips PLUS a separate amber "attention" chip: two parallel
+  mechanisms describing one record, which had to be kept from contradicting each other. A stand
+  nobody sells at now reads `0 sellers` — the problem states itself, so no second label competes
+  for the same space.
+
+  **A retired record's state is the whole answer.** How many sell there describes a listing
+  nobody is being shown, so `Off the map` replaces the count rather than joining it.
+*/
+
+/** `1 seller` / `2 sellers`, without a pluralization mechanism nothing else needs. */
+function countOf(n: number, noun: string): string {
+  return `${n} ${noun}${n === 1 ? "" : "s"}`;
 }
 
-function sellerAttention(seller: SellerCard): string | null {
-  if (seller.retired) return null;
-  if (!seller.approved) return "Waiting for approval";
-  if (seller.providers.length === 0) return "Sells nowhere";
-  return null;
+/**
+ * A stand's live state. Read from the stand's own card, NEVER re-derived here: `openState` is
+ * `stand-cards.ts`'s projection of closure, code owns that answer (Golden Rule #3), and a
+ * second reading of the hours in the browser would be a second answer for the map and the
+ * console to disagree about.
+ */
+function standSummary(stand: StandCard): string {
+  if (stand.retired) return "Off the map";
+  const state = stand.details?.openState ?? "Live";
+  return `${state} · ${countOf(stand.providers.length, "seller")}`;
 }
 
 /**
- * What is TRUE of this stand right now, as chips.
+ * A seller's live state, then how many stands she sells at.
  *
- * **Read from the stand's own card, never re-derived here.** `openState` is `stand-cards.ts`'s
- * projection of closure — code owns that answer (Golden Rule #3), and a second reading of the
- * hours in the browser would be a second answer for the map and the console to disagree about.
- * So the chip either shows the sentence that projection produced, or shows nothing.
- *
- * A retired stand's visibility and open state describe a listing nobody is being shown, so
- * "Off the map" replaces them rather than joining them.
+ * **`Unclaimed` replaces `Live`, never joins it.** A farm nobody can publish for is not live in
+ * any useful sense — the listing is there and frozen — and it is a STATE of the record rather
+ * than work waiting (max, 2026-08-17): most farms start this way, so alerting on it would make
+ * the alert permanent furniture and teach the operator to skip the row.
  */
-function standStates(stand: StandCard): CardState[] {
-  if (stand.retired) return [{ key: "retired", label: "Off the map" }];
-
-  const openState = stand.details?.openState;
-  return [
-    {
-      key: "visible",
-      label: stand.approved ? "Visible to customers" : "Not yet on the map",
-      tone: stand.approved ? "ok" : "neutral",
-      icon: <PeopleIcon />,
-    },
-    ...(openState === undefined
-      ? []
-      : [
-          {
-            key: "open",
-            label: openState,
-            // Green for open, plain for every other honest answer — "Not open today" and
-            // "Open status not stated" are facts, not faults, so neither turns amber.
-            tone: openState === "Open now" ? ("ok" as const) : ("neutral" as const),
-            icon: <ClockIcon />,
-          },
-        ]),
-  ];
+function sellerSummary(seller: {
+  retired: boolean;
+  canUpdate: boolean;
+  providers: ParticipationRow[];
+}): string {
+  if (seller.retired) return "Off the map";
+  const state = seller.canUpdate ? "Live" : "Unclaimed";
+  return `${state} · ${countOf(seller.providers.length, "stand")}`;
 }
 
 /**
@@ -214,45 +206,10 @@ function AccessRoster({
 }
 
 /**
- * A chip: one neutral fact about a record, in a tone that names its kind.
- *
- * One mechanism with tones rather than a family of near-duplicates, and **every tone keeps its
- * text** — an operator never has to have learned that green means visible. The icon is
- * decorative for the same reason.
- */
-function Chip({
-  tone = "neutral",
-  icon,
-  children,
-}: {
-  tone?: "neutral" | "ok" | "attention";
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <span className={`admin-chip admin-chip--${tone}`}>
-      {icon !== undefined && (
-        <span className="admin-chip-icon" aria-hidden="true">
-          {icon}
-        </span>
-      )}
-      <span>{children}</span>
-    </span>
-  );
-}
-
-export interface CardState {
-  key: string;
-  label: string;
-  tone?: "neutral" | "ok" | "attention";
-  icon?: React.ReactNode;
-}
-
-/**
  * The card: a header bar you can read at a glance, and a body you open to work in.
  *
  * **The header is identity, state, and one way in** (max, 2026-08-17). Name and subtitle on
- * the left, chips for what is true of the record, and a single Actions menu on the right.
+ * the left, ONE summary of what is true of the record, and a single Actions menu on the right.
  * Everything an operator can *do* about the record hangs off that menu, which is what replaced
  * the wrapping row of five to seven buttons the open card used to carry — where "Approve" and
  * "Take off the map" competed for attention with the farm's own name.
@@ -264,8 +221,7 @@ function Card({
   id,
   title,
   subtitle,
-  attention,
-  states,
+  summary,
   actions,
   open,
   onToggle,
@@ -274,9 +230,8 @@ function Card({
   id: string;
   title: string;
   subtitle: string;
-  attention: string | null;
-  /** Neutral facts about the record. Never work waiting — that is `attention`. */
-  states: CardState[];
+  /** The one line describing this record's current state. See `standSummary`. */
+  summary: string;
   /** Everything an operator can do about this record. Omitted entirely when there is nothing. */
   actions?: Array<ActionMenuItem | null>;
   open: boolean;
@@ -308,14 +263,7 @@ function Card({
             <strong>{title}</strong>
             <span className="admin-row-sub">{subtitle}</span>
           </span>
-          <span className="admin-row-states">
-            {states.map((state) => (
-              <Chip key={state.key} tone={state.tone} icon={state.icon}>
-                {state.label}
-              </Chip>
-            ))}
-            {attention !== null && <Chip tone="attention">{attention}</Chip>}
-          </span>
+          <span className="admin-row-summary">{summary}</span>
           {actions !== undefined && open && (
             /*
               Only on an OPEN card (max, 2026-08-17). A closed row is a thing to read — a name,
@@ -377,20 +325,6 @@ function SellerEntityCard({
   const canUpdate = seller.access.some((entry) => entry.revokedAt === null);
   const { row, menuItems, panel } = useSellerControls({ seller, canUpdate, fetcher });
 
-  /*
-    What is TRUE of this seller, in the order it matters: whether customers can see her at all,
-    then whether anyone can publish for her. A retired farm's other states describe a listing
-    nobody is being shown, so "Off the map" replaces them rather than joining them.
-  */
-  const states: CardState[] = row.retired
-    ? [{ key: "retired", label: "Off the map" }]
-    : [
-        ...(row.isTestFarm ? [{ key: "test", label: "Test farm" }] : []),
-        ...(canUpdate
-          ? []
-          : [{ key: "unclaimed", label: "Unclaimed" }]),
-      ];
-
   return (
     <Card
       id={seller.farmId}
@@ -400,8 +334,7 @@ function SellerEntityCard({
           ? (seller.providers[0] as ParticipationRow).standName
           : `${seller.providers.length} stands`
       }
-      attention={sellerAttention({ ...seller, approved: row.approved, retired: row.retired })}
-      states={states}
+      summary={sellerSummary({ retired: row.retired, canUpdate, providers: seller.providers })}
       actions={menuItems}
       open={open}
       onToggle={onToggle}
@@ -431,15 +364,149 @@ export interface InvitesPanel {
   sellers: FarmOption[];
 }
 
+/**
+ * What is in the trash, and the one control that takes it back out (F-124).
+ *
+ * **Trash and off-the-map are two decisions, not two names for one.** Off the map is the
+ * everyday reversible hide: the record is still VIGA's, still in the roster, just not shown to
+ * customers. Trash means "this should not be in my list at all", so a trashed record leaves the
+ * roster entirely and is reachable only here. The two partition the records between them.
+ *
+ * **Nothing here destroys anything.** Every revision, report and authorization survives a
+ * trashing untouched, which is exactly what lets a restore put back the record rather than an
+ * approximation of it. "Empty the trash" is deliberately not built: a permanent delete has to
+ * answer a large `on delete restrict` closure, and that is its own piece of work.
+ */
+export interface TrashPanel {
+  stands: StandCard[];
+  sellers: SellerCard[];
+}
+
+/** One row in the trash: what it was, and one press to put it back. */
+interface TrashRow {
+  key: string;
+  name: string;
+  subtitle: string;
+  url: string;
+  body: Record<string, string>;
+}
+
+function TrashSection({ trash, fetcher }: { trash: TrashPanel; fetcher: typeof fetch }) {
+  // Restored rows leave the list without a reload: the operator just acted on this row, and
+  // making them refresh to see it worked is how a screen teaches people not to trust it.
+  const [restored, setRestored] = useState<string[]>([]);
+  const [note, setNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
+
+  const rows: TrashRow[] = [
+    ...trash.stands.map((stand) => ({
+      key: `stand:${stand.standId}`,
+      name: stand.name,
+      subtitle: stand.farmName,
+      url: "/api/admin/stands",
+      body: { standId: stand.standId, action: "restore_from_trash" },
+    })),
+    ...trash.sellers.map((seller) => ({
+      key: `seller:${seller.farmId}`,
+      name: seller.name,
+      subtitle: "Seller",
+      url: "/api/admin/sellers",
+      body: { farmId: seller.farmId, action: "restore_from_trash" },
+    })),
+  ];
+
+  const remaining = rows.filter((row) => !restored.includes(row.key));
+
+  // An empty trash renders NOTHING, the same way no invites render no invites section: a
+  // standing empty section is chrome an operator learns to skip.
+  if (rows.length === 0) return null;
+
+  async function restore(row: TrashRow) {
+    setNote(null);
+    let response: Response;
+    try {
+      response = await fetcher(row.url, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(row.body),
+      });
+    } catch {
+      setNote({ kind: "bad", text: "That change did not go through. Try again." });
+      return;
+    }
+    if (!response.ok) {
+      // The row STAYS. A disappeared row would tell the operator the restore worked.
+      setNote({ kind: "bad", text: "That change did not go through. Try again." });
+      return;
+    }
+    setRestored((current) => [...current, row.key]);
+    setNote({ kind: "ok", text: `${row.name} is back in your list.` });
+  }
+
+  return (
+    <details className="admin-trash-section" role="group" aria-label="Trash">
+      <summary className="admin-invites-summary">
+        <span className="admin-row-caret-box" aria-hidden="true">
+          <span className="admin-row-caret" />
+        </span>
+        <span className="admin-invites-title">Trash</span>
+        <span className="admin-count">{remaining.length}</span>
+      </summary>
+      <div className="admin-invites-body">
+        <p className="admin-trash-note">
+          Nothing here is deleted. Every listing, update and report is still there, and putting
+          one back restores exactly what was trashed.
+        </p>
+        {note !== null && (
+          <p
+            className={note.kind === "ok" ? "admin-note admin-note--ok" : "admin-note admin-note--bad"}
+            role="status"
+          >
+            {note.text}
+          </p>
+        )}
+        {remaining.length === 0 ? (
+          <p className="admin-trash-note">The trash is empty.</p>
+        ) : (
+          <ul className="admin-trash-rows">
+            {remaining.map((row) => (
+              <li key={row.key} className="admin-trash-row">
+                <span className="admin-row-identity">
+                  <strong>{row.name}</strong>
+                  <span className="admin-row-sub">{row.subtitle}</span>
+                </span>
+                {/*
+                  One press, no confirmation: restoring puts something BACK, and its mistake is
+                  undone by the same control (the rule un-retiring already follows). The name is
+                  in the label so thirty rows do not offer thirty identical buttons.
+                */}
+                <button
+                  type="button"
+                  className="admin-secondary-button"
+                  onClick={() => void restore(row)}
+                >
+                  Put back {row.name}
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    </details>
+  );
+}
+
 export function StandsAndSellers({
   stands,
   sellers,
   invites,
+  trash,
   fetcher = fetch,
 }: {
   stands: StandCard[];
   sellers: SellerCard[];
   invites?: InvitesPanel;
+  /** Absent renders no Trash section at all, the same way absent invites render none. */
+  trash?: TrashPanel;
   fetcher?: typeof fetch;
 }) {
   const [view, setView] = useState<View>("stands");
@@ -462,16 +529,6 @@ export function StandsAndSellers({
   );
 
   const count = view === "stands" ? visibleStands.length : visibleSellers.length;
-
-  // What is waiting, counted from the same rows the operator is looking at. Each phrase is the
-  // plural of one card's own attention line, so the summary and the card never disagree.
-  const waitingApproval =
-    view === "stands"
-      ? visibleStands.filter((stand) => !stand.approved && !stand.retired).length
-      : visibleSellers.filter((seller) => !seller.approved && !seller.retired).length;
-  const attention = [
-    waitingApproval > 0 ? `${waitingApproval} waiting for approval` : null,
-  ].filter((part): part is string => part !== null);
 
   function tab(target: View, label: string) {
     return (
@@ -552,17 +609,6 @@ export function StandsAndSellers({
         onChange={(event) => setFilter(event.target.value)}
       />
 
-      {/*
-        What is WAITING, above the rows it describes (max, 2026-08-10), and only when there is
-        some. A standing "0 waiting" is chrome an operator learns to skip, which is exactly how
-        the real number stops being noticed — so an empty attention line renders nothing at all.
-      */}
-      {attention.length > 0 && (
-        <p className="admin-attention-summary" role="status">
-          {attention.join(" · ")}
-        </p>
-      )}
-
       {view === "stands" ? (
         <ul className="admin-farms">
           {visibleStands.map((stand) => (
@@ -571,8 +617,7 @@ export function StandsAndSellers({
               id={stand.standId}
               title={stand.name}
               subtitle={stand.farmName}
-              attention={standAttention(stand)}
-              states={standStates(stand)}
+              summary={standSummary(stand)}
               open={open === stand.standId}
               onToggle={() => setOpen(open === stand.standId ? null : stand.standId)}
             >
@@ -599,6 +644,15 @@ export function StandsAndSellers({
           ))}
         </ul>
       )}
+
+      {/*
+        THE TRASH, below the roster and shut by default (max, 2026-08-19).
+
+        Invites sits above the roster because an invite starts something; the trash sits below
+        because it is where an operator goes to undo something. Both are occasional, so both
+        announce themselves with a heading and a count and cost one press when wanted.
+      */}
+      {trash !== undefined && <TrashSection trash={trash} fetcher={fetcher} />}
     </div>
   );
 }

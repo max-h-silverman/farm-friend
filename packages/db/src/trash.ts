@@ -200,8 +200,12 @@ export async function restoreFromTrash(
 }
 
 /**
- * Named doors for the two subjects, so a caller states which roster it means rather than
- * passing a string the type system would let it get wrong at a distance.
+ * Named doors for the two subjects and both directions, so a caller states which roster it
+ * means rather than passing a string the type system would let it get wrong at a distance.
+ *
+ * All four exist deliberately: the restoring pair arrived with the screen that uses them
+ * (F-124), and an asymmetry where trashing was named but restoring was not would leave the
+ * more frequent act — a screen putting records back — as the one holding a bare string.
  */
 export function trashStand(
   db: Db,
@@ -220,6 +224,30 @@ export function trashFarm(
   input: { farmId: string; administratorId: string; occurredAt: Date },
 ): Promise<TrashResult> {
   return putInTrash(db, {
+    subject: "farm",
+    id: input.farmId,
+    administratorId: input.administratorId,
+    occurredAt: input.occurredAt,
+  });
+}
+
+export function restoreStandFromTrash(
+  db: Db,
+  input: { salesLocationId: string; administratorId: string; occurredAt: Date },
+): Promise<RestoreFromTrashResult> {
+  return restoreFromTrash(db, {
+    subject: "stand",
+    id: input.salesLocationId,
+    administratorId: input.administratorId,
+    occurredAt: input.occurredAt,
+  });
+}
+
+export function restoreFarmFromTrash(
+  db: Db,
+  input: { farmId: string; administratorId: string; occurredAt: Date },
+): Promise<RestoreFromTrashResult> {
+  return restoreFromTrash(db, {
     subject: "farm",
     id: input.farmId,
     administratorId: input.administratorId,

@@ -1,25 +1,39 @@
 import {
-  approveFarm,
   restoreFarm,
+  restoreFarmFromTrash,
   retireFarm,
-  revokeFarmApproval,
   saveFarmDetails,
-  setTestFarm,
+  trashFarm,
 } from "@farm-friend/db";
 import { requireAdministrator } from "../../../../lib/admin-guard";
 import { publicReadContext } from "../../../../lib/public-context";
 
-// The farm approval surface (F-025a) — the write nothing in the product could previously
-// perform. Publication refuses with `not_approved` unless a live `seller_approvals` row
-// exists, and until this route the only way to create one was hand-written SQL.
+// VIGA's decisions about one farm: correct its details, take it off the map, put it in the
+// trash, put it back.
 //
 // The mutation resolves the administrator server-side through the shared `requireAdministrator`
 // guard (lib/admin-guard.ts), which every admin route uses. Identity is never read from the
 // request; see lib/auth.ts.
 //
+// **Approval and test-farm marking are gone from here** (F-124, max 2026-08-19). What is removed
+// is this route's ability to reach them, because the console no longer offers either control.
+// Publication still refuses with `not_approved`, so the gate itself is untouched; with no
+// toggle, nothing can revoke.
+//
+// The three writers behind them, and what is true of each after this change (measured, not
+// assumed):
+//   - `approveFarm` — still called in production, by onboarding redemption (`farmer.ts` inserts
+//     `seller_approvals` on redeem). That is why removing the toggle is safe: every farm that
+//     onboards is approved without VIGA doing anything.
+//   - `setTestFarm` — now reached only from tests and by hand. Marking a farm is a script-only
+//     operation from here on, which max was told and accepted. `Josie's Farm` is marked today
+//     and deliberately hidden, so the WRITER must stay: it is how that gets undone.
+//   - `revokeFarmApproval` — now has NO production caller at all. Kept because it is the only
+//     way to reverse an approval should VIGA ever need to, and deleting it would leave the
+//     `not_approved` refusal permanently unreachable. Filed as B-094 rather than left silent.
+//
 // Note what this route does NOT do: it never touches inventory, ranking, or any published
-// listing. Approval gates whether a farm may publish; the farmer still owns what it says
-// (Golden Rule #1).
+// listing. The farmer still owns what her listing says (Golden Rule #1).
 
 export const dynamic = "force-dynamic";
 
@@ -41,17 +55,14 @@ export async function POST(req: Request): Promise<Response> {
   }
 
   const farmId = typeof body.farmId === "string" ? body.farmId : null;
-  // F-074 adds two more actions here rather than a route of their own: marking a farm as a
-  // test farm is the same KIND of act as approving one — VIGA recording a decision about a
-  // farm — and a second route would be a second place to remember the session guard. Taking
-  // a farm down and correcting its details join for the same reason.
+  // Every act here is the same KIND — VIGA recording a decision about one farm — so they share
+  // a route rather than each getting one, which would be several places to remember the session
+  // guard. Trash and its restore join on that reasoning (F-124).
   const action =
-    body.action === "approve" ||
-    body.action === "revoke" ||
-    body.action === "mark_test" ||
-    body.action === "unmark_test" ||
     body.action === "retire" ||
     body.action === "restore" ||
+    body.action === "trash" ||
+    body.action === "restore_from_trash" ||
     body.action === "save_details"
       ? body.action
       : null;
@@ -77,55 +88,47 @@ export async function POST(req: Request): Promise<Response> {
   // The administrator is the session's, never the request body's: a caller cannot act as
   // someone else by naming them, and the audit trail records who really did it.
   const result =
-    action === "approve"
-      ? await approveFarm(db, {
+    action === "retire"
+      ? await retireFarm(db, {
           farmId,
           administratorId: caller.administratorId,
           occurredAt,
         })
-      : action === "revoke"
-        ? await revokeFarmApproval(db, {
+      : action === "restore"
+        ? await restoreFarm(db, {
             farmId,
             administratorId: caller.administratorId,
             occurredAt,
           })
-        : action === "retire"
-          ? await retireFarm(db, {
+        : action === "trash"
+          ? await trashFarm(db, {
               farmId,
               administratorId: caller.administratorId,
               occurredAt,
             })
-          : action === "restore"
-            ? await restoreFarm(db, {
+          : action === "restore_from_trash"
+            ? await restoreFarmFromTrash(db, {
                 farmId,
                 administratorId: caller.administratorId,
                 occurredAt,
               })
-            : action === "save_details"
-              ? await saveFarmDetails(db, {
-                  farmId,
-                  administratorId: caller.administratorId,
-                  name: name as string,
-                  description: description as string | null,
-                  occurredAt,
-                })
-              : await setTestFarm(db, {
-                  farmId,
-                  isTestFarm: action === "mark_test",
-                  administratorId: caller.administratorId,
-                  occurredAt,
-                });
+            : await saveFarmDetails(db, {
+                farmId,
+                administratorId: caller.administratorId,
+                name: name as string,
+                description: description as string | null,
+                occurredAt,
+              });
 
   const status =
-    result.status === "approved" ||
-    result.status === "revoked" ||
-    result.status === "marked" ||
-    result.status === "unmarked" ||
     result.status === "retired" ||
     result.status === "restored" ||
+    result.status === "trashed" ||
     result.status === "saved"
       ? 200
-      : result.status === "unknown_farm"
+      : // `unknown_subject` is the trash writer's name for what `unknown_farm` names: no such
+        // record. One answer for one cause.
+        result.status === "unknown_farm" || result.status === "unknown_subject"
         ? 404
         : result.status === "not_an_administrator"
           ? 403
