@@ -57,9 +57,9 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
 - **The stand card is seller-major (F-119)** — each seller a sub-heading with its own recency.
   Deliberately gives up "each item appears once": two sellers carrying eggs print eggs twice, each
   with that seller's price.
-- **`Also selling here`** heads both the public card and the admin console. On the public card its
-  two sections (modelled roster, typed-names fallback) are **mutually exclusive by construction**,
-  pinned by a test.
+- **`Also selling here`** heads the public card and shared-stand controls in the admin console. A
+  single-seller stand shows no native-seller row or arrangement controls. On the public card its
+  two sections (modelled roster, typed-names fallback) are **mutually exclusive by construction**.
 - **Three public states, not two.** `Open` / `Closed` / `Hours unknown`, Closed reserved for out of
   season or outside stated hours. `isDefinitelyShut` in `map-view.ts` is the one definition,
   written as the set that ARE closed so a new state defaults to unknown.
@@ -123,8 +123,8 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
 
 ## Verification
 
-- **2,501 unit tests across 176 files** (7 corpus-only skips) and **1,506 integration across all
-  111 files**, both 2026-08-20 after F-125. Typecheck and lint clean. Scripted evals: critical
+- **2,503 unit tests across 176 files** (7 corpus-only skips) and **1,507 integration across all
+  111 files**, both 2026-08-21 after B-096. Typecheck and lint clean. Scripted evals: critical
   11/11, advisory 4/4, adversarial 19/19. The build retains tracked Next config/lint warnings
   (B-008).
 - **`evals:live` is 7/7 containment**, closure 7/7, quality 16/16, operation 6/6, catalog 7/7.
@@ -154,6 +154,9 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
   behavior; when a breakage changes no test result, ask which other guard answered first; confirm
   the sabotage actually applied before concluding a guard is redundant.** Enumerations in
   [SESSION_LOG.md](SESSION_LOG.md); standing forms in DEVELOPMENT.md §gotchas.
+- **B-096 is locally verified, not deployed.** Administrator writes accept the app origin and
+  exactly `https://vigavashon.org`; attacker, absent, `www`, and lookalike origins remain refused.
+  The administrator `frame-ancestors` policy admits that same VIGA origin and no other host.
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only, and
   seventeen `*_not_blank` CHECKs share it. The suite asserts that measured truth rather than the
   constraint's name; **B-076** files the sweep, marked INVERT WHEN FIXED.
@@ -201,13 +204,6 @@ shipped bundles — **and no pixel and no message has been looked at on a real d
 
 ### Decisions owed by VIGA or max
 
-- **B-096 — the console refuses every write when embedded at `vigavashon.org/admin`** (max,
-  2026-08-20), and it is the next tranche. `isTrustedAdminMutationSource` admits exactly one
-  origin (`PUBLIC_BASE_URL`), so a framed console sends `Origin: https://vigavashon.org` and every
-  mutation 403s before a handler runs. **The guard is working as designed** — this is not the
-  2026-08-19 labelling defect — so the decision is whether the console may be embedded at all:
-  allow a second trusted origin, link out instead of framing, or serve it same-origin. The framing
-  policy (`frame-ancestors`) has to agree with whichever wins, or one of them is decorative.
 - **B-094** — with the approval toggle gone, `revokeFarmApproval` has no production caller, so an
   approval cannot be reversed. Accepted consequence of a decision, not a regression. Revoking the
   farmer's AUTHORIZATION may be the whole answer, in which case the writer and the `not_approved`

@@ -44,12 +44,13 @@ describe("public map response headers", () => {
     /*
       The catch-all `/:path*` matches `/admin/...` too. Next applies EVERY matching rule, and
       two `Content-Security-Policy` headers on one response are intersected by the browser —
-      so the admin pages keep their own policy and cannot be loosened by the broader rule.
+      so the admin pages keep their canonical-origin-only policy and cannot be loosened by the
+      broader public-map rule.
       Asserted here because the failure would be silent: admin pages would still render.
     */
     const headers = await rulesFor("/admin/:path*");
     expect(headers.get("content-security-policy")).toBe(
-      "frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org",
+      "frame-ancestors 'self' https://vigavashon.org",
     );
   });
 });

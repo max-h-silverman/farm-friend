@@ -65,10 +65,17 @@ describe("what a refused administrator write says it is", () => {
 });
 
 describe("embedded administrator security", () => {
-  it("permits browser writes only when the admin app itself initiated them", () => {
+  it("permits browser writes only from the app itself or VIGA's one embedded console", () => {
     expect(isTrustedAdminMutationSource(deployedRequest(APP_ORIGIN), APP_ORIGIN)).toBe(true);
-    expect(isTrustedAdminMutationSource(deployedRequest("https://www.vigavashon.org"), APP_ORIGIN)).toBe(false);
-    expect(isTrustedAdminMutationSource(deployedRequest("https://attacker.example"), APP_ORIGIN)).toBe(false);
+    expect(
+      isTrustedAdminMutationSource(deployedRequest("https://vigavashon.org"), APP_ORIGIN),
+    ).toBe(true);
+    expect(
+      isTrustedAdminMutationSource(deployedRequest("https://www.vigavashon.org"), APP_ORIGIN),
+    ).toBe(false);
+    expect(
+      isTrustedAdminMutationSource(deployedRequest("https://attacker.example"), APP_ORIGIN),
+    ).toBe(false);
     expect(isTrustedAdminMutationSource(deployedRequest(), APP_ORIGIN)).toBe(false);
   });
 
@@ -112,8 +119,6 @@ describe("embedded administrator security", () => {
       (header) => header.key.toLowerCase() === "content-security-policy",
     )?.value;
 
-    expect(policy).toBe(
-      "frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org",
-    );
+    expect(policy).toBe("frame-ancestors 'self' https://vigavashon.org");
   });
 });
