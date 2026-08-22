@@ -179,6 +179,11 @@ resource "google_cloud_run_v2_service" "web" {
   name     = "farm-friend-web"
   location = var.region
 
+  # The API always returns an automatic service-level scaling block with zero values. Declaring
+  # the block lets that computed response round-trip instead of planning its removal forever.
+  # Revision-level bounds remain in template.scaling below.
+  scaling {}
+
   # The map, the QR stock-out form, and the Telnyx webhook are all reached by anonymous
   # callers, so ingress is genuinely open. Each route carries its own authentication.
   ingress = "INGRESS_TRAFFIC_ALL"
@@ -298,6 +303,10 @@ resource "google_cloud_run_v2_service" "web" {
 resource "google_cloud_run_v2_service" "worker" {
   name     = "farm-friend-worker"
   location = var.region
+
+  # See the web service: this empty block represents the API's automatic service-level defaults;
+  # worker instance bounds remain in template.scaling below.
+  scaling {}
 
   # INTERNAL ONLY. This is the primary control on the routes that drive consent transitions
   # and outbound SMS — enforced by Google before a request reaches the container. Cloud Tasks
