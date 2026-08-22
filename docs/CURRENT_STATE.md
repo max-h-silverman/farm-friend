@@ -123,7 +123,7 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
 
 ## Verification
 
-- **2,503 unit tests across 176 files** (7 corpus-only skips) and **1,507 integration across all
+- **2,504 unit tests across 177 files** (7 corpus-only skips) and **1,507 integration across all
   111 files**, both 2026-08-21 after B-096. Typecheck and lint clean. Scripted evals: critical
   11/11, advisory 4/4, adversarial 19/19. The build retains tracked Next config/lint warnings
   (B-008).
@@ -157,6 +157,8 @@ The behavioural rules a cold start must not re-derive — *what is true*, not ho
 - **B-096 is locally verified, not deployed.** Administrator writes accept the app origin and
   exactly `https://vigavashon.org`; attacker, absent, `www`, and lookalike origins remain refused.
   The administrator `frame-ancestors` policy admits that same VIGA origin and no other host.
+- **Local setup verifies the current core schema.** Its post-migration effect check names
+  `sellers`, not the retired `farms` table, so a fully migrated database no longer fails setup.
 - **`sellers_name_not_blank` admits a tab-and-newline name** — `trim()` strips spaces only, and
   seventeen `*_not_blank` CHECKs share it. The suite asserts that measured truth rather than the
   constraint's name; **B-076** files the sweep, marked INVERT WHEN FIXED.
