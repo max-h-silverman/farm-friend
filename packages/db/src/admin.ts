@@ -1,11 +1,14 @@
 import {
   ADMIN_SESSION_TTL_MS,
+  ISLAND_BOUNDS,
   isSessionLive,
   maskPhoneSuffix,
   renderStandItemPrice,
   type StandItemPrice,
 } from "@farm-friend/core";
 import type { Db } from "./index";
+import { writePaymentMethods, writeStandingItems, type StandingItem } from "./onboarding-listing";
+import { coherentAvailability, type ListingAvailability } from "./listing-availability";
 import type { Sql, Tx } from "./sql";
 
 // The operator surface's durable writes (F-025a).
@@ -71,6 +74,8 @@ export type SaveStandMetadataResult =
   | { status: "saved" }
   | { status: "unknown_stand" }
   | { status: "invalid_name" }
+  | { status: "incoherent_availability" }
+  | { status: "off_island" }
   /**
    * A visitable stand cannot lose its address or its pin.
    *
@@ -85,20 +90,9 @@ export type SaveStandMetadataResult =
 /**
  * VIGA corrects one stand's own location facts (F-101).
  *
- * **Deliberately NOT `saveOnboardingListing` with an administrator arm.** That writer replaces
- * the whole listing — payment methods, what the stand usually sells, the farmer's description,
- * her items. An operator fixing a misspelt stand name must not rewrite the farmer's published
- * words on the way past, which is Golden Rule #1: the farmer owns published state.
- *
- * So this names its columns, and what it leaves out it leaves out on purpose. `is_public` is
- * retire/restore's; `farm_bucks_*` is `saveFarmBucksStatus`'s; `visitability`, `offering_type`
- * and the twelve structured availability columns are the farmer's own form's. A second writer
- * over any of them would be two ways to do one thing.
- *
- * The structured season and hours columns stay out for a second reason as well: `coherentSeason`
- * refuses a half-stated season, so they can only be written as one complete statement. Free-text
- * `hours_text` — the farmer's own words about when she is open — carries no such constraint and
- * is the field an operator actually reaches for.
+ * The optional `listing` arm is the complete onboarding answer: location, structured
+ * availability, standing items and seller-wide payment/prose facts move in one transaction.
+ * Dated inventory, closures, approval and retirement are separate records and never move here.
  *
  * Authority is re-read inside the transaction, like every writer in this module: a principal
  * proves the caller was an administrator when the request began, and only the row proves they
@@ -115,6 +109,16 @@ export async function saveStandMetadata(
     latitude: number | null;
     longitude: number | null;
     hoursText: string | null;
+    listing?: {
+      visitability: "visitable" | "contact_only";
+      offeringType: "produce" | "services" | "by_order";
+      pricesPublic: boolean;
+      availability: ListingAvailability;
+      paymentMethods: string[];
+      farmBucksAccepted: boolean;
+      items: StandingItem[];
+      description: string | null;
+    };
     occurredAt: Date;
   },
 ): Promise<SaveStandMetadataResult> {
@@ -126,6 +130,13 @@ export async function saveStandMetadata(
 
   const address = input.publicAddress?.trim() ?? null;
   const hoursText = input.hoursText?.trim() ?? null;
+  if (input.listing !== undefined && !coherentAvailability(input.listing.availability)) {
+    return { status: "incoherent_availability" };
+  }
+  if (input.listing !== undefined && input.latitude !== null && input.longitude !== null && (
+    input.latitude < ISLAND_BOUNDS.south || input.latitude > ISLAND_BOUNDS.north ||
+    input.longitude < ISLAND_BOUNDS.west || input.longitude > ISLAND_BOUNDS.east
+  )) return { status: "off_island" };
 
   return driver(db).begin(async (tx) => {
     const administrator = await tx`
@@ -136,7 +147,7 @@ export async function saveStandMetadata(
     if (administrator.length === 0) return { status: "not_an_administrator" as const };
 
     const stand = await tx`
-      select id, visitability from sales_locations where id = ${input.standId} for update
+      select id, own_seller_id, visitability from sales_locations where id = ${input.standId} for update
     `;
     if (stand.length === 0) return { status: "unknown_stand" as const };
 
@@ -148,7 +159,8 @@ export async function saveStandMetadata(
       a pin are required. Duplicating the constraint is deliberate and narrow — the constraint
       remains the enforcement, and this exists only so the refusal has words.
     */
-    const visitable = (stand[0] as Record<string, unknown>).visitability === "visitable";
+    const visitable = input.listing?.visitability === "visitable" ||
+      (input.listing === undefined && (stand[0] as Record<string, unknown>).visitability === "visitable");
     const cleanAddress = address === "" ? null : address;
     if (
       visitable &&
@@ -168,6 +180,39 @@ export async function saveStandMetadata(
           updated_at = ${input.occurredAt.toISOString()}
       where id = ${input.standId}
     `;
+
+    if (input.listing !== undefined) {
+      const listing = input.listing;
+      const available = listing.availability;
+      await tx`
+        update sales_locations set
+          visitability = ${listing.visitability}, offering_type = ${listing.offeringType},
+          prices_public = ${listing.pricesPublic},
+          season_kind = ${available.seasonKind},
+          season_start_month = ${available.seasonStartMonth},
+          season_start_day = ${available.seasonStartDay},
+          season_end_month = ${available.seasonEndMonth},
+          season_end_day = ${available.seasonEndDay},
+          season_names = ${available.seasonNames as string[] | null},
+          open_hours_kind = ${available.openHoursKind},
+          open_from_minutes = ${available.openFromMinutes},
+          open_until_minutes = ${available.openUntilMinutes},
+          open_days = ${available.openDays as number[] | null},
+          stocking_cadence = ${available.stockingCadence},
+          stocking_days = ${available.stockingDays as number[] | null}
+        where id = ${input.standId}
+      `;
+      const sellerId = (stand[0] as Record<string, unknown>).own_seller_id as string;
+      await tx`
+        update sellers set
+          farm_bucks_accepted = ${listing.farmBucksAccepted},
+          description = ${listing.description?.trim() || null},
+          updated_at = ${input.occurredAt.toISOString()}
+        where id = ${sellerId}
+      `;
+      await writePaymentMethods(tx, sellerId, listing.paymentMethods);
+      await writeStandingItems(tx, input.standId, listing.items);
+    }
 
     // Commits with the edit or not at all. VIGA editing a farmer's public-facing facts is
     // exactly the act the trail exists to record.
@@ -944,6 +989,7 @@ export interface AdminStandRow {
    * on the map.
    */
   addressPublic: boolean;
+  pricesPublic: boolean;
   publicLatitude: number | null;
   publicLongitude: number | null;
   hoursText: string | null;
@@ -984,6 +1030,9 @@ export interface AdminStandRow {
   trashedWithFarm: boolean;
   /** F-125 — the SELLER's answer, shown on her stand's card. Two states, no grant. */
   farmBucksAccepted: boolean;
+  paymentMethods: string[];
+  description: string | null;
+  listingItems: StandingItem[];
   approved: boolean;
   approvedAt: Date | null;
   publishedAt: Date | null;
@@ -1038,6 +1087,7 @@ export async function listStandsForAdministration(
       location.offering_type,
       location.public_address,
       location.address_public,
+      location.prices_public,
       location.public_latitude,
       location.public_longitude,
       location.hours_text,
@@ -1065,6 +1115,12 @@ export async function listStandsForAdministration(
       -- F-125 — read off the owning farm, because payment is hers rather than the stand's.
       farm.id as farm_id,
       farm.farm_bucks_accepted,
+      farm.description as farm_description,
+      coalesce(
+        (select array_agg(payment.method order by payment.method)
+         from seller_payment_methods payment where payment.seller_id = farm.id),
+        '{}'
+      ) as payment_methods,
       approval.approved_at,
       -- The FRESHEST live confirmation at this stand (F-114 C.5), across every seller. The
       -- operator's question is "how current is this stand", and the honest answer is the most
@@ -1181,6 +1237,7 @@ export async function listStandsForAdministration(
     offeringType: row.offering_type as string,
     publicAddress: (row.public_address as string | null) ?? null,
     addressPublic: row.address_public !== false,
+    pricesPublic: row.prices_public === true,
     publicLatitude: row.public_latitude === null ? null : Number(row.public_latitude),
     publicLongitude: row.public_longitude === null ? null : Number(row.public_longitude),
     hoursText: (row.hours_text as string | null) ?? null,
@@ -1209,6 +1266,8 @@ export async function listStandsForAdministration(
     trashed: row.trashed_at !== null || row.farm_trashed_at !== null,
     trashedWithFarm: row.trashed_at === null && row.farm_trashed_at !== null,
     farmBucksAccepted: row.farm_bucks_accepted as boolean,
+    paymentMethods: (row.payment_methods as string[] | null) ?? [],
+    description: (row.farm_description as string | null) ?? null,
     approved: row.approved_at !== null,
     approvedAt: row.approved_at === null ? null : new Date(row.approved_at as string),
     publishedAt: row.published_at === null ? null : new Date(row.published_at as string),
@@ -1226,6 +1285,8 @@ export async function listStandsForAdministration(
       const price = renderStandItemPrice(offering.price);
       return price === null ? offering.name : `${offering.name} ${price}`;
     }),
+    listingItems:
+      ((row.usual_offerings as StandingItem[] | null) ?? []),
     participantNames: (row.participant_names as string[] | null) ?? [],
     currentItems: (row.current_items as AdminStandRow["currentItems"]) ?? [],
   }));

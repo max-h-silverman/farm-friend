@@ -216,10 +216,10 @@ bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
   stand for VIGA. It is deliberately thin — it never writes `stand_providers` itself, so the seam
   keeps the lock ordering, the authority arms and the invalidation of that provider's open
   confirmations. `POST /api/admin/stands` also carries `save_metadata` (F-101): VIGA edits a stand's
-  name, address, address visibility, map pin and hours text through `saveStandMetadata`, which names
-  its columns and touches **nothing the farmer publishes** — payment methods, usual offerings, her
-  description and her items stay hers (Golden Rule #1). **Edit details is an inline mode**: those
-  writable values replace their rows in the stand profile while every other fact remains readable.
+  the complete onboarding listing through `saveStandMetadata`: location, visibility, availability,
+  usual offerings and prices, payments, Farm Bucks and description. **Edit details is an inline
+  mode**: those values replace their rows while live inventory, closures and system state remain
+  readable and untouched.
 
   `POST /api/farmer/participation` (F-101) is the farmer-facing twin, and the first caller to meet
   the authority **asymmetry**: a seller may pause, resume and end; a **host may end and may never

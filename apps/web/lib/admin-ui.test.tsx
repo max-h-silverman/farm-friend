@@ -187,11 +187,10 @@ describe("the stand list", () => {
     expect(screen.queryByLabelText("Stand name")).toBeNull();
 
     await user.click(screen.getByRole("button", { name: /more for North Stand/i }));
-    await user.click(screen.getByRole("menuitem", { name: /farm bucks/i }));
+    expect(screen.queryByRole("menuitem", { name: /farm bucks/i })).toBeNull();
+    await user.click(screen.getByRole("menuitem", { name: /edit details/i }));
 
-    expect(screen.getByRole("combobox", { name: "Farm Bucks decision" })).toHaveValue(
-      "does_not_accept",
-    );
+    expect(screen.getByLabelText("Farm Bucks")).not.toBeChecked();
   });
 
   it("records a Farm Bucks decision when the volunteer selects it", async () => {
@@ -234,22 +233,23 @@ describe("the stand list", () => {
     );
 
     await user.click(screen.getByRole("button", { name: /more for North Stand/i }));
-    await user.click(screen.getByRole("menuitem", { name: /farm bucks/i }));
-    await user.selectOptions(screen.getByRole("combobox", { name: "Farm Bucks decision" }), "accepts");
+    await user.click(screen.getByRole("menuitem", { name: /edit details/i }));
+    await user.click(screen.getByLabelText("Farm Bucks"));
+    await user.click(screen.getByRole("button", { name: /save stand details/i }));
 
     // F-125 — keyed by the SELLER, so one answer covers every stand she sells at.
     expect(fetcher).toHaveBeenCalledWith(
       "/api/admin/stands",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ sellerId: "farm-of-stand-farm-bucks", farmBucksStatus: "accepts" }),
+        body: expect.stringContaining('"farmBucksAccepted":true'),
       }),
     );
     // BOTH stands of the farm now read as accepted — the propagation, asserted as a count so
     // it cannot pass on the touched row alone.
     expect(screen.getAllByText("Accepted")).toHaveLength(2);
     expect(screen.queryByText("Not accepted")).toBeNull();
-    expect(screen.queryByRole("button", { name: "Save Farm Bucks decision" })).toBeNull();
+    expect(screen.queryByRole("combobox", { name: "Farm Bucks decision" })).toBeNull();
   });
 
   // An operator looking to DELETE a farm could not find this. The control does exactly what

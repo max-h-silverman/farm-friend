@@ -4,7 +4,7 @@ import {
   type OpenState,
   type StandAvailabilityFacts,
 } from "@farm-friend/core";
-import type { listStandsForAdministration } from "@farm-friend/db";
+import type { ListingAvailability, listStandsForAdministration } from "@farm-friend/db";
 import type { AdminStandCard } from "./stand-list";
 
 // Turning a stand row into the card the operator surface renders.
@@ -151,6 +151,27 @@ export function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdmini
         latitude: row.publicLatitude,
         longitude: row.publicLongitude,
         hoursText: row.hoursText,
+        visitability: row.visitability,
+        offeringType: row.offeringType as "produce" | "services" | "by_order",
+        pricesPublic: row.pricesPublic,
+        availability: {
+          seasonKind: row.seasonKind as ListingAvailability["seasonKind"],
+          seasonStartMonth: row.seasonStartMonth,
+          seasonStartDay: row.seasonStartDay,
+          seasonEndMonth: row.seasonEndMonth,
+          seasonEndDay: row.seasonEndDay,
+          seasonNames: row.seasonNames,
+          openHoursKind: row.openHoursKind as ListingAvailability["openHoursKind"],
+          openFromMinutes: row.openFromMinutes,
+          openUntilMinutes: row.openUntilMinutes,
+          openDays: row.openDays,
+          stockingCadence: row.stockingCadence as ListingAvailability["stockingCadence"],
+          stockingDays: row.stockingDays,
+        },
+        paymentMethods: row.paymentMethods,
+        farmBucksAccepted: row.farmBucksAccepted,
+        items: row.listingItems,
+        description: row.description,
       },
       approved: row.approved,
       retired: row.retired,

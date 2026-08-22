@@ -47,6 +47,14 @@ export async function POST(req: Request): Promise<Response> {
     latitude?: unknown;
     longitude?: unknown;
     hoursText?: unknown;
+    visitability?: unknown;
+    offeringType?: unknown;
+    pricesPublic?: unknown;
+    availability?: unknown;
+    paymentMethods?: unknown;
+    farmBucksAccepted?: unknown;
+    items?: unknown;
+    description?: unknown;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -168,6 +176,34 @@ export async function POST(req: Request): Promise<Response> {
       typeof value === "string" && value.trim() !== "" ? value : null;
     const coordinate = (value: unknown): number | null =>
       typeof value === "number" && Number.isFinite(value) ? value : null;
+    type ListingUpdate = NonNullable<Parameters<typeof saveStandMetadata>[1]["listing"]>;
+    const listing: ListingUpdate | null | undefined = body.availability === undefined ? undefined : (() => {
+      if (
+        (body.visitability !== "visitable" && body.visitability !== "contact_only") ||
+        !["produce", "services", "by_order"].includes(String(body.offeringType)) ||
+        typeof body.pricesPublic !== "boolean" ||
+        typeof body.farmBucksAccepted !== "boolean" ||
+        !Array.isArray(body.paymentMethods) || !body.paymentMethods.every((item) => typeof item === "string") ||
+        !Array.isArray(body.items) || typeof body.description !== "string" && body.description !== null ||
+        typeof body.availability !== "object" || body.availability === null
+      ) return null;
+      const items = body.items as Array<Record<string, unknown>>;
+      if (!items.every((item) => typeof item.name === "string" && (item.price === null || typeof item.price === "object"))) return null;
+      return {
+        visitability: body.visitability,
+        offeringType: body.offeringType as "produce" | "services" | "by_order",
+        pricesPublic: body.pricesPublic,
+        availability: body.availability as ListingUpdate["availability"],
+        paymentMethods: body.paymentMethods as string[],
+        farmBucksAccepted: body.farmBucksAccepted,
+        items: body.items as ListingUpdate["items"],
+        description: body.description as string | null,
+      };
+    })();
+    if (body.availability !== undefined && listing === null) {
+      return Response.json({ error: "invalid_request" }, { status: 400 });
+    }
+    const validListing = listing === null ? undefined : listing;
 
     const result = await saveStandMetadata(db, {
       standId,
@@ -178,6 +214,7 @@ export async function POST(req: Request): Promise<Response> {
       latitude: coordinate(body.latitude),
       longitude: coordinate(body.longitude),
       hoursText: text(body.hoursText),
+      ...(validListing === undefined ? {} : { listing: validListing }),
       occurredAt,
     });
     // Each refusal keeps its own status: a blank name and a stripped address are both the
@@ -189,6 +226,8 @@ export async function POST(req: Request): Promise<Response> {
         return Response.json(result, { status: 404 });
       case "invalid_name":
       case "incomplete_location":
+      case "incoherent_availability":
+      case "off_island":
         return Response.json(result, { status: 400 });
       default:
         return Response.json(result, { status: 403 });

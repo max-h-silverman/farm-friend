@@ -7363,7 +7363,11 @@ button.admin-action-danger,
 
 /* Edit details is a mode of the profile, not another card beneath it. Editable values keep
    the onboarding form's native text-field grammar while the facts VIGA does not own stay text. */
-.admin-stand-facts--editing .admin-stand-group-body input[type="text"] {
+.admin-stand-facts--editing .admin-stand-group-body input[type="text"],
+.admin-stand-facts--editing .admin-stand-group-body input[type="number"],
+.admin-stand-facts--editing .admin-stand-group-body input[type="time"],
+.admin-stand-facts--editing .admin-stand-group-body select,
+.admin-stand-facts--editing .admin-stand-group-body textarea {
   width: 100%;
   min-width: 0;
   padding: 0.5rem 0.6rem;
@@ -7372,6 +7376,11 @@ button.admin-action-danger,
   background: var(--bg);
   border: 1px solid var(--line);
   border-radius: 8px;
+}
+
+.admin-stand-facts--editing .admin-stand-group-body textarea {
+  min-height: 6rem;
+  resize: vertical;
 }
 
 .admin-stand-edit-row dd,
@@ -7383,6 +7392,34 @@ button.admin-action-danger,
 .admin-stand-coordinate-fields label {
   color: var(--ink-faint);
   font-size: 0.78rem;
+}
+
+.admin-stand-day-fields,
+.admin-stand-payment-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem 0.9rem;
+}
+
+.admin-stand-day-fields label,
+.admin-stand-payment-fields label {
+  display: flex;
+  align-items: center;
+  gap: 0.3rem;
+}
+
+.admin-stand-paired-fields,
+.admin-stand-price-fields {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.5rem;
+}
+
+.admin-stand-item-fields > div {
+  display: grid;
+  gap: 0.45rem;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid var(--line);
 }
 
 .admin-stand-edit-actions {

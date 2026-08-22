@@ -87,9 +87,8 @@ request body. Queue GET APIs do not exist because the pages already have the dat
 a browser consumer is `/api/admin/flags/<flag-id>/thread`, guarded by the same
 `apps/web/lib/admin-guard.ts` mechanism and projected at the query boundary.
 
-The Farm Bucks selector on each stand is a guarded browser mutation. It accepts only the three
-states, derives the two stored booleans together, locks the stand row while saving, and records the
-administrator from the session rather than the request body.
+**Edit details** changes every answer from the stand onboarding listing in place, including Farm
+Bucks under **Payment accepted**. Live in-stock inventory is read-only and stays farmer-owned.
 
 **Disposing a flag is what lets retention terminate.** F-026's purge exempts a message body whose
 thread carries an **open** flag, and the exemption fails safe. Resolving *or* dismissing a flag ends

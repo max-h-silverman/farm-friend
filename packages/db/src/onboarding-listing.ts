@@ -759,7 +759,7 @@ async function updateStand(
  * one filterable value rather than two the map cannot join. Unrecognized methods are kept as
  * the farmer's own words; the fold applies only to the known closed set.
  */
-async function writePaymentMethods(
+export async function writePaymentMethods(
   tx: Tx,
   sellerId: string,
   methods: string[],
@@ -843,7 +843,7 @@ function normalizePrice(
   };
 }
 
-async function writeStandingItems(
+export async function writeStandingItems(
   tx: Tx,
   salesLocationId: string,
   items: StandingItem[],
