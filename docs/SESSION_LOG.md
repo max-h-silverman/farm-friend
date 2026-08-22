@@ -11,7 +11,33 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-20 (latest) — Payment becomes a fact about the seller, and an eligibility grant gets deleted rather than moved
+## 2026-08-22 (latest) — The embedded admin can write, and Edit details now means the onboarding listing
+
+B-096 and the admin stand pass, merged to `main` and deployed. No migration. Unit **2,504 across
+177 files**, integration **1,508 across 111 files**, typecheck, lint, and production web build green.
+Max approved release without rendered browser inspection after browser automation could not connect.
+
+The admin origin guard remains a CSRF boundary: it admits the app origin and exactly
+`https://vigavashon.org`; the administrator `frame-ancestors` policy names the same VIGA host.
+Absent, `www`, lookalike, and attacker origins remain refused. Sabotage accepting every origin made
+the security test fail, so the check cannot go green by vocabulary alone.
+
+Single-seller stands no longer render their native seller as an arrangement: there is nothing to
+pause, close, or remove. Shared stands still show each real seller arrangement and its controls.
+
+Max expanded **Edit details** from the original narrow metadata editor to every onboarding listing
+answer: location/privacy, visitability, offering type, season/hours/restocking, usual offerings and
+prices, payment methods, Farm Bucks, and description. It edits those facts inline in the existing
+profile groups with one Save/Cancel flow. Published live inventory remains read-only; the database
+integration test writes a current inventory revision, saves the complete listing, and proves that
+revision survives unchanged.
+
+The production build caught the admin client importing its controls through the database package,
+which pulled server-only database and crypto code into the browser bundle. The payment-method option
+list now has a browser-safe core subpath and the admin wire types are client-owned. The rebuilt bundle
+passes. Local setup also verifies the current `sellers` schema instead of the retired `farms` table.
+
+## 2026-08-20 — Payment becomes a fact about the seller, and an eligibility grant gets deleted rather than moved
 
 F-125 plus B-095, merged to `main` and **DEPLOYED** — `web-00092-xxn` / `worker-00087-ccz`, digest
 `sha256:245e6a1b…`, migration `0058` applied (Neon at 59). Unit **2,503 across 176 files**,

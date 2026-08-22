@@ -23,6 +23,17 @@
 // seller's answer from her stands — that derivation was the second mechanism, and rebuilding
 // it in a helper would reintroduce exactly what this change exists to delete.
 
+/** The ordinary payment methods shown by browser listing forms, in display order. */
+export const FARMER_SELECTABLE_PAYMENT_METHODS: readonly string[] = [
+  "Cash",
+  "Check",
+  "Venmo",
+  "PayPal",
+  "Cash App",
+  "Zelle",
+  "Credit card",
+];
+
 /** What the seller states, and what this one stand takes away. */
 export interface PaymentResolutionInput {
   /** The seller's own stated methods, in her order, already canonicalized on write. */

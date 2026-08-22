@@ -11,6 +11,7 @@
     "./open-now": "./src/public/open-now.ts",
     "./island-projection": "./src/public/island-projection.ts",
     "./item-price": "./src/public/item-price.ts",
+    "./payment-resolution": "./src/public/payment-resolution.ts",
     "./vcard": "./src/public/vcard.ts",
     "./seller-credit": "./src/public/seller-credit.ts"
   }

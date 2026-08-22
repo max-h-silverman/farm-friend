@@ -1,11 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import {
-  FARMER_SELECTABLE_PAYMENT_METHODS,
-  type ListingAvailability,
-  type StandingItem,
-} from "@farm-friend/db";
+import { FARMER_SELECTABLE_PAYMENT_METHODS } from "@farm-friend/core/payment-resolution";
 import { copyText } from "../../lib/copy-text";
 import { ActionMenu } from "./action-menu";
 import { ClockIcon, LinkIcon, PencilIcon, PeopleIcon, StandIcon, TrashIcon, UnpinIcon } from "./icons";
@@ -47,11 +43,36 @@ export interface AdminStandMetadata {
   visitability?: "visitable" | "contact_only";
   offeringType?: "produce" | "services" | "by_order";
   pricesPublic?: boolean;
-  availability?: ListingAvailability;
+  availability?: AdminListingAvailability;
   paymentMethods?: string[];
   farmBucksAccepted?: boolean;
-  items?: StandingItem[];
+  items?: AdminStandingItem[];
   description?: string | null;
+}
+
+export interface AdminListingAvailability {
+  seasonKind: "year_round" | "date_range" | "open_ended" | "named_season" | null;
+  seasonStartMonth: number | null;
+  seasonStartDay: number | null;
+  seasonEndMonth: number | null;
+  seasonEndDay: number | null;
+  seasonNames: string[] | null;
+  openHoursKind: "dawn_to_dusk" | "daylight_hours" | "all_day" | "clock_range" | "until_dusk" | "by_appointment" | null;
+  openFromMinutes: number | null;
+  openUntilMinutes: number | null;
+  openDays: number[] | null;
+  stockingCadence: "daily" | "specific_days" | "variable" | "as_needed" | "intermittent" | null;
+  stockingDays: number[] | null;
+}
+
+export interface AdminStandingItem {
+  name: string;
+  price: null | {
+    amount: string;
+    quantity: string;
+    unit: string | null;
+    basis: "per" | "for";
+  };
 }
 
 type EditableStandMetadata = AdminStandMetadata & Required<Pick<AdminStandMetadata,
@@ -173,9 +194,9 @@ function StandMetadataEditor({
     setNote(null);
   }
 
-  function availability<K extends keyof ListingAvailability>(
+  function availability<K extends keyof AdminListingAvailability>(
     key: K,
-    value: ListingAvailability[K],
+    value: AdminListingAvailability[K],
   ) {
     setDraft((current) => ({
       ...current,
@@ -184,7 +205,7 @@ function StandMetadataEditor({
     setNote(null);
   }
 
-  function item(index: number, value: StandingItem) {
+  function item(index: number, value: AdminStandingItem) {
     setDraft((current) => ({
       ...current,
       items: current.items.map((existing, at) => at === index ? value : existing),
@@ -311,8 +332,8 @@ function StandFacts({
     busy: boolean;
     note: { kind: "ok" | "bad"; text: string } | null;
     field: <K extends keyof AdminStandMetadata>(key: K, value: AdminStandMetadata[K]) => void;
-    availability: <K extends keyof ListingAvailability>(key: K, value: ListingAvailability[K]) => void;
-    item: (index: number, value: StandingItem) => void;
+    availability: <K extends keyof AdminListingAvailability>(key: K, value: AdminListingAvailability[K]) => void;
+    item: (index: number, value: AdminStandingItem) => void;
     coordinate: (value: string) => number | null;
     save: () => Promise<void>;
     close: () => void;
@@ -491,7 +512,7 @@ function StandFacts({
                   <>
                   <div className="admin-stand-edit-row">
                     <dt><label htmlFor={id("season")}>When is your stand open in the year?</label></dt>
-                    <dd><select id={id("season")} value={editor.draft.availability.seasonKind ?? ""} disabled={editor.busy} onChange={(event) => editor.field("availability", { ...editor.draft.availability, seasonKind: (event.target.value || null) as ListingAvailability["seasonKind"], seasonStartMonth: null, seasonStartDay: null, seasonEndMonth: null, seasonEndDay: null, seasonNames: null })}>
+                    <dd><select id={id("season")} value={editor.draft.availability.seasonKind ?? ""} disabled={editor.busy} onChange={(event) => editor.field("availability", { ...editor.draft.availability, seasonKind: (event.target.value || null) as AdminListingAvailability["seasonKind"], seasonStartMonth: null, seasonStartDay: null, seasonEndMonth: null, seasonEndDay: null, seasonNames: null })}>
                       <option value="">Rather not say</option><option value="year_round">All year</option><option value="date_range">Between two dates</option><option value="open_ended">From a date onward</option><option value="named_season">Named seasons</option>
                     </select></dd>
                   </div>
@@ -500,13 +521,13 @@ function StandFacts({
                   {editor.draft.availability.seasonKind === "named_season" && <div className="admin-stand-edit-row"><dt><label htmlFor={id("season-names")}>Which seasons?</label></dt><dd><input id={id("season-names")} type="text" value={editor.draft.availability.seasonNames?.join(", ") ?? ""} onChange={(event) => editor.availability("seasonNames", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></dd></div>}
                   <div className="admin-stand-edit-row">
                     <dt><label htmlFor={id("hours-kind")}>When are you usually open?</label></dt>
-                    <dd><select id={id("hours-kind")} value={editor.draft.availability.openHoursKind ?? ""} disabled={editor.busy} onChange={(event) => editor.field("availability", { ...editor.draft.availability, openHoursKind: (event.target.value || null) as ListingAvailability["openHoursKind"], openFromMinutes: null, openUntilMinutes: null })}>
-                      <option value="">Rather not say</option><option value="dawn_to_dusk">Dawn to dusk</option><option value="all_day">All day</option><option value="clock_range">Set hours</option><option value="until_dusk">Set time until dusk</option><option value="by_appointment">By appointment</option>
+                    <dd><select id={id("hours-kind")} value={editor.draft.availability.openHoursKind ?? ""} disabled={editor.busy} onChange={(event) => editor.field("availability", { ...editor.draft.availability, openHoursKind: (event.target.value || null) as AdminListingAvailability["openHoursKind"], openFromMinutes: null, openUntilMinutes: null })}>
+                      <option value="">Rather not say</option><option value="dawn_to_dusk">Dawn to dusk</option><option value="daylight_hours">Daylight hours</option><option value="all_day">All day</option><option value="clock_range">Set hours</option><option value="until_dusk">Set time until dusk</option><option value="by_appointment">By appointment</option>
                     </select></dd>
                   </div>
                   {(editor.draft.availability.openHoursKind === "clock_range" || editor.draft.availability.openHoursKind === "until_dusk") && <div className="admin-stand-edit-row"><dt>Clock hours</dt><dd><label>Opens at<input type="time" value={clockValue(editor.draft.availability.openFromMinutes)} onChange={(event) => editor.availability("openFromMinutes", clockMinutes(event.target.value))} /></label>{editor.draft.availability.openHoursKind === "clock_range" && <label>Closes at<input type="time" value={clockValue(editor.draft.availability.openUntilMinutes)} onChange={(event) => editor.availability("openUntilMinutes", clockMinutes(event.target.value))} /></label>}</dd></div>}
                   <div className="admin-stand-edit-row"><dt>Open days</dt><dd className="admin-stand-day-fields">{WEEKDAYS.map((day, value) => <label key={day}><input type="checkbox" checked={editor.draft.availability.openDays?.includes(value) ?? false} onChange={() => { const days = editor.draft.availability.openDays ?? []; const next = days.includes(value) ? days.filter((item) => item !== value) : [...days, value].sort(); editor.availability("openDays", next.length === 0 ? null : next); }} />{day}</label>)}</dd></div>
-                  <div className="admin-stand-edit-row"><dt><label htmlFor={id("stocking")}>How often do you restock?</label></dt><dd><select id={id("stocking")} value={editor.draft.availability.stockingCadence ?? ""} onChange={(event) => editor.field("availability", { ...editor.draft.availability, stockingCadence: (event.target.value || null) as ListingAvailability["stockingCadence"], stockingDays: null })}><option value="">Rather not say</option><option value="daily">Daily</option><option value="specific_days">Specific days</option><option value="variable">Varies</option><option value="as_needed">As needed</option><option value="intermittent">Intermittently</option></select></dd></div>
+                  <div className="admin-stand-edit-row"><dt><label htmlFor={id("stocking")}>How often do you restock?</label></dt><dd><select id={id("stocking")} value={editor.draft.availability.stockingCadence ?? ""} onChange={(event) => editor.field("availability", { ...editor.draft.availability, stockingCadence: (event.target.value || null) as AdminListingAvailability["stockingCadence"], stockingDays: null })}><option value="">Rather not say</option><option value="daily">Daily</option><option value="specific_days">Specific days</option><option value="variable">Varies</option><option value="as_needed">As needed</option><option value="intermittent">Intermittently</option></select></dd></div>
                   {editor.draft.availability.stockingCadence === "specific_days" && <div className="admin-stand-edit-row"><dt>Restocking days</dt><dd className="admin-stand-day-fields">{WEEKDAYS.map((day, value) => <label key={day}><input type="checkbox" checked={editor.draft.availability.stockingDays?.includes(value) ?? false} onChange={() => { const days = editor.draft.availability.stockingDays ?? []; const next = days.includes(value) ? days.filter((item) => item !== value) : [...days, value].sort(); editor.availability("stockingDays", next.length === 0 ? null : next); }} />{day}</label>)}</dd></div>}
                   <div className="admin-stand-edit-row">
                     <dt>

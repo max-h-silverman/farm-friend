@@ -19,6 +19,10 @@
 // methods are kept verbatim (trimmed only), so a farmer who takes something nobody anticipated
 // can still say it. Only known methods are folded to one spelling.
 
+import { FARMER_SELECTABLE_PAYMENT_METHODS } from "@farm-friend/core/payment-resolution";
+
+export { FARMER_SELECTABLE_PAYMENT_METHODS };
+
 /**
  * VIGA Farm Bucks, spelled the way VIGA spells it.
  *
@@ -35,23 +39,6 @@
  * though no row ever holds it.
  */
 export const VIGA_FARM_BUCKS = "VIGA Farm Bucks";
-
-/**
- * What the onboarding form may offer as checkboxes.
- *
- * Ordered as a farmer would expect to see them: the two that nearly every unattended stand
- * takes, then the phone apps, then cards. A stand taking cards at all is rare on Vashon, but
- * "rare" is not "absent" and a farmer who takes them must be able to say so.
- */
-export const FARMER_SELECTABLE_PAYMENT_METHODS: readonly string[] = [
-  "Cash",
-  "Check",
-  "Venmo",
-  "PayPal",
-  "Cash App",
-  "Zelle",
-  "Credit card",
-];
 
 /**
  * Known spellings → the one canonical value.

@@ -299,9 +299,9 @@ Paste this into a Squarespace **code block** on the administrator page:
 ```
 
 The deployed admin must send the matching partitioned session cookie before iframe sign-in works.
-Administrator pages permit framing only from `https://vigavashon.org`,
-`https://www.vigavashon.org`, or the app itself. Every authenticated write also requires the
-browser request to originate from the admin app, independently of the cookie. A direct-window
+Administrator pages permit framing from the app itself and exactly `https://vigavashon.org`.
+Every authenticated write also accepts exactly those two origins, independently of the cookie;
+`www`, absent, lookalike, and unrelated origins are refused. A direct-window
 session and a Squarespace-embedded session occupy separate browser partitions and can require
 separate sign-ins. The shared height reporter resizes the frame after sign-in, navigation, and queue
 changes so Squarespace owns the only scrollbar; `height="1100"` is the no-script fallback.
