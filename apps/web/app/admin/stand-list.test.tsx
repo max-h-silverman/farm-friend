@@ -206,7 +206,7 @@ describe("F-101 VIGA corrects a stand's own facts", () => {
     const box = editBox();
     expect(within(box).getByLabelText("Stand name")).toHaveValue("Venison Valley Stand");
     expect(within(box).getByLabelText("Address")).toHaveValue("1 Wrong Road");
-    expect(within(box).getByLabelText(/hours, in the/i)).toHaveValue("Dawn to dusk");
+    expect(within(box).getByLabelText(/anything else about your hours/i)).toHaveValue("Dawn to dusk");
 
     await userEvent.clear(within(box).getByLabelText("Stand name"));
     await userEvent.type(within(box).getByLabelText("Stand name"), "Venison Valley Farm Stand");
@@ -302,11 +302,36 @@ describe("the stand card's verbs live behind one menu", () => {
     expect(screen.getByLabelText(/seller's name/i)).toBeInTheDocument();
   });
 
-  it("keeps the read-only facts visible whatever verb is open", async () => {
-    render(<StandDetails stands={[{ ...stand, sections: [{ title: "Where", items: [["Address", "1 Wrong Road"]] }] }]} />);
+  it("turns the existing detail rows into fields instead of opening a separate form", async () => {
+    render(<StandDetails stands={[{
+      ...stand,
+      sections: [
+        {
+          title: "Visit & listing",
+          items: [
+            ["Address", "1 Wrong Road"],
+            ["Coordinates", "47.4473, -122.459"],
+            ["Visit in person", "Yes"],
+          ],
+        },
+        {
+          title: "Hours & season",
+          items: [
+            ["Farmer's note about hours", "Dawn to dusk"],
+            ["Season", "All year"],
+          ],
+        },
+      ],
+    }]} />);
     await openStand();
 
-    expect(screen.getByText("1 Wrong Road")).toBeInTheDocument();
+    const visit = screen.getByRole("group", { name: "Visit & listing" });
+    const hours = screen.getByRole("group", { name: "Hours & season" });
+    expect(within(visit).getByLabelText("Address")).toHaveValue("1 Wrong Road");
+    expect(within(visit).getByLabelText("Show the address to customers")).toBeChecked();
+    expect(within(visit).getByLabelText("Map pin latitude")).toHaveValue("47.4473");
+    expect(within(hours).getByLabelText("Anything else about your hours?")).toHaveValue("Dawn to dusk");
+    expect(within(hours).getByText("All year")).toBeVisible();
   });
 });
 

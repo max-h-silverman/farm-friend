@@ -218,7 +218,8 @@ bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
   confirmations. `POST /api/admin/stands` also carries `save_metadata` (F-101): VIGA edits a stand's
   name, address, address visibility, map pin and hours text through `saveStandMetadata`, which names
   its columns and touches **nothing the farmer publishes** — payment methods, usual offerings, her
-  description and her items stay hers (Golden Rule #1).
+  description and her items stay hers (Golden Rule #1). **Edit details is an inline mode**: those
+  writable values replace their rows in the stand profile while every other fact remains readable.
 
   `POST /api/farmer/participation` (F-101) is the farmer-facing twin, and the first caller to meet
   the authority **asymmetry**: a seller may pause, resume and end; a **host may end and may never
@@ -229,4 +230,3 @@ bare `/farmer/start` no longer exists; new farms are invite-only (F-080).
   name is public text and is refused with the same code-owned copy the farmer's door uses.
 - **Telnyx webhook:** signature-verified inbound SMS → deterministic routing.
 - **Scheduled jobs:** farmer prompting, outbound delivery, retry, and retention.
-

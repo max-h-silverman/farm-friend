@@ -7361,6 +7361,40 @@ button.admin-action-danger,
   overflow-wrap: anywhere;
 }
 
+/* Edit details is a mode of the profile, not another card beneath it. Editable values keep
+   the onboarding form's native text-field grammar while the facts VIGA does not own stay text. */
+.admin-stand-facts--editing .admin-stand-group-body input[type="text"] {
+  width: 100%;
+  min-width: 0;
+  padding: 0.5rem 0.6rem;
+  font: inherit;
+  color: var(--ink);
+  background: var(--bg);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+}
+
+.admin-stand-edit-row dd,
+.admin-stand-coordinate-fields {
+  display: grid;
+  gap: 0.45rem;
+}
+
+.admin-stand-coordinate-fields label {
+  color: var(--ink-faint);
+  font-size: 0.78rem;
+}
+
+.admin-stand-edit-actions {
+  display: grid;
+  gap: 0.5rem;
+  margin-top: 0.9rem;
+}
+
+.admin-stand-edit-actions .admin-confirm-actions {
+  justify-self: start;
+}
+
 /* On a phone the two-column row is a squeeze, so the label sits above its value. */
 @media (max-width: 560px) {
   .admin-stand-group-body > div {

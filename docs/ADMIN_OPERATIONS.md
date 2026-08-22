@@ -67,15 +67,14 @@ working.
 **Stands and Sellers list things, not situations.** One row per stand and one per seller — a farm
 selling at three stands is still one row. Open a row to see and change its arrangements.
 
-**Pausing and removing a seller from a stand.** Inside a stand (or inside a seller) each
-arrangement has a switch and a **Remove** button. The switch pauses and resumes: a paused seller's
+**Pausing and removing a seller from a shared stand.** Inside a shared stand (or inside a seller)
+each arrangement has a switch and a **Remove** button. The switch pauses and resumes: a paused seller's
 goods leave the map and the text answers while the arrangement stays in place. **Pausing asks you
 to confirm**, because the whole row is the switch and pausing takes a real seller's goods off the
 island's only guide; resuming does not ask, because it puts them back. **Remove ends it and cannot
 be undone** — it asks too, and bringing that seller back means inviting them again. The switch reads **"<seller> — selling here"** or **"<seller> — paused"**, and
-names its seller on every row including a stand whose only seller is the farm that owns it: the
-rows sit under **Also selling here**, so a row that named nobody answered a question nobody asked.
-It describes the ARRANGEMENT only. Whether customers can buy there today is the card's own header,
+names its seller. A single-seller stand has no seller row: its native seller is part of the stand,
+not an arrangement VIGA can pause or remove. Whether customers can buy there today is the card's own header,
 computed from season and hours — the two used to share a vocabulary and contradicted each other in
 production.
 
