@@ -21,11 +21,13 @@ export interface AdminCaller {
   email: string;
 }
 
+/** The one VIGA page allowed to host and submit the embedded administrator console. */
+const VIGA_ADMIN_EMBED_ORIGIN = "https://vigavashon.org";
+
 /**
  * A partitioned cookie can travel in VIGA's cross-site iframe, so SameSite no longer rejects
- * forged writes for us. Browser admin writes originate in the embedded app itself: their
- * `Origin` must equal this app's own public origin. VIGA is the frame owner, not the request
- * origin, and is deliberately not accepted here.
+ * forged writes for us. A browser admin write must originate in either this app itself or the
+ * one VIGA origin that officially embeds it. No other frame owner is trusted.
  *
  * The expected origin is CONFIGURED (`PUBLIC_BASE_URL`), never derived from the request. Cloud
  * Run terminates TLS at its proxy and forwards plain HTTP to a container bound to `0.0.0.0:8080`,
@@ -51,7 +53,7 @@ export function isTrustedAdminMutationSource(
   } catch {
     return false;
   }
-  return origin === expected;
+  return origin === expected || origin === VIGA_ADMIN_EMBED_ORIGIN;
 }
 
 /**

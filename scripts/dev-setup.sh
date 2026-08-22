@@ -103,7 +103,7 @@ DATABASE_URL="${DB_URL}" npm run db:migrate --silent
 # Verify by EFFECT, never by the words "migrations applied": a migration command can exit 0
 # having skipped a migration whose journal timestamp is not newer than the last applied one.
 applied_tables="$(psql "${DB_URL}" -tAc \
-  "select count(*) from information_schema.tables where table_schema='public' and table_name in ('farms','sales_locations','administrators');")"
+  "select count(*) from information_schema.tables where table_schema='public' and table_name in ('sellers','sales_locations','administrators');")"
 if [ "${applied_tables}" -ne 3 ]; then
   echo "Migrations did not produce the expected schema (found ${applied_tables}/3 core tables)." >&2
   exit 1

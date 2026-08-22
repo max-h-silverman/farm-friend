@@ -1,12 +1,13 @@
 "use client";
 
 import { useState } from "react";
+import { FARMER_SELECTABLE_PAYMENT_METHODS } from "@farm-friend/core/payment-resolution";
 import { copyText } from "../../lib/copy-text";
 import { ActionMenu } from "./action-menu";
-import { CheckIcon, ClockIcon, LinkIcon, PencilIcon, PeopleIcon, StandIcon, TrashIcon, UnpinIcon } from "./icons";
+import { ClockIcon, LinkIcon, PencilIcon, PeopleIcon, StandIcon, TrashIcon, UnpinIcon } from "./icons";
 
 /** Which of a stand's three surfaces is open, or none. One at a time, by construction. */
-type StandPanel = "details" | "farm-bucks" | "invite" | "retire" | "trash" | null;
+type StandPanel = "details" | "invite" | "retire" | "trash" | null;
 
 export interface AdminStandCard {
   standId: string;
@@ -39,7 +40,45 @@ export interface AdminStandMetadata {
   latitude: number | null;
   longitude: number | null;
   hoursText: string | null;
+  visitability?: "visitable" | "contact_only";
+  offeringType?: "produce" | "services" | "by_order";
+  pricesPublic?: boolean;
+  availability?: AdminListingAvailability;
+  paymentMethods?: string[];
+  farmBucksAccepted?: boolean;
+  items?: AdminStandingItem[];
+  description?: string | null;
 }
+
+export interface AdminListingAvailability {
+  seasonKind: "year_round" | "date_range" | "open_ended" | "named_season" | null;
+  seasonStartMonth: number | null;
+  seasonStartDay: number | null;
+  seasonEndMonth: number | null;
+  seasonEndDay: number | null;
+  seasonNames: string[] | null;
+  openHoursKind: "dawn_to_dusk" | "daylight_hours" | "all_day" | "clock_range" | "until_dusk" | "by_appointment" | null;
+  openFromMinutes: number | null;
+  openUntilMinutes: number | null;
+  openDays: number[] | null;
+  stockingCadence: "daily" | "specific_days" | "variable" | "as_needed" | "intermittent" | null;
+  stockingDays: number[] | null;
+}
+
+export interface AdminStandingItem {
+  name: string;
+  price: null | {
+    amount: string;
+    quantity: string;
+    unit: string | null;
+    basis: "per" | "for";
+  };
+}
+
+type EditableStandMetadata = AdminStandMetadata & Required<Pick<AdminStandMetadata,
+  "visitability" | "offeringType" | "pricesPublic" | "availability" |
+  "paymentMethods" | "farmBucksAccepted" | "items" | "description"
+>>;
 
 export interface AdminStandDetailSection {
   title: string;
@@ -91,6 +130,10 @@ function metadataRefusal(payload: Record<string, unknown>): string {
       return "A stand people can visit needs an address and a map pin. Nothing was saved.";
     case "invalid_name":
       return "A stand needs a name. Nothing was saved.";
+    case "incoherent_availability":
+      return "Complete the season, hours, and restocking details. Nothing was saved.";
+    case "off_island":
+      return "That map pin is outside Vashon-Maury Island. Nothing was saved.";
     case "unknown_stand":
       return "That stand is no longer here. Nothing was saved.";
     case "not_an_administrator":
@@ -103,10 +146,8 @@ function metadataRefusal(payload: Record<string, unknown>): string {
 /**
  * VIGA corrects one stand's own facts (F-101, max 2026-08-17).
  *
- * **Narrower than the farmer's form on purpose.** `/stand/[token]/listing` lets the stand's
- * owner edit her whole listing — payment methods, what she usually sells, her own description,
- * her items. None of that is here: those are the farmer's published words, and Golden Rule #1
- * keeps VIGA's hand off them. The fields are exactly `saveStandMetadata`'s columns.
+ * This is the onboarding listing in admin form: every onboarding answer is prefilled and
+ * writable, while dated inventory and closures remain outside this mode.
  *
  * **Prefilled, and that is load-bearing.** The writer sets every column it names, so a blank
  * form would clear an address when an operator only came to fix a spelling.
@@ -115,22 +156,60 @@ function StandMetadataEditor({
   standId,
   standName,
   metadata,
+  sections,
+  farmBucks,
   onSaved,
   onClose,
 }: {
   standId: string;
   standName: string;
   metadata: AdminStandMetadata;
+  sections: AdminStandDetailSection[];
+  farmBucks: string;
   onSaved: (metadata: AdminStandMetadata) => void;
   /** Leave the editor without writing. The draft goes with it. */
   onClose: () => void;
 }) {
-  const [draft, setDraft] = useState(metadata);
+  const [draft, setDraft] = useState<EditableStandMetadata>({
+    ...metadata,
+    visitability: metadata.visitability ?? "visitable",
+    offeringType: metadata.offeringType ?? "produce",
+    pricesPublic: metadata.pricesPublic ?? false,
+    availability: metadata.availability ?? {
+      seasonKind: null, seasonStartMonth: null, seasonStartDay: null,
+      seasonEndMonth: null, seasonEndDay: null, seasonNames: null,
+      openHoursKind: null, openFromMinutes: null, openUntilMinutes: null,
+      openDays: null, stockingCadence: null, stockingDays: null,
+    },
+    paymentMethods: metadata.paymentMethods ?? [],
+    farmBucksAccepted: metadata.farmBucksAccepted ?? false,
+    items: metadata.items ?? [],
+    description: metadata.description ?? null,
+  });
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<{ kind: "ok" | "bad"; text: string } | null>(null);
 
   function field<K extends keyof AdminStandMetadata>(key: K, value: AdminStandMetadata[K]) {
     setDraft((current) => ({ ...current, [key]: value }));
+    setNote(null);
+  }
+
+  function availability<K extends keyof AdminListingAvailability>(
+    key: K,
+    value: AdminListingAvailability[K],
+  ) {
+    setDraft((current) => ({
+      ...current,
+      availability: { ...current.availability, [key]: value },
+    }));
+    setNote(null);
+  }
+
+  function item(index: number, value: AdminStandingItem) {
+    setDraft((current) => ({
+      ...current,
+      items: current.items.map((existing, at) => at === index ? value : existing),
+    }));
     setNote(null);
   }
 
@@ -157,6 +236,14 @@ function StandMetadataEditor({
           latitude: draft.latitude,
           longitude: draft.longitude,
           hoursText: draft.hoursText,
+          visitability: draft.visitability,
+          offeringType: draft.offeringType,
+          pricesPublic: draft.pricesPublic,
+          availability: draft.availability,
+          paymentMethods: draft.paymentMethods,
+          farmBucksAccepted: draft.farmBucksAccepted,
+          items: draft.items,
+          description: draft.description,
         }),
       });
       if (!response.ok) {
@@ -174,111 +261,24 @@ function StandMetadataEditor({
     }
   }
 
-  const id = (suffix: string): string => `stand-${standId}-${suffix}`;
-
   return (
-    <section
-      className="admin-stand-editor"
-      role="group"
-      aria-label={`Stand details for ${standName}`}
-    >
-      <h4>Stand details</h4>
-      <p className="admin-note">
-        What customers see on the map. The farmer edits these too, from her own link.
-      </p>
-
-      {note !== null && (
-        <p
-          className={note.kind === "ok" ? "admin-success" : "admin-error"}
-          role={note.kind === "ok" ? "status" : "alert"}
-        >
-          {note.text}
-        </p>
-      )}
-
-      <label htmlFor={id("name")}>Stand name</label>
-      <input
-        id={id("name")}
-        type="text"
-        value={draft.name}
-        disabled={busy}
-        onChange={(event) => field("name", event.target.value)}
-      />
-
-      <label htmlFor={id("address")}>Address</label>
-      <input
-        id={id("address")}
-        type="text"
-        value={draft.publicAddress ?? ""}
-        disabled={busy}
-        onChange={(event) => field("publicAddress", event.target.value)}
-      />
-
-      {/* The address is always STORED; this decides only whether customers see it. Some stands
-          sit at the farmer's home — findable, without printing the street address. */}
-      <label className="admin-stand-editor-check">
-        <input
-          type="checkbox"
-          checked={draft.addressPublic}
-          disabled={busy}
-          onChange={(event) => field("addressPublic", event.target.checked)}
-        />
-        <span>Show the address to customers</span>
-      </label>
-
-      <label htmlFor={id("latitude")}>Map pin latitude</label>
-      <input
-        id={id("latitude")}
-        type="text"
-        inputMode="decimal"
-        value={draft.latitude ?? ""}
-        disabled={busy}
-        onChange={(event) => field("latitude", coordinate(event.target.value))}
-      />
-
-      <label htmlFor={id("longitude")}>Map pin longitude</label>
-      <input
-        id={id("longitude")}
-        type="text"
-        inputMode="decimal"
-        value={draft.longitude ?? ""}
-        disabled={busy}
-        onChange={(event) => field("longitude", coordinate(event.target.value))}
-      />
-
-      <label htmlFor={id("hours")}>Hours, in the farmer&apos;s own words</label>
-      <input
-        id={id("hours")}
-        type="text"
-        value={draft.hoursText ?? ""}
-        disabled={busy}
-        onChange={(event) => field("hoursText", event.target.value)}
-      />
-
-      {/*
-        Save commits; Cancel only closes. Cancel writes NOTHING and keeps no draft — the
-        component unmounts with the panel, so reopening starts from the saved facts rather
-        than from an edit the operator believed they had thrown away.
-      */}
-      <div className="admin-confirm-actions">
-        <button
-          className="admin-action-primary"
-          type="button"
-          disabled={busy}
-          onClick={() => void save()}
-        >
-          {busy ? "Saving…" : "Save stand details"}
-        </button>
-        <button
-          className="admin-action-secondary"
-          type="button"
-          disabled={busy}
-          onClick={onClose}
-        >
-          Cancel
-        </button>
-      </div>
-    </section>
+    <StandFacts
+      standId={standId}
+      sections={sections}
+      farmBucks={farmBucks}
+      editor={{
+        standName,
+        draft,
+        busy,
+        note,
+        field,
+        availability,
+        item,
+        coordinate,
+        save,
+        close: onClose,
+      }}
+    />
   );
 }
 
@@ -291,6 +291,17 @@ function StandMetadataEditor({
  * `emphasis: "primary"` marker said the same thing a second time, from the other end.
  */
 const LEAD_LABELS = ["Current items", "Last confirmed"] as const;
+const WEEKDAYS = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"] as const;
+
+function clockValue(minutes: number | null): string {
+  if (minutes === null) return "";
+  return `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+}
+
+function clockMinutes(value: string): number | null {
+  const [hours, minutes] = value.split(":").map(Number);
+  return Number.isInteger(hours) && Number.isInteger(minutes) ? hours! * 60 + minutes! : null;
+}
 
 /**
  * One stand's read-only facts, as a PROFILE rather than a table (max, 2026-08-17).
@@ -309,11 +320,24 @@ function StandFacts({
   standId,
   sections,
   farmBucks,
+  editor,
 }: {
   standId: string;
   sections: AdminStandDetailSection[];
-  /** The live Farm Bucks decision, which the operator can change without the page reloading. */
+  /** The live Farm Bucks decision. */
   farmBucks: string;
+  editor?: {
+    standName: string;
+    draft: EditableStandMetadata;
+    busy: boolean;
+    note: { kind: "ok" | "bad"; text: string } | null;
+    field: <K extends keyof AdminStandMetadata>(key: K, value: AdminStandMetadata[K]) => void;
+    availability: <K extends keyof AdminListingAvailability>(key: K, value: AdminListingAvailability[K]) => void;
+    item: (index: number, value: AdminStandingItem) => void;
+    coordinate: (value: string) => number | null;
+    save: () => Promise<void>;
+    close: () => void;
+  };
 }) {
   const lead = new Map<string, string>();
   for (const section of sections) {
@@ -325,8 +349,28 @@ function StandFacts({
   const items = lead.get("Current items");
   const confirmed = lead.get("Last confirmed");
 
+  const displayedSections = [...sections];
+  if (editor !== undefined && !displayedSections.some(({ title }) => title === "Availability")) {
+    displayedSections.push({ title: "Availability", items: [] });
+  }
+  if (editor !== undefined && !displayedSections.some(({ title }) => title === "Visit & listing")) {
+    displayedSections.push({ title: "Visit & listing", items: [] });
+  }
+  if (editor !== undefined && !displayedSections.some(({ title }) => title === "Hours & season")) {
+    displayedSections.push({ title: "Hours & season", items: [] });
+  }
+  if (editor !== undefined && !displayedSections.some(({ title }) => title === "Payment accepted")) {
+    displayedSections.push({ title: "Payment accepted", items: [] });
+  }
+  if (editor !== undefined) displayedSections.push({ title: "Additional information", items: [] });
+  const id = (suffix: string): string => `stand-${standId}-${suffix}`;
+
   return (
-    <div className="admin-stand-facts">
+    <div
+      className={`admin-stand-facts${editor === undefined ? "" : " admin-stand-facts--editing"}`}
+      role={editor === undefined ? undefined : "group"}
+      aria-label={editor === undefined ? undefined : `Stand details for ${editor.standName}`}
+    >
       {items !== undefined && (
         <div className="admin-stand-lead" role="group" aria-label="What is on the shelf">
           <p className="admin-stand-lead-items">{items}</p>
@@ -347,7 +391,7 @@ function StandFacts({
       )}
 
       <div className="admin-stand-groups">
-        {sections.map((section, index) => {
+        {displayedSections.map((section, index) => {
           // The lead's facts are stated ONCE. A section whose items the lead consumed has
           // nothing left to say, so it does not print a heading over an empty box.
           const rows = section.items
@@ -355,7 +399,9 @@ function StandFacts({
             .map(([label, value]) =>
               label === "Farm Bucks" ? ([label, farmBucks] as const) : ([label, value] as const),
             );
-          if (rows.length === 0) return null;
+          const hasInlineEditor = editor !== undefined &&
+            ["Availability", "Visit & listing", "Hours & season", "Payment accepted", "Additional information"].includes(section.title);
+          if (rows.length === 0 && !hasInlineEditor) return null;
 
           const headingId = `stand-${standId}-section-${index}`;
           return (
@@ -369,17 +415,190 @@ function StandFacts({
                 {section.title}
               </h3>
               <dl className="admin-stand-group-body">
-                {rows.map(([label, value]) => (
-                  <div key={label}>
-                    <dt>{label}</dt>
-                    <dd>{value}</dd>
+                {editor !== undefined && section.title === "Visit & listing" && (
+                  <>
+                    <div className="admin-stand-edit-row">
+                      <dt>
+                        <label htmlFor={id("name")}>Stand name</label>
+                      </dt>
+                      <dd>
+                        <input
+                          id={id("name")}
+                          type="text"
+                          value={editor.draft.name}
+                          disabled={editor.busy}
+                          onChange={(event) => editor.field("name", event.target.value)}
+                        />
+                      </dd>
+                    </div>
+                    <div className="admin-stand-edit-row">
+                      <dt>
+                        <label htmlFor={id("address")}>Address</label>
+                      </dt>
+                      <dd>
+                        <input
+                          id={id("address")}
+                          type="text"
+                          value={editor.draft.publicAddress ?? ""}
+                          disabled={editor.busy}
+                          onChange={(event) => editor.field("publicAddress", event.target.value)}
+                        />
+                        <label className="admin-stand-editor-check">
+                          <input
+                            type="checkbox"
+                            checked={editor.draft.addressPublic}
+                            disabled={editor.busy}
+                            onChange={(event) =>
+                              editor.field("addressPublic", event.target.checked)
+                            }
+                          />
+                          <span>Show the address to customers</span>
+                        </label>
+                      </dd>
+                    </div>
+                    <div className="admin-stand-edit-row">
+                      <dt>Coordinates</dt>
+                      <dd className="admin-stand-coordinate-fields">
+                        <label htmlFor={id("latitude")}>Map pin latitude</label>
+                        <input
+                          id={id("latitude")}
+                          type="text"
+                          inputMode="decimal"
+                          value={editor.draft.latitude ?? ""}
+                          disabled={editor.busy}
+                          onChange={(event) =>
+                            editor.field("latitude", editor.coordinate(event.target.value))
+                          }
+                        />
+                        <label htmlFor={id("longitude")}>Map pin longitude</label>
+                        <input
+                          id={id("longitude")}
+                          type="text"
+                          inputMode="decimal"
+                          value={editor.draft.longitude ?? ""}
+                          disabled={editor.busy}
+                          onChange={(event) =>
+                            editor.field("longitude", editor.coordinate(event.target.value))
+                          }
+                        />
+                      </dd>
+                    </div>
+                    <div className="admin-stand-edit-row">
+                      <dt><label htmlFor={id("visitability")}>Can customers visit in person?</label></dt>
+                      <dd>
+                        <select id={id("visitability")} value={editor.draft.visitability} disabled={editor.busy} onChange={(event) => editor.field("visitability", event.target.value as AdminStandMetadata["visitability"])}>
+                          <option value="visitable">Yes — customers can visit</option>
+                          <option value="contact_only">No — contact the farm</option>
+                        </select>
+                      </dd>
+                    </div>
+                    <div className="admin-stand-edit-row">
+                      <dt><label htmlFor={id("offering")}>What does this listing offer?</label></dt>
+                      <dd>
+                        <select id={id("offering")} value={editor.draft.offeringType} disabled={editor.busy} onChange={(event) => editor.field("offeringType", event.target.value as AdminStandMetadata["offeringType"])}>
+                          <option value="produce">Farm goods</option>
+                          <option value="services">Services</option>
+                          <option value="by_order">Order ahead</option>
+                        </select>
+                      </dd>
+                    </div>
+                    <div className="admin-stand-edit-row">
+                      <dt>Prices</dt>
+                      <dd><label className="admin-stand-editor-check"><input type="checkbox" checked={editor.draft.pricesPublic} disabled={editor.busy} onChange={(event) => editor.field("pricesPublic", event.target.checked)} /><span>Show prices to customers</span></label></dd>
+                    </div>
+                  </>
+                )}
+                {editor !== undefined && section.title === "Hours & season" && (
+                  <>
+                  <div className="admin-stand-edit-row">
+                    <dt><label htmlFor={id("season")}>When is your stand open in the year?</label></dt>
+                    <dd><select id={id("season")} value={editor.draft.availability.seasonKind ?? ""} disabled={editor.busy} onChange={(event) => editor.field("availability", { ...editor.draft.availability, seasonKind: (event.target.value || null) as AdminListingAvailability["seasonKind"], seasonStartMonth: null, seasonStartDay: null, seasonEndMonth: null, seasonEndDay: null, seasonNames: null })}>
+                      <option value="">Rather not say</option><option value="year_round">All year</option><option value="date_range">Between two dates</option><option value="open_ended">From a date onward</option><option value="named_season">Named seasons</option>
+                    </select></dd>
                   </div>
-                ))}
+                  {(editor.draft.availability.seasonKind === "date_range" || editor.draft.availability.seasonKind === "open_ended") && <div className="admin-stand-edit-row"><dt>Opens</dt><dd className="admin-stand-paired-fields"><label>Month<input type="number" min="1" max="12" value={editor.draft.availability.seasonStartMonth ?? ""} onChange={(event) => editor.availability("seasonStartMonth", event.target.value === "" ? null : Number(event.target.value))} /></label><label>Day<input type="number" min="1" max="31" value={editor.draft.availability.seasonStartDay ?? ""} onChange={(event) => editor.availability("seasonStartDay", event.target.value === "" ? null : Number(event.target.value))} /></label></dd></div>}
+                  {editor.draft.availability.seasonKind === "date_range" && <div className="admin-stand-edit-row"><dt>Closes</dt><dd className="admin-stand-paired-fields"><label>Month<input type="number" min="1" max="12" value={editor.draft.availability.seasonEndMonth ?? ""} onChange={(event) => editor.availability("seasonEndMonth", event.target.value === "" ? null : Number(event.target.value))} /></label><label>Day<input type="number" min="1" max="31" value={editor.draft.availability.seasonEndDay ?? ""} onChange={(event) => editor.availability("seasonEndDay", event.target.value === "" ? null : Number(event.target.value))} /></label></dd></div>}
+                  {editor.draft.availability.seasonKind === "named_season" && <div className="admin-stand-edit-row"><dt><label htmlFor={id("season-names")}>Which seasons?</label></dt><dd><input id={id("season-names")} type="text" value={editor.draft.availability.seasonNames?.join(", ") ?? ""} onChange={(event) => editor.availability("seasonNames", event.target.value.split(",").map((item) => item.trim()).filter(Boolean))} /></dd></div>}
+                  <div className="admin-stand-edit-row">
+                    <dt><label htmlFor={id("hours-kind")}>When are you usually open?</label></dt>
+                    <dd><select id={id("hours-kind")} value={editor.draft.availability.openHoursKind ?? ""} disabled={editor.busy} onChange={(event) => editor.field("availability", { ...editor.draft.availability, openHoursKind: (event.target.value || null) as AdminListingAvailability["openHoursKind"], openFromMinutes: null, openUntilMinutes: null })}>
+                      <option value="">Rather not say</option><option value="dawn_to_dusk">Dawn to dusk</option><option value="daylight_hours">Daylight hours</option><option value="all_day">All day</option><option value="clock_range">Set hours</option><option value="until_dusk">Set time until dusk</option><option value="by_appointment">By appointment</option>
+                    </select></dd>
+                  </div>
+                  {(editor.draft.availability.openHoursKind === "clock_range" || editor.draft.availability.openHoursKind === "until_dusk") && <div className="admin-stand-edit-row"><dt>Clock hours</dt><dd><label>Opens at<input type="time" value={clockValue(editor.draft.availability.openFromMinutes)} onChange={(event) => editor.availability("openFromMinutes", clockMinutes(event.target.value))} /></label>{editor.draft.availability.openHoursKind === "clock_range" && <label>Closes at<input type="time" value={clockValue(editor.draft.availability.openUntilMinutes)} onChange={(event) => editor.availability("openUntilMinutes", clockMinutes(event.target.value))} /></label>}</dd></div>}
+                  <div className="admin-stand-edit-row"><dt>Open days</dt><dd className="admin-stand-day-fields">{WEEKDAYS.map((day, value) => <label key={day}><input type="checkbox" checked={editor.draft.availability.openDays?.includes(value) ?? false} onChange={() => { const days = editor.draft.availability.openDays ?? []; const next = days.includes(value) ? days.filter((item) => item !== value) : [...days, value].sort(); editor.availability("openDays", next.length === 0 ? null : next); }} />{day}</label>)}</dd></div>
+                  <div className="admin-stand-edit-row"><dt><label htmlFor={id("stocking")}>How often do you restock?</label></dt><dd><select id={id("stocking")} value={editor.draft.availability.stockingCadence ?? ""} onChange={(event) => editor.field("availability", { ...editor.draft.availability, stockingCadence: (event.target.value || null) as AdminListingAvailability["stockingCadence"], stockingDays: null })}><option value="">Rather not say</option><option value="daily">Daily</option><option value="specific_days">Specific days</option><option value="variable">Varies</option><option value="as_needed">As needed</option><option value="intermittent">Intermittently</option></select></dd></div>
+                  {editor.draft.availability.stockingCadence === "specific_days" && <div className="admin-stand-edit-row"><dt>Restocking days</dt><dd className="admin-stand-day-fields">{WEEKDAYS.map((day, value) => <label key={day}><input type="checkbox" checked={editor.draft.availability.stockingDays?.includes(value) ?? false} onChange={() => { const days = editor.draft.availability.stockingDays ?? []; const next = days.includes(value) ? days.filter((item) => item !== value) : [...days, value].sort(); editor.availability("stockingDays", next.length === 0 ? null : next); }} />{day}</label>)}</dd></div>}
+                  <div className="admin-stand-edit-row">
+                    <dt>
+                      <label htmlFor={id("hours")}>Anything else about your hours?</label>
+                    </dt>
+                    <dd>
+                      <input
+                        id={id("hours")}
+                        type="text"
+                        value={editor.draft.hoursText ?? ""}
+                        disabled={editor.busy}
+                        onChange={(event) => editor.field("hoursText", event.target.value)}
+                      />
+                    </dd>
+                  </div>
+                  </>
+                )}
+                {editor !== undefined && section.title === "Availability" && <div className="admin-stand-edit-row"><dt>Usually sells</dt><dd className="admin-stand-item-fields">{editor.draft.items.map((listingItem, index) => <div key={index}><label>Usually sells item {index + 1}<input type="text" value={listingItem.name} onChange={(event) => editor.item(index, { ...listingItem, name: event.target.value })} /></label>{editor.draft.pricesPublic && <div className="admin-stand-price-fields"><label>Price<input type="number" min="0" step="0.01" value={listingItem.price?.amount ?? ""} onChange={(event) => editor.item(index, { ...listingItem, price: event.target.value === "" ? null : { amount: event.target.value, quantity: listingItem.price?.quantity ?? "1", unit: listingItem.price?.unit ?? "item", basis: listingItem.price?.basis ?? "per" } })} /></label><label>For<input type="number" min="0.01" step="0.01" value={listingItem.price?.quantity ?? "1"} onChange={(event) => editor.item(index, { ...listingItem, price: { amount: listingItem.price?.amount ?? "0", quantity: event.target.value, unit: listingItem.price?.unit ?? "item", basis: listingItem.price?.basis ?? "per" } })} /></label><label>Unit<input type="text" value={listingItem.price?.unit ?? ""} onChange={(event) => editor.item(index, { ...listingItem, price: { amount: listingItem.price?.amount ?? "0", quantity: listingItem.price?.quantity ?? "1", unit: event.target.value || null, basis: listingItem.price?.basis ?? "per" } })} /></label><label>Basis<select value={listingItem.price?.basis ?? "per"} onChange={(event) => editor.item(index, { ...listingItem, price: { amount: listingItem.price?.amount ?? "0", quantity: listingItem.price?.quantity ?? "1", unit: listingItem.price?.unit ?? "item", basis: event.target.value as "per" | "for" } })}><option value="per">per</option><option value="for">for</option></select></label></div>}<button type="button" className="admin-action-secondary" onClick={() => editor.field("items", editor.draft.items.filter((_, at) => at !== index))}>Remove</button></div>)}<button type="button" className="admin-action-secondary" onClick={() => editor.field("items", [...editor.draft.items, { name: "", price: null }])}>Add item</button></dd></div>}
+                {editor !== undefined && section.title === "Payment accepted" && <><div className="admin-stand-edit-row"><dt>Payment methods</dt><dd className="admin-stand-payment-fields">{FARMER_SELECTABLE_PAYMENT_METHODS.map((method) => <label key={method}><input type="checkbox" checked={editor.draft.paymentMethods.includes(method)} onChange={() => editor.field("paymentMethods", editor.draft.paymentMethods.includes(method) ? editor.draft.paymentMethods.filter((item) => item !== method) : [...editor.draft.paymentMethods, method])} />{method}</label>)}<label>Other payment methods<input type="text" value={editor.draft.paymentMethods.filter((method) => !FARMER_SELECTABLE_PAYMENT_METHODS.includes(method)).join(", ")} onChange={(event) => editor.field("paymentMethods", [...editor.draft.paymentMethods.filter((method) => FARMER_SELECTABLE_PAYMENT_METHODS.includes(method)), ...event.target.value.split(",").map((method) => method.trim()).filter(Boolean)])} /></label></dd></div><div className="admin-stand-edit-row"><dt>Farm Bucks</dt><dd><label className="admin-stand-editor-check"><input aria-label="Farm Bucks" type="checkbox" checked={editor.draft.farmBucksAccepted} onChange={(event) => editor.field("farmBucksAccepted", event.target.checked)} /><span>Accepted</span></label></dd></div></>}
+                {editor !== undefined && section.title === "Additional information" && <div className="admin-stand-edit-row"><dt><label htmlFor={id("description")}>Additional information</label></dt><dd><textarea id={id("description")} value={editor.draft.description ?? ""} onChange={(event) => editor.field("description", event.target.value)} /></dd></div>}
+                {rows.map(([label, value]) => {
+                  const replacedByEditor = editor !== undefined &&
+                    ((section.title === "Visit & listing" &&
+                      (label === "Address" || label === "Coordinates")) ||
+                      (section.title === "Hours & season" &&
+                        ["Farmer's note about hours", "Season", "Hours", "Open days", "How often restocked", "Restocking days"].includes(label)) ||
+                      (section.title === "Visit & listing" && ["Visit in person", "What it offers"].includes(label)) ||
+                      (section.title === "Availability" && label === "Usually sells") ||
+                      (section.title === "Payment accepted" && label === "Farm Bucks"));
+                  return replacedByEditor ? null : (
+                    <div key={label}>
+                      <dt>{label}</dt>
+                      <dd>{value}</dd>
+                    </div>
+                  );
+                })}
               </dl>
             </section>
           );
         })}
       </div>
+      {editor !== undefined && (
+        <div className="admin-stand-edit-actions">
+          {editor.note !== null && (
+            <p
+              className={editor.note.kind === "ok" ? "admin-success" : "admin-error"}
+              role={editor.note.kind === "ok" ? "status" : "alert"}
+            >
+              {editor.note.text}
+            </p>
+          )}
+          <div className="admin-confirm-actions">
+            <button
+              className="admin-action-primary"
+              type="button"
+              disabled={editor.busy}
+              onClick={() => void editor.save()}
+            >
+              {editor.busy ? "Saving…" : "Save stand details"}
+            </button>
+            <button
+              className="admin-action-secondary"
+              type="button"
+              disabled={editor.busy}
+              onClick={editor.close}
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -395,7 +614,7 @@ function farmBucksDetail(status: AdminStandCard["farmBucksStatus"]): string {
  * **The facts are always on screen; the verbs are behind one menu** (max, 2026-08-17). An
  * operator arrives to read something — is this on the map, when is it open, does it take Farm
  * Bucks — and the card answers that first. The three surfaces that change a stand (the details
- * editor, the Farm Bucks decision, an invitation) each open on request, one at a time, so a
+ * editor and invitation) each open on request, one at a time, so a
  * card at rest is never a page of form.
  *
  * The second disclosure is gone with it: the card in Stands & Sellers already answered "which
@@ -447,39 +666,6 @@ export function StandDetails({
 
   function say(standId: string, kind: "ok" | "bad", text: string) {
     setNote((current) => ({ ...current, [standId]: { kind, text } }));
-  }
-
-  /**
-   * A select that writes on change has no natural "committed" moment, so it says so itself.
-   * Without this the control showed the value the operator had just picked whether or not the
-   * write landed — indistinguishable from having done nothing.
-   */
-  async function saveFarmBucks(standId: string, farmId: string, status: AdminStandCard["farmBucksStatus"]) {
-    setSaving(standId);
-    setNote((current) => {
-      const next = { ...current };
-      delete next[standId];
-      return next;
-    });
-    try {
-      const response = await fetch("/api/admin/stands", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ sellerId: farmId, farmBucksStatus: status }),
-      });
-      if (!response.ok) throw new Error("save failed");
-      /*
-        F-125 — the write landed on the SELLER, so every stand of hers now carries the new
-        answer. Updating only the clicked row would leave her other stands on this screen
-        showing the old one until a reload, which is the disagreement the move deletes.
-      */
-      setRows((current) => current.map((row) => row.farmId === farmId ? { ...row, farmBucksStatus: status } : row));
-      say(standId, "ok", "Farm Bucks saved for this farm.");
-    } catch {
-      say(standId, "bad", "That did not save. Try again.");
-    } finally {
-      setSaving(null);
-    }
   }
 
   /**
@@ -705,12 +891,6 @@ export function StandDetails({
                     icon: <PencilIcon />,
                     onSelect: () => showPanel(stand.standId, "details"),
                   },
-                  {
-                    key: "farm-bucks",
-                    label: "Farm Bucks decision",
-                    icon: <CheckIcon />,
-                    onSelect: () => showPanel(stand.standId, "farm-bucks"),
-                  },
                   /*
                     ABSENT for a stand that is off the map, rather than disabled: a seller
                     invited to a stand no customer can see would onboard into nothing, and
@@ -775,12 +955,34 @@ export function StandDetails({
                 </p>
               )}
 
-              {/* WHAT IS TRUE. Always on screen, whatever verb is open above it. */}
-              <StandFacts
-                standId={stand.standId}
-                sections={stand.sections}
-                farmBucks={farmBucksDetail(stand.farmBucksStatus)}
-              />
+              {/* Edit details changes these facts in place; every other verb leaves them as a profile. */}
+              {panel === "details" ? (
+                <StandMetadataEditor
+                  standId={stand.standId}
+                  standName={stand.name}
+                  metadata={stand.metadata}
+                  sections={stand.sections}
+                  farmBucks={farmBucksDetail(stand.farmBucksStatus)}
+                  onSaved={(metadata) =>
+                    setRows((current) =>
+                      current.map((row) =>
+                        row.standId === stand.standId
+                          ? { ...row, metadata, name: metadata.name, farmBucksStatus: metadata.farmBucksAccepted ? "accepts" : "does_not_accept" }
+                          : row.farmId === stand.farmId
+                            ? { ...row, farmBucksStatus: metadata.farmBucksAccepted ? "accepts" : "does_not_accept", metadata: { ...row.metadata, paymentMethods: metadata.paymentMethods, farmBucksAccepted: metadata.farmBucksAccepted, description: metadata.description } }
+                            : row,
+                      ),
+                    )
+                  }
+                  onClose={() => showPanel(stand.standId, null)}
+                />
+              ) : (
+                <StandFacts
+                  standId={stand.standId}
+                  sections={stand.sections}
+                  farmBucks={farmBucksDetail(stand.farmBucksStatus)}
+                />
+              )}
 
               {panel === "trash" && (
                 <div
@@ -842,66 +1044,6 @@ export function StandDetails({
                     </button>
                   </div>
                 </div>
-              )}
-
-              {/* THE STAND'S OWN FACTS (F-101), opened on request from the menu. */}
-              {panel === "details" && (
-                <StandMetadataEditor
-                  standId={stand.standId}
-                  standName={stand.name}
-                  metadata={stand.metadata}
-                  onSaved={(metadata) =>
-                    setRows((current) =>
-                      current.map((row) =>
-                        row.standId === stand.standId
-                          ? { ...row, metadata, name: metadata.name }
-                          : row,
-                      ),
-                    )
-                  }
-                  onClose={() => showPanel(stand.standId, null)}
-                />
-              )}
-
-              {panel === "farm-bucks" && (
-                <section
-                  className="admin-stand-editor"
-                  role="group"
-                  aria-label={`Farm Bucks for ${stand.name}`}
-                >
-                  <h4>Farm Bucks</h4>
-                  <p className="admin-note">This is the farm’s answer and applies at every stand it sells at.</p>
-                  <label className="admin-field">
-                    <select
-                      aria-label="Farm Bucks decision"
-                      disabled={busy}
-                      value={stand.farmBucksStatus}
-                      onChange={(event) => void saveFarmBucks(
-                        stand.standId,
-                        stand.farmId,
-                        event.target.value as AdminStandCard["farmBucksStatus"],
-                      )}
-                    >
-                      <option value="accepts">Accepts Farm Bucks</option>
-                      <option value="does_not_accept">Does not accept Farm Bucks</option>
-                    </select>
-                  </label>
-                  {/*
-                    "Done", not "Cancel". The select writes on change, so by the time this is
-                    pressed the decision is already saved — offering to cancel would promise to
-                    undo a write that has happened.
-                  */}
-                  <div className="admin-confirm-actions">
-                    <button
-                      className="admin-action-secondary"
-                      type="button"
-                      disabled={busy}
-                      onClick={() => showPanel(stand.standId, null)}
-                    >
-                      Done
-                    </button>
-                  </div>
-                </section>
               )}
 
               {panel === "invite" && (

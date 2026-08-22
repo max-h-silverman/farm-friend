@@ -621,9 +621,11 @@ export function StandsAndSellers({
               open={open === stand.standId}
               onToggle={() => setOpen(open === stand.standId ? null : stand.standId)}
             >
-              <Group title="Also selling here">
-                <SellerParticipation view="stand" rows={stand.providers} fetcher={fetcher} />
-              </Group>
+              {!(stand.providers.length === 1 && stand.providers[0]?.nativeSeller === true) && (
+                <Group title="Also selling here">
+                  <SellerParticipation view="stand" rows={stand.providers} fetcher={fetcher} />
+                </Group>
+              )}
               {/* The card head already named this stand, so the block does not name it again. */}
               {stand.details !== undefined && (
                 <StandDetails stands={[stand.details]} headed={false} />

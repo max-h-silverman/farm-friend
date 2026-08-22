@@ -44,14 +44,15 @@ const nextConfig = {
     loads, served no security headers at all. A farmer reported Webroot blocking it as
     phishing, and a bare response from a raw `*.run.app` host is part of that picture.
 
-    The framing allowance is the same one the admin rule uses: VIGA's two hostnames plus the
-    app itself. Stated twice rather than shared through a variable, because the two rules
-    answer different questions — who may embed the PUBLIC map, and who may embed the
+    The public map permits both VIGA hostnames. The administrator console permits only the
+    canonical origin that hosts the official embed. Stated as separate policies because the
+    two rules answer different questions — who may embed the PUBLIC map, and who may embed the
     ADMINISTRATOR console — and a future change to one must not silently move the other.
   */
   async headers() {
-    const vigaFrameAncestors =
+    const publicFrameAncestors =
       "frame-ancestors 'self' https://vigavashon.org https://www.vigavashon.org";
+    const adminFrameAncestors = "frame-ancestors 'self' https://vigavashon.org";
     return [
       {
         // Everything, including the map at `/`. `/admin/*` matches this too and ALSO matches
@@ -59,7 +60,7 @@ const nextConfig = {
         // pages cannot be loosened by this broader rule.
         source: "/:path*",
         headers: [
-          { key: "Content-Security-Policy", value: vigaFrameAncestors },
+          { key: "Content-Security-Policy", value: publicFrameAncestors },
           // A response whose declared type is not second-guessed. Cheap, and one of the
           // headers whose absence a scanner notices.
           { key: "X-Content-Type-Options", value: "nosniff" },
@@ -72,7 +73,7 @@ const nextConfig = {
       // contains clickjacking even though the session cookie must work inside that one iframe.
       {
         source: "/admin/:path*",
-        headers: [{ key: "Content-Security-Policy", value: vigaFrameAncestors }],
+        headers: [{ key: "Content-Security-Policy", value: adminFrameAncestors }],
       },
     ];
   },

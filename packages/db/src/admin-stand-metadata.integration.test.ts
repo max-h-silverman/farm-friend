@@ -11,30 +11,9 @@ import type { Sql } from "./sql";
 /*
   F-101 — VIGA CORRECTS A STAND'S OWN FACTS.
 
-  ## What this is, and what it deliberately is not
-
-  A stand's location facts — its name, where it is, when it is open — were writable by the
-  FARMER alone (F-073, `/stand/[token]/listing`) and by nobody else. VIGA could retire a stand
-  and record Farm Bucks, and could not fix a misspelt stand name a customer was reading on the
-  map. max settled (2026-08-17) that VIGA edits stand metadata too.
-
-  **It is not `saveOnboardingListing` with an administrator arm.** That writer replaces the
-  whole listing — payment methods, what the stand usually sells, the farmer's own description,
-  and her item list. Handing an operator a form that rewrote all of that to correct an address
-  would put VIGA's hand on the farmer's published words, which Golden Rule #1 forbids: the
-  farmer owns published state. This writer touches the LOCATION's own facts and nothing that
-  belongs to the farmer's listing.
-
-  **The columns are named, and the ones left out are left out on purpose.** `is_public`,
-  `visitability`, `offering_type` and the twelve structured availability
-  columns each have their own writer or their own VIGA control already; a second writer over
-  any of them would be two ways to do one thing.
-
-  ## Season and hours coherence
-
-  `hours_text` is the farmer's own words and is free text, so it carries no constraint. The
-  structured availability columns DO — `coherentSeason` refuses a half-stated season — which is
-  exactly why they are not in this writer's reach.
+  VIGA may correct the complete onboarding listing. The writer validates structured availability
+  as one statement and updates stand facts plus owning-seller facts in one transaction. Live
+  inventory remains a dated publication and is deliberately outside this writer.
 */
 
 const migrationsDir = resolve(process.cwd(), "packages/db/drizzle");
@@ -99,9 +78,8 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
   }, 30_000);
 
   beforeEach(async () => {
-    await client()`delete from audit_events`;
-    await client()`delete from sales_locations`;
-    await client()`delete from sellers`;
+    // Published inventory is immutable by design. Each case gets fresh identities, and the
+    // isolated database drop owns cleanup for all history at the end of the suite.
     const sellers = await client()`insert into sellers (name) values ('Hill Farm') returning id`;
     sellerId = sellers[0]?.id as string;
     const stands = await client()`
@@ -114,6 +92,13 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
       ) returning id
     `;
     standId = stands[0]?.id as string;
+    await client()`
+      insert into stand_providers (
+        sales_location_id, seller_id, lifecycle_state,
+        invited_at, accepted_at, approval_source, approved_at
+      ) values (${standId}, ${sellerId}, 'active', now(), now(), 'viga', now())
+      on conflict do nothing
+    `;
   });
 
   async function readStand(): Promise<Record<string, unknown>> {
@@ -147,12 +132,44 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
 
     // The audit event commits with the edit or not at all — the trail is the point.
     const events = await client()`
-      select action, actor_administrator_id, subject_type, subject_id from audit_events
+      select action, actor_administrator_id, subject_type, subject_id
+      from audit_events where subject_id = ${standId}
     `;
     expect(events).toHaveLength(1);
     expect(events[0]?.action).toBe("stand_metadata_edited");
     expect(events[0]?.actor_administrator_id).toBe(administratorId);
     expect(events[0]?.subject_id).toBe(standId);
+  });
+
+  it("saves the complete onboarding listing without changing live inventory", async () => {
+    await client()`insert into inventory_revisions (sales_location_id, seller_id, provider_id, source, published_at, is_current)
+      select ${standId}, ${sellerId}, id, 'viga', now(), true from stand_providers where sales_location_id = ${standId}`;
+    const revision = await client()`select id from inventory_revisions where sales_location_id = ${standId}`;
+    await client()`insert into inventory_entries (inventory_revision_id, sales_location_id, item_name, sort_order) values (${revision[0]!.id as string}, ${standId}, 'Eggs today', 0)`;
+
+    const result = await saveStandMetadata(handle(), {
+      standId, administratorId, name: "Hill Farm Stand", publicAddress: "22 Right Road",
+      addressPublic: false, latitude: 47.45, longitude: -122.46, hoursText: "Weekends",
+      listing: {
+        visitability: "visitable", offeringType: "produce", pricesPublic: true,
+        availability: {
+          seasonKind: "year_round", seasonStartMonth: null, seasonStartDay: null,
+          seasonEndMonth: null, seasonEndDay: null, seasonNames: null,
+          openHoursKind: "clock_range", openFromMinutes: 540, openUntilMinutes: 1020,
+          openDays: [0, 6], stockingCadence: "specific_days", stockingDays: [5],
+        },
+        paymentMethods: ["Cash", "Venmo"], farmBucksAccepted: false,
+        items: [{ name: "Eggs", price: { amount: "6", quantity: "12", unit: null, basis: "for" } }],
+        description: "Honor system.",
+      },
+      occurredAt: T0,
+    });
+    expect(result.status).toBe("saved");
+    const location = await client()`select visitability, offering_type, prices_public, season_kind, open_days, stocking_days from sales_locations where id = ${standId}`;
+    expect(location[0]).toMatchObject({ visitability: "visitable", offering_type: "produce", prices_public: true, season_kind: "year_round", open_days: [0, 6], stocking_days: [5] });
+    expect(await client()`select method from seller_payment_methods where seller_id = ${sellerId} order by method`).toEqual([{ method: "Cash" }, { method: "Venmo" }]);
+    expect(await client()`select display_name, price_amount::text from stand_items where sales_location_id = ${standId} and usually_carried`).toEqual([{ display_name: "Eggs", price_amount: "6.00" }]);
+    expect(await client()`select item_name from inventory_entries where sales_location_id = ${standId}`).toEqual([{ item_name: "Eggs today" }]);
   });
 
   it("refuses a revoked administrator and changes nothing", async () => {
@@ -171,7 +188,7 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
 
     const stand = await readStand();
     expect(stand.name).toBe("Hil Farm Stnd");
-    expect(await client()`select id from audit_events`).toHaveLength(0);
+    expect(await client()`select id from audit_events where subject_id = ${standId}`).toHaveLength(0);
   });
 
   it("refuses an unknown stand, and a blank name, without writing", async () => {
@@ -204,15 +221,13 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
     expect(blank.status).toBe("invalid_name");
 
     expect((await readStand()).name).toBe("Hil Farm Stnd");
-    expect(await client()`select id from audit_events`).toHaveLength(0);
+    expect(await client()`select id from audit_events where subject_id = ${standId}`).toHaveLength(0);
   });
 
-  it("never touches what the FARMER owns, or what another VIGA control owns", async () => {
+  it("a metadata-only caller does not reset omitted listing fields or map state", async () => {
     /*
-      GOLDEN RULE #1 at the seam. An operator correcting an address must not silently take the
-      stand off the map, flip its Farm Bucks decision, or change whether it can be visited —
-      each of those is either the farmer's fact or another control's, and each was reachable
-      by a writer that named every column.
+      Backward-compatible metadata calls do not carry the full listing arm. They must not
+      silently take the stand off the map or reset fields they omitted.
 
       Asserted as VALUES rather than as an absence of columns in the SQL: a writer that set
       them to whatever it was passed would still read as "not touching" in the source.
@@ -244,10 +259,8 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
     const stand = await readStand();
     expect(stand.is_public).toBe(true);
     expect(stand.visitability).toBe("visitable");
-    // F-125 — Farm Bucks left the stand entirely, so the "does not touch what it does not
-    // own" guarantee now points at the SELLER's column. Asserted as a value for the same
-    // reason as the rest: a writer that set it to whatever it was passed would still read
-    // as "not touching" in the source.
+    // A metadata-only legacy call omits the complete listing arm, so it must not reset the
+    // seller's Farm Bucks answer. Asserted as a value so a no-op cannot masquerade as coverage.
     const seller = await client()`
       select farm_bucks_accepted from sellers where id = ${sellerId}
     `;
@@ -298,6 +311,6 @@ describe("F-101 VIGA edits stand metadata (integration)", () => {
     const stand = await readStand();
     expect(stand.name).toBe("Hil Farm Stnd");
     expect(stand.public_address).toBe("1 Wrong Road");
-    expect(await client()`select id from audit_events`).toHaveLength(0);
+    expect(await client()`select id from audit_events where subject_id = ${standId}`).toHaveLength(0);
   });
 });

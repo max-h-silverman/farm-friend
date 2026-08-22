@@ -67,15 +67,14 @@ working.
 **Stands and Sellers list things, not situations.** One row per stand and one per seller — a farm
 selling at three stands is still one row. Open a row to see and change its arrangements.
 
-**Pausing and removing a seller from a stand.** Inside a stand (or inside a seller) each
-arrangement has a switch and a **Remove** button. The switch pauses and resumes: a paused seller's
+**Pausing and removing a seller from a shared stand.** Inside a shared stand (or inside a seller)
+each arrangement has a switch and a **Remove** button. The switch pauses and resumes: a paused seller's
 goods leave the map and the text answers while the arrangement stays in place. **Pausing asks you
 to confirm**, because the whole row is the switch and pausing takes a real seller's goods off the
 island's only guide; resuming does not ask, because it puts them back. **Remove ends it and cannot
 be undone** — it asks too, and bringing that seller back means inviting them again. The switch reads **"<seller> — selling here"** or **"<seller> — paused"**, and
-names its seller on every row including a stand whose only seller is the farm that owns it: the
-rows sit under **Also selling here**, so a row that named nobody answered a question nobody asked.
-It describes the ARRANGEMENT only. Whether customers can buy there today is the card's own header,
+names its seller. A single-seller stand has no seller row: its native seller is part of the stand,
+not an arrangement VIGA can pause or remove. Whether customers can buy there today is the card's own header,
 computed from season and hours — the two used to share a vocabulary and contradicted each other in
 production.
 
@@ -88,9 +87,8 @@ request body. Queue GET APIs do not exist because the pages already have the dat
 a browser consumer is `/api/admin/flags/<flag-id>/thread`, guarded by the same
 `apps/web/lib/admin-guard.ts` mechanism and projected at the query boundary.
 
-The Farm Bucks selector on each stand is a guarded browser mutation. It accepts only the three
-states, derives the two stored booleans together, locks the stand row while saving, and records the
-administrator from the session rather than the request body.
+**Edit details** changes every answer from the stand onboarding listing in place, including Farm
+Bucks under **Payment accepted**. Live in-stock inventory is read-only and stays farmer-owned.
 
 **Disposing a flag is what lets retention terminate.** F-026's purge exempts a message body whose
 thread carries an **open** flag, and the exemption fails safe. Resolving *or* dismissing a flag ends
@@ -301,9 +299,9 @@ Paste this into a Squarespace **code block** on the administrator page:
 ```
 
 The deployed admin must send the matching partitioned session cookie before iframe sign-in works.
-Administrator pages permit framing only from `https://vigavashon.org`,
-`https://www.vigavashon.org`, or the app itself. Every authenticated write also requires the
-browser request to originate from the admin app, independently of the cookie. A direct-window
+Administrator pages permit framing from the app itself and exactly `https://vigavashon.org`.
+Every authenticated write also accepts exactly those two origins, independently of the cookie;
+`www`, absent, lookalike, and unrelated origins are refused. A direct-window
 session and a Squarespace-embedded session occupy separate browser partitions and can require
 separate sign-ins. The shared height reporter resizes the frame after sign-in, navigation, and queue
 changes so Squarespace owns the only scrollbar; `height="1100"` is the no-script fallback.

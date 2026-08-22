@@ -27,6 +27,7 @@ const row: AdminStandRow = {
   offeringType: "produce",
   publicAddress: "12345 Vashon Hwy SW",
   addressPublic: true,
+  pricesPublic: true,
   publicLatitude: 47.4473,
   publicLongitude: -122.459,
   hoursText: "Dawn to dusk, most days",
@@ -49,6 +50,9 @@ const row: AdminStandRow = {
   trashed: false,
   trashedWithFarm: false,
   farmBucksAccepted: true,
+  paymentMethods: ["Cash"],
+  description: null,
+  listingItems: [],
   approved: true,
   approvedAt: new Date("2026-05-01T00:00:00Z"),
   publishedAt: new Date("2026-08-16T23:02:11Z"),
@@ -120,10 +124,8 @@ describe("a stand card's groups", () => {
     expect(groups.get("Visit & listing")).toContain("Address");
   });
 
-  it("puts the Farm Bucks decision where its verb is, not in a drawer of leftovers", () => {
-    // The card's menu changes Farm Bucks, so the fact belongs with the stand's own settings
-    // rather than under a heading that means "everything else".
-    expect(labels(row)).toContain("Farm Bucks");
-    expect([...grouped(row).keys()]).not.toContain("Other details");
+  it("groups Farm Bucks and approval under payment accepted", () => {
+    expect(grouped(row).get("Payment accepted")).toEqual(["Farm Bucks", "Approved"]);
+    expect([...grouped(row).keys()]).not.toContain("VIGA's record");
   });
 });

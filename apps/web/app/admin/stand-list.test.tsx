@@ -41,6 +41,27 @@ const stand: AdminStandCard = {
     latitude: 47.4473,
     longitude: -122.459,
     hoursText: "Dawn to dusk",
+    visitability: "visitable",
+    offeringType: "produce",
+    pricesPublic: true,
+    availability: {
+      seasonKind: "year_round",
+      seasonStartMonth: null,
+      seasonStartDay: null,
+      seasonEndMonth: null,
+      seasonEndDay: null,
+      seasonNames: null,
+      openHoursKind: "dawn_to_dusk",
+      openFromMinutes: null,
+      openUntilMinutes: null,
+      openDays: [0, 6],
+      stockingCadence: "specific_days",
+      stockingDays: [5],
+    },
+    paymentMethods: ["Cash", "Credit card"],
+    farmBucksAccepted: false,
+    items: [{ name: "Venison", price: null }],
+    description: "Honor-system freezer.",
   },
   sections: [],
 };
@@ -206,7 +227,7 @@ describe("F-101 VIGA corrects a stand's own facts", () => {
     const box = editBox();
     expect(within(box).getByLabelText("Stand name")).toHaveValue("Venison Valley Stand");
     expect(within(box).getByLabelText("Address")).toHaveValue("1 Wrong Road");
-    expect(within(box).getByLabelText(/hours, in the/i)).toHaveValue("Dawn to dusk");
+    expect(within(box).getByLabelText(/anything else about your hours/i)).toHaveValue("Dawn to dusk");
 
     await userEvent.clear(within(box).getByLabelText("Stand name"));
     await userEvent.type(within(box).getByLabelText("Stand name"), "Venison Valley Farm Stand");
@@ -224,23 +245,32 @@ describe("F-101 VIGA corrects a stand's own facts", () => {
           latitude: 47.4473,
           longitude: -122.459,
           hoursText: "Dawn to dusk",
+          visitability: "visitable",
+          offeringType: "produce",
+          pricesPublic: true,
+          availability: stand.metadata.availability,
+          paymentMethods: ["Cash", "Credit card"],
+          farmBucksAccepted: false,
+          items: [{ name: "Venison", price: null }],
+          description: "Honor-system freezer.",
         }),
       }),
     );
     expect(await screen.findByText(/stand details saved/i)).toBeVisible();
   });
 
-  it("offers nothing that belongs to the farmer's own listing", () => {
-    /*
-      GOLDEN RULE #1 at the surface. Asserted as absences on the whole card, because the failure
-      this prevents is a field APPEARING — an operator who can retype what a stand usually sells
-      is rewriting the farmer's published words from the admin console.
-    */
-    render(<StandDetails stands={[stand]} />);
-    expect(screen.queryByLabelText(/payment methods/i)).toBeNull();
-    expect(screen.queryByLabelText(/usually sells/i)).toBeNull();
-    expect(screen.queryByLabelText(/description/i)).toBeNull();
-    expect(screen.queryByLabelText(/visit in person/i)).toBeNull();
+  it("edits the onboarding listing without exposing live in-stock inventory", async () => {
+    render(<StandDetails stands={[{
+      ...stand,
+      sections: [{ title: "Availability", items: [["Current items", "Venison steaks"]] }],
+    }]} />);
+    await openStand();
+
+    expect(screen.getByLabelText(/payment methods/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/usually sells item 1/i)).toBeInTheDocument();
+    expect(screen.getByLabelText(/can customers visit in person/i)).toBeInTheDocument();
+    expect(screen.queryByLabelText(/in stock/i)).toBeNull();
+    expect(screen.getByText("Venison steaks")).toBeVisible();
   });
 
   it("reports a refusal by what the operator must fix, and keeps the typed values", async () => {
@@ -302,11 +332,41 @@ describe("the stand card's verbs live behind one menu", () => {
     expect(screen.getByLabelText(/seller's name/i)).toBeInTheDocument();
   });
 
-  it("keeps the read-only facts visible whatever verb is open", async () => {
-    render(<StandDetails stands={[{ ...stand, sections: [{ title: "Where", items: [["Address", "1 Wrong Road"]] }] }]} />);
+  it("turns the existing detail rows into fields instead of opening a separate form", async () => {
+    render(<StandDetails stands={[{
+      ...stand,
+      sections: [
+        {
+          title: "Visit & listing",
+          items: [
+            ["Address", "1 Wrong Road"],
+            ["Coordinates", "47.4473, -122.459"],
+            ["Visit in person", "Yes"],
+          ],
+        },
+        {
+          title: "Hours & season",
+          items: [
+            ["Farmer's note about hours", "Dawn to dusk"],
+            ["Season", "All year"],
+          ],
+        },
+      ],
+    }]} />);
     await openStand();
 
-    expect(screen.getByText("1 Wrong Road")).toBeInTheDocument();
+    const visit = screen.getByRole("group", { name: "Visit & listing" });
+    const hours = screen.getByRole("group", { name: "Hours & season" });
+    expect(within(visit).getByLabelText("Address")).toHaveValue("1 Wrong Road");
+    expect(within(visit).getByLabelText("Show the address to customers")).toBeChecked();
+    expect(within(visit).getByLabelText("Map pin latitude")).toHaveValue("47.4473");
+    expect(within(hours).getByLabelText("Anything else about your hours?")).toHaveValue("Dawn to dusk");
+    expect(within(hours).getByText("All year")).toBeVisible();
+    expect(within(visit).getByLabelText("Can customers visit in person?")).toHaveValue("visitable");
+    expect(within(hours).getByLabelText("When is your stand open in the year?")).toHaveValue("year_round");
+    expect(screen.getByLabelText("Farm Bucks")).not.toBeChecked();
+    expect(screen.getByLabelText("Usually sells item 1")).toHaveValue("Venison");
+    expect(within(screen.getByRole("group", { name: "Additional information" })).getByRole("textbox")).toHaveValue("Honor-system freezer.");
   });
 });
 
@@ -464,15 +524,9 @@ describe("the stand details editor can be left without saving", () => {
     expect(screen.getByText("Venison Valley Stand")).toBeInTheDocument();
   });
 
-  it("lets the other two surfaces be left the same way", async () => {
+  it("lets the invitation surface be left the same way", async () => {
     vi.stubGlobal("fetch", vi.fn());
     render(<StandDetails stands={[stand]} />);
-
-    // Farm Bucks: opened to read the current decision, closed without changing it.
-    await choose(/farm bucks/i);
-    expect(screen.getByRole("combobox", { name: "Farm Bucks decision" })).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /^(cancel|done)$/i }));
-    expect(screen.queryByRole("combobox", { name: "Farm Bucks decision" })).toBeNull();
 
     // Invitation: opened, then abandoned before anyone is invited.
     await openInvite();

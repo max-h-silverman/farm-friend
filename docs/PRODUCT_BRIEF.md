@@ -179,7 +179,8 @@ farmer onboarding by invitation; farmer inventory updates by SMS and web; proact
 preference management; explicit farmer confirmation before publication; private customer stock-out
 reporting; optional browser-origin approximate proximity and destination routing links; one launch
 operational SMS program, universal STOP, JOIN, START, HELP, and safety escalation; minimal single-level
-VIGA administration; read-only payment methods and VIGA Farm Bucks acceptance or eligibility facts.
+VIGA administration, including correction of complete onboarding listing facts; live inventory remains
+farmer-owned and Farm Bucks is an acceptance fact with no eligibility state.
 
 **Explicit non-goals:** native mobile applications; gleaning or volunteer coordination; VIGA Farm Bucks
 claim, redemption, or accounting transactions; reservations, ordering, or payment; direct
