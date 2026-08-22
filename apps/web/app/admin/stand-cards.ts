@@ -192,9 +192,7 @@ export function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdmini
           ],
         },
         {
-          // Not "Other details". A drawer named for what it is not collects whatever nobody
-          // filed, and Farm Bucks — which this card carries a verb for — was sitting in it.
-          title: "VIGA's record",
+          title: "Payment accepted",
           items: [
             ["Farm Bucks", row.farmBucksAccepted ? "Accepted" : "Not accepted"],
             ["Approved", row.approved ? row.approvedAt?.toLocaleDateString() ?? "Yes" : "Not yet"],
@@ -204,4 +202,3 @@ export function asStandCards(rows: Awaited<ReturnType<typeof listStandsForAdmini
     };
   });
 }
-

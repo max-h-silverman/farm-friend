@@ -120,10 +120,8 @@ describe("a stand card's groups", () => {
     expect(groups.get("Visit & listing")).toContain("Address");
   });
 
-  it("puts the Farm Bucks decision where its verb is, not in a drawer of leftovers", () => {
-    // The card's menu changes Farm Bucks, so the fact belongs with the stand's own settings
-    // rather than under a heading that means "everything else".
-    expect(labels(row)).toContain("Farm Bucks");
-    expect([...grouped(row).keys()]).not.toContain("Other details");
+  it("groups Farm Bucks and approval under payment accepted", () => {
+    expect(grouped(row).get("Payment accepted")).toEqual(["Farm Bucks", "Approved"]);
+    expect([...grouped(row).keys()]).not.toContain("VIGA's record");
   });
 });

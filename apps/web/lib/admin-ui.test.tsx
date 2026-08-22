@@ -212,7 +212,7 @@ describe("the stand list", () => {
           retiredWithFarm: false,
           farmBucksStatus: "does_not_accept",
           metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
-          sections: [{ title: "VIGA's record", items: [["Farm Bucks", "Not accepted"]] }],
+          sections: [{ title: "Payment accepted", items: [["Farm Bucks", "Not accepted"]] }],
         }, {
           // F-125 — a SECOND stand of the same farm. The decision is the seller's, so this
           // row has to move with the one the operator actually touched; leaving it behind is
@@ -228,7 +228,7 @@ describe("the stand list", () => {
           retiredWithFarm: false,
           farmBucksStatus: "does_not_accept",
           metadata: { name: "Stand", publicAddress: null, addressPublic: true, latitude: null, longitude: null, hoursText: null },
-          sections: [{ title: "VIGA's record", items: [["Farm Bucks", "Not accepted"]] }],
+          sections: [{ title: "Payment accepted", items: [["Farm Bucks", "Not accepted"]] }],
         }]}
       />,
     );
