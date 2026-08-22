@@ -5,7 +5,7 @@
 
 ## Release state
 
-Farm Friend is **pre-go-live**. Production and `main` agree after B-096: customer SMS inquiry and
+Farm Friend is **pre-go-live**. Production and `main` agree after B-073: customer SMS inquiry and
 paging, farmer stock updates/reminders/onboarding/settings, customer stock-out reporting, the public
 map/details/contact card, and the VIGA administrator console are live.
 

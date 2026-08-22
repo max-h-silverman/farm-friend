@@ -11,7 +11,25 @@ mid-session defeats its own purpose.
 
 ---
 
-## 2026-08-22 (latest) — The embedded admin can write, and Edit details now means the onboarding listing
+## 2026-08-22 (latest) — No-op infrastructure plans become empty
+
+B-073 merged in PR #141 as `4d322c2` and deployed to `web-00094-bmv` /
+`worker-00089-npl`, digest `sha256:9559a641…`; PR #142 recorded the release. No migration. Unit
+**2,504 across 177 files**, integration **1,508 across 111 files**, typecheck, lint, production web
+build, OpenTofu validation, all 63 plan assertions, deploy assertions, contact-card wire bytes,
+custom-domain health, and post-release error logs pass.
+
+The Google provider returns a service-level automatic-scaling block populated with zero values.
+Leaving it undeclared made every no-op plan propose deleting it from both services forever. An empty
+service-level `scaling {}` now round-trips that provider response; the actual revision limits remain
+owned by each template, including the public service's one-instance cap. The failing production plan
+was reproduced first (`0 add, 2 change, 0 destroy`); the post-apply plan is empty.
+
+B-097 records the unrelated stale infrastructure source test that still expects a removed F-056
+bootstrap command. It was disclosed before Max requested this wrap and remains planned rather than
+being mixed into B-073.
+
+## 2026-08-22 — The embedded admin can write, and Edit details now means the onboarding listing
 
 B-096 and the admin stand pass, merged in PR #139 as `b700944` and deployed to
 `web-00093-4rk` / `worker-00088-8pn`, digest `sha256:42f35c74…`. No migration. Unit **2,504 across
