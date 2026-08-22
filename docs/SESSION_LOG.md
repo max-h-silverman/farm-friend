@@ -13,7 +13,8 @@ mid-session defeats its own purpose.
 
 ## 2026-08-22 (latest) — The embedded admin can write, and Edit details now means the onboarding listing
 
-B-096 and the admin stand pass, merged to `main` and deployed. No migration. Unit **2,504 across
+B-096 and the admin stand pass, merged in PR #139 as `b700944` and deployed to
+`web-00093-4rk` / `worker-00088-8pn`, digest `sha256:42f35c74…`. No migration. Unit **2,504 across
 177 files**, integration **1,508 across 111 files**, typecheck, lint, and production web build green.
 Max approved release without rendered browser inspection after browser automation could not connect.
 
