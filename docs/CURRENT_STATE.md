@@ -30,7 +30,9 @@ map/details/contact card, and the VIGA administrator console are live.
 
 ## Deployment and data
 
-- Production is deployed from the merged B-096/admin-edit work; no schema migration was needed.
+- Serving **`farm-friend-web-00093-4rk`** / **`farm-friend-worker-00088-8pn`**, digest
+  `sha256:42f35c74…`, from merged commit `b700944` (PR #139). No schema migration was needed;
+  deploy assertions, served contact-card bytes, health, live origin responses, and error logs pass.
 - Neon `neondb` has **59 migrations (`0000`–`0058`)**, 43 sellers, and 39 stands. Migration output
   is never proof: verify schema/data effect, and repair generated journal ordering when needed.
 - The worker carries only its email secret set; it must never hold the admin verifier, geocoding key,
