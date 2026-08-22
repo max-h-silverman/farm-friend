@@ -30,9 +30,9 @@ map/details/contact card, and the VIGA administrator console are live.
 
 ## Deployment and data
 
-- Serving **`farm-friend-web-00093-4rk`** / **`farm-friend-worker-00088-8pn`**, digest
-  `sha256:42f35c74…`, from merged commit `b700944` (PR #139). No schema migration was needed;
-  deploy assertions, served contact-card bytes, health, live origin responses, and error logs pass.
+- Serving **`farm-friend-web-00094-bmv`** / **`farm-friend-worker-00089-npl`**, digest
+  `sha256:9559a641…`, from merged commit `4d322c2` (PR #141). No schema migration was needed;
+  deploy assertions, served contact-card bytes, custom-domain health, and error logs pass.
 - Neon `neondb` has **59 migrations (`0000`–`0058`)**, 43 sellers, and 39 stands. Migration output
   is never proof: verify schema/data effect, and repair generated journal ordering when needed.
 - The worker carries only its email secret set; it must never hold the admin verifier, geocoding key,
@@ -49,6 +49,7 @@ map/details/contact card, and the VIGA administrator console are live.
 - Scripted evals remain critical 11/11, advisory 4/4, adversarial 19/19. No model seam changed in
   this release, so paid live evals were not rerun.
 - The B-096 CSRF test was sabotage-proved by accepting every origin: attacker/lookalike cases fail.
+- B-073's post-apply production plan is empty; template scaling remains web `0–1`, worker `0–2`.
 - The complete admin listing writer is integration-proved to preserve published live inventory.
 - Max approved release without a rendered browser pass after browser automation could not connect.
 - B-078's environmental signature remains: moving file-level failures with no named failing test.
@@ -85,7 +86,7 @@ map/details/contact card, and the VIGA administrator console are live.
 - **B-066:** Josie's Farm remains deliberately hidden; the restore half is unrun and script-only.
 - Webroot/reputation clearance for the custom domain is unconfirmed; ask the original reporter.
 - Classifier known miss remains `what is viga` → stand search; corpus gates only new misses.
-- Planned gaps remain F-065, F-084, B-008, B-034, B-036, B-048, B-076, B-079, and provider-outage
+- Planned gaps remain F-065, F-084, B-008, B-034, B-036, B-048, B-076, B-079, B-097, and provider-outage
   copy against an isolated preview service.
 
 ## Operating traps
